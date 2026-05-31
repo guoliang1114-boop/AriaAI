@@ -49,6 +49,9 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
   const [view, setView] = useState<'chats' | 'space'>('chats')
   const [creating, setCreating] = useState(false)
   const [openArtifact, setOpenArtifact] = useState<GeneratedArtifact | null>(null)
+  // Preview pane width is user-resizable via a drag handle on its
+  // left edge. Per-session only — we don't bother persisting it.
+  const [previewWidth, setPreviewWidth] = useState(380)
 
   // Conversation messages — lifted out of ThreadView so the 空间
   // tree can list 「本会话产出」 without a duplicate fetch. Pending
@@ -111,7 +114,9 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
         style={{
           flex: 1,
           display: 'grid',
-          gridTemplateColumns: showPreview ? '260px 1fr 380px' : '260px 1fr',
+          gridTemplateColumns: showPreview
+            ? `260px minmax(0, 1fr) ${previewWidth}px`
+            : '260px minmax(0, 1fr)',
           minHeight: 0,
         }}
       >
@@ -184,6 +189,8 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
             projectId={projectId}
             artifact={openArtifact}
             onClose={() => setOpenArtifact(null)}
+            width={previewWidth}
+            onResize={setPreviewWidth}
           />
         )}
       </div>

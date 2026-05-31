@@ -27,7 +27,14 @@ interface PreviewProps {
   projectId: number
   artifact: GeneratedArtifact
   onClose: () => void
+  /** Current pane width in px. Parent owns the value so it persists
+   * across re-opens within the same session. */
+  width: number
+  onResize: (next: number) => void
 }
+
+const MIN_PREVIEW_WIDTH = 280
+const MAX_PREVIEW_WIDTH_RATIO = 0.7
 
 interface DocumentPayload {
   id: number
@@ -57,7 +64,13 @@ function extractToc(md: string): TocItem[] {
   return out
 }
 
-export function ChatArtifactPreview({ projectId, artifact, onClose }: PreviewProps) {
+export function ChatArtifactPreview({
+  projectId,
+  artifact,
+  onClose,
+  width,
+  onResize,
+}: PreviewProps) {
   const ext = (artifact.file_type || artifact.name.split('.').pop() || '')
     .replace('.', '')
     .toUpperCase()
@@ -68,6 +81,36 @@ export function ChatArtifactPreview({ projectId, artifact, onClose }: PreviewPro
   const [doc, setDoc] = useState<DocumentPayload | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [resizing, setResizing] = useState(false)
+  const [hoverHandle, setHoverHandle] = useState(false)
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = width
+    setResizing(true)
+    const prevCursor = document.body.style.cursor
+    const prevSelect = document.body.style.userSelect
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (ev: MouseEvent) => {
+      // Dragging the handle leftwards widens the pane; the handle
+      // sits on its left edge.
+      const delta = startX - ev.clientX
+      const max = Math.floor(window.innerWidth * MAX_PREVIEW_WIDTH_RATIO)
+      const next = Math.max(MIN_PREVIEW_WIDTH, Math.min(max, startWidth + delta))
+      onResize(next)
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevSelect
+      setResizing(false)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -105,6 +148,7 @@ export function ChatArtifactPreview({ projectId, artifact, onClose }: PreviewPro
   return (
     <aside
       style={{
+        position: 'relative',
         borderLeft: '1px solid var(--line)',
         background: 'var(--bg-elev)',
         display: 'flex',
@@ -112,6 +156,41 @@ export function ChatArtifactPreview({ projectId, artifact, onClose }: PreviewPro
         overflow: 'hidden',
       }}
     >
+      {/* Resize handle — 6px hit area sitting on the left edge.
+       *  Visually it's just the existing 1px border at rest; on
+       *  hover or while dragging we paint a 2px accent strip so it's
+       *  discoverable without being noisy. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        onMouseDown={handleResizeStart}
+        onMouseEnter={() => setHoverHandle(true)}
+        onMouseLeave={() => setHoverHandle(false)}
+        style={{
+          position: 'absolute',
+          left: -3,
+          top: 0,
+          bottom: 0,
+          width: 6,
+          cursor: 'col-resize',
+          zIndex: 5,
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            left: 3,
+            top: 0,
+            bottom: 0,
+            width: 2,
+            background:
+              resizing || hoverHandle
+                ? 'var(--accent)'
+                : 'transparent',
+            transition: resizing ? 'none' : 'background 120ms',
+          }}
+        />
+      </div>
       {/* Header */}
       <div
         style={{
