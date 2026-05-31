@@ -8,7 +8,15 @@ import { MarkdownRenderer } from '../../../../components/MarkdownRenderer'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus } from '../CxPrimitives'
-import { firstGlyph, formatUpdatedRelative, useProjectBriefing } from '../useProjectsApi'
+import { STATUS_LABEL, firstGlyph, formatUpdatedRelative, useProjectBriefing } from '../useProjectsApi'
+
+const CARD_FOLD_THRESHOLD = 4
+
+interface FocusChip {
+  label: string
+  value: string
+  tone: 'accent' | 'warn' | 'good' | 'neutral'
+}
 
 interface BriefingProps {
   projectId: number
@@ -195,7 +203,25 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
           </CxPanel>
         )}
 
-        {!loading && !error && briefing && (
+        {!loading && !error && briefing && (() => {
+          // Derive 会议指北 chips from the deterministic briefing data so
+          // the user can read the meeting tenor in 3 seconds without
+          // wading through the cards.
+          const statusLabel =
+            STATUS_LABEL[briefing.project.status as keyof typeof STATUS_LABEL] ??
+            briefing.project.status
+          const objectiveShort = briefing.memory.current_objective?.trim() || '—'
+          const riskCount = briefing.memory.key_risks?.length ?? 0
+          const focusChips: FocusChip[] = [
+            { label: '阶段', value: statusLabel || '—', tone: 'accent' },
+            { label: '目标', value: clampInline(objectiveShort, 24), tone: 'neutral' },
+            {
+              label: '风险',
+              value: riskCount > 0 ? `${riskCount} 项需注意` : '无标注',
+              tone: riskCount > 0 ? 'warn' : 'good',
+            },
+          ]
+          return (
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
               <div
@@ -214,7 +240,7 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
                     gap: 16,
                   }}
                 >
-                  <div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 12, color: 'var(--ink-mute)', marginBottom: 6 }}>
                       30 秒会前卡 · 自动生成于 {formatUpdatedRelative(briefing.generated_at)}
                     </div>
@@ -226,15 +252,30 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
                         fontWeight: 500,
                         color: 'var(--ink)',
                         letterSpacing: '-0.02em',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical' as CSSProperties['WebkitBoxOrient'],
+                        overflow: 'hidden',
+                        lineHeight: 1.35,
                       }}
                     >
                       {briefing.memory.current_objective ||
                         briefing.memory.project_brief ||
                         '准备下次会议'}
                     </h2>
-                    <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--ink-soft)' }}>
-                      打开就看四件事 — 说什么、避开什么、确认什么、过去的教训
-                    </p>
+                    {/* 会议指北 chip row */}
+                    <div
+                      style={{
+                        marginTop: 12,
+                        display: 'flex',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      {focusChips.map((c) => (
+                        <FocusChipBadge key={c.label} chip={c} />
+                      ))}
+                    </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
@@ -294,170 +335,58 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                {CARD_KEYS.map((c) => {
-                  const items = briefing.meeting_card[c.key] ?? []
-                  const color = TONE_COLOR[c.tone]
+              {/* Cards now flow as a single column — no more forced
+               * equal-height 2-col grid that left one side empty.
+               * Empty cards render as a compact single-line note row
+               * so they don't take a full card slot. */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {(() => {
+                  const cardsWithItems = CARD_KEYS.map((c) => ({
+                    cfg: c,
+                    items: briefing.meeting_card[c.key] ?? [],
+                  }))
+                  const emptyCards = cardsWithItems.filter((c) => c.items.length === 0)
+                  const filledCards = cardsWithItems.filter((c) => c.items.length > 0)
                   return (
-                    <section
-                      key={c.key}
-                      style={{
-                        background: 'var(--bg-elev)',
-                        border: '1px solid var(--line)',
-                        borderRadius: 'var(--r-md)',
-                        padding: '16px 18px',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          marginBottom: 12,
-                        }}
-                      >
-                        <span style={{ width: 7, height: 7, borderRadius: 99, background: color }} />
-                        <h3
-                          className="ui"
-                          style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}
-                        >
-                          {c.title}
-                        </h3>
-                        <span style={{ fontSize: 11, color: 'var(--ink-faint)', marginLeft: 4 }}>
-                          {c.en}
-                        </span>
-                      </div>
-                      {items.length === 0 ? (
+                    <>
+                      {filledCards.map(({ cfg, items }) => (
+                        <MeetingCard key={cfg.key} cfg={cfg} items={items} />
+                      ))}
+                      {emptyCards.length > 0 && (
                         <div
                           style={{
-                            fontSize: 12.5,
-                            color: 'var(--ink-faint)',
-                            padding: '6px 0',
-                          }}
-                        >
-                          暂无内容,补充项目记忆后将自动生成。
-                        </div>
-                      ) : (
-                        <ul
-                          style={{
-                            margin: 0,
-                            padding: 0,
-                            listStyle: 'none',
                             display: 'flex',
-                            flexDirection: 'column',
+                            flexWrap: 'wrap',
                             gap: 8,
+                            padding: '10px 14px',
+                            border: '1px dashed var(--line)',
+                            borderRadius: 'var(--r-sm)',
+                            background: 'transparent',
+                            fontSize: 12.5,
+                            color: 'var(--ink-mute)',
                           }}
                         >
-                          {items.map((item, i) => (
-                            <li
-                              key={i}
-                              style={{
-                                display: 'flex',
-                                gap: 10,
-                                fontSize: 13,
-                                color: 'var(--ink)',
-                                lineHeight: 1.6,
-                              }}
-                            >
-                              <span
-                                className="num"
-                                style={{
-                                  fontSize: 11,
-                                  color: color,
-                                  paddingTop: 2,
-                                  fontWeight: 600,
-                                }}
-                              >
-                                {String(i + 1).padStart(2, '0')}
-                              </span>
-                              <span>{item}</span>
-                            </li>
+                          <span style={{ color: 'var(--ink-faint)' }}>暂无内容:</span>
+                          {emptyCards.map((c) => (
+                            <span key={c.cfg.key} style={{ color: 'var(--ink-soft)' }}>
+                              {c.cfg.title}
+                            </span>
                           ))}
-                        </ul>
+                          <span style={{ marginLeft: 'auto', color: 'var(--ink-faint)' }}>
+                            补充项目记忆后会自动生成
+                          </span>
+                        </div>
                       )}
-                    </section>
+                    </>
                   )
-                })}
+                })()}
               </div>
 
-              <CxPanel
-                title="开场话术(AI 生成)"
-                subtitle="基于上面四张卡片 + 项目记忆"
-                action={
-                  <button
-                    type="button"
-                    onClick={() => generateScript(script != null)}
-                    disabled={refining}
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--accent)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      cursor: refining ? 'wait' : 'pointer',
-                      opacity: refining ? 0.6 : 1,
-                    }}
-                  >
-                    <CxIcon name="sparkle" size={11} />{' '}
-                    {refining ? '生成中…' : script ? '重新生成' : '生成话术'}
-                  </button>
-                }
-              >
-                {!script ? (
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: 'var(--accent-ink)',
-                      padding: '14px 16px',
-                      background:
-                        'color-mix(in oklch, var(--accent-bg) 60%, var(--bg-elev))',
-                      border:
-                        '1px dashed color-mix(in oklch, var(--accent) 35%, transparent)',
-                      borderRadius: 'var(--r-sm)',
-                      lineHeight: 1.7,
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 10,
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 22,
-                        height: 22,
-                        borderRadius: 'var(--r-sm)',
-                        background: 'var(--accent-bg)',
-                        color: 'var(--accent)',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                        marginTop: 1,
-                      }}
-                    >
-                      <CxIcon name="sparkle" size={12} />
-                    </span>
-                    <span>
-                      点击右上「生成话术」,AI
-                      会综合四张卡片 + 客户记忆 + 干系人偏好,产出一段可直接用于会议开场的脚本。
-                    </span>
-                  </div>
-                ) : (
-                  <div
-                    className="theme-codex"
-                    style={{
-                      background: 'var(--bg-elev)',
-                      borderLeft: '3px solid var(--accent)',
-                      padding: '6px 18px 6px 20px',
-                      borderRadius: '0 var(--r-sm) var(--r-sm) 0',
-                      fontSize: 13.5,
-                      lineHeight: 1.8,
-                      color: 'var(--ink)',
-                    }}
-                  >
-                    <MarkdownRenderer content={script} />
-                  </div>
-                )}
-              </CxPanel>
+              <ScriptPanel
+                script={script}
+                refining={refining}
+                onGenerate={() => generateScript(script != null)}
+              />
             </div>
 
             <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -607,9 +536,325 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
               </CxPanel>
             </aside>
           </>
-        )}
+          )
+        })()}
       </div>
     </CxProjectShell>
+  )
+}
+
+/** Short helper — trim a string to N chars and ellipsis-suffix it
+ * without breaking mid-word for the few inline contexts that need it.
+ * Used by the 会议指北 chips so a 100-char objective doesn't blow up
+ * the row. */
+function clampInline(value: string, max: number): string {
+  if (value.length <= max) return value
+  return `${value.slice(0, max - 1)}…`
+}
+
+function FocusChipBadge({ chip }: { chip: FocusChip }) {
+  const tone =
+    chip.tone === 'accent'
+      ? { bg: 'var(--accent-bg)', fg: 'var(--accent-ink)' }
+      : chip.tone === 'warn'
+        ? {
+            bg: 'color-mix(in oklch, var(--warn) 14%, var(--bg-elev))',
+            fg: 'var(--warn)',
+          }
+        : chip.tone === 'good'
+          ? {
+              bg: 'color-mix(in oklch, var(--good) 14%, var(--bg-elev))',
+              fg: 'var(--good)',
+            }
+          : { bg: 'var(--bg-elev)', fg: 'var(--ink-soft)' }
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 10px',
+        fontSize: 12,
+        background: tone.bg,
+        color: tone.fg,
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-pill)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span style={{ fontSize: 11, opacity: 0.7 }}>{chip.label}</span>
+      <span style={{ fontWeight: 500 }}>{chip.value}</span>
+    </span>
+  )
+}
+
+interface MeetingCardCfg {
+  key: 'say' | 'avoid' | 'confirm' | 'experience'
+  title: string
+  en: string
+  tone: 'good' | 'warn' | 'neutral' | 'info'
+}
+
+function MeetingCard({ cfg, items }: { cfg: MeetingCardCfg; items: string[] }) {
+  const color = TONE_COLOR[cfg.tone]
+  const [expanded, setExpanded] = useState(false)
+  const folded = !expanded && items.length > CARD_FOLD_THRESHOLD
+  const visible = folded ? items.slice(0, CARD_FOLD_THRESHOLD) : items
+  return (
+    <section
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-md)',
+        padding: '14px 18px',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 10,
+        }}
+      >
+        <span style={{ width: 7, height: 7, borderRadius: 99, background: color }} />
+        <h3
+          className="ui"
+          style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}
+        >
+          {cfg.title}
+        </h3>
+        <span style={{ fontSize: 11, color: 'var(--ink-faint)', marginLeft: 4 }}>
+          {cfg.en}
+        </span>
+        <span
+          className="num"
+          style={{
+            marginLeft: 'auto',
+            fontSize: 11,
+            color: 'var(--ink-faint)',
+          }}
+        >
+          {items.length}
+        </span>
+      </div>
+      <ul
+        style={{
+          margin: 0,
+          padding: 0,
+          listStyle: 'none',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}
+      >
+        {visible.map((item, i) => (
+          <li
+            key={i}
+            style={{
+              display: 'flex',
+              gap: 10,
+              fontSize: 13,
+              color: 'var(--ink)',
+              lineHeight: 1.55,
+            }}
+          >
+            <span
+              className="num"
+              style={{
+                fontSize: 11,
+                color: color,
+                paddingTop: 2,
+                fontWeight: 600,
+                minWidth: 18,
+                flexShrink: 0,
+              }}
+            >
+              {String(i + 1).padStart(2, '0')}
+            </span>
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+      {items.length > CARD_FOLD_THRESHOLD && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          style={{
+            marginTop: 8,
+            padding: '2px 0',
+            fontSize: 11.5,
+            color: 'var(--ink-mute)',
+            background: 'transparent',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          {folded ? `展开剩余 ${items.length - CARD_FOLD_THRESHOLD} 项` : '收起'}
+          <span style={{ fontSize: 9 }}>{folded ? '▾' : '▴'}</span>
+        </button>
+      )}
+    </section>
+  )
+}
+
+interface ScriptPanelProps {
+  script: string | null
+  refining: boolean
+  onGenerate: () => void
+}
+
+function ScriptPanel({ script, refining, onGenerate }: ScriptPanelProps) {
+  const [copied, setCopied] = useState(false)
+  const toast = useToast()
+  const handleCopy = async () => {
+    if (!script) return
+    try {
+      await navigator.clipboard.writeText(script)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1800)
+    } catch {
+      toast.error({ title: '复制失败,请手动选中' })
+    }
+  }
+  return (
+    <CxPanel
+      title="开场话术(AI 生成)"
+      subtitle="基于上面四张卡片 + 项目记忆 · 可直接用于会议开场"
+      action={
+        <div style={{ display: 'flex', gap: 8 }}>
+          {script && (
+            <button
+              type="button"
+              onClick={handleCopy}
+              style={{
+                fontSize: 12,
+                color: copied ? 'var(--good)' : 'var(--ink-mute)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                background: 'transparent',
+              }}
+            >
+              <CxIcon name={copied ? 'check' : 'file'} size={11} />
+              {copied ? '已复制' : '复制'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={refining}
+            style={{
+              fontSize: 12,
+              color: 'var(--accent)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              cursor: refining ? 'wait' : 'pointer',
+              opacity: refining ? 0.6 : 1,
+              background: 'transparent',
+            }}
+          >
+            <CxIcon name="sparkle" size={11} />{' '}
+            {refining ? '生成中…' : script ? '重新生成' : '生成话术'}
+          </button>
+        </div>
+      }
+    >
+      {refining && !script ? (
+        <ScriptGeneratingState />
+      ) : !script ? (
+        <div
+          style={{
+            fontSize: 13,
+            color: 'var(--accent-ink)',
+            padding: '14px 16px',
+            background: 'color-mix(in oklch, var(--accent-bg) 60%, var(--bg-elev))',
+            border: '1px dashed color-mix(in oklch, var(--accent) 35%, transparent)',
+            borderRadius: 'var(--r-sm)',
+            lineHeight: 1.7,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+          }}
+        >
+          <span
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: 'var(--r-sm)',
+              background: 'var(--accent-bg)',
+              color: 'var(--accent)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              marginTop: 1,
+            }}
+          >
+            <CxIcon name="sparkle" size={12} />
+          </span>
+          <span>
+            点击右上「生成话术」,AI 会综合四张卡片 + 客户记忆 +
+            干系人偏好,产出一段可直接用于会议开场的脚本(约 30-60s,你可以一边看一边等)。
+          </span>
+        </div>
+      ) : (
+        <div
+          className="theme-codex"
+          style={{
+            background: 'var(--bg-elev)',
+            borderLeft: '3px solid var(--accent)',
+            padding: '4px 18px 8px 20px',
+            borderRadius: '0 var(--r-sm) var(--r-sm) 0',
+            fontSize: 13.5,
+            lineHeight: 1.85,
+            color: 'var(--ink)',
+          }}
+        >
+          <MarkdownRenderer content={script} />
+        </div>
+      )}
+    </CxPanel>
+  )
+}
+
+/** Filled while we're waiting on the (non-streamed) refine endpoint
+ * to come back. Without this the panel just stays on the empty card
+ * for 30-60s and feels frozen. */
+function ScriptGeneratingState() {
+  return (
+    <div
+      style={{
+        padding: '18px 20px',
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--line)',
+        borderLeft: '3px solid var(--accent)',
+        borderRadius: '0 var(--r-sm) var(--r-sm) 0',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 14,
+          fontSize: 13,
+          color: 'var(--accent-ink)',
+        }}
+      >
+        <span className="dot-pulse" style={{ display: 'inline-flex' }}>
+          <CxIcon name="sparkle" size={14} />
+        </span>
+        AI 正在综合上面的卡片 + 项目记忆,通常 30-60 秒…
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {['92%', '78%', '85%', '60%', '70%', '50%'].map((w, i) => (
+          <CxSkeleton key={i} w={w} h={10} />
+        ))}
+      </div>
+    </div>
   )
 }
 
