@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import type {
   GeneratedArtifact,
   Message,
@@ -11,12 +10,13 @@ import { CxIcon } from './CxIcons'
 
 /** Project chat tab · 「空间」 view.
  *
- * A read-only tree rolling up everything the user wants to glance at
- * without leaving the chat: memory version + anchors, file tree,
- * artifacts generated in the current conversation. Items are pure
- * navigation — clicking a memory / anchors node jumps to the memory
- * tab, clicking a file or artifact opens the right-side preview
- * pane. Nothing here mutates state on its own.
+ * A read-only tree rolling up project material the user wants to
+ * glance at without leaving the chat: the document folder tree and
+ * the artifacts generated in the current conversation. Memory /
+ * anchors were dropped — they live in the dedicated 「项目记忆」
+ * tab and didn't earn their slot here. Items here are pure
+ * navigation: clicking a file or artifact row opens the right-side
+ * preview pane. Nothing in this tree mutates state on its own.
  */
 
 interface SpaceTreeProps {
@@ -24,41 +24,6 @@ interface SpaceTreeProps {
   detail: ProjectDetail
   conversationMessages: Message[]
   onOpenArtifact: (artifact: GeneratedArtifact) => void
-}
-
-interface PinnedSummary {
-  risks: number
-  questions: number
-  stakeholders: number
-  total: number
-}
-
-function readPinnedSummary(rawJson: string | null | undefined): PinnedSummary {
-  if (!rawJson) return { risks: 0, questions: 0, stakeholders: 0, total: 0 }
-  try {
-    const parsed: unknown = JSON.parse(rawJson)
-    if (!parsed || typeof parsed !== 'object') {
-      return { risks: 0, questions: 0, stakeholders: 0, total: 0 }
-    }
-    const obj = parsed as Record<string, unknown>
-    const countPinned = (key: string): number => {
-      const v = obj[key]
-      if (!v || typeof v !== 'object' || Array.isArray(v)) return 0
-      const inner = v as Record<string, unknown>
-      return Array.isArray(inner.pinned) ? inner.pinned.length : 0
-    }
-    const risks = countPinned('key_risks')
-    const questions = countPinned('open_questions')
-    const stakeholders = countPinned('stakeholder_notes')
-    return {
-      risks,
-      questions,
-      stakeholders,
-      total: risks + questions + stakeholders,
-    }
-  } catch {
-    return { risks: 0, questions: 0, stakeholders: 0, total: 0 }
-  }
 }
 
 function readArtifacts(messages: Message[]): GeneratedArtifact[] {
@@ -90,13 +55,8 @@ export function ChatSpaceTree({
   conversationMessages,
   onOpenArtifact,
 }: SpaceTreeProps) {
-  const navigate = useNavigate()
-  const { project, files, folders } = detail
+  const { files, folders } = detail
 
-  const pinned = useMemo(
-    () => readPinnedSummary(project.context_memory_json),
-    [project.context_memory_json],
-  )
   const artifacts = useMemo(
     () => readArtifacts(conversationMessages),
     [conversationMessages],
@@ -121,92 +81,13 @@ export function ChatSpaceTree({
   // Branch expand/collapse — sticky within a single mount of the
   // chat tab. Defaults open so the user sees structure immediately.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    memory: true,
-    anchors: true,
     docs: true,
     outputs: true,
   })
   const toggle = (k: string) => setExpanded((e) => ({ ...e, [k]: !e[k] }))
 
-  const memoryFresh = !project.memory_stale
-  const memoryVersion = project.memory_version != null ? `v${project.memory_version}` : '—'
-
-  const goToMemoryTab = () => navigate(`/projects/${projectId}/memory`)
-
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: '8px 12px 14px' }}>
-      {/* === Memory branch === */}
-      <TreeRow
-        depth={0}
-        expandable
-        isOpen={expanded.memory}
-        icon="sparkle"
-        iconColor="var(--accent)"
-        label="项目记忆"
-        badge={memoryVersion}
-        badgeColor={memoryFresh ? 'var(--good)' : 'var(--warn)'}
-        onClick={() => toggle('memory')}
-      />
-      {expanded.memory && (
-        <>
-          <TreeRow
-            depth={1}
-            icon="file"
-            label={`当前版本 · ${memoryVersion}`}
-            dim
-            onClick={goToMemoryTab}
-          />
-          <TreeRow
-            depth={1}
-            icon="target"
-            label={memoryFresh ? '已同步' : '需刷新'}
-            dim
-            badgeColor={memoryFresh ? 'var(--good)' : 'var(--warn)'}
-            onClick={goToMemoryTab}
-          />
-        </>
-      )}
-
-      {/* === Anchors branch === */}
-      <TreeRow
-        depth={0}
-        expandable
-        isOpen={expanded.anchors}
-        icon="target"
-        iconColor="var(--warn)"
-        label="锚点"
-        badge={pinned.total > 0 ? String(pinned.total) : undefined}
-        onClick={() => toggle('anchors')}
-      />
-      {expanded.anchors && (
-        <>
-          <TreeRow
-            depth={1}
-            icon="dot"
-            iconColor="var(--bad)"
-            label="风险锚点"
-            badge={pinned.risks > 0 ? String(pinned.risks) : undefined}
-            onClick={goToMemoryTab}
-          />
-          <TreeRow
-            depth={1}
-            icon="dot"
-            iconColor="var(--warn)"
-            label="待确认问题"
-            badge={pinned.questions > 0 ? String(pinned.questions) : undefined}
-            onClick={goToMemoryTab}
-          />
-          <TreeRow
-            depth={1}
-            icon="dot"
-            iconColor="var(--info)"
-            label="干系人提示"
-            badge={pinned.stakeholders > 0 ? String(pinned.stakeholders) : undefined}
-            onClick={goToMemoryTab}
-          />
-        </>
-      )}
-
       {/* === Documents branch === */}
       <TreeRow
         depth={0}
