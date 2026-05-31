@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { api } from '../../../../api/client'
+import { useToast } from '../../../../contexts/ToastContext'
 import type { ProjectDetail as ProjectDetailType } from '../../../../types/api'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
@@ -112,6 +114,26 @@ interface PinnedBlock {
   items: string[]
 }
 
+type SuggestionKind = 'stale-doc' | 'stale-milestone' | 'empty-slot'
+
+interface MemorySuggestion {
+  id: string
+  kind: SuggestionKind
+  title: string
+  note: string
+  actionLabel: string
+  /** Used to sort newest-first; empty-slot suggestions get 0 so they
+   * sink to the bottom. */
+  sortTs: number
+}
+
+function parseIsoMillis(iso: string | null | undefined): number {
+  if (!iso) return 0
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(iso) ? iso : `${iso}Z`
+  const t = new Date(normalized).getTime()
+  return Number.isFinite(t) ? t : 0
+}
+
 const PINNED_BLOCKS: Array<{ key: PinnedBlock['key']; title: string; tone: PinnedBlock['tone'] }> = [
   { key: 'key_risks', title: '风险锚点', tone: 'bad' },
   { key: 'open_questions', title: '待确认问题', tone: 'warn' },
@@ -190,7 +212,7 @@ function computeHealth(
 }
 
 export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
-  const { project } = detail
+  const { project, files, milestones } = detail
   const stale = !!project.memory_stale
 
   const memory = useMemo(
@@ -217,6 +239,87 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
 
   const pinnedTotal = pinnedBlocks.reduce((s, b) => s + b.items.length, 0)
   const health = useMemo(() => computeHealth(memory, slots), [memory, slots])
+
+  // 自动更新建议: synthesize "what would a rebuild pick up?" hints
+  // from frontend data only. Three signals:
+  //   - files uploaded after memory_updated_at
+  //   - milestones created after memory_updated_at
+  //   - structured slots that are still empty
+  // All actions kick the same /memory/rebuild endpoint — the labels
+  // ("应用" vs "生成") differ only to match the row's intent.
+  const suggestions = useMemo<MemorySuggestion[]>(() => {
+    const memoryTs = parseIsoMillis(project.memory_updated_at)
+    const out: MemorySuggestion[] = []
+
+    for (const f of files) {
+      if (f.deleted_at) continue
+      const ts = parseIsoMillis(f.uploaded_at)
+      if (ts > memoryTs) {
+        out.push({
+          id: `doc:${f.id}`,
+          kind: 'stale-doc',
+          title: '纳入新文档',
+          note: `《${f.name}》· ${formatUpdatedRelative(f.uploaded_at)}上传`,
+          actionLabel: '应用',
+          sortTs: ts,
+        })
+      }
+    }
+
+    for (const m of milestones) {
+      const ts = parseIsoMillis(m.created_at)
+      if (ts > memoryTs) {
+        out.push({
+          id: `ms:${m.id}`,
+          kind: 'stale-milestone',
+          title: '刷新「下一步」',
+          note: `里程碑「${m.title}」· ${formatUpdatedRelative(m.created_at)}新增`,
+          actionLabel: '应用',
+          sortTs: ts,
+        })
+      }
+    }
+
+    if (memory) {
+      for (const s of slots) {
+        if (s.data.ai.length + s.data.pinned.length === 0) {
+          out.push({
+            id: `slot:${s.meta.key}`,
+            kind: 'empty-slot',
+            title: `补全「${s.meta.zh}」`,
+            note: '槽位空缺 · 建议从对话和文档生成',
+            actionLabel: '生成',
+            sortTs: 0,
+          })
+        }
+      }
+    }
+
+    out.sort((a, b) => b.sortTs - a.sortTs)
+    return out.slice(0, 5)
+  }, [files, milestones, slots, memory, project.memory_updated_at])
+
+  const toast = useToast()
+  const [rebuildBusy, setRebuildBusy] = useState(false)
+  const triggerRebuild = useCallback(async () => {
+    if (rebuildBusy) return
+    setRebuildBusy(true)
+    try {
+      await api.post(`/projects/${projectId}/memory/rebuild`, {}, { timeout: 180000 })
+      toast.success({
+        title: '项目记忆已重建',
+        description: '页面会自动刷新最新内容',
+      })
+      await refetch()
+    } catch (err) {
+      toast.error({
+        title: '重建失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      })
+    } finally {
+      setRebuildBusy(false)
+    }
+  }, [projectId, rebuildBusy, refetch, toast])
 
   // Anchor management dialog state — only for the three ai_pinned slots.
   const [activeAnchorSlot, setActiveAnchorSlot] = useState<SlotMeta | null>(null)
@@ -511,26 +614,100 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
             </div>
           </CxPanel>
 
-          <CxPanel title="如何修改记忆" subtitle="数据来源 / 编辑边界">
-            <ul
-              style={{
-                margin: 0,
-                paddingLeft: 16,
-                fontSize: 12.5,
-                color: 'var(--ink-soft)',
-                lineHeight: 1.95,
-              }}
-            >
-              <li>
-                <strong style={{ color: 'var(--ink)' }}>AI 写入</strong>
-                的部分:通过项目对话讨论 + 上传文档,然后点「重新汇总」由 AI 重写
-              </li>
-              <li>
-                <strong style={{ color: 'var(--ink)' }}>风险 / 问题 / 干系人</strong>
-                三栏:可点「管理锚点」固定你认为重要的条目,重建时会保留
-              </li>
-              <li>会前简报、项目对话上下文都会读取这里的内容</li>
-            </ul>
+          <CxPanel
+            title="自动更新建议"
+            subtitle={
+              suggestions.length > 0
+                ? `${suggestions.length} 条 · 一键应用重建记忆`
+                : '基于文档 / 里程碑 / 空槽位综合判断'
+            }
+          >
+            {suggestions.length === 0 ? (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 12.5,
+                  color: 'var(--ink-faint)',
+                  lineHeight: 1.7,
+                }}
+              >
+                {memory
+                  ? '记忆已是最新 · 暂无更新建议'
+                  : '尚未建立结构化记忆 · 可在顶部点「重新汇总」由 AI 首次生成'}
+              </p>
+            ) : (
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                {suggestions.map((s, idx) => (
+                  <li
+                    key={s.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
+                      padding: '10px 0',
+                      borderTop:
+                        idx === 0 ? 'none' : '1px solid var(--line-soft)',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 5,
+                        height: 5,
+                        marginTop: 8,
+                        borderRadius: 99,
+                        background:
+                          s.kind === 'empty-slot'
+                            ? 'var(--ink-faint)'
+                            : 'var(--accent)',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: 'var(--ink)',
+                          fontWeight: 500,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {s.title}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11.5,
+                          color: 'var(--ink-mute)',
+                          marginTop: 2,
+                          lineHeight: 1.5,
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {s.note}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={triggerRebuild}
+                      disabled={rebuildBusy}
+                      title="将所有更新合并重建到结构化记忆 · 已固定的锚点会保留"
+                      style={{
+                        fontSize: 11.5,
+                        padding: '4px 10px',
+                        color: 'var(--accent)',
+                        background: 'var(--accent-bg)',
+                        border: '1px solid transparent',
+                        borderRadius: 'var(--r-sm)',
+                        flexShrink: 0,
+                        cursor: rebuildBusy ? 'not-allowed' : 'pointer',
+                        opacity: rebuildBusy ? 0.6 : 1,
+                      }}
+                    >
+                      {rebuildBusy ? '重建中…' : s.actionLabel}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </CxPanel>
 
           {project.memory_rebuild_failed_at && (
