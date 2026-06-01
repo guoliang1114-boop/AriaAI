@@ -48,6 +48,7 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
     loading: convsLoading,
     error: convsError,
     refetch: refetchConvs,
+    removeLocal: removeConversationLocal,
   } = useProjectConversations(projectId)
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -82,6 +83,7 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
     statusMessage,
     capability,
     send,
+    stop,
   } = useChatStream({
     projectId,
     conversationId: selectedId,
@@ -112,7 +114,10 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
   useEffect(() => {
     if (selectedId == null) return
     if (convsLoading) return
-    if (conversations.length === 0) return
+    if (conversations.length === 0) {
+      setSelectedId(null)
+      return
+    }
     if (!conversations.some((c) => c.id === selectedId)) {
       setSelectedId(null)
     }
@@ -150,6 +155,18 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
 
   const showPreview = openArtifact != null
   const selectedConv = conversations.find((c) => c.id === selectedId) ?? null
+
+  const handleConversationDeleted = async (deletedId: number) => {
+    const deletedIndex = conversations.findIndex((item) => item.id === deletedId)
+    const remaining = conversations.filter((item) => item.id !== deletedId)
+    const nextConversation =
+      conversations[deletedIndex + 1] ?? conversations[deletedIndex - 1] ?? remaining[0] ?? null
+    removeConversationLocal(deletedId)
+    setPending([])
+    setOpenArtifact(null)
+    setSelectedId((current) => (current === deletedId ? nextConversation?.id ?? null : current))
+    void refetchConvs()
+  }
 
   return (
     <CxProjectShell activeTab="chat" projectId={projectId} project={project}>
@@ -216,11 +233,9 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
               streamStatusMessage={statusMessage}
               capability={capability}
               onSend={send}
+              onStop={stop}
               onOpenArtifact={setOpenArtifact}
-              onDeleted={async () => {
-                setSelectedId(null)
-                await refetchConvs()
-              }}
+              onDeleted={handleConversationDeleted}
               onChanged={refetchConvs}
             />
           ) : (
@@ -563,8 +578,9 @@ interface ThreadViewProps {
   streamStatusMessage: string | null
   capability: ChatCapabilityFrame | null
   onSend: (text: string) => Promise<void>
+  onStop: () => void
   onOpenArtifact: (artifact: GeneratedArtifact) => void
-  onDeleted: () => Promise<void>
+  onDeleted: (conversationId: number) => Promise<void> | void
   onChanged: () => Promise<void>
 }
 
@@ -581,6 +597,7 @@ function ThreadView({
   streamStatusMessage,
   capability,
   onSend,
+  onStop,
   onOpenArtifact,
   onDeleted,
   onChanged,
@@ -623,7 +640,7 @@ function ThreadView({
       await api.delete(`/chat/conversations/${conversationId}`)
       toast.success({ title: '对话已删除' })
       setConfirmDelete(false)
-      await onDeleted()
+      await onDeleted(conversationId)
     } catch (err) {
       toast.error({
         title: '删除失败',
@@ -767,9 +784,10 @@ function ThreadView({
           value={composerText}
           onChange={setComposerText}
           onSend={async (text) => {
-            await onSend(text)
             setComposerText('')
+            await onSend(text)
           }}
+          onStop={onStop}
           disabled={busy}
           textareaRef={textareaRef}
         />
@@ -931,12 +949,14 @@ function Composer({
   value,
   onChange,
   onSend,
+  onStop,
   disabled,
   textareaRef,
 }: {
   value: string
   onChange: (next: string) => void
   onSend: (text: string) => void | Promise<void>
+  onStop: () => void
   disabled: boolean
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
@@ -1014,11 +1034,11 @@ function Composer({
         </span>
         <button
           type="button"
-          onClick={submit}
-          disabled={disabled || !value.trim()}
+          onClick={disabled ? onStop : submit}
+          disabled={!disabled && !value.trim()}
           style={{
             padding: '5px 14px',
-            background: 'var(--accent)',
+            background: disabled ? 'var(--ink)' : 'var(--accent)',
             color: 'var(--bg-elev)',
             borderRadius: 'var(--r-sm)',
             fontSize: 12.5,
@@ -1026,11 +1046,19 @@ function Composer({
             display: 'inline-flex',
             alignItems: 'center',
             gap: 5,
-            opacity: disabled || !value.trim() ? 0.5 : 1,
-            cursor: disabled || !value.trim() ? 'not-allowed' : 'pointer',
+            opacity: !disabled && !value.trim() ? 0.5 : 1,
+            cursor: !disabled && !value.trim() ? 'not-allowed' : 'pointer',
           }}
         >
-          发送 <CxIcon name="arrow-right" size={11} stroke={1.8} />
+          {disabled ? (
+            <>
+              停止 <CxIcon name="stop" size={10} stroke={1.8} />
+            </>
+          ) : (
+            <>
+              发送 <CxIcon name="arrow-right" size={11} stroke={1.8} />
+            </>
+          )}
         </button>
       </div>
     </div>
@@ -1163,4 +1191,3 @@ function StreamingBubble({
     </div>
   )
 }
-

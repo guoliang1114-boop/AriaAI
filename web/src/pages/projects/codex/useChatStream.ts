@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getApiBaseUrl } from '../../../config/api'
+import i18n from '../../../i18n'
 import type { GeneratedArtifact, Message } from '../../../types/api'
 
 /** Project-chat-tab SSE streaming hook.
@@ -10,9 +11,8 @@ import type { GeneratedArtifact, Message } from '../../../types/api'
  *     tool_result / done / error)
  *   - Surface a single growing `streamingContent` string plus a
  *     transient `statusMessage` so the caller can render a live
- *     "正在生成…" bubble. Tool calls / skill picker / file attach /
- *     stream cancellation are intentionally NOT supported here —
- *     those still live on /chat. This is the minimum surface that
+ *     "正在生成…" bubble. Tool calls / skill picker / file attach
+ *     still live on /chat. This is the minimum surface that
  *     turns the project chat tab from read-only into a usable
  *     two-way chat.
  *
@@ -64,6 +64,7 @@ interface UseChatStreamReturn {
    * lands. */
   capability: ChatCapabilityFrame | null
   send: (content: string) => Promise<void>
+  stop: () => void
 }
 
 interface StreamEvent {
@@ -112,6 +113,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   // Refs for the long-lived stream parser to avoid stale closures.
   const accumulatedRef = useRef('')
   const artifactsRef = useRef<GeneratedArtifact[]>([])
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const stopRequestedRef = useRef(false)
 
   const reset = () => {
     accumulatedRef.current = ''
@@ -119,6 +122,37 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     setStreamingContent('')
     setStatusMessage(null)
   }
+
+  const stop = useCallback(() => {
+    stopRequestedRef.current = true
+    abortControllerRef.current?.abort()
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      stopRequestedRef.current = true
+      abortControllerRef.current?.abort()
+    }
+  }, [])
+
+  const finishStoppedStream = useCallback(() => {
+    const partial = accumulatedRef.current
+    if (partial.trim() && conversationId != null) {
+      const assistantMsg: Message = {
+        id: Date.now() + 1,
+        conversation_id: conversationId,
+        role: 'assistant',
+        content: `${partial}\n\n（已停止）`,
+        metadata_json: JSON.stringify({ stopped: true }),
+        created_at: new Date().toISOString(),
+      }
+      onAssistantMessage(assistantMsg)
+    }
+    abortControllerRef.current = null
+    stopRequestedRef.current = false
+    setStatus('idle')
+    reset()
+  }, [conversationId, onAssistantMessage])
 
   const send = useCallback(
     async (content: string) => {
@@ -131,6 +165,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       if (status === 'sending' || status === 'streaming') return
 
       reset()
+      stopRequestedRef.current = false
       setStatus('sending')
       setStatusMessage('已收到，正在连接模型…')
 
@@ -145,6 +180,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       onUserMessage(userMsg)
 
       const token = localStorage.getItem('authToken') || ''
+      const controller = new AbortController()
+      abortControllerRef.current = controller
       let response: Response
       try {
         response = await fetch(`${getApiBaseUrl()}/chat/send`, {
@@ -158,17 +195,25 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
             force_skill: false,
             rag_doc_ids: [],
             file_ids: [],
+            language: i18n.language || 'zh-CN',
           }),
+          signal: controller.signal,
         })
       } catch (err) {
+        if (stopRequestedRef.current || controller.signal.aborted) {
+          finishStoppedStream()
+          return
+        }
         setStatus('error')
         onError?.(readApiError(err))
+        abortControllerRef.current = null
         return
       }
 
       if (!response.ok || !response.body) {
         setStatus('error')
         onError?.(`服务异常 (${response.status})`)
+        abortControllerRef.current = null
         return
       }
 
@@ -258,12 +303,22 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         buffer += decoder.decode()
         drainBuffer(true)
       } catch (err) {
+        if (stopRequestedRef.current || controller.signal.aborted) {
+          finishStoppedStream()
+          return
+        }
         streamErr = readApiError(err)
+      }
+
+      if (stopRequestedRef.current || controller.signal.aborted) {
+        finishStoppedStream()
+        return
       }
 
       if (streamErr) {
         setStatus('error')
         onError?.(streamErr)
+        abortControllerRef.current = null
         reset()
         return
       }
@@ -274,6 +329,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       if (!done && !accumulatedRef.current.trim()) {
         setStatus('error')
         onError?.('AI 没有返回任何内容')
+        abortControllerRef.current = null
         reset()
         return
       }
@@ -293,6 +349,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         created_at: new Date().toISOString(),
       }
       onAssistantMessage(assistantMsg)
+      abortControllerRef.current = null
+      stopRequestedRef.current = false
       setStatus('idle')
       reset()
     },
@@ -303,9 +361,10 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       onUserMessage,
       onConversationTitle,
       onError,
+      finishStoppedStream,
       status,
     ],
   )
 
-  return { status, streamingContent, statusMessage, capability, send }
+  return { status, streamingContent, statusMessage, capability, send, stop }
 }

@@ -784,17 +784,22 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
     }
   }
 
+  // Matches the project-chat artifact card (R18): accent-tinted card +
+  // soft accent border, bg-elev icon tile with hairline border, mono
+  // format pill in accent-ink, hairline pill action button.
   return (
     <div
       className="mt-3 w-full"
       style={{
         padding: '12px 14px',
-        background: 'var(--color-codex-bg-elev)',
-        border: '1px solid var(--color-codex-line)',
-        borderRadius: 'var(--codex-r-md, 6px)',
+        background:
+          'color-mix(in oklch, var(--color-codex-accent-bg) 70%, var(--color-codex-bg-elev))',
+        border:
+          '1px solid color-mix(in oklch, var(--color-codex-accent) 22%, transparent)',
+        borderRadius: 'var(--codex-r-md, 8px)',
       }}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start" style={{ gap: 12 }}>
         <span
           aria-hidden="true"
           className="inline-flex flex-shrink-0 items-center justify-center"
@@ -802,9 +807,10 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
             width: 32,
             height: 32,
             marginTop: 2,
-            background: 'var(--color-codex-accent-bg)',
+            background: 'var(--color-codex-bg-elev)',
             color: 'var(--color-codex-accent)',
-            borderRadius: 'var(--codex-r-sm, 3px)',
+            border: '1px solid var(--color-codex-line)',
+            borderRadius: 'var(--codex-r-sm, 6px)',
           }}
         >
           <FileText className="h-4 w-4" />
@@ -817,22 +823,25 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
               fontSize: 13.5,
               fontWeight: 500,
               color: 'var(--color-codex-ink)',
+              lineHeight: 1.4,
             }}
           >
             {artifact.name}
           </p>
           <div
-            className="mt-1 flex flex-wrap items-center gap-2"
-            style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}
+            className="mt-1 flex flex-wrap items-center"
+            style={{ gap: 6, fontSize: 11, color: 'var(--color-codex-ink-mute)' }}
           >
             <span
               className="font-mono"
               style={{
                 padding: '1px 6px',
-                background: 'var(--color-codex-bg-tint)',
-                color: 'var(--color-codex-ink-soft)',
-                borderRadius: 'var(--codex-r-sm, 3px)',
+                background: 'var(--color-codex-bg-elev)',
+                color: 'var(--color-codex-accent-ink)',
+                border: '1px solid var(--color-codex-line-soft)',
+                borderRadius: 999,
                 letterSpacing: '0.04em',
+                fontSize: 10.5,
               }}
             >
               {artifact.file_type.toUpperCase()}
@@ -844,23 +853,24 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
           type="button"
           onClick={handleDownload}
           disabled={downloading}
-          className="inline-flex items-center gap-1 disabled:opacity-50"
+          className="inline-flex items-center transition-colors disabled:opacity-50"
           style={{
-            padding: '6px 10px',
-            background: 'var(--color-codex-bg)',
-            color: 'var(--color-codex-ink-soft)',
+            gap: 5,
+            padding: '5px 10px',
+            background: 'var(--color-codex-bg-elev)',
+            color: 'var(--color-codex-accent-ink)',
             border: '1px solid var(--color-codex-line)',
-            borderRadius: 'var(--codex-r-sm, 3px)',
-            fontSize: 12,
+            borderRadius: 'var(--codex-r-sm, 6px)',
+            fontSize: 11.5,
             fontWeight: 500,
           }}
         >
           {downloading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
           ) : (
-            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+            <Download className="h-3 w-3" aria-hidden="true" />
           )}
-          下载
+          {isZh ? '下载' : 'Download'}
         </button>
       </div>
     </div>
@@ -973,7 +983,7 @@ function CopyButton({ text }: { text: string }) {
 
 export function Chat() {
   const navigate = useNavigate()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { resolvedTimeZone } = useAppTimeZone()
   const [searchParams] = useSearchParams()
   const conversationId = searchParams.get('conversation')
@@ -1582,6 +1592,7 @@ export function Chat() {
           force_skill: forceSkillForThisMessage,
           rag_doc_ids: [],
           file_ids: [],
+          language: i18n.language || 'zh-CN',
         }),
         signal: controller.signal,
       })
@@ -3676,35 +3687,47 @@ function MessageRow({ message }: { message: Message }) {
     // Ignore invalid metadata payloads from older chat messages.
   }
 
+  // Codex layout matches the project chat (R16):
+  // - User: avatar right, ink bubble right-aligned with asymmetric
+  //   top-right corner.
+  // - Aria: avatar left (accent-bg square + Sparkles), markdown body
+  //   in full ink at 14.5/1.75 with no bubble.
   return (
-    <div className="group flex w-full items-start gap-3.5">
-      {/* Avatar — same size for both sides, swatch differs by role. */}
+    <div
+      className={`group flex w-full items-start ${isUser ? 'flex-row-reverse' : ''}`}
+      style={{ gap: 14 }}
+    >
       <span
         className="inline-flex flex-shrink-0 items-center justify-center"
         style={{
           width: 30,
           height: 30,
-          borderRadius: 999,
           marginTop: 4,
           fontSize: 12,
           fontWeight: 500,
+          borderRadius: isUser ? 999 : 'var(--codex-r-sm, 6px)',
           background: isUser
             ? 'var(--color-codex-bg-tint)'
             : 'var(--color-codex-accent-bg)',
           color: isUser
             ? 'var(--color-codex-ink-soft)'
             : 'var(--color-codex-accent)',
+          border: isUser
+            ? '1px solid var(--color-codex-line)'
+            : '1px solid color-mix(in oklch, var(--color-codex-accent) 22%, transparent)',
         }}
       >
         {isUser ? userInitial : <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />}
       </span>
 
-      {/* Content column. No bubble — just markdown text + meta. */}
-      <div className="flex flex-1 flex-col" style={{ minWidth: 0, paddingTop: 4 }}>
+      <div
+        className={`flex flex-1 flex-col ${isUser ? 'items-end' : 'items-stretch'}`}
+        style={{ minWidth: 0, paddingTop: 4 }}
+      >
         {/* Role + time label */}
         <div
-          className="flex flex-wrap items-center gap-1.5"
-          style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)', marginBottom: 6 }}
+          className={`flex flex-wrap items-center ${isUser ? 'flex-row-reverse' : ''}`}
+          style={{ gap: 6, fontSize: 12, color: 'var(--color-codex-ink-mute)', marginBottom: 6 }}
         >
           <span
             style={{
@@ -3726,10 +3749,14 @@ function MessageRow({ message }: { message: Message }) {
             className="whitespace-pre-wrap"
             style={{
               margin: 0,
-              fontSize: 14.5,
-              lineHeight: 1.75,
-              color: 'var(--color-codex-ink)',
-              maxWidth: 880,
+              maxWidth: '78%',
+              padding: '8px 14px',
+              fontSize: 13,
+              lineHeight: 1.6,
+              color: 'var(--color-codex-bg-elev)',
+              background: 'var(--color-codex-ink)',
+              borderRadius: 'var(--codex-r-md, 8px)',
+              borderTopRightRadius: 4,
             }}
           >
             {message.content}
@@ -3753,26 +3780,57 @@ function MessageRow({ message }: { message: Message }) {
           </div>
         )}
 
-        {/* References — codex chip row. */}
+        {/* References — Codex chip row with [N] mono numbering (R19). */}
         {!isUser && references.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-2 flex flex-wrap" style={{ gap: 6 }}>
             {references.map((ref, i) => (
               <span
                 key={i}
-                className="inline-flex items-center gap-1"
+                className="inline-flex items-center"
                 style={{
+                  gap: 5,
                   padding: '2px 8px',
                   fontSize: 11.5,
                   background: 'var(--color-codex-bg-elev)',
                   color: 'var(--color-codex-ink-soft)',
                   border: '1px solid var(--color-codex-line)',
-                  borderRadius: 'var(--codex-r-sm, 3px)',
+                  borderRadius: 'var(--codex-r-sm, 6px)',
                 }}
               >
-                {ref.type === 'skill' && <Wrench className="h-3 w-3" aria-hidden="true" />}
-                {ref.type === 'doc' && <BookOpen className="h-3 w-3" aria-hidden="true" />}
-                {ref.type === 'file' && <FileIcon className="h-3 w-3" aria-hidden="true" />}
-                {ref.title}
+                <span
+                  className="font-mono"
+                  style={{
+                    fontSize: 10,
+                    color: 'var(--color-codex-accent)',
+                    fontWeight: 500,
+                  }}
+                >
+                  [{i + 1}]
+                </span>
+                {ref.type === 'skill' && (
+                  <Wrench
+                    className="h-3 w-3"
+                    aria-hidden="true"
+                    style={{ color: 'var(--color-codex-ink-mute)' }}
+                  />
+                )}
+                {ref.type === 'doc' && (
+                  <BookOpen
+                    className="h-3 w-3"
+                    aria-hidden="true"
+                    style={{ color: 'var(--color-codex-ink-mute)' }}
+                  />
+                )}
+                {ref.type === 'file' && (
+                  <FileIcon
+                    className="h-3 w-3"
+                    aria-hidden="true"
+                    style={{ color: 'var(--color-codex-ink-mute)' }}
+                  />
+                )}
+                <span className="truncate" style={{ maxWidth: 220 }}>
+                  {ref.title}
+                </span>
               </span>
             ))}
           </div>

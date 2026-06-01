@@ -201,26 +201,30 @@ interface ConversationsState {
   loading: boolean
   error: string | null
   refetch: () => Promise<void>
+  removeLocal: (conversationId: number) => void
 }
 
 export function useProjectConversations(projectId: number | null): ConversationsState {
   const [data, setData] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const hasLoadedRef = useRef(false)
 
   const fetchOnce = useCallback(async () => {
     if (projectId == null || Number.isNaN(projectId)) {
       setData([])
       setLoading(false)
+      hasLoadedRef.current = true
       return
     }
-    setLoading(true)
+    if (!hasLoadedRef.current) setLoading(true)
     setError(null)
     try {
       const rows = await api.get<Conversation[]>(
         `/chat/conversations?project_id=${projectId}`,
       )
       setData(rows)
+      hasLoadedRef.current = true
     } catch (err) {
       setError(readError(err))
     } finally {
@@ -229,6 +233,7 @@ export function useProjectConversations(projectId: number | null): Conversations
   }, [projectId])
 
   useEffect(() => {
+    hasLoadedRef.current = false
     void fetchOnce()
   }, [fetchOnce])
 
@@ -236,7 +241,11 @@ export function useProjectConversations(projectId: number | null): Conversations
     await fetchOnce()
   }, [fetchOnce])
 
-  return { data, loading, error, refetch }
+  const removeLocal = useCallback((conversationId: number) => {
+    setData((current) => current.filter((item) => item.id !== conversationId))
+  }, [])
+
+  return { data, loading, error, refetch, removeLocal }
 }
 
 interface MessagesState {

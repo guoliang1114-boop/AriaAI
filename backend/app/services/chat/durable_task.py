@@ -625,6 +625,7 @@ async def run_durable_task(
                         user_content=req.content,
                         bind=bind,
                         complete_fn=runtime.llm.complete,
+                        language=getattr(req, "language", None),
                     )
                 return
             task_payload = serialize_task_run(task_session, task, include_events=True)
@@ -743,6 +744,7 @@ async def run_durable_task(
                 user_content=req.content,
                 bind=bind,
                 complete_fn=runtime.llm.complete,
+                language=getattr(req, "language", None),
             )
 
     except Exception as exc:

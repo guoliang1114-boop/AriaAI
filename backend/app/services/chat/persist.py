@@ -1036,6 +1036,7 @@ async def run_persist(
                 user_content=req.content,
                 session_factory=lambda: Session(bind),
                 complete_fn=runtime.llm.complete,
+                language=getattr(req, "language", None),
             )
             if generated:
                 yield sse_event(

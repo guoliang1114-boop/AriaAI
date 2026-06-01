@@ -22,6 +22,7 @@ class SendMessageRequest(BaseModel):
     rag_doc_ids: List[int] = []
     file_ids: List[int] = []
     model: Optional[str] = None
+    language: Optional[str] = None
     mention_context: Optional[MentionContext] = None
     action_confirmations: List[str] = []
 
