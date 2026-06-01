@@ -1,18 +1,36 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../../api/client'
 import { useToast } from '../../../contexts/ToastContext'
-import type { Project } from '../../../types/api'
+import type { Project, SkillSummary } from '../../../types/api'
 import type { ProjectStatus } from '../../../types/enums'
 import { CxIcon } from './CxIcons'
+import { useClientsList, useProjectsList, formatAmountWan } from './useProjectsApi'
 
-/** New-project form — replaces the legacy NewProject. Codex-styled,
- * single-column, posts to /projects and routes to the new project
- * detail on success. */
+/** New-project wizard (Codex redesign · cx-new-project).
+ *
+ * Two-column layout: left = stepped form (基础信息 / 客户与阶段 /
+ * 项目团队 + footer with 保存为草稿 + 创建项目), right = Aria
+ * assist panel (gradient card with live status, 推荐 Skill,
+ * 相似项目).
+ *
+ * Single-page form with a 4-step progress indicator — the design
+ * shows all 3 form panels on one page rather than literal wizard
+ * pages, so the steps are a visual progress affordance derived
+ * from form completeness. The 「确认」 step lights up once every
+ * required field is filled.
+ *
+ * Backend gaps the wizard works around:
+ *   - 项目编号 / 预计签约 / 团队成员 aren't in the ProjectCreate
+ *     schema, so they render as preview / TODO panels but the
+ *     submit only sends fields the backend accepts.
+ *   - No real skill-recommendation or similar-project endpoint;
+ *     右栏 pulls the latest skills and the user's most recent
+ *     projects as a placeholder. */
 
 const INPUT_STYLE = {
   width: '100%',
-  padding: '9px 11px',
+  padding: '9px 12px',
   fontSize: 13.5,
   background: 'var(--bg)',
   border: '1px solid var(--line)',
@@ -24,67 +42,160 @@ const INPUT_STYLE = {
 const LABEL_STYLE = {
   display: 'block',
   fontSize: 11.5,
-  color: 'var(--ink-mute)',
+  color: 'var(--ink-soft)',
   marginBottom: 6,
   fontWeight: 500,
 } as const
 
-const STATUS_OPTIONS: Array<{ value: ProjectStatus; label: string; hint: string }> = [
-  { value: 'lead', label: '线索期', hint: '初步接触 · 需求挖掘' },
-  { value: 'opportunity', label: '机会期', hint: '商机确认 · 方案投标 · 谈判' },
-  { value: 'won', label: '已签约', hint: '合同已签 · 准备启动' },
-  { value: 'delivering', label: '交付中', hint: '正在执行' },
+const STATUS_OPTIONS: Array<{ value: ProjectStatus; label: string }> = [
+  { value: 'lead', label: '线索期' },
+  { value: 'opportunity', label: '机会期' },
+  { value: 'won', label: '已签约' },
+  { value: 'delivering', label: '交付中' },
 ]
+
+interface FormState {
+  name: string
+  code: string
+  description: string
+  contract_amount: number | ''
+  signing_date: string
+  client: string
+  status: ProjectStatus
+}
+
+const INITIAL_FORM: FormState = {
+  name: '',
+  code: '',
+  description: '',
+  contract_amount: '',
+  signing_date: '',
+  client: '',
+  status: 'lead',
+}
 
 export function CxNewProject() {
   const navigate = useNavigate()
   const toast = useToast()
-  const [busy, setBusy] = useState(false)
-  const [form, setForm] = useState({
-    name: '',
-    client: '',
-    description: '',
-    status: 'lead' as ProjectStatus,
-    contract_amount: 0,
-  })
+
+  const [form, setForm] = useState<FormState>(INITIAL_FORM)
+  const [busy, setBusy] = useState<false | 'draft' | 'create'>(false)
+
+  const { data: clients } = useClientsList()
+  const { data: existingProjects } = useProjectsList()
+  const [skills, setSkills] = useState<SkillSummary[]>([])
+  useEffect(() => {
+    let cancelled = false
+    api
+      .get<SkillSummary[]>('/skills/meta/summary')
+      .then((rows) => {
+        if (!cancelled) setSkills(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setSkills([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Match the client field against the known client list — drives
+  // the AI assist panel's "已识别客户" affordance.
+  const matchedClient = useMemo(() => {
+    const q = form.client.trim().toLowerCase()
+    if (!q) return null
+    return clients.find((c) => c.name.toLowerCase() === q) || null
+  }, [clients, form.client])
+
+  const clientSuggestions = useMemo(() => {
+    const q = form.client.trim().toLowerCase()
+    if (!q || matchedClient) return [] as Array<{ id: number; name: string }>
+    return clients.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 5)
+  }, [clients, form.client, matchedClient])
+
+  const similarProjects = useMemo(() => {
+    const q = form.client.trim().toLowerCase()
+    const all = existingProjects ?? []
+    const liveProjects = all.filter((p) => p.status !== 'archived')
+    if (q) {
+      const sameClient = liveProjects.filter((p) =>
+        (p.client || '').toLowerCase().includes(q),
+      )
+      if (sameClient.length > 0) return sameClient.slice(0, 3)
+    }
+    return liveProjects.slice(0, 3)
+  }, [existingProjects, form.client])
+
+  const recommendedSkills = skills.slice(0, 3)
+
+  // Step indicator: derive an active step from completeness so the
+  // user sees progress as they fill in. Step 4 (确认) lights up
+  // once name + client are present.
+  const activeStep = useMemo(() => {
+    if (!form.name.trim() || !form.description.trim()) return 0
+    if (!form.client.trim()) return 1
+    return 3
+  }, [form.name, form.description, form.client])
 
   const update =
-    (k: keyof typeof form) =>
+    (k: keyof FormState) =>
     (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-      const value =
-        k === 'contract_amount' ? Number(e.target.value || 0) : e.target.value
-      setForm((s) => ({ ...s, [k]: value }))
+      const raw = e.target.value
+      const next = k === 'contract_amount' ? (raw === '' ? '' : Number(raw)) : raw
+      setForm((s) => ({ ...s, [k]: next } as FormState))
     }
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault()
+  const pickClient = (name: string) => {
+    setForm((s) => ({ ...s, client: name }))
+  }
+
+  const submit = async (mode: 'draft' | 'create') => {
     if (busy) return
     if (!form.name.trim()) {
       toast.warning({ title: '项目名称不能为空' })
       return
     }
     if (!form.client.trim()) {
-      toast.warning({ title: '客户不能为空' })
+      toast.warning({ title: '请选择或填写关联客户' })
       return
     }
-    setBusy(true)
+    setBusy(mode)
     try {
+      // Drafts get pinned to "lead" so they land in the earliest
+      // pipeline column regardless of what the user picked for
+      // status. The notes field carries the non-schema extras
+      // (编号 / 预计签约) so they aren't lost on the round-trip.
+      const status: ProjectStatus = mode === 'draft' ? 'lead' : form.status
+      const notesParts: string[] = []
+      if (form.code.trim()) notesParts.push(`编号: ${form.code.trim()}`)
+      if (form.signing_date.trim())
+        notesParts.push(`预计签约: ${form.signing_date.trim()}`)
+
       const created = await api.post<Project>('/projects', {
         name: form.name.trim(),
         client: form.client.trim(),
         description: form.description.trim(),
-        status: form.status,
-        contract_amount: form.contract_amount,
+        status,
+        contract_amount: typeof form.contract_amount === 'number' ? form.contract_amount : 0,
+        notes: notesParts.join(' · '),
       })
-      toast.success({ title: '项目已创建', description: created.name })
+      toast.success({
+        title: mode === 'draft' ? '草稿已保存' : '项目已创建',
+        description: created.name,
+      })
       navigate(`/projects/${created.id}/overview`)
     } catch (err) {
       toast.error({
-        title: '创建失败',
+        title: mode === 'draft' ? '保存失败' : '创建失败',
         description: err instanceof Error ? err.message : '请稍后重试',
       })
       setBusy(false)
     }
+  }
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault()
+    void submit('create')
   }
 
   return (
@@ -99,213 +210,821 @@ export function CxNewProject() {
         fontSize: 13.5,
       }}
     >
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '36px 32px 48px' }}>
-        <button
-          type="button"
-          onClick={() => navigate('/projects')}
-          className="row-hov"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-            fontSize: 12.5,
-            color: 'var(--ink-mute)',
-            padding: '4px 8px',
-            marginLeft: -8,
-            borderRadius: 'var(--r-sm)',
-            marginBottom: 18,
-          }}
-        >
-          <CxIcon name="chevron-right" size={11} style={{ transform: 'rotate(180deg)' }} />{' '}
-          返回项目空间
-        </button>
-
-        <h1
-          className="ui"
-          style={{
-            margin: 0,
-            fontSize: 24,
-            fontWeight: 500,
-            color: 'var(--ink)',
-            letterSpacing: '-0.02em',
-          }}
-        >
-          新建项目
-        </h1>
-        <p
-          style={{
-            margin: '6px 0 28px',
-            fontSize: 13,
-            color: 'var(--ink-mute)',
-            lineHeight: 1.65,
-          }}
-        >
-          创建后会自动生成初始项目记忆,你可以在「项目对话」中继续沉淀客户背景、痛点、决策链等关键信息。
-        </p>
-
+      <div
+        style={{
+          maxWidth: 1280,
+          margin: '0 auto',
+          padding: '28px 56px 48px',
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) 340px',
+          gap: 32,
+          minWidth: 0,
+        }}
+      >
+        {/* ── Left: form column ────────────────────────────── */}
         <form
-          onSubmit={submit}
-          style={{
-            background: 'var(--bg-elev)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--r-md)',
-            padding: '24px 28px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 18,
-          }}
+          onSubmit={handleSubmit}
+          style={{ display: 'flex', flexDirection: 'column', gap: 22, minWidth: 0 }}
         >
+          {/* Crumb + title */}
           <div>
-            <label style={LABEL_STYLE}>项目名称</label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={update('name')}
-              required
-              autoFocus
-              placeholder="例:鼎和保险 · 数字化转型咨询"
-              className="codex-input"
-              style={INPUT_STYLE}
-            />
-          </div>
-
-          <div>
-            <label style={LABEL_STYLE}>客户</label>
-            <input
-              type="text"
-              value={form.client}
-              onChange={update('client')}
-              required
-              placeholder="例:鼎和保险股份有限公司"
-              className="codex-input"
-              style={INPUT_STYLE}
-            />
-            <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 4 }}>
-              客户名会用于匹配「客户空间」中的档案,以便联动干系人和客户记忆。
+            <div style={{ fontSize: 12, color: 'var(--ink-mute)', marginBottom: 10 }}>
+              <a
+                onClick={() => navigate('/projects')}
+                style={{ color: 'var(--ink-faint)', cursor: 'pointer' }}
+              >
+                项目
+              </a>
+              <span style={{ margin: '0 6px', color: 'var(--ink-faint)' }}>/</span>
+              <span>新建</span>
             </div>
-          </div>
-
-          <div>
-            <label style={LABEL_STYLE}>当前阶段</label>
-            <div
+            <h1
+              className="ui"
               style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, 1fr)',
-                gap: 8,
+                margin: 0,
+                fontSize: 28,
+                fontWeight: 500,
+                color: 'var(--ink)',
+                letterSpacing: '-0.02em',
               }}
             >
-              {STATUS_OPTIONS.map((o) => {
-                const selected = form.status === o.value
-                return (
-                  <button
-                    key={o.value}
-                    type="button"
-                    onClick={() =>
-                      setForm((s) => ({ ...s, status: o.value }))
-                    }
-                    style={{
-                      textAlign: 'left',
-                      padding: '11px 13px',
-                      borderRadius: 'var(--r-sm)',
-                      border: `1px solid ${
-                        selected ? 'var(--accent)' : 'var(--line)'
-                      }`,
-                      background: selected ? 'var(--accent-bg)' : 'var(--bg)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div
-                      className="ui"
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: selected ? 'var(--accent-ink)' : 'var(--ink)',
-                      }}
-                    >
+              新建项目
+            </h1>
+            <p
+              style={{
+                margin: '8px 0 0',
+                fontSize: 13.5,
+                color: 'var(--ink-mute)',
+                lineHeight: 1.6,
+                maxWidth: 540,
+              }}
+            >
+              先填关键信息 — Aria 会自动生成项目记忆初稿、识别相关客户记忆、推荐适用的 Skill。
+            </p>
+          </div>
+
+          <StepIndicator active={activeStep} />
+
+          {/* 基础信息 */}
+          <Panel title="基础信息">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <Field label="项目名称 *">
+                <input
+                  type="text"
+                  value={form.name}
+                  onChange={update('name')}
+                  required
+                  autoFocus
+                  placeholder="例: 鼎和保险 · 数字化转型咨询"
+                  className="codex-input"
+                  style={INPUT_STYLE}
+                />
+              </Field>
+              <Field label="项目编号">
+                <input
+                  type="text"
+                  value={form.code}
+                  onChange={update('code')}
+                  placeholder="选填 · 例: DH-2026-001"
+                  className="codex-input num"
+                  style={INPUT_STYLE}
+                />
+              </Field>
+              <Field label="项目简述 · 一句话" colSpan={2}>
+                <textarea
+                  rows={2}
+                  value={form.description}
+                  onChange={update('description')}
+                  placeholder="围绕续保与理赔两个高频场景搭建数据闭环,Q3 完成首批试点。"
+                  className="codex-input"
+                  style={{
+                    ...INPUT_STYLE,
+                    resize: 'none',
+                    fontFamily: 'var(--font-ui)',
+                    lineHeight: 1.55,
+                  }}
+                />
+              </Field>
+              <Field label="预估金额 (元)">
+                <input
+                  type="number"
+                  min={0}
+                  step={10000}
+                  value={form.contract_amount}
+                  onChange={update('contract_amount')}
+                  placeholder="2800000"
+                  className="codex-input num"
+                  style={INPUT_STYLE}
+                />
+                {typeof form.contract_amount === 'number' && form.contract_amount > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 4 }}>
+                    ≈ {formatAmountWan(form.contract_amount)}
+                  </div>
+                )}
+              </Field>
+              <Field label="预计签约">
+                <input
+                  type="date"
+                  value={form.signing_date}
+                  onChange={update('signing_date')}
+                  className="codex-input num"
+                  style={INPUT_STYLE}
+                />
+              </Field>
+            </div>
+          </Panel>
+
+          {/* 客户与阶段 */}
+          <Panel title="客户与阶段">
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+              <Field label="关联客户 *">
+                <ClientPicker
+                  value={form.client}
+                  matched={matchedClient}
+                  suggestions={clientSuggestions}
+                  onChange={(v) => setForm((s) => ({ ...s, client: v }))}
+                  onPick={pickClient}
+                />
+              </Field>
+              <Field label="项目阶段">
+                <select
+                  value={form.status}
+                  onChange={update('status')}
+                  className="codex-input"
+                  style={{ ...INPUT_STYLE, appearance: 'none' }}
+                >
+                  {STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
                       {o.label}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 3 }}>
-                      {o.hint}
-                    </div>
-                  </button>
-                )
-              })}
+                    </option>
+                  ))}
+                </select>
+              </Field>
             </div>
-          </div>
+          </Panel>
 
-          <div>
-            <label style={LABEL_STYLE}>合同金额(元)</label>
-            <input
-              type="number"
-              min={0}
-              step={1000}
-              value={form.contract_amount}
-              onChange={update('contract_amount')}
-              placeholder="0"
-              className="codex-input"
-              style={INPUT_STYLE}
-            />
-            <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 4 }}>
-              可留 0,签约前再补。
+          {/* 项目团队 (placeholder — backend create doesn't accept
+            members; users add them after creation in the detail
+            page) */}
+          <Panel title="项目团队" subtitle="创建后可在「概览 · 项目成员」中添加 / 邀请">
+            <div
+              style={{
+                padding: '10px 12px',
+                border: '1px dashed var(--line)',
+                borderRadius: 'var(--r-sm)',
+                color: 'var(--ink-mute)',
+                fontSize: 12.5,
+                lineHeight: 1.6,
+              }}
+            >
+              当前账号将自动作为「负责人」加入项目。其他成员请在项目创建完成后,
+              到「概览 → 项目成员」面板邀请。
             </div>
-          </div>
+          </Panel>
 
-          <div>
-            <label style={LABEL_STYLE}>简介(可选)</label>
-            <textarea
-              rows={4}
-              value={form.description}
-              onChange={update('description')}
-              placeholder="一两句话讲清楚:做什么、为什么做、对客户的价值。"
-              className="codex-input"
-              style={{ ...INPUT_STYLE, resize: 'vertical' }}
-            />
-          </div>
-
+          {/* Footer actions */}
           <div
             style={{
               display: 'flex',
-              gap: 8,
-              justifyContent: 'flex-end',
+              justifyContent: 'space-between',
+              alignItems: 'center',
               paddingTop: 8,
-              borderTop: '1px solid var(--line-soft)',
             }}
           >
             <button
               type="button"
               onClick={() => navigate('/projects')}
-              disabled={busy}
               style={{
-                padding: '8px 16px',
+                padding: '9px 14px',
                 fontSize: 13,
-                border: '1px solid var(--line)',
-                borderRadius: 'var(--r-sm)',
-                color: 'var(--ink-soft)',
+                color: 'var(--ink-mute)',
                 background: 'transparent',
-                cursor: busy ? 'not-allowed' : 'pointer',
+                border: 'none',
+                cursor: 'pointer',
               }}
             >
               取消
             </button>
-            <button
-              type="submit"
-              disabled={busy}
-              style={{
-                padding: '8px 20px',
-                fontSize: 13,
-                fontWeight: 500,
-                borderRadius: 'var(--r-sm)',
-                background: 'var(--ink)',
-                color: 'var(--bg-elev)',
-                cursor: busy ? 'not-allowed' : 'pointer',
-                opacity: busy ? 0.6 : 1,
-              }}
-            >
-              {busy ? '创建中…' : '创建项目'}
-            </button>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                disabled={busy !== false}
+                onClick={() => void submit('draft')}
+                style={{
+                  padding: '9px 16px',
+                  fontSize: 13,
+                  color: 'var(--ink-soft)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--r-sm)',
+                  background: 'var(--bg-elev)',
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                  opacity: busy ? 0.6 : 1,
+                }}
+              >
+                {busy === 'draft' ? '保存中…' : '保存为草稿'}
+              </button>
+              <button
+                type="submit"
+                disabled={busy !== false}
+                style={{
+                  padding: '9px 18px',
+                  fontSize: 13,
+                  background: 'var(--ink)',
+                  color: 'var(--bg-elev)',
+                  borderRadius: 'var(--r-sm)',
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                  opacity: busy ? 0.6 : 1,
+                }}
+              >
+                {busy === 'create' ? '创建中…' : '创建项目'}{' '}
+                <CxIcon name="arrow-right" size={11} stroke={1.8} />
+              </button>
+            </div>
           </div>
         </form>
+
+        {/* ── Right: Aria assist column ────────────────────── */}
+        <aside style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+          <AriaAssistCard
+            clientName={form.client.trim()}
+            matchedClient={matchedClient}
+            recommendedSkillsCount={recommendedSkills.length}
+            similarProjectsCount={similarProjects.length}
+          />
+          <SidePanel title="推荐 Skill" subtitle="根据项目类型与客户行业">
+            {recommendedSkills.length === 0 ? (
+              <EmptyHint>暂无 Skill 数据</EmptyHint>
+            ) : (
+              recommendedSkills.map((s, i) => (
+                <div
+                  key={s.id}
+                  style={{
+                    display: 'flex',
+                    gap: 10,
+                    padding: '9px 0',
+                    borderBottom:
+                      i === recommendedSkills.length - 1
+                        ? 'none'
+                        : '1px solid var(--line-soft)',
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      className="ui"
+                      style={{
+                        fontSize: 12.5,
+                        color: 'var(--ink)',
+                        fontWeight: 500,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {s.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: 'var(--ink-mute)',
+                        marginTop: 2,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {s.category} · {s.estimated_time || '—'}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </SidePanel>
+          <SidePanel
+            title="相似项目"
+            subtitle={form.client.trim() ? '匹配客户名' : '近期项目'}
+          >
+            {similarProjects.length === 0 ? (
+              <EmptyHint>暂无可对照项目</EmptyHint>
+            ) : (
+              similarProjects.map((p) => (
+                <a
+                  key={p.id}
+                  onClick={() => navigate(`/projects/${p.id}/overview`)}
+                  className="row-hov"
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '7px 8px',
+                    margin: '0 -8px',
+                    borderRadius: 'var(--r-sm)',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      className="ui"
+                      style={{
+                        color: 'var(--ink)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {p.name}
+                    </div>
+                    <div
+                      style={{
+                        color: 'var(--ink-mute)',
+                        fontSize: 11,
+                        marginTop: 1,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {p.client || '—'}
+                    </div>
+                  </div>
+                  <CxIcon
+                    name="arrow-up-right"
+                    size={11}
+                    stroke={1.5}
+                    style={{ color: 'var(--ink-faint)', flexShrink: 0 }}
+                  />
+                </a>
+              ))
+            )}
+          </SidePanel>
+        </aside>
       </div>
     </div>
+  )
+}
+
+/* ── Step indicator ────────────────────────────────────── */
+
+const STEPS = [
+  { n: '01', l: '基础信息' },
+  { n: '02', l: '客户与阶段' },
+  { n: '03', l: '团队成员' },
+  { n: '04', l: '确认' },
+] as const
+
+function StepIndicator({ active }: { active: number }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+      {STEPS.map((s, i) => {
+        const done = i < active
+        const isCurrent = i === active
+        const reached = done || isCurrent
+        return (
+          <div
+            key={s.n}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              color: reached ? 'var(--ink)' : 'var(--ink-mute)',
+              flexShrink: 0,
+            }}
+          >
+            <span
+              className="num"
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: 99,
+                background: reached ? 'var(--accent)' : 'transparent',
+                color: reached ? 'var(--bg-elev)' : 'var(--ink-mute)',
+                border: reached ? 'none' : '1px solid var(--line-strong)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 10.5,
+                fontWeight: 500,
+              }}
+            >
+              {s.n}
+            </span>
+            <span>{s.l}</span>
+            {i < STEPS.length - 1 && (
+              <span
+                aria-hidden
+                style={{
+                  display: 'inline-block',
+                  width: 36,
+                  height: 1,
+                  background: done ? 'var(--accent)' : 'var(--line)',
+                  marginLeft: 6,
+                }}
+              />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/* ── Form panel ─────────────────────────────────────────── */
+
+function Panel({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string
+  subtitle?: string
+  children: React.ReactNode
+}) {
+  return (
+    <section
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-md)',
+        padding: '20px 22px',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          marginBottom: 14,
+        }}
+      >
+        <h3
+          className="ui"
+          style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}
+        >
+          {title}
+        </h3>
+        {subtitle && (
+          <span style={{ fontSize: 11, color: 'var(--ink-mute)' }}>{subtitle}</span>
+        )}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function Field({
+  label,
+  colSpan,
+  children,
+}: {
+  label: string
+  colSpan?: number
+  children: React.ReactNode
+}) {
+  return (
+    <div style={colSpan ? { gridColumn: `span ${colSpan}` } : undefined}>
+      <label style={LABEL_STYLE}>{label}</label>
+      {children}
+    </div>
+  )
+}
+
+/* ── Client picker with typeahead ──────────────────────── */
+
+function ClientPicker({
+  value,
+  matched,
+  suggestions,
+  onChange,
+  onPick,
+}: {
+  value: string
+  matched: { id: number; name: string } | null
+  suggestions: Array<{ id: number; name: string }>
+  onChange: (v: string) => void
+  onPick: (name: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [open])
+
+  if (matched) {
+    return (
+      <div
+        style={{
+          ...INPUT_STYLE,
+          border: '1px solid var(--accent)',
+          background: 'var(--accent-bg)',
+          color: 'var(--accent-ink)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}
+      >
+        <span
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            overflow: 'hidden',
+          }}
+        >
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 99,
+              background: 'var(--accent)',
+              flexShrink: 0,
+            }}
+          />
+          <span
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {matched.name}
+          </span>
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          style={{
+            fontSize: 11,
+            color: 'var(--accent)',
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            flexShrink: 0,
+          }}
+        >
+          更换
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative' }}>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value)
+          setOpen(true)
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder="搜索现有客户,或直接填写新客户名称"
+        className="codex-input"
+        style={INPUT_STYLE}
+      />
+      {open && suggestions.length > 0 && (
+        <ul
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            marginTop: 4,
+            padding: 4,
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--r-sm)',
+            boxShadow: '0 10px 28px -10px rgba(0,0,0,0.18)',
+            listStyle: 'none',
+            zIndex: 5,
+            maxHeight: 220,
+            overflowY: 'auto',
+          }}
+        >
+          {suggestions.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  onPick(c.name)
+                  setOpen(false)
+                }}
+                className="row-hov"
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '7px 10px',
+                  fontSize: 12.5,
+                  color: 'var(--ink)',
+                  border: 'none',
+                  background: 'transparent',
+                  borderRadius: 'var(--r-sm)',
+                  cursor: 'pointer',
+                }}
+              >
+                {c.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/* ── Aria assist card ──────────────────────────────────── */
+
+function AriaAssistCard({
+  clientName,
+  matchedClient,
+  recommendedSkillsCount,
+  similarProjectsCount,
+}: {
+  clientName: string
+  matchedClient: { id: number; name: string } | null
+  recommendedSkillsCount: number
+  similarProjectsCount: number
+}) {
+  const hasClient = clientName.length > 0
+  return (
+    <div
+      style={{
+        background:
+          'linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-elev) 100%)',
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-md)',
+        padding: '16px 18px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 'var(--r-sm)',
+            background: 'var(--accent)',
+            color: 'var(--bg-elev)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <CxIcon name="sparkle" size={12} stroke={1.5} />
+        </span>
+        <h3
+          className="ui"
+          style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}
+        >
+          Aria 协助
+        </h3>
+      </div>
+      <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.65 }}>
+        {matchedClient ? (
+          <>
+            已识别客户{' '}
+            <strong style={{ color: 'var(--accent-ink)' }}>{matchedClient.name}</strong>
+            ,创建后将自动:
+          </>
+        ) : hasClient ? (
+          <>
+            将基于客户{' '}
+            <strong style={{ color: 'var(--accent-ink)' }}>{clientName}</strong>{' '}
+            搭建项目记忆草稿:
+          </>
+        ) : (
+          '填入客户名称后,Aria 会自动:'
+        )}
+      </p>
+      <div
+        style={{
+          marginTop: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+          fontSize: 12.5,
+          color: 'var(--ink-soft)',
+        }}
+      >
+        <AssistRow
+          tone={hasClient ? 'good' : 'idle'}
+          label={
+            matchedClient
+              ? `基于客户记忆生成项目记忆 v1 草稿`
+              : '生成项目记忆 v1 草稿'
+          }
+        />
+        <AssistRow
+          tone={recommendedSkillsCount > 0 ? 'good' : 'idle'}
+          label={
+            recommendedSkillsCount > 0
+              ? `找到 ${recommendedSkillsCount} 个可推荐 Skill`
+              : '推荐适用的 Skill'
+          }
+        />
+        <AssistRow
+          tone={similarProjectsCount > 0 ? 'good' : 'pulse'}
+          label={
+            similarProjectsCount > 0
+              ? `汇总 ${similarProjectsCount} 个相似项目供参考`
+              : '汇总相似项目经验'
+          }
+        />
+      </div>
+    </div>
+  )
+}
+
+function AssistRow({ tone, label }: { tone: 'good' | 'idle' | 'pulse'; label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: 1.65 }}>
+      {tone === 'good' ? (
+        <CxIcon name="check" size={11} stroke={2} style={{ color: 'var(--good)' }} />
+      ) : tone === 'pulse' ? (
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: 99,
+            background: 'var(--accent)',
+            animation: 'pulse 1.2s ease-in-out infinite',
+            display: 'inline-block',
+          }}
+        />
+      ) : (
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: 99,
+            background: 'var(--ink-faint)',
+            display: 'inline-block',
+          }}
+        />
+      )}
+      <span>{label}</span>
+    </div>
+  )
+}
+
+/* ── Side panel + empty hint ───────────────────────────── */
+
+function SidePanel({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string
+  subtitle?: string
+  children: React.ReactNode
+}) {
+  return (
+    <section
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-md)',
+        padding: '14px 16px',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          marginBottom: 8,
+        }}
+      >
+        <h3
+          className="ui"
+          style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}
+        >
+          {title}
+        </h3>
+        {subtitle && (
+          <span style={{ fontSize: 10.5, color: 'var(--ink-mute)' }}>{subtitle}</span>
+        )}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function EmptyHint({ children }: { children: React.ReactNode }) {
+  return (
+    <p style={{ margin: 0, fontSize: 11.5, color: 'var(--ink-faint)', lineHeight: 1.55 }}>
+      {children}
+    </p>
   )
 }
