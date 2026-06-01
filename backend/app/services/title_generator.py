@@ -38,14 +38,18 @@ async def generate_conversation_title(
     try:
         raw = await complete_fn(
             messages=[{"role": "user", "content": (
-                f"Write a short title for this conversation (max 12 Chinese characters "
-                f"or 6 English words, no quotes, no punctuation at end).\n"
+                f"Write a very short title for this conversation. "
+                f"Target 5–10 Chinese characters (or 3–6 English words). "
+                f"No quotes, no punctuation, no trailing ellipsis. "
+                f"Capture the user's actual ask, not the meta of asking.\n"
                 f"User said: {user_content[:200]}\n"
                 f"Return ONLY the title."
             )}],
             max_tokens=max_tokens,
         )
-        title = raw.strip().strip('"').strip("'")[:60] or user_content[:40]
+        # Hard cap at 20 chars to keep the rail clean even if the
+        # model ignores the upper-bound instruction.
+        title = raw.strip().strip('"').strip("'")[:20] or user_content[:40]
     except Exception:
         return None
     

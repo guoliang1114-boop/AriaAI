@@ -296,7 +296,12 @@ def persist_assistant_message(
         conv = new_session.get(Conversation, conv_id)
         if conv:
             conv.updated_at = utc_now_naive()
-            if conv.title == "New Workstream":
+            # Title-generation trigger. Fires when the title is a
+            # stand-in — either the legacy "New Workstream" marker
+            # OR an empty string (the project chat tab creates
+            # conversations without a title; /chat sets a 15-char
+            # truncation up front and is not re-titled here).
+            if not (conv.title or "").strip() or conv.title == "New Workstream":
                 conv.title = user_content[:40] + ("…" if len(user_content) > 40 else "")
                 need_title = True
             new_session.add(conv)
