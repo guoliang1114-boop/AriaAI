@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../../../api/client'
 import { getApiBaseUrl } from '../../../config/api'
 import { MarkdownRenderer } from '../../../components/MarkdownRenderer'
@@ -10,11 +10,9 @@ import { CxIcon } from './CxIcons'
  *
  * Rendering branches by file kind (see `getFileKind`):
  *
- *  - md      : `/projects/:id/documents/:fid` → MarkdownRenderer +
- *              source / TOC / versions tabs (the legacy 4-tab UI).
+ *  - md      : `/projects/:id/documents/:fid` → MarkdownRenderer.
  *  - pdf     : `/files/:fid/download` as a blob → object URL → iframe.
- *              No tabs (preview fills the body).
- *  - image   : same blob path, rendered as `<img>`. No tabs.
+ *  - image   : same blob path, rendered as `<img>`.
  *  - other   : metadata-only card. The 下载 button in the header
  *              is the primary action.
  *
@@ -55,26 +53,6 @@ interface DocumentPayload {
   content: string
   summary: string | null
   uploaded_at: string | null
-}
-
-type TabKey = 'preview' | 'source' | 'toc' | 'versions'
-
-interface TocItem {
-  level: number
-  text: string
-  index: number
-}
-
-function extractToc(md: string): TocItem[] {
-  const out: TocItem[] = []
-  const lines = md.split('\n')
-  let i = 0
-  for (const line of lines) {
-    const m = /^(#{1,4})\s+(.+?)\s*#*\s*$/.exec(line)
-    if (m) out.push({ level: m[1].length, text: m[2].trim(), index: i })
-    i++
-  }
-  return out
 }
 
 function fileDownloadUrl(projectId: number, fileId: number): string {
@@ -124,7 +102,6 @@ export function ChatArtifactPreview({
   const kind = getFileKind(ext)
   const fileId = artifact.project_file_id ?? null
 
-  const [tab, setTab] = useState<TabKey>('preview')
   const [doc, setDoc] = useState<DocumentPayload | null>(null)
   const [docLoading, setDocLoading] = useState(false)
   const [docError, setDocError] = useState<string | null>(null)
@@ -167,7 +144,6 @@ export function ChatArtifactPreview({
     let cancelled = false
     setDoc(null)
     setDocError(null)
-    setTab('preview')
     if (kind !== 'md' || fileId == null) return
     setDocLoading(true)
     api
@@ -250,10 +226,6 @@ export function ChatArtifactPreview({
   }
 
   const content = doc?.content ?? ''
-  const toc = useMemo(
-    () => (kind === 'md' && content ? extractToc(content) : []),
-    [content, kind],
-  )
   const sizeKb = artifact.size_bytes ? Math.round(artifact.size_bytes / 1024) : null
   const headerHint =
     kind === 'md'
@@ -363,23 +335,28 @@ export function ChatArtifactPreview({
           type="button"
           onClick={handleDownload}
           disabled={downloadDisabled}
-          title={fileId == null ? '需要先保存为项目文档' : '下载文件'}
+          title={fileId == null ? '需要先保存为项目文档' : '下载'}
+          aria-label="下载"
           style={{
+            width: 28,
+            height: 28,
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 4,
-            padding: '4px 10px',
-            fontSize: 11.5,
-            color: 'var(--ink-soft)',
+            justifyContent: 'center',
+            color: 'var(--ink-mute)',
             background: 'transparent',
-            border: '1px solid var(--line)',
+            border: 'none',
             borderRadius: 'var(--r-sm)',
             cursor: downloadDisabled ? 'not-allowed' : 'pointer',
-            opacity: downloadDisabled ? 0.5 : 1,
+            opacity: downloadDisabled ? 0.4 : 1,
           }}
         >
-          <CxIcon name="arrow-right" size={11} stroke={1.6} />
-          {downloading ? '下载中…' : '下载'}
+          <CxIcon
+            name="download"
+            size={14}
+            stroke={1.6}
+            style={{ opacity: downloading ? 0.5 : 1 }}
+          />
         </button>
         <button
           type="button"
@@ -399,66 +376,8 @@ export function ChatArtifactPreview({
         </button>
       </div>
 
-      {/* Tab strip — MD only. PDF/image/other don't have meaningful
-       * source / TOC tabs and the version history is a placeholder
-       * we'd rather not pad with. */}
-      {kind === 'md' && (
-        <div
-          style={{
-            padding: '0 16px',
-            borderBottom: '1px solid var(--line-soft)',
-            display: 'flex',
-            gap: 4,
-            flexShrink: 0,
-          }}
-        >
-          {(
-            [
-              { k: 'preview', label: '预览' },
-              { k: 'source', label: '源码' },
-              { k: 'toc', label: '目录' },
-              { k: 'versions', label: '版本' },
-            ] as const
-          ).map((t) => {
-            const active = tab === t.k
-            return (
-              <button
-                key={t.k}
-                type="button"
-                onClick={() => setTab(t.k)}
-                style={{
-                  position: 'relative',
-                  padding: '8px 4px',
-                  marginRight: 12,
-                  fontSize: 12.5,
-                  color: active ? 'var(--ink)' : 'var(--ink-mute)',
-                  fontWeight: active ? 500 : 400,
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                {t.label}
-                {active && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      right: 0,
-                      bottom: -1,
-                      height: 2,
-                      background: 'var(--accent)',
-                    }}
-                  />
-                )}
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Body — dispatch on kind. Non-md kinds get the whole body
-       * since they don't have tabs. */}
+      {/* Body — dispatch on kind. Every kind is single-pane now;
+       * the multi-tab strip was removed to keep the preview pure. */}
       <div
         style={{
           flex: 1,
@@ -479,13 +398,7 @@ export function ChatArtifactPreview({
         {fileId == null ? (
           <UnsavedArtifactState />
         ) : kind === 'md' ? (
-          <MdBody
-            tab={tab}
-            loading={docLoading}
-            error={docError}
-            content={content}
-            toc={toc}
-          />
+          <MdBody loading={docLoading} error={docError} content={content} />
         ) : kind === 'pdf' ? (
           <BlobBody
             loading={blobLoading}
@@ -525,48 +438,23 @@ export function ChatArtifactPreview({
 }
 
 function MdBody({
-  tab,
   loading,
   error,
   content,
-  toc,
 }: {
-  tab: TabKey
   loading: boolean
   error: string | null
   content: string
-  toc: TocItem[]
 }) {
   if (loading) return <div style={{ fontSize: 12, color: 'var(--ink-mute)' }}>加载中…</div>
   if (error) {
     return <div style={{ fontSize: 12, color: 'var(--bad)', lineHeight: 1.6 }}>{error}</div>
   }
-  if (tab === 'preview') {
-    return (
-      <div className="md-root" style={{ fontSize: 13.5, color: 'var(--ink)' }}>
-        <MarkdownRenderer content={content} />
-      </div>
-    )
-  }
-  if (tab === 'source') {
-    return (
-      <pre
-        style={{
-          margin: 0,
-          fontSize: 12,
-          lineHeight: 1.65,
-          color: 'var(--ink-soft)',
-          fontFamily: '"JetBrains Mono", "SF Mono", ui-monospace, monospace',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-        }}
-      >
-        {content}
-      </pre>
-    )
-  }
-  if (tab === 'toc') return <TocView items={toc} />
-  return <VersionsPlaceholder />
+  return (
+    <div className="md-root" style={{ fontSize: 13.5, color: 'var(--ink)' }}>
+      <MarkdownRenderer content={content} />
+    </div>
+  )
 }
 
 function BlobBody({
@@ -602,60 +490,6 @@ function BlobBody({
   }
   if (!url) return null
   return <>{renderUrl(url)}</>
-}
-
-function TocView({ items }: { items: TocItem[] }) {
-  if (items.length === 0) {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--ink-faint)', lineHeight: 1.6 }}>
-        当前文档没有标题
-      </div>
-    )
-  }
-  return (
-    <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-      {items.map((it) => (
-        <li
-          key={`${it.index}-${it.text}`}
-          style={{
-            padding: '5px 0',
-            paddingLeft: (it.level - 1) * 14,
-            fontSize: 12.5,
-            color: it.level === 1 ? 'var(--ink)' : 'var(--ink-soft)',
-            fontWeight: it.level === 1 ? 500 : 400,
-            lineHeight: 1.5,
-            wordBreak: 'break-word',
-          }}
-        >
-          <CxIcon
-            name="dot"
-            size={6}
-            style={{
-              color: 'var(--ink-faint)',
-              marginRight: 6,
-              verticalAlign: 'middle',
-            }}
-          />
-          {it.text}
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-function VersionsPlaceholder() {
-  return (
-    <div
-      style={{
-        fontSize: 12,
-        color: 'var(--ink-faint)',
-        lineHeight: 1.7,
-        padding: '12px 0',
-      }}
-    >
-      暂无历史版本 · 下次保存到项目文档后会出现在这里
-    </div>
-  )
 }
 
 function OtherFormatState({
