@@ -395,45 +395,28 @@ def _is_explicit_file_read_request(text: str) -> bool:
     return False
 
 
-def detect_action_policy(content: str, *, project_id: int | None = None, force_skill: bool = False) -> tuple[ActionPolicy, str, float]:
-    """Return the strictest explicit policy suggested by the user message."""
-    routing_content = primary_user_request_text(content)
-    text = _normalize(routing_content)
-    if not text:
-        return ActionPolicy.DIRECT_ANSWER, "empty", 0.99
-    if _is_destructive_request(text):
-        return ActionPolicy.DESTRUCTIVE_ACTION, "destructive_terms", 0.98
-    if project_id and _has_any(text, PROJECT_SPACE_ORGANIZATION_TERMS) and _has_any(text, ("空间", "项目空间", "文件", "文档", "资料", "file", "document")):
-        return ActionPolicy.MODIFY_EXISTING_FILE, "project_space_organization", 0.94
-    if is_question_like(routing_content):
-        return (ActionPolicy.READ_ONLY_TOOL if project_id else ActionPolicy.DIRECT_ANSWER), "question", 0.86
-    if project_id and _is_explicit_file_read_request(text):
-        return ActionPolicy.READ_ONLY_TOOL, "explicit_read", 0.9
-    explicit_modify = _has_any(text, MODIFY_TERMS) and (
-        _has_any(text, DOCUMENT_TERMS)
-        or _has_any(text, OFFICE_ARTIFACT_TERMS)
-        or _has_any(text, ("刚才的", "现有", "已有", "previous", "existing", "last"))
+def detect_action_policy(
+    content: str, *, project_id: int | None = None, force_skill: bool = False
+) -> tuple[ActionPolicy, str, float]:
+    """Return the strictest explicit policy suggested by the user message.
+
+    Thin wrapper that delegates to ``capability_resolver.resolve_capability``
+    — the canonical single decision point. Lazy import breaks the
+    cycle between ``policy_guards`` (term constants live here) and
+    ``capability_resolver`` (decisions live there).
+    """
+    # Lazy import: intent_signals reads term constants from this
+    # module, so a top-level import would form a cycle.
+    from app.services.chat.capability_resolver import resolve_capability  # noqa: PLC0415
+
+    resolved = resolve_capability(
+        content, project_id=project_id, force_skill=force_skill
     )
-    if explicit_modify:
-        return ActionPolicy.MODIFY_EXISTING_FILE, "explicit_modify", 0.93
-    explicit_write = _has_any(text, WRITE_TERMS) or (
-        _has_any(text, ("生成", "制作", "整理一份", "做一份", "准备一份", "输出", "create", "write", "generate"))
-        and (_has_any(text, DOCUMENT_TERMS) or _has_any(text, OFFICE_ARTIFACT_TERMS))
+    return (
+        resolved.action_policy,
+        resolved.action_policy_reason,
+        resolved.action_policy_confidence,
     )
-    artifact_intent = detect_artifact_intent(routing_content)
-    if artifact_intent.requested:
-        return ActionPolicy.WRITE_ARTIFACT, artifact_intent.reason, artifact_intent.confidence
-    if explicit_write:
-        return ActionPolicy.WRITE_ARTIFACT, "explicit_write", 0.9
-    if project_id and _has_any(text, PROJECT_ANALYSIS_TERMS) and not _is_explicit_file_read_request(text):
-        if "结构化记忆" not in text:
-            return ActionPolicy.READ_ONLY_TOOL, "project_analysis_read_exploration", 0.82
-        return ActionPolicy.DIRECT_ANSWER, "project_analysis", 0.82
-    if project_id and _has_any(text, CONCISE_SUMMARY_TERMS):
-        return ActionPolicy.DIRECT_ANSWER, "concise_project_summary", 0.88
-    if force_skill:
-        return ActionPolicy.READ_ONLY_TOOL, "forced_skill", 0.86
-    return (ActionPolicy.READ_ONLY_TOOL if project_id else ActionPolicy.DIRECT_ANSWER), "default", 0.72
 
 
 def detect_tool_access_policy(
@@ -443,28 +426,31 @@ def detect_tool_access_policy(
     action_policy: ActionPolicy | str = ActionPolicy.DIRECT_ANSWER,
     force_skill: bool = False,
 ) -> ToolAccessPolicy:
-    """Classify tool visibility independently from side-effect permission."""
-    current = ActionPolicy(action_policy) if isinstance(action_policy, str) else action_policy
-    routing_content = primary_user_request_text(content)
-    text = _normalize(routing_content)
-    if current in {
-        ActionPolicy.WRITE_ARTIFACT,
-        ActionPolicy.MODIFY_EXISTING_FILE,
-        ActionPolicy.DURABLE_TASK,
-        ActionPolicy.DESTRUCTIVE_ACTION,
-    }:
-        return ToolAccessPolicy.WRITE_ALLOWED
-    if not project_id and not force_skill:
-        return ToolAccessPolicy.NONE
-    if _is_explicit_file_read_request(text):
-        return ToolAccessPolicy.EXPLICIT_FILE_READ
-    if force_skill:
-        return ToolAccessPolicy.READ_ON_DEMAND
-    if project_id:
-        if _has_any(text, CONCISE_SUMMARY_TERMS) or "结构化记忆" in text:
-            return ToolAccessPolicy.INJECTED_CONTEXT_ONLY
-        return ToolAccessPolicy.READ_ON_DEMAND
-    return ToolAccessPolicy.NONE
+    """Classify tool visibility independently from side-effect permission.
+
+    Thin wrapper that delegates to ``capability_resolver.resolve_tool_access``.
+    Accepts a caller-provided ``action_policy`` because the legacy API
+    pattern is "classify_chat_mode_and_policy computes action policy
+    first, then asks for tool access with that policy in hand."
+    """
+    from app.services.chat.capability_resolver import (  # noqa: PLC0415
+        ResolverContext,
+        resolve_tool_access,
+    )
+    from app.services.chat.intent_signals import extract_intent_signals  # noqa: PLC0415
+
+    current = (
+        ActionPolicy(action_policy) if isinstance(action_policy, str) else action_policy
+    )
+    signals = extract_intent_signals(
+        content, project_id=project_id, force_skill=force_skill
+    )
+    tool_access, _rule = resolve_tool_access(
+        signals,
+        ResolverContext(project_id=project_id, force_skill=force_skill),
+        current,
+    )
+    return tool_access
 
 
 def classify_chat_mode_and_policy(
