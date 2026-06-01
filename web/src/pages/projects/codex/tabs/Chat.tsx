@@ -104,6 +104,31 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
     if (conversations.length > 0) setSelectedId(conversations[0].id)
   }, [conversations, selectedId])
 
+  // Guard against stale selection — if selectedId points at a
+  // conversation that's no longer in the list (deleted in another
+  // tab, deleted before this mount finished, etc.), reset to null
+  // so the auto-select effect above can pick a fresh row instead
+  // of letting useConversationMessages 404 forever.
+  useEffect(() => {
+    if (selectedId == null) return
+    if (convsLoading) return
+    if (conversations.length === 0) return
+    if (!conversations.some((c) => c.id === selectedId)) {
+      setSelectedId(null)
+    }
+  }, [conversations, convsLoading, selectedId])
+
+  // Recovery — if the messages fetch 404s (conversation was
+  // deleted on the server but still cached in the list, or some
+  // other race), drop the selection and refetch the list so the
+  // user lands on a valid conversation.
+  useEffect(() => {
+    if (!msgsError) return
+    if (!msgsError.includes('404')) return
+    setSelectedId(null)
+    void refetchConvs()
+  }, [msgsError, refetchConvs])
+
   const handleNewConversation = async () => {
     if (creating) return
     setCreating(true)
