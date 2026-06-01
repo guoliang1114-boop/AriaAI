@@ -8,7 +8,7 @@ import type {
 } from '../../../../types/api'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
-import { CxSkeleton } from '../../../../components/codex'
+import { CxConfirmDialog, CxSkeleton } from '../../../../components/codex'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxConversationRenameDialog } from '../CxConversationActions'
@@ -557,6 +557,7 @@ function ThreadView({
   const toast = useToast()
   const [deleting, setDeleting] = useState(false)
   const [renaming, setRenaming] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   // Composer text is lifted here so the empty-state prompts can
   // seed it. Cleared on send.
@@ -585,11 +586,11 @@ function ThreadView({
 
   const handleDelete = async () => {
     if (deleting) return
-    if (!confirm('删除这段对话?消息记录将一并移除。')) return
     setDeleting(true)
     try {
       await api.delete(`/chat/conversations/${conversationId}`)
       toast.success({ title: '对话已删除' })
+      setConfirmDelete(false)
       await onDeleted()
     } catch (err) {
       toast.error({
@@ -640,7 +641,7 @@ function ThreadView({
         </h2>
         <ConversationMenu
           onRename={() => setRenaming(true)}
-          onDelete={handleDelete}
+          onDelete={() => setConfirmDelete(true)}
           onOpenInChat={() =>
             navigate(`/chat?conversation=${conversationId}&project=${projectId}`)
           }
@@ -652,6 +653,18 @@ function ThreadView({
         conversation={conversation}
         onClose={() => setRenaming(false)}
         onSaved={onChanged}
+      />
+      <CxConfirmDialog
+        open={confirmDelete}
+        onClose={() => {
+          if (!deleting) setConfirmDelete(false)
+        }}
+        onConfirm={handleDelete}
+        title="删除这段对话?"
+        description="对话和所有消息记录将一并移除,此操作不可撤销。"
+        tone="danger"
+        confirmLabel={deleting ? '删除中…' : '删除'}
+        busy={deleting}
       />
 
       {/* Messages */}
