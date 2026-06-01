@@ -16,7 +16,11 @@ import { ProjectChatMessage } from '../ChatMessage'
 import { ChatArtifactPreview } from '../ChatArtifactPreview'
 import { ChatEmptyState } from '../ChatEmptyState'
 import { ChatSpaceTree } from '../ChatSpaceTree'
-import { useChatStream, type ChatStreamStatus } from '../useChatStream'
+import {
+  useChatStream,
+  type ChatCapabilityFrame,
+  type ChatStreamStatus,
+} from '../useChatStream'
 import {
   formatUpdatedRelative,
   useConversationMessages,
@@ -72,7 +76,13 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
     [serverMessages, pending],
   )
 
-  const { status: streamStatus, streamingContent, statusMessage, send } = useChatStream({
+  const {
+    status: streamStatus,
+    streamingContent,
+    statusMessage,
+    capability,
+    send,
+  } = useChatStream({
     projectId,
     conversationId: selectedId,
     onUserMessage: (m) => setPending((prev) => [...prev, m]),
@@ -172,6 +182,7 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
               streamStatus={streamStatus}
               streamingContent={streamingContent}
               streamStatusMessage={statusMessage}
+              capability={capability}
               onSend={send}
               onOpenArtifact={setOpenArtifact}
               onDeleted={async () => {
@@ -518,6 +529,7 @@ interface ThreadViewProps {
   streamStatus: ChatStreamStatus
   streamingContent: string
   streamStatusMessage: string | null
+  capability: ChatCapabilityFrame | null
   onSend: (text: string) => Promise<void>
   onOpenArtifact: (artifact: GeneratedArtifact) => void
   onDeleted: () => Promise<void>
@@ -535,6 +547,7 @@ function ThreadView({
   streamStatus,
   streamingContent,
   streamStatusMessage,
+  capability,
   onSend,
   onOpenArtifact,
   onDeleted,
@@ -654,6 +667,8 @@ function ThreadView({
           width: '100%',
         }}
       >
+        {capability && <CapabilityPill capability={capability} />}
+
         {messagesLoading && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             {Array.from({ length: 3 }).map((_, i) => (
@@ -973,6 +988,61 @@ function Composer({
           发送 <CxIcon name="arrow-right" size={11} stroke={1.8} />
         </button>
       </div>
+    </div>
+  )
+}
+
+/* ────────────────────────────────────────────────────────────────
+ * CapabilityPill — dev-only observability strip. Renders the
+ * action_policy / tool_access / intent_reason / tools_granted_count
+ * the backend reported for the current turn so researchers can
+ * answer "why didn't Aria use a tool?" without trawling logs.
+ * Shown only when import.meta.env.DEV is truthy; prod users never
+ * see this.
+ * ──────────────────────────────────────────────────────────────── */
+function CapabilityPill({ capability }: { capability: ChatCapabilityFrame }) {
+  if (!import.meta.env.DEV) return null
+  const writeAllowed = capability.tool_access_policy === 'write_allowed'
+  const noTools =
+    capability.tool_access_policy === 'none' ||
+    capability.tool_access_policy === 'injected_context_only'
+  const tone = writeAllowed ? 'var(--good)' : noTools ? 'var(--warn)' : 'var(--ink-mute)'
+  return (
+    <div
+      style={{
+        alignSelf: 'flex-start',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '4px 10px',
+        fontSize: 10.5,
+        color: 'var(--ink-mute)',
+        background: 'var(--bg-tint)',
+        border: '1px solid var(--line-soft)',
+        borderRadius: 'var(--r-pill)',
+        fontFamily: 'var(--font-mono, monospace)',
+      }}
+      title="本轮能力 · backend capability frame · dev only"
+    >
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: 99,
+          background: tone,
+        }}
+      />
+      <span style={{ color: 'var(--ink)' }}>{capability.action_policy}</span>
+      <span style={{ color: 'var(--ink-faint)' }}>·</span>
+      <span style={{ color: 'var(--ink)' }}>{capability.tool_access_policy}</span>
+      <span style={{ color: 'var(--ink-faint)' }}>·</span>
+      <span>{capability.tools_granted_count} tools</span>
+      {capability.intent_reason && (
+        <>
+          <span style={{ color: 'var(--ink-faint)' }}>·</span>
+          <span>{capability.intent_reason}</span>
+        </>
+      )}
     </div>
   )
 }

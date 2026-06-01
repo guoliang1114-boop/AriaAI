@@ -210,6 +210,40 @@ async def stream_chat_events(
     if runtime.rag_sources:
         yield sse_event({"type": "references", "references": runtime.rag_sources})
 
+    # Capability frame — emits the policy/tool snapshot the runtime
+    # decided on. The frontend can render a dev pill ("能力·
+    # WRITE_ALLOWED · explicit_write") from this; researchers grep
+    # the matching server log line ([capability]) when debugging why
+    # a turn lost a tool. Strictly additive: old clients ignore the
+    # unknown event type.
+    _capability_tool_names = [
+        str(tool.get("name") or "")
+        for tool in (runtime.tools or [])
+        if tool and tool.get("name")
+    ]
+    _capability_payload = {
+        "type": "capability",
+        "action_policy": str(runtime.action_policy or ""),
+        "tool_access_policy": str(runtime.tool_access_policy or ""),
+        "intent_reason": str(runtime.intent_reason or ""),
+        "intent_method": str(runtime.intent_method or ""),
+        "tools_granted": _capability_tool_names,
+        "tools_granted_count": len(_capability_tool_names),
+        "chat_mode": str(runtime.chat_mode or ""),
+    }
+    logger.info(
+        "[capability] run_id=%s action_policy=%s tool_access=%s "
+        "intent_reason=%s intent_method=%s tools_granted=%d chat_mode=%s",
+        state.run_id,
+        _capability_payload["action_policy"],
+        _capability_payload["tool_access_policy"],
+        _capability_payload["intent_reason"],
+        _capability_payload["intent_method"],
+        _capability_payload["tools_granted_count"],
+        _capability_payload["chat_mode"],
+    )
+    yield sse_event(_capability_payload)
+
     for metric_key in (
         "conversation_ready_ms",
         "user_message_saved_ms",

@@ -24,6 +24,20 @@ import type { GeneratedArtifact, Message } from '../../../types/api'
 
 export type ChatStreamStatus = 'idle' | 'sending' | 'streaming' | 'error'
 
+/** Snapshot of the capability the backend gave THIS turn — emitted
+ * via the SSE ``capability`` event at run start. Used by the dev
+ * pill so researchers can answer "why didn't Aria use a tool?" by
+ * looking at the page instead of trawling logs. */
+export interface ChatCapabilityFrame {
+  action_policy: string
+  tool_access_policy: string
+  intent_reason: string
+  intent_method: string
+  tools_granted: string[]
+  tools_granted_count: number
+  chat_mode: string
+}
+
 interface UseChatStreamArgs {
   projectId: number
   conversationId: number | null
@@ -41,6 +55,10 @@ interface UseChatStreamReturn {
    * backend `status` events. Useful for the placeholder bubble's
    * header. */
   statusMessage: string | null
+  /** Latest capability snapshot the backend reported for this
+   * conversation. Null until the first turn's capability event
+   * lands. */
+  capability: ChatCapabilityFrame | null
   send: (content: string) => Promise<void>
 }
 
@@ -57,6 +75,13 @@ interface StreamEvent {
   key?: string
   tool_name?: string
   error?: string
+  action_policy?: string
+  tool_access_policy?: string
+  intent_reason?: string
+  intent_method?: string
+  tools_granted?: string[]
+  tools_granted_count?: number
+  chat_mode?: string
 }
 
 function readApiError(err: unknown): string {
@@ -69,6 +94,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   const [status, setStatus] = useState<ChatStreamStatus>('idle')
   const [streamingContent, setStreamingContent] = useState('')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [capability, setCapability] = useState<ChatCapabilityFrame | null>(null)
   // Refs for the long-lived stream parser to avoid stale closures.
   const accumulatedRef = useRef('')
   const artifactsRef = useRef<GeneratedArtifact[]>([])
@@ -149,6 +175,16 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           accumulatedRef.current += ev.content
           setStreamingContent(accumulatedRef.current)
           setStatusMessage(null)
+        } else if (ev.type === 'capability') {
+          setCapability({
+            action_policy: ev.action_policy ?? '',
+            tool_access_policy: ev.tool_access_policy ?? '',
+            intent_reason: ev.intent_reason ?? '',
+            intent_method: ev.intent_method ?? '',
+            tools_granted: Array.isArray(ev.tools_granted) ? ev.tools_granted : [],
+            tools_granted_count: ev.tools_granted_count ?? 0,
+            chat_mode: ev.chat_mode ?? '',
+          })
         } else if (ev.type === 'status') {
           if (ev.message) setStatusMessage(ev.message)
         } else if (ev.type === 'tool_executing') {
@@ -241,5 +277,5 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     [conversationId, projectId, onAssistantMessage, onUserMessage, onError, status],
   )
 
-  return { status, streamingContent, statusMessage, send }
+  return { status, streamingContent, statusMessage, capability, send }
 }
