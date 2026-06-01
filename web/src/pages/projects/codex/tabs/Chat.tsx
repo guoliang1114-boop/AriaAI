@@ -14,6 +14,7 @@ import { CxProjectShell } from '../CxProjectShell'
 import { CxConversationRenameDialog } from '../CxConversationActions'
 import { ProjectChatMessage } from '../ChatMessage'
 import { ChatArtifactPreview } from '../ChatArtifactPreview'
+import { ChatEmptyState } from '../ChatEmptyState'
 import { ChatSpaceTree } from '../ChatSpaceTree'
 import { useChatStream, type ChatStreamStatus } from '../useChatStream'
 import {
@@ -164,6 +165,7 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
               projectId={projectId}
               conversationId={selectedId}
               conversation={selectedConv}
+              detail={detail}
               messages={allMessages}
               messagesLoading={msgsLoading}
               messagesError={msgsError}
@@ -509,6 +511,7 @@ interface ThreadViewProps {
   projectId: number
   conversationId: number
   conversation: Conversation | null
+  detail: ProjectDetailType
   messages: Message[]
   messagesLoading: boolean
   messagesError: string | null
@@ -525,6 +528,7 @@ function ThreadView({
   projectId,
   conversationId,
   conversation,
+  detail,
   messages,
   messagesLoading,
   messagesError,
@@ -541,6 +545,10 @@ function ThreadView({
   const [deleting, setDeleting] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Composer text is lifted here so the empty-state prompts can
+  // seed it. Cleared on send.
+  const [composerText, setComposerText] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Auto-scroll while a reply is streaming. Cheap to do every
   // render — the diff is append-only.
@@ -667,19 +675,16 @@ function ThreadView({
         )}
 
         {!messagesLoading && !messagesError && messages.length === 0 && !busy && (
-          <div
-            style={{
-              textAlign: 'center',
-              fontSize: 13,
-              color: 'var(--ink-faint)',
-              padding: '48px 0',
-              lineHeight: 1.7,
+          <ChatEmptyState
+            projectId={projectId}
+            detail={detail}
+            onSelectPrompt={(text) => {
+              setComposerText(text)
+              // Defer focus until the empty-state-to-composer
+              // transition stabilizes.
+              setTimeout(() => textareaRef.current?.focus(), 0)
             }}
-          >
-            这段对话还没有消息。
-            <br />
-            在下方输入框开始第一条。
-          </div>
+          />
         )}
 
         {!messagesLoading &&
@@ -698,7 +703,16 @@ function ThreadView({
 
       {/* Composer */}
       <div style={{ padding: '0 56px 22px', width: '100%' }}>
-        <Composer onSend={onSend} disabled={busy} />
+        <Composer
+          value={composerText}
+          onChange={setComposerText}
+          onSend={async (text) => {
+            await onSend(text)
+            setComposerText('')
+          }}
+          disabled={busy}
+          textareaRef={textareaRef}
+        />
       </div>
     </>
   )
@@ -854,15 +868,18 @@ function ConversationMenu({ onRename, onDelete, onOpenInChat, deleting }: Conver
  * "直接沟通" MVP for the project chat tab.
  * ──────────────────────────────────────────────────────────────── */
 function Composer({
+  value,
+  onChange,
   onSend,
   disabled,
+  textareaRef,
 }: {
+  value: string
+  onChange: (next: string) => void
   onSend: (text: string) => void | Promise<void>
   disabled: boolean
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
-  const [value, setValue] = useState('')
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
   const autosize = () => {
     const el = textareaRef.current
     if (!el) return
@@ -872,12 +889,14 @@ function Composer({
 
   useEffect(() => {
     autosize()
+    // textareaRef is stable across renders; autosize reads .current
+    // imperatively.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
   const submit = () => {
     const text = value.trim()
     if (!text || disabled) return
-    setValue('')
     void onSend(text)
   }
 
@@ -895,7 +914,7 @@ function Composer({
       <textarea
         ref={textareaRef}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
