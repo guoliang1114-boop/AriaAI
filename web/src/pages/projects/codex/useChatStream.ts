@@ -43,6 +43,10 @@ interface UseChatStreamArgs {
   conversationId: number | null
   onUserMessage: (msg: Message) => void
   onAssistantMessage: (msg: Message) => void
+  /** Fires when the backend's in-band auto-titler pushes a fresh
+   * title for this conversation. Parent should update the rail
+   * immediately — no refetch needed. */
+  onConversationTitle?: (conversationId: number, title: string) => void
   onError?: (message: string) => void
 }
 
@@ -82,6 +86,9 @@ interface StreamEvent {
   tools_granted?: string[]
   tools_granted_count?: number
   chat_mode?: string
+  // conversation_title event payload
+  conversation_id?: number
+  title?: string
 }
 
 function readApiError(err: unknown): string {
@@ -90,7 +97,14 @@ function readApiError(err: unknown): string {
 }
 
 export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
-  const { projectId, conversationId, onUserMessage, onAssistantMessage, onError } = args
+  const {
+    projectId,
+    conversationId,
+    onUserMessage,
+    onAssistantMessage,
+    onConversationTitle,
+    onError,
+  } = args
   const [status, setStatus] = useState<ChatStreamStatus>('idle')
   const [streamingContent, setStreamingContent] = useState('')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
@@ -175,6 +189,14 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           accumulatedRef.current += ev.content
           setStreamingContent(accumulatedRef.current)
           setStatusMessage(null)
+        } else if (ev.type === 'conversation_title') {
+          if (
+            typeof ev.conversation_id === 'number' &&
+            typeof ev.title === 'string' &&
+            ev.title.trim() !== ''
+          ) {
+            onConversationTitle?.(ev.conversation_id, ev.title)
+          }
         } else if (ev.type === 'capability') {
           setCapability({
             action_policy: ev.action_policy ?? '',
@@ -274,7 +296,15 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       setStatus('idle')
       reset()
     },
-    [conversationId, projectId, onAssistantMessage, onUserMessage, onError, status],
+    [
+      conversationId,
+      projectId,
+      onAssistantMessage,
+      onUserMessage,
+      onConversationTitle,
+      onError,
+      status,
+    ],
   )
 
   return { status, streamingContent, statusMessage, capability, send }

@@ -39,7 +39,7 @@ from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
 from app.services.chat.trace import persist_chat_trace
 from app.services.chat.workflow import workflow_status
-from app.services.title_generator import schedule_title_generation
+from app.services.title_generator import generate_conversation_title, schedule_title_generation
 from app.tools import registry
 from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME
 
@@ -1022,12 +1022,33 @@ async def run_persist(
         from app.services.chat.product_run_events import message_persisted as _message_persisted
 
         yield sse_event(_message_persisted(state.run_id, assistant_message_id))
-    yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
 
+    # Auto-title — best-practice path. When this is the first turn of
+    # a fresh conversation, we run the title LLM in-band (after the
+    # main response is persisted) and push the result via a typed
+    # SSE event so the frontend updates the sidebar immediately. No
+    # polling, no fire-and-forget — the title arrives before
+    # ``done`` and the rail snaps to the final value.
     if need_title and full_text:
-        schedule_title_generation(
-            conv_id=runtime.conv_id,
-            user_content=req.content,
-            bind=bind,
-            complete_fn=runtime.llm.complete,
-        )
+        try:
+            generated = await generate_conversation_title(
+                conv_id=runtime.conv_id,
+                user_content=req.content,
+                session_factory=lambda: Session(bind),
+                complete_fn=runtime.llm.complete,
+            )
+            if generated:
+                yield sse_event(
+                    {
+                        "type": "conversation_title",
+                        "conversation_id": runtime.conv_id,
+                        "title": generated,
+                    }
+                )
+        except Exception as exc:
+            # Title generation failure is non-fatal — the stand-in
+            # truncation title set by persist_assistant_message
+            # stays in place. Log and move on.
+            logger.warning("[persist] auto-title generation failed: %s", exc)
+
+    yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})

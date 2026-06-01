@@ -86,17 +86,13 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
     projectId,
     conversationId: selectedId,
     onUserMessage: (m) => setPending((prev) => [...prev, m]),
-    onAssistantMessage: (m) => {
-      setPending((prev) => [...prev, m])
-      // After an assistant message lands the backend may have
-      // assigned a stand-in title (first turn) and queued the LLM
-      // title generator. Refetch immediately for the truncation,
-      // then again 7 s later to pick up the LLM upgrade (~5 s
-      // generator delay + jitter).
+    onAssistantMessage: (m) => setPending((prev) => [...prev, m]),
+    onConversationTitle: () => {
+      // Backend pushed the in-band auto-title via the SSE
+      // ``conversation_title`` event. Refetching the convs list is
+      // enough — the rail will pick up the new row state on next
+      // render. No polling, no setTimeout.
       void refetchConvs()
-      window.setTimeout(() => {
-        void refetchConvs()
-      }, 7000)
     },
     onError: (msg) => toast.error({ title: '发送失败', description: msg }),
   })
