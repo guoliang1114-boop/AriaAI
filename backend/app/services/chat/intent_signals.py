@@ -76,6 +76,24 @@ _PRIOR_REFERENCE_TERMS = (
     "last",
 )
 
+# Save/output intent terms. Added in Phase 4 to catch the failure
+# mode where the user explicitly asks to save / persist something but
+# their phrasing doesn't include a format marker (no "md" / "pdf" /
+# etc) — so detect_artifact_intent misses it, and the legacy cascade
+# silently lands on DIRECT_ANSWER + INJECTED_CONTEXT_ONLY because of
+# a co-occurring read hint like "结构化记忆".
+_SAVE_ACTION_TERMS = (
+    "保存为",
+    "保存成",
+    "保存到",
+    "另存为",
+    "另存成",
+    "存为",
+    "存成",
+    "save as",
+    "save to",
+)
+
 
 @dataclass(frozen=True)
 class IntentSignals:
@@ -119,6 +137,12 @@ class IntentSignals:
     has_concise_summary_terms: bool
     references_structured_memory: bool
 
+    # Save / persistence intent (Phase 4) — narrow signal that
+    # specifically catches "保存为 X" / "另存为 X" phrasing where
+    # the format marker may be unspecified or non-canonical. Used by
+    # the resolver to escalate past read-hint downgrades.
+    has_save_action_terms: bool
+
     # ──────────────────────────────────────────────────────────────
     # Convenience composites — Phase 4 will use these to give explicit
     # write intent priority over read hints. Phase 1 does not consume
@@ -132,13 +156,14 @@ class IntentSignals:
         should produce / modify a deliverable. Used by the resolver's
         explicit-write-wins rule (Phase 4). Mirrors the union of
         signals the legacy cascade scattered across multiple
-        branches."""
+        branches, plus the new ``has_save_action_terms`` signal."""
         return (
             self.has_explicit_modify_intent
             or self.has_write_terms
             or self.has_create_verbs_with_doc_target
             or self.artifact_intent.requested
             or self.has_project_space_organization_intent
+            or self.has_save_action_terms
         )
 
 
@@ -181,6 +206,7 @@ def extract_intent_signals(
             has_project_analysis_terms=False,
             has_concise_summary_terms=False,
             references_structured_memory=False,
+            has_save_action_terms=False,
         )
 
     is_destructive = (
@@ -211,6 +237,7 @@ def extract_intent_signals(
     has_project_analysis_terms = _has_any(text, PROJECT_ANALYSIS_TERMS)
     has_concise_summary_terms = _has_any(text, CONCISE_SUMMARY_TERMS)
     references_structured_memory = "结构化记忆" in text
+    has_save_action_terms = _has_any(text, _SAVE_ACTION_TERMS)
 
     return IntentSignals(
         raw_content=content or "",
@@ -228,6 +255,7 @@ def extract_intent_signals(
         has_project_analysis_terms=has_project_analysis_terms,
         has_concise_summary_terms=has_concise_summary_terms,
         references_structured_memory=references_structured_memory,
+        has_save_action_terms=has_save_action_terms,
     )
 
 

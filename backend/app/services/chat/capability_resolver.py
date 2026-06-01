@@ -128,6 +128,19 @@ def resolve_action_policy(
             0.9,
         )
 
+    # Phase 4 — explicit save intent overrides read hints. The
+    # legacy cascade silently downgraded "save as X" / "另存为 X"
+    # phrasing to DIRECT_ANSWER when it co-occurred with a read hint
+    # like "结构化记忆". This rule escalates to WRITE_ARTIFACT so
+    # the user actually gets a file out instead of in-chat text.
+    if signals.has_save_action_terms:
+        return (
+            ActionPolicy.WRITE_ARTIFACT,
+            "action.save_intent_overrides_read_hints",
+            "save_intent",
+            0.88,
+        )
+
     if (
         ctx.project_id
         and signals.has_project_analysis_terms
@@ -209,6 +222,16 @@ def resolve_tool_access(
         return ToolAccessPolicy.READ_ON_DEMAND, "tool.force_skill"
 
     if ctx.project_id:
+        # Phase 4 — second-line guard. If the action ladder didn't
+        # escalate (perhaps the artifact_intent detector missed) but
+        # signals still carry an explicit write intent, never
+        # silently drop to INJECTED_CONTEXT_ONLY. The user asked for
+        # something; let the model see tools.
+        if signals.has_any_write_intent:
+            return (
+                ToolAccessPolicy.WRITE_ALLOWED,
+                "tool.explicit_write_overrides_read_hints",
+            )
         if signals.has_concise_summary_terms or signals.references_structured_memory:
             return (
                 ToolAccessPolicy.INJECTED_CONTEXT_ONLY,

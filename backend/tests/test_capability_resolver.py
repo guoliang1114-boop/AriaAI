@@ -262,15 +262,27 @@ def test_tool_access_force_skill():
     assert rule == "tool.force_skill"
 
 
-def test_tool_access_structured_memory_locks_to_injected_context_only():
-    # THE bug we're tracking. Phase 1 must reproduce it; Phase 4
-    # changes it.
+def test_tool_access_structured_memory_with_pure_read_still_injected_only():
+    # Pure-read structured_memory phrasing — no write signals —
+    # keeps the legacy INJECTED_CONTEXT_ONLY behaviour. The Phase 4
+    # rule only escalates when there's also a write signal.
     access, rule = _ta(
-        "请基于当前项目的结构化记忆给我一份 markdown 报告",
+        "基于结构化记忆梳理一下风险",
         action_policy=ActionPolicy.READ_ONLY_TOOL,
     )
     assert access == ToolAccessPolicy.INJECTED_CONTEXT_ONLY
     assert rule == "tool.injected_context_for_summary_or_structured_memory"
+
+
+def test_tool_access_structured_memory_with_write_intent_escalates_phase4():
+    # The bug fixed by Phase 4 — explicit write intent ("markdown")
+    # now wins over the structured_memory read hint.
+    access, rule = _ta(
+        "请基于当前项目的结构化记忆给我一份 markdown 报告",
+        action_policy=ActionPolicy.READ_ONLY_TOOL,
+    )
+    assert access == ToolAccessPolicy.WRITE_ALLOWED
+    assert rule == "tool.explicit_write_overrides_read_hints"
 
 
 def test_tool_access_concise_summary_locks_to_injected_context_only():
@@ -327,6 +339,77 @@ def test_resolve_capability_preserves_legacy_reason_strings():
 # ──────────────────────────────────────────────────────────────────
 # Behaviour equivalence with legacy policy_guards.detect_*
 # ──────────────────────────────────────────────────────────────────
+
+
+# ──────────────────────────────────────────────────────────────────
+# Phase 4 — save-intent overrides read hints
+#   New rules:
+#     action.save_intent_overrides_read_hints  (WRITE_ARTIFACT)
+#     tool.explicit_write_overrides_read_hints (WRITE_ALLOWED)
+#   These fire when the user explicitly asks to save / persist but
+#   the phrasing previously got silently downgraded by a read hint
+#   like "结构化记忆".
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_phase4_save_intent_beats_structured_memory_for_action_policy():
+    r = resolve_capability(
+        "基于结构化记忆把刚才的内容保存为文档", project_id=PROJECT_ID
+    )
+    # Either we land directly on the new rule, or an existing
+    # higher-priority write rule (explicit_modify / artifact_intent
+    # / explicit_write) caught it. Both are correct outcomes — the
+    # invariant is "ends up WRITE_ARTIFACT, never DIRECT_ANSWER".
+    assert r.action_policy == ActionPolicy.WRITE_ARTIFACT
+    assert r.signals.has_save_action_terms is True
+
+
+def test_phase4_save_intent_beats_structured_memory_for_tool_access():
+    r = resolve_capability(
+        "基于结构化记忆另存为一份资料", project_id=PROJECT_ID
+    )
+    assert r.tool_access == ToolAccessPolicy.WRITE_ALLOWED
+    # Should NOT silently drop to INJECTED_CONTEXT_ONLY anymore.
+    assert r.tool_access != ToolAccessPolicy.INJECTED_CONTEXT_ONLY
+
+
+def test_phase4_save_terms_only_no_structured_memory_still_writes():
+    r = resolve_capability(
+        "请把这段输出保存为 docx", project_id=PROJECT_ID
+    )
+    assert r.action_policy == ActionPolicy.WRITE_ARTIFACT
+    assert r.tool_access == ToolAccessPolicy.WRITE_ALLOWED
+
+
+def test_phase4_save_as_english_phrase():
+    r = resolve_capability(
+        "please save as a markdown doc using structured memory",
+        project_id=PROJECT_ID,
+    )
+    assert r.action_policy == ActionPolicy.WRITE_ARTIFACT
+
+
+def test_phase4_no_regression_for_pure_read_with_structured_memory():
+    # No save intent → existing structured_memory downgrade
+    # behavior preserved. We never want this turn to suddenly
+    # surface write tools just because we added the rule.
+    r = resolve_capability(
+        "请基于当前项目的结构化记忆梳理一下风险点", project_id=PROJECT_ID
+    )
+    # No save terms, no explicit write terms — should stay
+    # injected_context_only.
+    assert r.signals.has_save_action_terms is False
+    assert r.signals.has_any_write_intent is False
+    assert r.tool_access == ToolAccessPolicy.INJECTED_CONTEXT_ONLY
+
+
+def test_phase4_explicit_write_intent_via_artifact_intent_unaffected():
+    # Sanity: artifact_intent path still wins early in the cascade.
+    r = resolve_capability(
+        "请生成一份 markdown 报告", project_id=PROJECT_ID
+    )
+    assert r.action_policy == ActionPolicy.WRITE_ARTIFACT
+    assert r.tool_access == ToolAccessPolicy.WRITE_ALLOWED
 
 
 @pytest.mark.parametrize(
