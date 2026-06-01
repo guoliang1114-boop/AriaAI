@@ -465,6 +465,52 @@ def _append_intent_frame(
     return f"{system.rstrip()}{chr(10).join(lines)}"
 
 
+def _append_capability_frame(
+    system: str,
+    intent_decision: IntentDecision,
+    runtime_tools: list[dict] | None,
+) -> str:
+    """Tell the LLM what it can actually do this turn.
+
+    Phase 3 of the routing refactor — closes the silent-downgrade
+    failure mode. When the resolver drops to INJECTED_CONTEXT_ONLY
+    or NONE, the LLM's tool list is empty; without this section the
+    LLM has no idea why and tends to confabulate ("I don't have that
+    capability"). With the frame in place, the LLM can answer
+    truthfully: "this turn was classified as <reason>; to produce a
+    file rephrase as ...".
+    """
+    tool_names = [
+        str(tool.get("name") or "")
+        for tool in (runtime_tools or [])
+        if tool and tool.get("name")
+    ]
+    tool_names = [name for name in tool_names if name]
+    lines = [
+        "",
+        "",
+        "## Capability Frame",
+        f"- action_policy: {intent_decision.action_policy.value}",
+        f"- tool_access_policy: {intent_decision.tool_access_policy.value}",
+        f"- routing_reason: {intent_decision.reason or '-'}",
+        f"- tools_granted: {', '.join(tool_names) if tool_names else '(none)'}",
+    ]
+    if not tool_names:
+        lines.extend(
+            [
+                "",
+                "**You have NO function-calling tools for this turn.** Respond in"
+                " text only. Do not claim you can save files, generate documents,"
+                " or modify the project space — the user's request was routed to a"
+                " read-only or direct-answer mode. If the user explicitly asked for"
+                " a deliverable, say so directly and tell them how to rephrase, for"
+                " example: \"本轮没有获得写工具(routing_reason 上面已列出)。"
+                "如需生成文件,请改成『生成一份 md 项目报告』这样明确的措辞。\"",
+            ]
+        )
+    return f"{system.rstrip()}{chr(10).join(lines)}"
+
+
 def _resolve_requested_model(session: Session, req: SendMessageRequest) -> str:
     selected_model = get_selected_model(session)
     user_model = (req.model or "").strip()
@@ -664,6 +710,17 @@ def prepare_chat_runtime(
     intent_frame = _build_intent_frame(intent_decision, skill_decision, effective_skill, context_mode, consulting_frame)
     system = _append_intent_frame(system, intent_frame, consulting_frame)
 
+    # Filter tools BEFORE building the capability frame so the prompt
+    # can list the exact tools the LLM will see (Phase 3). The
+    # second filter call below is redundant but kept until we're
+    # confident this path is the only filter site.
+    runtime_tools = filter_tools_for_access(
+        chat_ctx.tools,
+        intent_decision.action_policy,
+        intent_decision.tool_access_policy,
+    )
+    system = _append_capability_frame(system, intent_decision, runtime_tools)
+
     # V0.0.4 track B: inject the current user's explicit preferences (language,
     # tone, reporting style, …) so AI behaviour stays consistent across
     # projects without re-asking every turn. Skipped when there's no user_id
@@ -694,11 +751,9 @@ def prepare_chat_runtime(
     prepare_metrics["runtime_model"] = runtime_model
 
     prepare_metrics["prepare_total_ms"] = round((time.perf_counter() - prepare_started_at) * 1000)
-    runtime_tools = filter_tools_for_access(
-        chat_ctx.tools,
-        intent_decision.action_policy,
-        intent_decision.tool_access_policy,
-    )
+    # ``runtime_tools`` already computed above (before capability frame
+    # was appended to the system prompt). Reusing the same filtered
+    # list keeps "tools the prompt advertises" == "tools the LLM sees".
 
     return ChatRuntime(
         conv_id=conv_id,
