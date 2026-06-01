@@ -53,6 +53,47 @@ function influenceScore(level: NormalizedStakeholder['level'], rel: NormalizedSt
   return Math.max(5, Math.min(95, base + adj))
 }
 
+function supportScore(rel: NormalizedStakeholder['relationship']): number {
+  // 0–100 supportiveness along the Y axis of the influence map.
+  // Tuned so the four "rel" buckets land in distinct quartiles —
+  // 反对 sits in the bottom strip (~15), 中立 right under the
+  // 50/50 cross (~45), 推动/积极 in the top half, 支持 near the
+  // ceiling so a friendly decision-maker reads as 盟友.
+  if (rel === '支持') return 90
+  if (rel === '积极') return 75
+  if (rel === '推动') return 60
+  if (rel === '中立') return 45
+  return 15
+}
+
+function levelDotSize(l: NormalizedStakeholder['level']): number {
+  if (l === '决策') return 26
+  if (l === '影响') return 22
+  if (l === '执行') return 18
+  return 16
+}
+
+function relationshipPalette(rel: NormalizedStakeholder['relationship']): {
+  bg: string
+  fg: string
+  ring: string
+} {
+  if (rel === '支持' || rel === '积极') {
+    return { bg: 'var(--accent-bg)', fg: 'var(--accent-ink)', ring: 'var(--accent)' }
+  }
+  if (rel === '推动') {
+    return { bg: 'var(--bg-tint)', fg: 'var(--accent-ink)', ring: 'var(--accent)' }
+  }
+  if (rel === '反对') {
+    return {
+      bg: 'color-mix(in oklch, var(--bad) 12%, var(--bg-elev))',
+      fg: 'var(--bad)',
+      ring: 'var(--bad)',
+    }
+  }
+  return { bg: 'var(--bg-tint)', fg: 'var(--ink-soft)', ring: 'var(--line-strong)' }
+}
+
 function levelTone(l: NormalizedStakeholder['level']): CxTone {
   if (l === '决策') return 'accent'
   if (l === '影响') return 'neutral'
@@ -295,7 +336,13 @@ export function CxProjectStakeholders({ projectId, detail, refetch }: Stakeholde
             </CxPanel>
           ) : (
             <>
-              {/* Influence map */}
+              {/* Influence map · 2D scatter (X=影响力, Y=支持度).
+                * Quadrants:
+                *   ↖ 同情者 · low influence + high support
+                *   ↗ 盟友 · high influence + high support
+                *   ↙ 观察 · low influence + low support
+                *   ↘ 风险点 · high influence + low support
+                * Dot size encodes 层级 (决策/影响/执行/其他). */}
               <div
                 style={{
                   background: 'var(--bg-elev)',
@@ -319,93 +366,177 @@ export function CxProjectStakeholders({ projectId, detail, refetch }: Stakeholde
                     影响力地图
                   </h3>
                   <span style={{ fontSize: 11, color: 'var(--ink-mute)' }}>
-                    横轴:影响力 · 圆点大小:支持度
+                    横轴:影响力 · 纵轴:支持度 · 圆点大小:层级
                   </span>
                 </div>
                 <div
                   style={{
-                    position: 'relative',
-                    height: 80,
-                    borderBottom: '1px solid var(--line-soft)',
+                    display: 'grid',
+                    gridTemplateColumns: '28px 1fr',
+                    gap: 8,
                   }}
                 >
+                  {/* Y axis labels column */}
                   <div
                     style={{
-                      position: 'absolute',
-                      left: 0,
-                      right: 0,
-                      top: '50%',
-                      height: 1,
-                      background: 'var(--line-soft)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      paddingTop: 4,
+                      paddingBottom: 22,
+                      fontSize: 10,
+                      color: 'var(--ink-faint)',
+                      textAlign: 'right',
                     }}
-                  />
-                  {rows.map((s) => {
-                    const support =
-                      s.relationship === '支持'
-                        ? 80
-                        : s.relationship === '积极'
-                          ? 75
-                          : s.relationship === '推动'
-                            ? 60
-                            : s.relationship === '中立'
-                              ? 45
-                              : 25
-                    const size = s.relationship === '支持' ? 22 : s.relationship === '积极' ? 18 : 16
-                    const positive = s.relationship === '支持' || s.relationship === '积极'
-                    return (
+                  >
+                    <span>高支持</span>
+                    <span>低支持</span>
+                  </div>
+                  <div
+                    style={{
+                      position: 'relative',
+                      height: 240,
+                      border: '1px solid var(--line-soft)',
+                      borderRadius: 'var(--r-sm)',
+                      background:
+                        'linear-gradient(135deg, color-mix(in oklch, var(--accent-bg) 35%, var(--bg-elev)) 0%, var(--bg-elev) 60%)',
+                    }}
+                  >
+                    {/* Quarter gridlines */}
+                    {[25, 50, 75].map((pct) => (
                       <div
-                        key={s.id}
+                        key={`h-${pct}`}
                         style={{
                           position: 'absolute',
-                          left: `${s.influence}%`,
-                          bottom: `${support}%`,
-                          transform: 'translate(-50%, 50%)',
+                          left: 0,
+                          right: 0,
+                          top: `${100 - pct}%`,
+                          height: 1,
+                          background:
+                            pct === 50 ? 'var(--line)' : 'var(--line-soft)',
+                          opacity: pct === 50 ? 0.9 : 0.5,
                         }}
-                      >
+                      />
+                    ))}
+                    {[25, 50, 75].map((pct) => (
+                      <div
+                        key={`v-${pct}`}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          bottom: 0,
+                          left: `${pct}%`,
+                          width: 1,
+                          background:
+                            pct === 50 ? 'var(--line)' : 'var(--line-soft)',
+                          opacity: pct === 50 ? 0.9 : 0.5,
+                        }}
+                      />
+                    ))}
+                    {/* Quadrant labels — small + faint, anchored to
+                     * the inside corners */}
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 6,
+                        left: 8,
+                        fontSize: 10,
+                        color: 'var(--ink-faint)',
+                      }}
+                    >
+                      同情者
+                    </span>
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 6,
+                        right: 8,
+                        fontSize: 10,
+                        color: 'var(--accent-ink)',
+                        fontWeight: 500,
+                      }}
+                    >
+                      盟友
+                    </span>
+                    <span
+                      style={{
+                        position: 'absolute',
+                        bottom: 6,
+                        left: 8,
+                        fontSize: 10,
+                        color: 'var(--ink-faint)',
+                      }}
+                    >
+                      观察
+                    </span>
+                    <span
+                      style={{
+                        position: 'absolute',
+                        bottom: 6,
+                        right: 8,
+                        fontSize: 10,
+                        color: 'var(--bad)',
+                        fontWeight: 500,
+                      }}
+                    >
+                      风险点
+                    </span>
+                    {/* Dots */}
+                    {rows.map((s) => {
+                      const x = s.influence
+                      const y = supportScore(s.relationship)
+                      const size = levelDotSize(s.level)
+                      const palette = relationshipPalette(s.relationship)
+                      return (
                         <span
-                          title={`${s.name} · ${s.level} · ${s.relationship}`}
+                          key={s.id}
+                          title={`${s.name} · ${s.role} · ${s.level} · ${s.relationship}`}
                           style={{
+                            position: 'absolute',
+                            left: `${x}%`,
+                            top: `${100 - y}%`,
+                            transform: 'translate(-50%, -50%)',
                             width: size,
                             height: size,
                             borderRadius: 99,
-                            background: positive ? 'var(--accent-bg)' : 'var(--bg-tint)',
-                            color: positive ? 'var(--accent-ink)' : 'var(--ink-soft)',
-                            border: `1.5px solid ${
-                              positive ? 'var(--accent)' : 'var(--line-strong)'
-                            }`,
+                            background: palette.bg,
+                            color: palette.fg,
+                            border: `1.5px solid ${palette.ring}`,
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: 10,
+                            fontSize: size >= 22 ? 11 : 10,
                             fontWeight: 500,
+                            cursor: 'help',
+                            zIndex: 1,
                           }}
                         >
                           {firstGlyph(s.name)}
                         </span>
-                      </div>
-                    )
-                  })}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      bottom: -16,
-                      left: 0,
-                      fontSize: 10,
-                      color: 'var(--ink-faint)',
-                    }}
-                  >
-                    低影响
+                      )
+                    })}
                   </div>
+                </div>
+                {/* X axis labels row */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '28px 1fr',
+                    gap: 8,
+                    marginTop: 6,
+                  }}
+                >
+                  <div />
                   <div
                     style={{
-                      position: 'absolute',
-                      bottom: -16,
-                      right: 0,
+                      display: 'flex',
+                      justifyContent: 'space-between',
                       fontSize: 10,
                       color: 'var(--ink-faint)',
                     }}
                   >
-                    高影响
+                    <span>低影响</span>
+                    <span>高影响</span>
                   </div>
                 </div>
               </div>
