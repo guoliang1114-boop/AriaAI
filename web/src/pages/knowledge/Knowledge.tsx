@@ -24,7 +24,7 @@ import { api } from '../../api/client'
 import { CxConfirmDialog, CxPagination, CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from '../../components/codex'
 import { PageTitle } from '../../components/PageTitle'
 import { useToast } from '../../contexts/ToastContext'
-import type { KnowledgeDocument, KnowledgeStats } from '../../types/api'
+import type { KnowledgeDocument as LegacyKnowledgeDocument, KnowledgeStats } from '../../types/api'
 import { formatDateOnly, parseAppDateTime } from '../../utils/timezone'
 
 const DOC_PAGE_SIZE = 10
@@ -48,6 +48,96 @@ const STATUS_FILTERS = [
 ]
 
 type KnowledgeViewMode = 'find' | 'manage'
+type KnowledgeApiMode = 'v005' | 'legacy'
+type KnowledgeVectorStatus = LegacyKnowledgeDocument['vector_status']
+
+interface KnowledgeViewDocument extends LegacyKnowledgeDocument {
+  source_id?: number | null
+  source_name?: string
+  source_type?: string
+  scope_type?: string
+  scope_id?: number | null
+  metadata?: Record<string, unknown>
+  error_message?: string | null
+  search_snippet?: string
+  search_relevance?: number
+  heading_path?: string[]
+  document_id?: number
+  chunk_count?: number
+}
+
+interface KnowledgeSourceV005 {
+  id: number
+  name: string
+  source_type: string
+  scope_type: string
+  scope_id?: number | null
+  owner_user_id?: number | null
+  sync_mode?: string
+  include_patterns?: string
+  exclude_patterns?: string
+  tags?: string
+  status?: string
+  created_at?: string
+  updated_at?: string
+}
+
+interface KnowledgeDocumentV005 {
+  id: number
+  source_id: number
+  title: string
+  file_name: string
+  file_type: string
+  path: string
+  metadata_json?: string
+  file_size_bytes?: number
+  page_count?: number
+  slide_count?: number
+  token_count?: number
+  chunk_count?: number
+  scope_type: string
+  scope_id?: number | null
+  status: string
+  error_message?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+interface KnowledgeSearchChunkV005 {
+  id: number
+  document_id: number
+  document_title: string
+  document_path: string
+  heading_path?: string[]
+  content: string
+  scope_type: string
+  scope_id?: number | null
+  source_id: number
+  relevance: number
+  metadata?: Record<string, unknown>
+}
+
+interface KnowledgeSearchResponseV005 {
+  chunks: KnowledgeSearchChunkV005[]
+  total_found: number
+  query_time_ms?: number
+  low_confidence?: boolean
+  expanded_terms?: string[]
+  scope_used?: Record<string, unknown>
+}
+
+interface KnowledgeJobResponseV005 {
+  job_id?: number | string
+  id?: number | string
+  status?: string
+}
+
+interface KnowledgeLoadResult {
+  mode: KnowledgeApiMode
+  data: KnowledgeDocumentListResponse
+  stats: KnowledgeStats
+  sources?: KnowledgeSourceV005[]
+}
 
 interface KnowledgeCategoryCount {
   category: string
@@ -55,7 +145,7 @@ interface KnowledgeCategoryCount {
 }
 
 interface KnowledgeStatusCount {
-  status: KnowledgeDocument['vector_status']
+  status: KnowledgeViewDocument['vector_status']
   count: number
 }
 
@@ -65,14 +155,14 @@ interface KnowledgeFileTypeCount {
 }
 
 interface KnowledgeDocumentListResponse {
-  items: KnowledgeDocument[]
+  items: KnowledgeViewDocument[]
   total: number
   limit: number
   offset: number
   categories: KnowledgeCategoryCount[]
   status_counts?: KnowledgeStatusCount[]
   file_type_counts?: KnowledgeFileTypeCount[]
-  recent: KnowledgeDocument[]
+  recent: KnowledgeViewDocument[]
   indexed_count: number
   total_size: number
 }
@@ -91,6 +181,12 @@ function categoryLabel(category: string, isZh: boolean) {
     technical: { zh: '技术参考', en: 'Technical' },
     tech: { zh: '技术参考', en: 'Technical' },
     methodology: { zh: '方法论', en: 'Methodology' },
+    consulting_case: { zh: '咨询案例', en: 'Consulting cases' },
+    deliverable_template: { zh: '交付模板', en: 'Deliverable templates' },
+    manual_upload: { zh: '手动上传', en: 'Manual upload' },
+    markdown_folder: { zh: '文件夹同步', en: 'Folder sync' },
+    obsidian_vault: { zh: 'Obsidian', en: 'Obsidian' },
+    project_space: { zh: '项目导入', en: 'Project import' },
     consulting: { zh: '方法论', en: 'Consulting' },
     weekly: { zh: '周报', en: 'Weekly' },
     report: { zh: '周报', en: 'Reports' },
@@ -113,6 +209,192 @@ function normalizeCategory(value?: string | null) {
   return value?.trim() || 'uncategorized'
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function normalizeArrayResponse<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[]
+  if (isRecord(value) && Array.isArray(value.items)) return value.items as T[]
+  if (isRecord(value) && Array.isArray(value.sources)) return value.sources as T[]
+  if (isRecord(value) && Array.isArray(value.documents)) return value.documents as T[]
+  if (isRecord(value) && Array.isArray(value.templates)) return value.templates as T[]
+  return []
+}
+
+function parseMetadata(raw?: string | Record<string, unknown> | null): Record<string, unknown> {
+  if (!raw) return {}
+  if (isRecord(raw)) return raw
+  try {
+    const parsed = JSON.parse(raw)
+    return isRecord(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function firstString(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  if (Array.isArray(value)) {
+    const found = value.find((item) => typeof item === 'string' && item.trim())
+    return typeof found === 'string' ? found.trim() : ''
+  }
+  return ''
+}
+
+function sourceTags(source?: KnowledgeSourceV005) {
+  return (source?.tags || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function categoryFromV005(doc: KnowledgeDocumentV005, source?: KnowledgeSourceV005) {
+  const metadata = parseMetadata(doc.metadata_json)
+  const explicit =
+    firstString(metadata.template_key) ||
+    firstString(metadata.document_type) ||
+    firstString(metadata.service_lines) ||
+    firstString(metadata.industries)
+  if (explicit) return explicit
+  const tags = sourceTags(source)
+  return tags[0] || source?.source_type || 'general'
+}
+
+function mapV005Status(status: string): KnowledgeVectorStatus {
+  const normalized = (status || '').toLowerCase()
+  if (normalized === 'indexed') return 'synced'
+  if (normalized === 'failed' || normalized === 'failed_extract' || normalized === 'error') return 'failed'
+  if (['extracting', 'extracted', 'understanding', 'chunking', 'embedding', 'indexing', 'retrying'].includes(normalized)) {
+    return 'processing'
+  }
+  return 'pending'
+}
+
+function mapV005Document(doc: KnowledgeDocumentV005, source?: KnowledgeSourceV005): KnowledgeViewDocument {
+  const metadata = parseMetadata(doc.metadata_json)
+  const updatedAt = doc.updated_at || doc.created_at || new Date(0).toISOString()
+  return {
+    id: doc.id,
+    name: doc.file_name || doc.title,
+    file_type: doc.file_type,
+    path: doc.path,
+    category: categoryFromV005(doc, source),
+    project_id: doc.scope_type === 'project' ? doc.scope_id ?? null : null,
+    client_id: doc.scope_type === 'client' ? doc.scope_id ?? null : null,
+    size_bytes: doc.file_size_bytes,
+    vector_status: mapV005Status(doc.status),
+    uploaded_at: updatedAt,
+    source_id: doc.source_id,
+    source_name: source?.name,
+    source_type: source?.source_type,
+    scope_type: doc.scope_type,
+    scope_id: doc.scope_id ?? null,
+    metadata,
+    error_message: doc.error_message,
+    chunk_count: doc.chunk_count,
+  }
+}
+
+function mapV005SearchChunk(chunk: KnowledgeSearchChunkV005, sources: KnowledgeSourceV005[]): KnowledgeViewDocument {
+  const source = sources.find((item) => item.id === chunk.source_id)
+  const metadata = chunk.metadata || {}
+  const pathParts = chunk.document_path.split(/[\\/]/)
+  const fileName = pathParts[pathParts.length - 1] || chunk.document_title
+  return {
+    id: chunk.id || chunk.document_id,
+    document_id: chunk.document_id,
+    name: chunk.document_title || fileName,
+    file_type: fileName.includes('.') ? fileName.split('.').pop() || 'doc' : 'doc',
+    path: chunk.document_path,
+    category: firstString(metadata.template_key) || firstString(metadata.document_type) || source?.source_type || 'general',
+    project_id: chunk.scope_type === 'project' ? chunk.scope_id ?? null : null,
+    client_id: chunk.scope_type === 'client' ? chunk.scope_id ?? null : null,
+    vector_status: 'synced',
+    uploaded_at: new Date().toISOString(),
+    source_id: chunk.source_id,
+    source_name: source?.name,
+    source_type: source?.source_type,
+    scope_type: chunk.scope_type,
+    scope_id: chunk.scope_id ?? null,
+    metadata,
+    search_snippet: chunk.content,
+    search_relevance: chunk.relevance,
+    heading_path: chunk.heading_path || [],
+  }
+}
+
+function filterDocuments(
+  documents: KnowledgeViewDocument[],
+  {
+    category,
+    fileType,
+    query,
+    status,
+  }: {
+    category: string
+    fileType: string
+    query: string
+    status: string
+  },
+) {
+  const keyword = query.trim().toLowerCase()
+  return documents.filter((doc) => {
+    if (category !== 'all' && normalizeCategory(doc.category) !== category) return false
+    if (fileType !== 'all') {
+      const typeValues = fileTypeValues(fileType)
+      if (!typeValues.includes((doc.file_type || '').toLowerCase())) return false
+    }
+    if (status !== 'all' && doc.vector_status !== status) return false
+    if (keyword) {
+      const haystack = [
+        doc.name,
+        doc.path,
+        doc.category,
+        doc.source_name,
+        doc.source_type,
+        doc.scope_type,
+        doc.search_snippet,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      if (!haystack.includes(keyword)) return false
+    }
+    return true
+  })
+}
+
+function fileTypeValues(key: string) {
+  if (key === 'ppt') return ['ppt', 'pptx']
+  if (key === 'word') return ['doc', 'docx']
+  if (key === 'excel') return ['xls', 'xlsx']
+  return [key]
+}
+
+function paginateDocuments(documents: KnowledgeViewDocument[], page: number, pageSize: number) {
+  const offset = (page - 1) * pageSize
+  return documents.slice(offset, offset + pageSize)
+}
+
+function buildCounts(documents: KnowledgeViewDocument[]) {
+  const categoryMap = new Map<string, number>()
+  const statusMap = new Map<KnowledgeVectorStatus, number>()
+  const fileTypeMap = new Map<string, number>()
+  documents.forEach((doc) => {
+    const category = normalizeCategory(doc.category)
+    categoryMap.set(category, (categoryMap.get(category) || 0) + 1)
+    statusMap.set(doc.vector_status, (statusMap.get(doc.vector_status) || 0) + 1)
+    const normalizedFileType = (doc.file_type || 'other').toLowerCase()
+    fileTypeMap.set(normalizedFileType, (fileTypeMap.get(normalizedFileType) || 0) + 1)
+  })
+  return {
+    categories: [...categoryMap.entries()].map(([category, count]) => ({ category, count })),
+    status_counts: [...statusMap.entries()].map(([status, count]) => ({ status, count })),
+    file_type_counts: [...fileTypeMap.entries()].map(([file_type, count]) => ({ file_type, count })),
+  }
+}
+
 function fileType(value: string) {
   const type = value?.trim().replace(/^\./, '').toUpperCase()
   return type || 'DOC'
@@ -130,7 +412,7 @@ function fileTypeFilterCount(counts: KnowledgeFileTypeCount[], key: string) {
   return Object.values(normalized).reduce((sum, value) => sum + value, 0)
 }
 
-function docSizeBytes(doc: KnowledgeDocument) {
+function docSizeBytes(doc: KnowledgeViewDocument) {
   return doc.size_bytes ?? (doc as unknown as { size?: number }).size
 }
 
@@ -155,20 +437,23 @@ function formatRelativeTime(value: string, isZh: boolean) {
   return formatDateOnly(value, { month: 'short', day: 'numeric' })
 }
 
-function statusMeta(status: KnowledgeDocument['vector_status'], isZh: boolean): { label: string; tone: CxStatusTone; pulse?: boolean; progress?: number } {
+function statusMeta(status: KnowledgeViewDocument['vector_status'], isZh: boolean): { label: string; tone: CxStatusTone; pulse?: boolean; progress?: number } {
   if (status === 'synced') return { label: isZh ? '可用' : 'Ready', tone: 'good' }
   if (status === 'failed') return { label: isZh ? '失败' : 'Failed', tone: 'bad' }
   if (status === 'processing') return { label: isZh ? '解析中' : 'Parsing', tone: 'accent', pulse: true, progress: 48 }
   return { label: isZh ? '排队中' : 'Queued', tone: 'warn', pulse: true }
 }
 
-function sourceLabel(doc: KnowledgeDocument, isZh: boolean) {
+function sourceLabel(doc: KnowledgeViewDocument, isZh: boolean) {
+  if (doc.source_name) return doc.source_name
   if (doc.project_id) return isZh ? `项目 · #${doc.project_id}` : `Project · #${doc.project_id}`
   if (doc.client_id) return isZh ? `客户 · #${doc.client_id}` : `Client · #${doc.client_id}`
+  if (doc.scope_type === 'workspace') return isZh ? '公司共享' : 'Workspace'
   return categoryLabel(normalizeCategory(doc.category), isZh)
 }
 
-function resultScore(doc: KnowledgeDocument, index: number) {
+function resultScore(doc: KnowledgeViewDocument, index: number) {
+  if (typeof doc.search_relevance === 'number') return Math.max(0, Math.min(1, doc.search_relevance))
   if (doc.vector_status === 'failed') return 0.62
   if (doc.vector_status === 'processing' || doc.vector_status === 'pending') return 0.7
   return Math.max(0.72, 0.94 - index * 0.04)
@@ -178,6 +463,125 @@ function scoreColor(score: number) {
   if (score >= 0.85) return 'var(--color-codex-good)'
   if (score >= 0.7) return 'var(--color-codex-accent)'
   return 'var(--color-codex-warn)'
+}
+
+function isHttpStatus(error: unknown, status: number) {
+  return isRecord(error) && isRecord(error.response) && error.response.status === status
+}
+
+async function fetchKnowledgeLegacy({
+  category,
+  fileType,
+  page,
+  pageSize,
+  query,
+  status,
+}: {
+  category: string
+  fileType: string
+  page: number
+  pageSize: number
+  query: string
+  status: string
+}): Promise<KnowledgeLoadResult> {
+  const [docsData, statsData] = await Promise.all([
+    api.get<KnowledgeDocumentListResponse>('/knowledge/documents/list', {
+      params: {
+        search: query.trim(),
+        category,
+        file_type: fileType,
+        status,
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+      },
+    }),
+    api.get<KnowledgeStats>('/knowledge/stats'),
+  ])
+  return {
+    mode: 'legacy',
+    data: {
+      ...docsData,
+      indexed_count: docsData.indexed_count ?? statsData.total_vectors,
+    },
+    stats: statsData,
+  }
+}
+
+async function fetchKnowledgeV005({
+  category,
+  fileType,
+  page,
+  pageSize,
+  query,
+  status,
+  viewMode,
+}: {
+  category: string
+  fileType: string
+  page: number
+  pageSize: number
+  query: string
+  status: string
+  viewMode: KnowledgeViewMode
+}): Promise<KnowledgeLoadResult> {
+  const rawSources = await api.get<unknown>('/knowledge/sources')
+  const sources = normalizeArrayResponse<KnowledgeSourceV005>(rawSources)
+  const sourceDocuments = await Promise.all(
+    sources.map(async (source) => {
+      const rawDocuments = await api.get<unknown>(`/knowledge/sources/${source.id}/documents`)
+      return normalizeArrayResponse<KnowledgeDocumentV005>(rawDocuments)
+        .filter((doc) => doc.status !== 'deleted')
+        .map((doc) => mapV005Document(doc, source))
+    }),
+  )
+  const allDocuments = sourceDocuments.flat()
+  const queryText = query.trim()
+  let visibleDocuments = filterDocuments(allDocuments, {
+    category,
+    fileType,
+    query: viewMode === 'find' && queryText ? '' : query,
+    status,
+  })
+
+  if (viewMode === 'find' && queryText) {
+    const searchData = await api.post<KnowledgeSearchResponseV005>('/knowledge/search', {
+      query: queryText,
+      scope_types: ['workspace', 'project', 'client'],
+      top_k: Math.max(page * pageSize, pageSize),
+    })
+    visibleDocuments = searchData.chunks.map((chunk) => mapV005SearchChunk(chunk, sources))
+    if (category !== 'all' || fileType !== 'all' || status !== 'all') {
+      visibleDocuments = filterDocuments(visibleDocuments, {
+        category,
+        fileType,
+        query: '',
+        status,
+      })
+    }
+  }
+
+  const counts = buildCounts(allDocuments)
+  const totalSize = allDocuments.reduce((sum, doc) => sum + (docSizeBytes(doc) || 0), 0)
+  return {
+    mode: 'v005',
+    sources,
+    stats: {
+      document_count: allDocuments.length,
+      total_vectors: allDocuments.reduce((sum, doc) => sum + (doc.chunk_count || 0), 0),
+    },
+    data: {
+      items: paginateDocuments(visibleDocuments, page, pageSize),
+      total: visibleDocuments.length,
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+      categories: counts.categories,
+      status_counts: counts.status_counts,
+      file_type_counts: counts.file_type_counts,
+      recent: [...allDocuments].sort((a, b) => parseAppDateTime(b.uploaded_at).getTime() - parseAppDateTime(a.uploaded_at).getTime()).slice(0, 5),
+      indexed_count: allDocuments.filter((doc) => doc.vector_status === 'synced').length,
+      total_size: totalSize,
+    },
+  }
 }
 
 export function Knowledge() {
@@ -190,12 +594,14 @@ export function Knowledge() {
   const [refreshing, setRefreshing] = useState(false)
   const [documentListLoading, setDocumentListLoading] = useState(false)
   const [hasLoaded, setHasLoaded] = useState(false)
-  const [documents, setDocuments] = useState<KnowledgeDocument[]>([])
+  const [documents, setDocuments] = useState<KnowledgeViewDocument[]>([])
+  const [apiMode, setApiMode] = useState<KnowledgeApiMode>('v005')
+  const [sources, setSources] = useState<KnowledgeSourceV005[]>([])
   const [documentTotal, setDocumentTotal] = useState(0)
   const [categoryCounts, setCategoryCounts] = useState<KnowledgeCategoryCount[]>([])
   const [statusCounts, setStatusCounts] = useState<KnowledgeStatusCount[]>([])
   const [fileTypeCounts, setFileTypeCounts] = useState<KnowledgeFileTypeCount[]>([])
-  const [recentDocuments, setRecentDocuments] = useState<KnowledgeDocument[]>([])
+  const [recentDocuments, setRecentDocuments] = useState<KnowledgeViewDocument[]>([])
   const [indexedCount, setIndexedCount] = useState(0)
   const [totalSize, setTotalSize] = useState(0)
   const [stats, setStats] = useState<KnowledgeStats>({ document_count: 0, total_vectors: 0 })
@@ -225,20 +631,32 @@ export function Knowledge() {
     }
     setError(null)
     try {
-      const [docsData, statsData] = await Promise.all([
-        api.get<KnowledgeDocumentListResponse>('/knowledge/documents/list', {
-          params: {
-            search: searchQuery.trim(),
-            category: selectedCategory,
-            file_type: selectedFileType,
-            status: selectedStatus,
-            limit: documentPageSize,
-            offset: (documentPage - 1) * documentPageSize,
-          },
-        }),
-        api.get<KnowledgeStats>('/knowledge/stats'),
-      ])
+      let result: KnowledgeLoadResult
+      try {
+        result = await fetchKnowledgeV005({
+          category: selectedCategory,
+          fileType: selectedFileType,
+          page: documentPage,
+          pageSize: documentPageSize,
+          query: searchQuery,
+          status: selectedStatus,
+          viewMode,
+        })
+      } catch (v005Error) {
+        if (!isHttpStatus(v005Error, 404) && !isHttpStatus(v005Error, 405)) throw v005Error
+        result = await fetchKnowledgeLegacy({
+          category: selectedCategory,
+          fileType: selectedFileType,
+          page: documentPage,
+          pageSize: documentPageSize,
+          query: searchQuery,
+          status: selectedStatus,
+        })
+      }
+      const docsData = result.data
       setDocuments(docsData.items)
+      setApiMode(result.mode)
+      setSources(result.sources || [])
       setDocumentTotal(docsData.total)
       setCategoryCounts(docsData.categories)
       setStatusCounts(docsData.status_counts || [])
@@ -246,7 +664,7 @@ export function Knowledge() {
       setRecentDocuments(docsData.recent)
       setIndexedCount(docsData.indexed_count)
       setTotalSize(docsData.total_size)
-      setStats(statsData)
+      setStats(result.stats)
       setHasLoaded(true)
     } catch (err) {
       console.error('Failed to fetch knowledge data:', err)
@@ -263,7 +681,7 @@ export function Knowledge() {
 
   useEffect(() => {
     void fetchData()
-  }, [documentPage, documentPageSize, searchQuery, selectedCategory, selectedFileType, selectedStatus])
+  }, [documentPage, documentPageSize, searchQuery, selectedCategory, selectedFileType, selectedStatus, viewMode])
 
   useEffect(() => {
     setDocumentPage(1)
@@ -306,6 +724,42 @@ export function Knowledge() {
     setSelectedDocumentIds((ids) => ids.filter((id) => documents.some((doc) => doc.id === id)))
   }, [documents])
 
+  const ensureManualUploadSource = async () => {
+    const existing = sources.find((source) => source.source_type === 'manual_upload' && source.scope_type === 'workspace')
+    if (existing?.id) return existing.id
+    const source = await api.post<KnowledgeSourceV005>('/knowledge/sources', {
+      name: isZh ? '公司共享知识库' : 'Company shared knowledge',
+      source_type: 'manual_upload',
+      scope_type: 'workspace',
+      tags: 'general,manual',
+    })
+    setSources((current) => [...current, source])
+    return source.id
+  }
+
+  const syncKnowledgeSources = async () => {
+    if (apiMode !== 'v005') {
+      await fetchData({ silent: true })
+      return
+    }
+    const syncableSources = sources.filter((source) => ['markdown_folder', 'obsidian_vault', 'git_repo'].includes(source.source_type))
+    if (!syncableSources.length) {
+      await fetchData({ silent: true })
+      return
+    }
+    setRefreshing(true)
+    try {
+      await Promise.all(syncableSources.map((source) => api.post<KnowledgeJobResponseV005>(`/knowledge/sources/${source.id}/sync`)))
+      toast.success({ title: isZh ? '已开始同步' : 'Sync started', description: isZh ? '文件夹来源会在后台扫描并更新索引。' : 'Folder sources will be scanned and indexed in the background.' })
+      await fetchData({ silent: true })
+    } catch (err) {
+      console.error('Failed to sync knowledge sources:', err)
+      toast.error({ title: isZh ? '同步失败' : 'Sync failed' })
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -317,11 +771,30 @@ export function Knowledge() {
       formData.append('file', file)
       formData.append('category', uploadCategory)
 
-      await api.post('/knowledge/documents', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      })
+      if (apiMode === 'v005') {
+        try {
+          const sourceId = await ensureManualUploadSource()
+          await api.post<KnowledgeDocumentV005 | KnowledgeJobResponseV005>(`/knowledge/sources/${sourceId}/documents`, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            },
+          })
+        } catch (v005Error) {
+          if (!isHttpStatus(v005Error, 404) && !isHttpStatus(v005Error, 405)) throw v005Error
+          await api.post('/knowledge/documents', formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            },
+          })
+          setApiMode('legacy')
+        }
+      } else {
+        await api.post('/knowledge/documents', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        })
+      }
       toast.success({ title: isZh ? '文档已上传' : 'Document uploaded', description: isZh ? '系统会在后台解析并索引。' : 'Aria will parse and index it in the background.' })
       await fetchData({ silent: true })
     } catch (err) {
@@ -352,10 +825,14 @@ export function Knowledge() {
     }
   }
 
-  const reindexDocument = async (doc: KnowledgeDocument) => {
+  const reindexDocument = async (doc: KnowledgeViewDocument) => {
     setReindexingId(doc.id)
     try {
-      await api.post(`/knowledge/documents/${doc.id}/reindex`)
+      if (apiMode === 'v005' && doc.source_id) {
+        await api.post<KnowledgeJobResponseV005>(`/knowledge/sources/${doc.source_id}/sync`)
+      } else {
+        await api.post(`/knowledge/documents/${doc.document_id || doc.id}/reindex`)
+      }
       toast.success({ title: isZh ? '已重新排队' : 'Reindex queued', description: isZh ? '系统会重新解析并索引这份文件。' : 'Aria will parse and index this file again.' })
       await fetchData({ silent: true })
     } catch (err) {
@@ -366,7 +843,7 @@ export function Knowledge() {
     }
   }
 
-  const copyCitation = async (doc: KnowledgeDocument) => {
+  const copyCitation = async (doc: KnowledgeViewDocument) => {
     const text = `${doc.name}\n${doc.path}`
     try {
       if (!navigator.clipboard) throw new Error('Clipboard API unavailable')
@@ -478,7 +955,7 @@ export function Knowledge() {
               setDocumentPageSize(nextPageSize)
               setDocumentPage(1)
             }}
-            onRefresh={() => void fetchData({ silent: true })}
+            onRefresh={() => void syncKnowledgeSources()}
             onReindex={(doc) => void reindexDocument(doc)}
             onClearSelection={() => setSelectedDocumentIds([])}
             onToggleSelection={(docId) => {
@@ -625,7 +1102,7 @@ function KnowledgeFindView({
   categoryCounts: KnowledgeCategoryCount[]
   currentDocumentPage: number
   documentListLoading: boolean
-  documents: KnowledgeDocument[]
+  documents: KnowledgeViewDocument[]
   documentPageSize: number
   documentTotal: number
   error: string | null
@@ -633,13 +1110,13 @@ function KnowledgeFindView({
   fileTypeCounts: KnowledgeFileTypeCount[]
   indexedCount: number
   isZh: boolean
-  latestDoc?: KnowledgeDocument
+  latestDoc?: KnowledgeViewDocument
   onCategoryChange: (category: string) => void
   onClear: () => void
-  onCopyCitation: (doc: KnowledgeDocument) => void
+  onCopyCitation: (doc: KnowledgeViewDocument) => void
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
-  onReindex: (doc: KnowledgeDocument) => void
+  onReindex: (doc: KnowledgeViewDocument) => void
   onUpload: () => void
   processingCount: number
   reindexingId: number | null
@@ -893,7 +1370,7 @@ function KnowledgeManageView({
   categoryCounts: KnowledgeCategoryCount[]
   currentDocumentPage: number
   documentListLoading: boolean
-  documents: KnowledgeDocument[]
+  documents: KnowledgeViewDocument[]
   documentPageSize: number
   documentTotal: number
   error: string | null
@@ -903,11 +1380,11 @@ function KnowledgeManageView({
   isZh: boolean
   onCategoryChange: (category: string) => void
   onClear: () => void
-  onDelete: (doc: KnowledgeDocument) => void
+  onDelete: (doc: KnowledgeViewDocument) => void
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
   onRefresh: () => void
-  onReindex: (doc: KnowledgeDocument) => void
+  onReindex: (doc: KnowledgeViewDocument) => void
   onClearSelection: () => void
   onToggleSelection: (docId: number) => void
   onUpload: () => void
@@ -1226,7 +1703,7 @@ function ManageDocumentRow({
   onToggleSelection,
   reindexing,
 }: {
-  doc: KnowledgeDocument
+  doc: KnowledgeViewDocument
   isZh: boolean
   selected: boolean
   onDelete: () => void
@@ -1360,7 +1837,7 @@ function SearchResultRow({
   onReindex,
   reindexing,
 }: {
-  doc: KnowledgeDocument
+  doc: KnowledgeViewDocument
   index: number
   isZh: boolean
   query: string
@@ -1372,7 +1849,8 @@ function SearchResultRow({
   const score = resultScore(doc, index)
   const tone = scoreColor(score)
   const description =
-    doc.vector_status === 'synced'
+    doc.search_snippet ||
+    (doc.vector_status === 'synced'
       ? isZh
         ? '这份文件已进入知识库，可在对话、项目上下文和 Skill 工作流中作为引用资料。'
         : 'This file is indexed and can be reused in conversations, project context, and Skills.'
@@ -1386,7 +1864,7 @@ function SearchResultRow({
             : 'This file is being parsed and indexed before it becomes citable.'
           : isZh
             ? '文件已排队，等待后台解析和索引。'
-            : 'This file is queued for background parsing and indexing.'
+            : 'This file is queued for background parsing and indexing.')
 
   return (
     <div
@@ -1420,6 +1898,11 @@ function SearchResultRow({
           <span>{sourceLabel(doc, isZh)}</span>
           <span style={{ color: 'var(--color-codex-ink-faint)' }}>·</span>
           <TagChip>{fileType(doc.file_type)}</TagChip>
+          {doc.heading_path?.length ? (
+            <span className="codex-mono" style={{ color: 'var(--color-codex-ink-faint)' }}>
+              {doc.heading_path.join(' / ')}
+            </span>
+          ) : null}
           <span className="codex-mono" style={{ color: 'var(--color-codex-ink-faint)' }}>{isZh ? '正文' : 'Body'}</span>
           <span className="codex-mono" style={{ color: 'var(--color-codex-ink-faint)' }}>
             {formatFileSize(docSizeBytes(doc))}
