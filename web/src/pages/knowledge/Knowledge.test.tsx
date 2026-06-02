@@ -118,6 +118,7 @@ describe('Knowledge', () => {
     mockDelete.mockResolvedValue({})
     render(<Knowledge />)
     await waitFor(() => screen.getAllByText('doc1.pdf'))
+    fireEvent.click(screen.getByRole('button', { name: '管理' }))
     const deleteBtn = screen.getByRole('button', { name: /删除 doc1.pdf/ })
     fireEvent.click(deleteBtn)
     // CxConfirmDialog opens — find and click "删除" inside it.
