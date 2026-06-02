@@ -52,7 +52,12 @@ from app.services.project_llm import complete_with_selected_model, stream_with_s
 from app.services.cache import clients_cache, projects_cache
 from app.services.time_utils import utc_now_naive
 
-router = APIRouter(tags=["projects"])
+from app.routers.chat_security import maybe_require_project_access
+
+router = APIRouter(
+    tags=["projects"],
+    dependencies=[Depends(maybe_require_project_access)],
+)
 
 logger = logging.getLogger(__name__)
 

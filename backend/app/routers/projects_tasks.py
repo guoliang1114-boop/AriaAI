@@ -29,7 +29,12 @@ from app.services.task_orchestrator import (
     serialize_task_run,
 )
 
-router = APIRouter(tags=["project tasks"])
+from app.routers.chat_security import maybe_require_project_access
+
+router = APIRouter(
+    tags=["project tasks"],
+    dependencies=[Depends(maybe_require_project_access)],
+)
 
 
 class ProjectTaskCreate(BaseModel):

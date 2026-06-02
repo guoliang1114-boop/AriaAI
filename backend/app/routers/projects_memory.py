@@ -74,7 +74,17 @@ from app.routers.projects_deps import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["projects"])
+from app.routers.chat_security import maybe_require_project_access
+
+router = APIRouter(
+    tags=["projects"],
+    # Router-level membership gate. The dep no-ops on endpoints
+    # without a ``project_id`` path param (the global /memory/list,
+    # /memory/jobs etc. admin endpoints), which keeps the cross-
+    # project ops accessible while still locking down the
+    # /{project_id}/memory/* surface.
+    dependencies=[Depends(maybe_require_project_access)],
+)
 
 
 def _project_memory_search_conditions(search: str | None):

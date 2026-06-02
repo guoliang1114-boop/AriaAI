@@ -70,7 +70,15 @@ from app.routers.projects_deps import get_current_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["projects"])
+from app.routers.chat_security import maybe_require_project_access
+
+router = APIRouter(
+    tags=["projects"],
+    # Router-level membership gate: every endpoint here has
+    # ``project_id`` in its path, so the dep raises 403 for
+    # non-members before the handler runs.
+    dependencies=[Depends(maybe_require_project_access)],
+)
 
 
 class ProjectFileListResponse(BaseModel):

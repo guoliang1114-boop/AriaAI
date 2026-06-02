@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { CxTopProgress } from './components/codex'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { useToast } from './contexts/ToastContext'
 import { Layout } from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Login } from './pages/Login'
@@ -186,10 +187,47 @@ function ServiceDownRedirect() {
   return null
 }
 
+// Mirrors ServiceDownRedirect for the project membership 403 case
+// (R73). The api client fires ``aria:project-access-denied`` when a
+// /projects/{id}/* request returns 403 — the listener toasts the
+// reason and bounces the user back to /projects. Lives outside the
+// project route subtree so it stays mounted across navigations.
+function ProjectAccessDeniedRedirect() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const toast = useToast()
+  useEffect(() => {
+    const onDenied = (event: Event) => {
+      // Already on the project list — no need to bounce or toast
+      // (the list itself filters to memberships, so the user just
+      // sees an empty/sparse view).
+      if (
+        location.pathname === '/projects' ||
+        location.pathname.startsWith('/projects/new')
+      ) {
+        return
+      }
+      const detail = (event as CustomEvent<{ projectId?: string }>).detail
+      toast.warning({
+        title: '无权访问该项目',
+        description: detail?.projectId
+          ? `项目 #${detail.projectId} 不在你的团队中,已返回项目列表。`
+          : '该项目不在你的团队中,已返回项目列表。',
+      })
+      navigate('/projects', { replace: true })
+    }
+    window.addEventListener('aria:project-access-denied', onDenied)
+    return () =>
+      window.removeEventListener('aria:project-access-denied', onDenied)
+  }, [navigate, location.pathname, toast])
+  return null
+}
+
 function AppRoutes() {
   return (
     <>
     <ServiceDownRedirect />
+    <ProjectAccessDeniedRedirect />
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route

@@ -83,6 +83,24 @@ class ApiClient {
       return
     }
 
+    // Handle 403 on /projects/{id}/* — almost always means the user
+    // isn't a member of that project. Broadcast so the listener in
+    // App.tsx can toast + redirect to /projects. We scope by URL
+    // shape because /clients, /skills, /knowledge also return 403
+    // for unrelated reasons and shouldn't trigger the project
+    // membership bounce.
+    if (status === 403) {
+      const url = error.config?.url || ''
+      const matchedProjectId = /\/projects\/(\d+)(?:\/|$)/.exec(url)?.[1]
+      if (matchedProjectId) {
+        window.dispatchEvent(
+          new CustomEvent('aria:project-access-denied', {
+            detail: { projectId: matchedProjectId, url },
+          }),
+        )
+      }
+    }
+
     // Handle 401 Unauthorized
     if (status === 401) {
       const currentPath = window.location.pathname

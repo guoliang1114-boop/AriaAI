@@ -1,10 +1,12 @@
 """Shared authorization helpers for chat-facing routes."""
 from __future__ import annotations
 
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException, Request
 from sqlmodel import Session, select
 
+from app.database import get_session
 from app.models.db import Conversation, ProjectMember, User
+from app.routers.auth import get_current_user
 
 
 def member_can_write(member: ProjectMember) -> bool:
@@ -63,6 +65,34 @@ def require_conversation_access(
     if owner_user_id is None or owner_user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Conversation owner required")
     return conversation
+
+
+def maybe_require_project_access(
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Router-level dependency for sub-routers under /projects.
+
+    If the matched route has a ``project_id`` path param, gate it
+    with ``require_project_access``. If not (e.g. admin batch
+    endpoints like ``/memory/rebuild-batch``), no-op — the endpoint
+    itself is responsible for its own auth. The intent is to apply
+    this once at the router level instead of decorating every one
+    of the 50+ project sub-resource endpoints individually.
+
+    Read-only by default; endpoints that mutate state should still
+    call ``require_project_access(..., require_write=True)``
+    directly for the stricter check.
+    """
+    project_id_raw = request.path_params.get("project_id")
+    if project_id_raw is None:
+        return
+    try:
+        project_id = int(project_id_raw)
+    except (TypeError, ValueError):
+        return
+    require_project_access(session, project_id, current_user)
 
 
 def require_chat_request_access(
