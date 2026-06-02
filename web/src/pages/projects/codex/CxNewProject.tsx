@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent 
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../../api/client'
 import { useToast } from '../../../contexts/ToastContext'
-import type { Project, SkillSummary } from '../../../types/api'
+import type { Project, SkillSummary, User } from '../../../types/api'
 import type { ProjectStatus } from '../../../types/enums'
 import { CxIcon } from './CxIcons'
-import { useClientsList, useProjectsList, formatAmountWan } from './useProjectsApi'
+import { useClientsList, useProjectsList, formatAmountWan, firstGlyph } from './useProjectsApi'
 
 /** New-project wizard (Codex redesign · cx-new-project).
  *
@@ -84,6 +84,15 @@ export function CxNewProject() {
   const { data: clients } = useClientsList()
   const { data: existingProjects } = useProjectsList()
   const [skills, setSkills] = useState<SkillSummary[]>([])
+  const [me, setMe] = useState<User | null>(null)
+  // Skill ids the user has flagged for association via "+ 关联". We
+  // collect them up front; once /projects accepts a skill_ids array
+  // (or a /projects/:id/skills endpoint lands) we can POST these on
+  // create.
+  const [associatedSkillIds, setAssociatedSkillIds] = useState<Set<number>>(
+    () => new Set<number>(),
+  )
+
   useEffect(() => {
     let cancelled = false
     api
@@ -93,6 +102,14 @@ export function CxNewProject() {
       })
       .catch(() => {
         if (!cancelled) setSkills([])
+      })
+    api
+      .get<User>('/auth/me')
+      .then((u) => {
+        if (!cancelled) setMe(u)
+      })
+      .catch(() => {
+        if (!cancelled) setMe(null)
       })
     return () => {
       cancelled = true
@@ -147,6 +164,15 @@ export function CxNewProject() {
 
   const pickClient = (name: string) => {
     setForm((s) => ({ ...s, client: name }))
+  }
+
+  const toggleSkillAssociation = (skillId: number) => {
+    setAssociatedSkillIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(skillId)) next.delete(skillId)
+      else next.add(skillId)
+      return next
+    })
   }
 
   const submit = async (mode: 'draft' | 'create') => {
@@ -212,7 +238,7 @@ export function CxNewProject() {
     >
       <div
         style={{
-          maxWidth: 1280,
+          maxWidth: 1440,
           margin: '0 auto',
           padding: '28px 56px 48px',
           display: 'grid',
@@ -345,6 +371,26 @@ export function CxNewProject() {
                   onChange={(v) => setForm((s) => ({ ...s, client: v }))}
                   onPick={pickClient}
                 />
+                {matchedClient && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--ink-mute)',
+                      marginTop: 6,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <CxIcon
+                      name="sparkle"
+                      size={10}
+                      stroke={1.5}
+                      style={{ color: 'var(--accent)' }}
+                    />
+                    Aria 已识别该客户档案 · 新建后会自动带入客户记忆与历史联系人
+                  </div>
+                )}
               </Field>
               <Field label="项目阶段">
                 <select
@@ -363,22 +409,39 @@ export function CxNewProject() {
             </div>
           </Panel>
 
-          {/* 项目团队 (placeholder — backend create doesn't accept
-            members; users add them after creation in the detail
-            page) */}
-          <Panel title="项目团队" subtitle="创建后可在「概览 · 项目成员」中添加 / 邀请">
-            <div
-              style={{
-                padding: '10px 12px',
-                border: '1px dashed var(--line)',
-                borderRadius: 'var(--r-sm)',
-                color: 'var(--ink-mute)',
-                fontSize: 12.5,
-                lineHeight: 1.6,
-              }}
-            >
-              当前账号将自动作为「负责人」加入项目。其他成员请在项目创建完成后,
-              到「概览 → 项目成员」面板邀请。
+          {/* 项目团队. ProjectCreate doesn't accept a members list,
+            so the current user gets pinned as 负责人 inline and the
+            「+ 添加成员」 button is a hand-off to the post-create
+            members panel (toast). The visual mirrors the design's
+            member rows so the wizard reads as complete. */}
+          <Panel title="项目团队">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <MemberRow
+                name={me?.display_name || '当前账号'}
+                role="项目经理"
+                owner
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  toast.info({
+                    title: '可在创建后继续邀请',
+                    description: '到「概览 → 项目成员」面板添加更多成员',
+                  })
+                }
+                style={{
+                  padding: '8px 12px',
+                  fontSize: 12.5,
+                  color: 'var(--ink-mute)',
+                  border: '1px dashed var(--line-strong)',
+                  borderRadius: 'var(--r-sm)',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                }}
+              >
+                + 添加成员
+              </button>
             </div>
           </Panel>
 
@@ -459,48 +522,74 @@ export function CxNewProject() {
             {recommendedSkills.length === 0 ? (
               <EmptyHint>暂无 Skill 数据</EmptyHint>
             ) : (
-              recommendedSkills.map((s, i) => (
-                <div
-                  key={s.id}
-                  style={{
-                    display: 'flex',
-                    gap: 10,
-                    padding: '9px 0',
-                    borderBottom:
-                      i === recommendedSkills.length - 1
-                        ? 'none'
-                        : '1px solid var(--line-soft)',
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      className="ui"
-                      style={{
-                        fontSize: 12.5,
-                        color: 'var(--ink)',
-                        fontWeight: 500,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {s.name}
+              recommendedSkills.map((s, i) => {
+                const linked = associatedSkillIds.has(s.id)
+                return (
+                  <div
+                    key={s.id}
+                    style={{
+                      display: 'flex',
+                      gap: 10,
+                      padding: '9px 0',
+                      alignItems: 'center',
+                      borderBottom:
+                        i === recommendedSkills.length - 1
+                          ? 'none'
+                          : '1px solid var(--line-soft)',
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        className="ui"
+                        style={{
+                          fontSize: 12.5,
+                          color: 'var(--ink)',
+                          fontWeight: 500,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {s.name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--ink-mute)',
+                          marginTop: 2,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {s.category} · {s.estimated_time || '—'}
+                      </div>
                     </div>
-                    <div
+                    <button
+                      type="button"
+                      onClick={() => toggleSkillAssociation(s.id)}
                       style={{
                         fontSize: 11,
-                        color: 'var(--ink-mute)',
-                        marginTop: 2,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
+                        padding: '3px 9px',
+                        height: 22,
+                        borderRadius: 'var(--r-sm)',
+                        background: linked
+                          ? 'var(--accent)'
+                          : 'var(--accent-bg)',
+                        color: linked ? 'var(--bg-elev)' : 'var(--accent)',
+                        border: linked
+                          ? 'none'
+                          : '1px solid var(--accent-bg)',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                        fontWeight: 500,
                       }}
                     >
-                      {s.category} · {s.estimated_time || '—'}
-                    </div>
+                      {linked ? '✓ 已关联' : '+ 关联'}
+                    </button>
                   </div>
-                </div>
-              ))
+                )
+              })
             )}
           </SidePanel>
           <SidePanel
@@ -688,6 +777,79 @@ function Field({
     <div style={colSpan ? { gridColumn: `span ${colSpan}` } : undefined}>
       <label style={LABEL_STYLE}>{label}</label>
       {children}
+    </div>
+  )
+}
+
+/* ── Team member row ───────────────────────────────────── */
+
+function MemberRow({
+  name,
+  role,
+  owner,
+}: {
+  name: string
+  role: string
+  owner?: boolean
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '8px 10px',
+        background: 'var(--bg-tint)',
+        borderRadius: 'var(--r-sm)',
+      }}
+    >
+      <span
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: 99,
+          background: 'var(--accent-bg)',
+          color: 'var(--accent-ink)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 12,
+          fontWeight: 500,
+          flexShrink: 0,
+        }}
+      >
+        {firstGlyph(name)}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          className="ui"
+          style={{
+            fontSize: 13,
+            color: 'var(--ink)',
+            fontWeight: 500,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {name}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--ink-mute)' }}>{role}</div>
+      </div>
+      {owner && (
+        <span
+          style={{
+            fontSize: 11,
+            color: 'var(--accent-ink)',
+            background: 'var(--accent-bg)',
+            padding: '2px 8px',
+            borderRadius: 'var(--r-pill)',
+            flexShrink: 0,
+          }}
+        >
+          ● 负责人
+        </span>
+      )}
     </div>
   )
 }
