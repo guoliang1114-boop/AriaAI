@@ -33,7 +33,17 @@ from app.routers.clients_deps import (
     ClientUpdate,
 )
 
-router = APIRouter(prefix="/clients", tags=["clients"])
+from app.routers.auth import get_current_user
+
+# Auth floor: every endpoint in this router requires a valid token.
+# Per-record ownership / multi-tenancy gates are a separate concern
+# (see R75 backlog) — this just stops unauthenticated callers from
+# reading or mutating the client list.
+router = APIRouter(
+    prefix="/clients",
+    tags=["clients"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 class ClientListStats(BaseModel):

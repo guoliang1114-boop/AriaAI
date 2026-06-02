@@ -10,7 +10,16 @@ from app.routers import clients as clients_router
 from app.routers import projects as projects_router
 from app.services.memory_operations import normalize_memory_failure, summarize_memory_operations
 
-router = APIRouter(prefix="/memory/operations", tags=["memory-operations"])
+from app.routers.auth import require_admin
+
+# memory_operations exposes the cross-project memory job dashboard —
+# admin operational tooling. Gate with require_admin rather than the
+# generic auth floor used by the other R74 routers.
+router = APIRouter(
+    prefix="/memory/operations",
+    tags=["memory-operations"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 def _payload(value):

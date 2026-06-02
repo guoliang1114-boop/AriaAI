@@ -6,8 +6,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models.db import ScheduledTask
+from app.models.db import ScheduledTask, User
 from app.routers import schedules as schedules_module
+from app.routers.auth import require_admin
 from app.routers.schedules import router
 from tests.test_database import create_test_engine, drop_all_tables
 
@@ -40,6 +41,11 @@ class SchedulesRouterTestCase(unittest.TestCase):
                 yield session
 
         app.dependency_overrides[schedules_module.get_session] = override_session
+        # R74 router-level guard is require_admin — supply an admin
+        # user so the dep returns instead of 403-ing.
+        app.dependency_overrides[require_admin] = lambda: User(
+            id=1, email="admin@example.com", display_name="Admin", is_admin=True
+        )
         self.client = TestClient(app, raise_server_exceptions=False)
 
     def tearDown(self):

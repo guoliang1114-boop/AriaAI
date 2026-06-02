@@ -1,6 +1,7 @@
 """Skills router — CRUD + seed default skills."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, List, Optional
@@ -90,7 +91,13 @@ def _bust_skills() -> None:
     _skills_cache.clear()
 
 
-router = APIRouter(prefix="/skills", tags=["skills"])
+from app.routers.auth import get_current_user
+
+router = APIRouter(
+    prefix="/skills",
+    tags=["skills"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 def _strip_skill_frontmatter(text: str) -> str:
@@ -119,6 +126,21 @@ def _load_skill_package_prompt(package_name: str, reference_files: list[str] | N
                 f"{reference_path.read_text(encoding='utf-8').strip()}"
             )
     return "\n\n---\n\n".join(part for part in parts if part)
+
+
+def _builtin_skill_hash(skill_def: dict[str, Any]) -> str:
+    payload = {
+        "name": skill_def.get("name", ""),
+        "category": skill_def.get("category", ""),
+        "description": skill_def.get("description", ""),
+        "system_prompt": skill_def.get("system_prompt", ""),
+        "user_template": skill_def.get("user_template", ""),
+        "estimated_time": skill_def.get("estimated_time", ""),
+        "max_tokens": skill_def.get("max_tokens", 0),
+        "tools": skill_def.get("tools", []),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 class SkillCreate(BaseModel):
@@ -2596,29 +2618,50 @@ def ensure_builtin_pro_skills(session: Session) -> int:
             session.delete(obsolete_skill)
             changed += 1
     for skill_def in [*GSTACK_PRO_SKILLS, *CONSULTING_CAPABILITY_SKILLS]:
+        builtin_key = skill_def.get("builtin_key") or skill_def["name"]
+        builtin_hash = _builtin_skill_hash(skill_def)
         existing_skill = existing.get(skill_def["name"])
         if existing_skill:
             patched = False
-            if not existing_skill.user_template and skill_def.get("user_template"):
-                existing_skill.user_template = skill_def["user_template"]
+            source_changed = (existing_skill.builtin_hash or "") != builtin_hash
+            if source_changed:
+                for field in ("description", "system_prompt", "user_template", "estimated_time", "category", "max_tokens"):
+                    next_value = skill_def.get(field, getattr(existing_skill, field))
+                    if getattr(existing_skill, field) != next_value:
+                        setattr(existing_skill, field, next_value)
+                        patched = True
+                tool_names = skill_def.get("tools", [])
+                next_tool_defs = json.dumps(build_tool_defs(tool_names))
+                if existing_skill.tools_definition_json != next_tool_defs:
+                    existing_skill.tools_definition_json = next_tool_defs
+                    patched = True
+                if existing_skill.tools != tool_names:
+                    existing_skill.tools = tool_names
+                    patched = True
+                existing_skill.builtin_key = builtin_key
+                existing_skill.builtin_hash = builtin_hash
                 patched = True
-            if not existing_skill.system_prompt and skill_def.get("system_prompt"):
-                existing_skill.system_prompt = skill_def["system_prompt"]
-                patched = True
-            if not existing_skill.category:
-                existing_skill.category = skill_def["category"]
-                patched = True
-            elif existing_skill.category != skill_def["category"]:
-                existing_skill.category = skill_def["category"]
-                patched = True
+            else:
+                if not existing_skill.user_template and skill_def.get("user_template"):
+                    existing_skill.user_template = skill_def["user_template"]
+                    patched = True
+                if not existing_skill.system_prompt and skill_def.get("system_prompt"):
+                    existing_skill.system_prompt = skill_def["system_prompt"]
+                    patched = True
+                if not existing_skill.category:
+                    existing_skill.category = skill_def["category"]
+                    patched = True
+                elif existing_skill.category != skill_def["category"]:
+                    existing_skill.category = skill_def["category"]
+                    patched = True
             prompt_marker = prompt_markers.get(existing_skill.name)
-            if prompt_marker and prompt_marker not in (existing_skill.system_prompt or ""):
+            if not source_changed and prompt_marker and prompt_marker not in (existing_skill.system_prompt or ""):
                 for field in ("description", "system_prompt", "user_template", "estimated_time"):
                     next_value = skill_def.get(field, getattr(existing_skill, field))
                     if getattr(existing_skill, field) != next_value:
                         setattr(existing_skill, field, next_value)
                         patched = True
-            if existing_skill.name in template_tool_names:
+            if not source_changed and existing_skill.name in template_tool_names:
                 tool_names = skill_def.get("tools", [])
                 try:
                     existing_tool_defs = json.loads(existing_skill.tools_definition_json or "[]")
@@ -2637,6 +2680,12 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                 if existing_skill.max_tokens < skill_def.get("max_tokens", existing_skill.max_tokens):
                     existing_skill.max_tokens = skill_def["max_tokens"]
                     patched = True
+            if existing_skill.builtin_key != builtin_key:
+                existing_skill.builtin_key = builtin_key
+                patched = True
+            if existing_skill.builtin_hash != builtin_hash:
+                existing_skill.builtin_hash = builtin_hash
+                patched = True
             if patched:
                 session.add(existing_skill)
                 changed += 1
@@ -2645,6 +2694,8 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         skill = Skill(**{k: v for k, v in skill_def.items() if k != "tools"})
         skill.tools_definition_json = json.dumps(build_tool_defs(skill_def.get("tools", [])))
         skill.tools = skill_def.get("tools", [])
+        skill.builtin_key = builtin_key
+        skill.builtin_hash = builtin_hash
         session.add(skill)
         changed += 1
 

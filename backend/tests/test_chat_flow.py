@@ -5548,6 +5548,17 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         app = FastAPI()
         app.include_router(clients_router_module.router)
         app.dependency_overrides[clients_router_module.get_session] = override_session
+        # R74 router-level auth floor — admin user so the
+        # ``Depends(get_current_user)`` dep resolves and the few
+        # admin-only batch endpoints (memory_operations) also accept
+        # this user.
+        from app.routers.auth import get_current_user as _gcu, require_admin as _ra
+
+        admin_user = User(
+            id=1, email="admin@example.com", display_name="Admin", is_admin=True
+        )
+        app.dependency_overrides[_gcu] = lambda: admin_user
+        app.dependency_overrides[_ra] = lambda: admin_user
         self.client = TestClient(app)
 
     def tearDown(self):
@@ -5622,6 +5633,12 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
 
         app.include_router(memory_operations_router_module.router)
         app.dependency_overrides[memory_operations_router_module.get_session] = override_session
+        # memory_operations is admin-only (R74) — supply an admin user.
+        from app.routers.auth import require_admin as _ra
+
+        app.dependency_overrides[_ra] = lambda: User(
+            id=1, email="admin@example.com", display_name="Admin", is_admin=True
+        )
         client = TestClient(app)
         try:
             with patch("app.services.scheduler.get_jobs", return_value=[]):
@@ -6713,6 +6730,11 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         app = FastAPI()
         app.include_router(skills_router_module.router)
         app.dependency_overrides[skills_router_module.get_session] = override_session
+        from app.routers.auth import get_current_user as _gcu
+
+        app.dependency_overrides[_gcu] = lambda: User(
+            id=1, email="test@example.com", display_name="Test", is_admin=True
+        )
         client = TestClient(app)
         try:
             resp = client.get(f"/skills/{skill_id}")

@@ -63,7 +63,12 @@ from app.routers.clients_deps import (
     PromoteProjectMemoryRequest,
 )
 
-router = APIRouter(tags=["clients"])
+from app.routers.auth import get_current_user
+
+router = APIRouter(
+    tags=["clients"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 def _current_complete_with_selected_model():

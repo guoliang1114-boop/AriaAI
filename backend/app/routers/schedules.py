@@ -12,7 +12,18 @@ from app.database import get_session
 from app.models.db import ScheduledTask
 from app.services import scheduler as scheduler_service
 
-router = APIRouter(prefix="/schedules", tags=["schedules"])
+from app.routers.auth import get_current_user, require_admin
+
+# Schedule management is an admin-only operation — these endpoints
+# inspect and trigger cross-project background jobs. R74 raises the
+# floor from "no auth" to "admin only" rather than the global auth
+# floor used by the other R74 routers.
+router = APIRouter(
+    prefix="/schedules",
+    tags=["schedules"],
+    dependencies=[Depends(require_admin)],
+)
+_ = get_current_user  # re-export for callers that still import it
 
 
 class TaskCreate(BaseModel):

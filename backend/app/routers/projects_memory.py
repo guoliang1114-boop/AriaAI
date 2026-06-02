@@ -74,6 +74,7 @@ from app.routers.projects_deps import (
 
 logger = logging.getLogger(__name__)
 
+from app.routers.auth import require_admin
 from app.routers.chat_security import maybe_require_project_access
 
 router = APIRouter(
@@ -120,7 +121,7 @@ def _count_projects(session: Session, conditions: list) -> int:
 # ── Generate project context summary ──────────────────────────────────────────
 
 
-@router.get("/memory/list")
+@router.get("/memory/list", dependencies=[Depends(require_admin)])
 def list_project_memory_items(
     search: str = "",
     status: str = "all",
@@ -281,7 +282,7 @@ async def update_project_memory_slot(
     }
 
 
-@router.post("/memory/rebuild-batch")
+@router.post("/memory/rebuild-batch", dependencies=[Depends(require_admin)])
 async def rebuild_project_memory_batch(
     body: ProjectMemoryBatchRebuildRequest,
     session: Session = Depends(get_session),
@@ -370,7 +371,7 @@ async def rebuild_project_memory(project_id: int, session: Session = Depends(get
     }
 
 
-@router.post("/memory/warm-summaries-batch")
+@router.post("/memory/warm-summaries-batch", dependencies=[Depends(require_admin)])
 async def warm_project_memory_summaries_batch(
     body: ProjectMemoryBatchWarmSummariesRequest,
     session: Session = Depends(get_session),
@@ -489,7 +490,7 @@ async def warm_project_memory_summaries_batch(
     }
 
 
-@router.get("/memory/jobs")
+@router.get("/memory/jobs", dependencies=[Depends(require_admin)])
 def list_project_memory_jobs(session: Session = Depends(get_session)):
     all_projects = session.exec(select(Project)).all()
     project_lookup = {project.id: project for project in all_projects}

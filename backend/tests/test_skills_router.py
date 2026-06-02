@@ -8,6 +8,7 @@ from sqlmodel import Session, SQLModel, select
 
 from app.models.db import User, Skill
 from app.routers import skills as skills_module
+from app.routers.auth import get_current_user
 from app.routers.skills import router
 from app.services.cache import TTLCache
 from tests.test_database import create_test_engine, drop_all_tables
@@ -42,6 +43,11 @@ class SkillsCrudTestCase(unittest.TestCase):
                 yield session
 
         app.dependency_overrides[skills_module.get_session] = override_session
+        # R74 router-level auth floor — provide a test user so the
+        # ``Depends(get_current_user)`` dep returns instead of 401-ing.
+        app.dependency_overrides[get_current_user] = lambda: User(
+            id=1, email="test@example.com", display_name="Test", is_admin=True
+        )
         self.client = TestClient(app, raise_server_exceptions=False)
 
     def tearDown(self):

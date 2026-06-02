@@ -38,7 +38,12 @@ from app.routers.clients_deps import (
     _serialize_client_stakeholder,
 )
 
-router = APIRouter(tags=["contacts"])
+from app.routers.auth import get_current_user
+
+router = APIRouter(
+    tags=["contacts"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 class ContactProjectOut(BaseModel):

@@ -10,8 +10,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models.db import ClientRecord
+from app.models.db import ClientRecord, User
 from app.routers import clients as clients_router_module
+from app.routers.auth import get_current_user
 from app.services.client_contexts import parse_client_memory
 from tests.test_database import create_test_engine, drop_all_tables
 
@@ -29,6 +30,9 @@ class ClientMemoryJobsTestCase(unittest.TestCase):
         app = FastAPI()
         app.include_router(clients_router_module.router)
         app.dependency_overrides[clients_router_module.get_session] = override_session
+        app.dependency_overrides[get_current_user] = lambda: User(
+            id=1, email="test@example.com", display_name="Test", is_admin=True
+        )
         self.client = TestClient(app)
 
     def tearDown(self):

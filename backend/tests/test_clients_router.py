@@ -8,9 +8,22 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.db import User, ClientRecord, ClientStakeholder, KnowledgeDocument, Project
 from app.routers import clients as clients_module
+from app.routers.auth import get_current_user
 from app.routers.clients import router
 from app.services.cache import clients_cache
 from tests.test_database import create_test_engine, drop_all_tables
+
+
+def _override_admin_user():
+    """Shared dependency override for R74 router-level auth floor.
+
+    Tests in this module construct their own FastAPI app per setUp
+    and don't otherwise carry an auth token — the override returns a
+    canned admin user so the router-level ``Depends(get_current_user)``
+    resolves instead of 401-ing."""
+    return User(
+        id=1, email="test@example.com", display_name="Test", is_admin=True
+    )
 
 
 class ClientsCrudTestCase(unittest.TestCase):
@@ -34,6 +47,7 @@ class ClientsCrudTestCase(unittest.TestCase):
                 yield session
 
         app.dependency_overrides[clients_module.get_session] = override_session
+        app.dependency_overrides[get_current_user] = _override_admin_user
 
         @app.middleware("http")
         def inject_user(request, call_next):
@@ -150,6 +164,7 @@ class ClientsStakeholderTestCase(unittest.TestCase):
                 yield session
 
         app.dependency_overrides[clients_module.get_session] = override_session
+        app.dependency_overrides[get_current_user] = _override_admin_user
 
         @app.middleware("http")
         def inject_user(request, call_next):
@@ -232,6 +247,7 @@ class ClientsMemoryTestCase(unittest.TestCase):
                 yield session
 
         app.dependency_overrides[clients_module.get_session] = override_session
+        app.dependency_overrides[get_current_user] = _override_admin_user
 
         @app.middleware("http")
         def inject_user(request, call_next):
@@ -302,6 +318,7 @@ class ClientsDocumentsTestCase(unittest.TestCase):
                 yield session
 
         app.dependency_overrides[clients_module.get_session] = override_session
+        app.dependency_overrides[get_current_user] = _override_admin_user
 
         @app.middleware("http")
         def inject_user(request, call_next):

@@ -16,8 +16,10 @@ from app.models.db import (
     ClientStakeholderHistory,
     KnowledgeDocument,
     Project,
+    User,
 )
 from app.routers import contacts as contacts_module
+from app.routers.auth import get_current_user
 from app.routers.contacts import router as contacts_router
 from tests.test_database import create_test_engine, drop_all_tables
 
@@ -31,6 +33,10 @@ def _make_app(engine):
             yield session
 
     app.dependency_overrides[contacts_module.get_session] = override_session
+    # R74 router-level auth floor
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=1, email="test@example.com", display_name="Test", is_admin=True
+    )
     return app
 
 

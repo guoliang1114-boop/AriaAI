@@ -24,7 +24,12 @@ from app.routers.clients_deps import (
     ClientStakeholderUpdate,
 )
 
-router = APIRouter(tags=["clients"])
+from app.routers.auth import get_current_user
+
+router = APIRouter(
+    tags=["clients"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.get("/{client_id}/stakeholders", response_model=list[ClientStakeholderOut])

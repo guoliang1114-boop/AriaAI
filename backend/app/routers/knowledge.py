@@ -16,7 +16,13 @@ from app.database import get_session, engine
 from app.models.db import KnowledgeDocument, DocumentChunk, Project
 from app.services import parser, rag
 
-router = APIRouter(prefix="/knowledge", tags=["knowledge"])
+from app.routers.auth import get_current_user
+
+router = APIRouter(
+    prefix="/knowledge",
+    tags=["knowledge"],
+    dependencies=[Depends(get_current_user)],
+)
 
 KB_UPLOADS = UPLOADS_DIR / "knowledge"
 KB_UPLOADS.mkdir(parents=True, exist_ok=True)

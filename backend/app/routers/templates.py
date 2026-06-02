@@ -14,7 +14,13 @@ from app.config import UPLOADS_DIR
 from app.database import get_session
 from app.models.db import Template
 
-router = APIRouter(prefix="/templates", tags=["templates"])
+from app.routers.auth import get_current_user
+
+router = APIRouter(
+    prefix="/templates",
+    tags=["templates"],
+    dependencies=[Depends(get_current_user)],
+)
 
 TEMPLATE_UPLOADS = UPLOADS_DIR / "templates"
 TEMPLATE_UPLOADS.mkdir(parents=True, exist_ok=True)
