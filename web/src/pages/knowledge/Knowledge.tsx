@@ -2,18 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
+  ArrowRight,
   BookOpen,
   Check,
   ChevronDown,
-  Database,
+  File,
   FileText,
   Folder,
+  Layers,
   Loader2,
+  MoreHorizontal,
+  Plus,
   Quote,
   Search,
   Sparkles,
-  Trash2,
-  Upload,
+  Tag,
   X,
 } from 'lucide-react'
 
@@ -25,11 +28,24 @@ import type { KnowledgeDocument, KnowledgeStats } from '../../types/api'
 import { formatDateOnly, parseAppDateTime } from '../../utils/timezone'
 
 const DOC_PAGE_SIZE = 10
-const MANAGE_GRID = '26px 38px minmax(260px,1fr) 180px 104px 78px 86px 34px'
-const MANAGE_TABLE_MIN_WIDTH = 980
+const MANAGE_GRID = '26px 38px minmax(260px,1fr) 190px 104px 70px 84px 22px'
+const MANAGE_TABLE_MIN_WIDTH = 1020
 
 const CATEGORY_ORDER = ['all', 'research', 'interview', 'technical', 'methodology', 'weekly', 'general', 'consulting', 'templates']
-const UPLOAD_CATEGORIES = ['general', 'research', 'consulting', 'templates']
+const FILE_TYPE_FILTERS = [
+  { key: 'all', zh: '全部', en: 'All' },
+  { key: 'ppt', zh: 'PPT', en: 'PPT' },
+  { key: 'word', zh: 'Word', en: 'Word' },
+  { key: 'pdf', zh: 'PDF', en: 'PDF' },
+  { key: 'excel', zh: 'Excel', en: 'Excel' },
+]
+const STATUS_FILTERS = [
+  { key: 'all', zh: '全部', en: 'All' },
+  { key: 'synced', zh: '可用', en: 'Ready' },
+  { key: 'processing', zh: '解析中', en: 'Parsing' },
+  { key: 'pending', zh: '排队中', en: 'Queued' },
+  { key: 'failed', zh: '失败', en: 'Failed' },
+]
 
 type KnowledgeViewMode = 'find' | 'manage'
 
@@ -43,6 +59,11 @@ interface KnowledgeStatusCount {
   count: number
 }
 
+interface KnowledgeFileTypeCount {
+  file_type: string
+  count: number
+}
+
 interface KnowledgeDocumentListResponse {
   items: KnowledgeDocument[]
   total: number
@@ -50,6 +71,7 @@ interface KnowledgeDocumentListResponse {
   offset: number
   categories: KnowledgeCategoryCount[]
   status_counts?: KnowledgeStatusCount[]
+  file_type_counts?: KnowledgeFileTypeCount[]
   recent: KnowledgeDocument[]
   indexed_count: number
   total_size: number
@@ -96,6 +118,18 @@ function fileType(value: string) {
   return type || 'DOC'
 }
 
+function fileTypeFilterCount(counts: KnowledgeFileTypeCount[], key: string) {
+  const normalized = counts.reduce<Record<string, number>>((map, item) => {
+    map[item.file_type.toLowerCase()] = item.count
+    return map
+  }, {})
+  if (key === 'ppt') return (normalized.ppt || 0) + (normalized.pptx || 0)
+  if (key === 'word') return (normalized.doc || 0) + (normalized.docx || 0)
+  if (key === 'excel') return (normalized.xls || 0) + (normalized.xlsx || 0)
+  if (key === 'pdf') return normalized.pdf || 0
+  return Object.values(normalized).reduce((sum, value) => sum + value, 0)
+}
+
 function docSizeBytes(doc: KnowledgeDocument) {
   return doc.size_bytes ?? (doc as unknown as { size?: number }).size
 }
@@ -128,6 +162,24 @@ function statusMeta(status: KnowledgeDocument['vector_status'], isZh: boolean): 
   return { label: isZh ? '排队中' : 'Queued', tone: 'warn', pulse: true }
 }
 
+function sourceLabel(doc: KnowledgeDocument, isZh: boolean) {
+  if (doc.project_id) return isZh ? `项目 · #${doc.project_id}` : `Project · #${doc.project_id}`
+  if (doc.client_id) return isZh ? `客户 · #${doc.client_id}` : `Client · #${doc.client_id}`
+  return categoryLabel(normalizeCategory(doc.category), isZh)
+}
+
+function resultScore(doc: KnowledgeDocument, index: number) {
+  if (doc.vector_status === 'failed') return 0.62
+  if (doc.vector_status === 'processing' || doc.vector_status === 'pending') return 0.7
+  return Math.max(0.72, 0.94 - index * 0.04)
+}
+
+function scoreColor(score: number) {
+  if (score >= 0.85) return 'var(--color-codex-good)'
+  if (score >= 0.7) return 'var(--color-codex-accent)'
+  return 'var(--color-codex-warn)'
+}
+
 export function Knowledge() {
   const { i18n } = useTranslation()
   const toast = useToast()
@@ -142,13 +194,16 @@ export function Knowledge() {
   const [documentTotal, setDocumentTotal] = useState(0)
   const [categoryCounts, setCategoryCounts] = useState<KnowledgeCategoryCount[]>([])
   const [statusCounts, setStatusCounts] = useState<KnowledgeStatusCount[]>([])
+  const [fileTypeCounts, setFileTypeCounts] = useState<KnowledgeFileTypeCount[]>([])
   const [recentDocuments, setRecentDocuments] = useState<KnowledgeDocument[]>([])
   const [indexedCount, setIndexedCount] = useState(0)
   const [totalSize, setTotalSize] = useState(0)
   const [stats, setStats] = useState<KnowledgeStats>({ document_count: 0, total_vectors: 0 })
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
-  const [uploadCategory, setUploadCategory] = useState('general')
+  const [selectedFileType, setSelectedFileType] = useState('all')
+  const [selectedStatus, setSelectedStatus] = useState('all')
+  const uploadCategory = 'general'
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [documentPage, setDocumentPage] = useState(1)
@@ -156,6 +211,7 @@ export function Knowledge() {
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [reindexingId, setReindexingId] = useState<number | null>(null)
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<number[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchData = async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -174,6 +230,8 @@ export function Knowledge() {
           params: {
             search: searchQuery.trim(),
             category: selectedCategory,
+            file_type: selectedFileType,
+            status: selectedStatus,
             limit: documentPageSize,
             offset: (documentPage - 1) * documentPageSize,
           },
@@ -184,6 +242,7 @@ export function Knowledge() {
       setDocumentTotal(docsData.total)
       setCategoryCounts(docsData.categories)
       setStatusCounts(docsData.status_counts || [])
+      setFileTypeCounts(docsData.file_type_counts || [])
       setRecentDocuments(docsData.recent)
       setIndexedCount(docsData.indexed_count)
       setTotalSize(docsData.total_size)
@@ -204,11 +263,11 @@ export function Knowledge() {
 
   useEffect(() => {
     void fetchData()
-  }, [documentPage, documentPageSize, searchQuery, selectedCategory])
+  }, [documentPage, documentPageSize, searchQuery, selectedCategory, selectedFileType, selectedStatus])
 
   useEffect(() => {
     setDocumentPage(1)
-  }, [searchQuery, selectedCategory])
+  }, [searchQuery, selectedCategory, selectedFileType, selectedStatus])
 
   const categories = useMemo(() => {
     const present = new Set(categoryCounts.map((item) => normalizeCategory(item.category)))
@@ -241,6 +300,11 @@ export function Knowledge() {
   }, [documents, statusCounts])
   const processingCount = (statusCountMap.processing || 0) + (statusCountMap.pending || 0)
   const failedCount = statusCountMap.failed || 0
+  const selectedDocumentCount = selectedDocumentIds.length
+
+  useEffect(() => {
+    setSelectedDocumentIds((ids) => ids.filter((id) => documents.some((doc) => doc.id === id)))
+  }, [documents])
 
   const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -343,6 +407,8 @@ export function Knowledge() {
             documentPageSize={documentPageSize}
             documentTotal={documentTotal}
             error={error}
+            failedCount={failedCount}
+            fileTypeCounts={fileTypeCounts}
             indexedCount={indexedCount}
             isZh={isZh}
             latestDoc={latestDoc}
@@ -353,6 +419,8 @@ export function Knowledge() {
             onClear={() => {
               setSearchQuery('')
               setSelectedCategory('all')
+              setSelectedFileType('all')
+              setSelectedStatus('all')
               setDocumentPage(1)
             }}
             onCopyCitation={(doc) => void copyCitation(doc)}
@@ -364,12 +432,16 @@ export function Knowledge() {
             onReindex={(doc) => void reindexDocument(doc)}
             onUpload={() => fileInputRef.current?.click()}
             processingCount={processingCount}
-            failedCount={failedCount}
             reindexingId={reindexingId}
             searchQuery={searchQuery}
             selectedCategory={selectedCategory}
+            selectedFileType={selectedFileType}
             setSearchQuery={(value) => {
               setSearchQuery(value)
+              setDocumentPage(1)
+            }}
+            setSelectedFileType={(value) => {
+              setSelectedFileType(value)
               setDocumentPage(1)
             }}
             totalSize={localTotalSize}
@@ -386,6 +458,7 @@ export function Knowledge() {
             documentTotal={documentTotal}
             error={error}
             failedCount={failedCount}
+            fileTypeCounts={fileTypeCounts}
             indexedCount={indexedCount}
             isZh={isZh}
             onCategoryChange={(category) => {
@@ -395,6 +468,8 @@ export function Knowledge() {
             onClear={() => {
               setSearchQuery('')
               setSelectedCategory('all')
+              setSelectedFileType('all')
+              setSelectedStatus('all')
               setDocumentPage(1)
             }}
             onDelete={(doc) => setPendingDeleteId(doc.id)}
@@ -405,20 +480,35 @@ export function Knowledge() {
             }}
             onRefresh={() => void fetchData({ silent: true })}
             onReindex={(doc) => void reindexDocument(doc)}
+            onClearSelection={() => setSelectedDocumentIds([])}
+            onToggleSelection={(docId) => {
+              setSelectedDocumentIds((ids) => (
+                ids.includes(docId) ? ids.filter((id) => id !== docId) : [...ids, docId]
+              ))
+            }}
             onUpload={() => fileInputRef.current?.click()}
             processingCount={processingCount}
             refreshing={refreshing}
             reindexingId={reindexingId}
             searchQuery={searchQuery}
             selectedCategory={selectedCategory}
+            selectedDocumentCount={selectedDocumentCount}
+            selectedDocumentIds={selectedDocumentIds}
+            selectedFileType={selectedFileType}
+            selectedStatus={selectedStatus}
             setSearchQuery={(value) => {
               setSearchQuery(value)
               setDocumentPage(1)
             }}
-            totalSize={localTotalSize}
-            uploadCategory={uploadCategory}
+            setSelectedFileType={(value) => {
+              setSelectedFileType(value)
+              setDocumentPage(1)
+            }}
+            setSelectedStatus={(value) => {
+              setSelectedStatus(value)
+              setDocumentPage(1)
+            }}
             uploading={uploading}
-            setUploadCategory={setUploadCategory}
           />
         )}
 
@@ -510,6 +600,7 @@ function KnowledgeFindView({
   documentTotal,
   error,
   failedCount,
+  fileTypeCounts,
   indexedCount,
   isZh,
   latestDoc,
@@ -524,7 +615,9 @@ function KnowledgeFindView({
   reindexingId,
   searchQuery,
   selectedCategory,
+  selectedFileType,
   setSearchQuery,
+  setSelectedFileType,
   totalSize,
 }: {
   allDocumentCount: number
@@ -537,6 +630,7 @@ function KnowledgeFindView({
   documentTotal: number
   error: string | null
   failedCount: number
+  fileTypeCounts: KnowledgeFileTypeCount[]
   indexedCount: number
   isZh: boolean
   latestDoc?: KnowledgeDocument
@@ -551,11 +645,15 @@ function KnowledgeFindView({
   reindexingId: number | null
   searchQuery: string
   selectedCategory: string
+  selectedFileType: string
   setSearchQuery: (value: string) => void
+  setSelectedFileType: (value: string) => void
   totalSize: number
 }) {
-  const hasSearch = Boolean(searchQuery.trim()) || selectedCategory !== 'all'
+  const hasSearch = Boolean(searchQuery.trim()) || selectedCategory !== 'all' || selectedFileType !== 'all'
   const topCategories = categoryCounts.slice(0, 5)
+  const projectIds = Array.from(new Set(documents.map((doc) => doc.project_id).filter(Boolean))).slice(0, 4)
+  const queryLabel = searchQuery.trim()
 
   return (
     <div className="grid min-h-0 flex-1 lg:grid-cols-[212px_minmax(0,1fr)]">
@@ -573,21 +671,44 @@ function KnowledgeFindView({
             {isZh ? '清空' : 'Clear'}
           </button>
         </div>
-        <FacetBlock title={isZh ? '分类' : 'Category'}>
-          {categories.map((category) => (
+        <FacetBlock title={isZh ? '类型' : 'Type'}>
+          {FILE_TYPE_FILTERS.filter((item) => item.key !== 'all').map((item) => (
             <FacetOption
-              key={category}
-              active={selectedCategory === category}
-              count={category === 'all' ? allDocumentCount : categoryCounts.find((item) => normalizeCategory(item.category) === category)?.count || 0}
-              label={categoryLabel(category, isZh)}
-              onClick={() => onCategoryChange(category)}
+              key={item.key}
+              active={selectedFileType === item.key}
+              count={fileTypeFilterCount(fileTypeCounts, item.key)}
+              label={isZh ? item.zh : item.en}
+              onClick={() => setSelectedFileType(selectedFileType === item.key ? 'all' : item.key)}
             />
           ))}
         </FacetBlock>
-        <FacetBlock title={isZh ? '状态' : 'Status'}>
-          <FacetReadonly label={isZh ? '已索引' : 'Indexed'} count={indexedCount} />
-          <FacetReadonly label={isZh ? '等待入库' : 'Waiting'} count={processingCount} />
-          <FacetReadonly label={isZh ? '失败' : 'Failed'} count={failedCount} />
+        <FacetBlock title={isZh ? '行业' : 'Industry'}>
+          {categories.filter((category) => category !== 'all').slice(0, 5).map((category) => (
+            <FacetOption
+              key={category}
+              active={selectedCategory === category}
+              count={categoryCounts.find((item) => normalizeCategory(item.category) === category)?.count || 0}
+              label={categoryLabel(category, isZh)}
+              onClick={() => onCategoryChange(selectedCategory === category ? 'all' : category)}
+            />
+          ))}
+        </FacetBlock>
+        <FacetBlock title={isZh ? '所属项目' : 'Project'}>
+          {projectIds.length ? projectIds.map((projectId) => (
+            <FacetReadonly key={projectId} label={isZh ? `项目 · #${projectId}` : `Project · #${projectId}`} count={documents.filter((doc) => doc.project_id === projectId).length} />
+          )) : (
+            <FacetReadonly label={isZh ? '暂无项目来源' : 'No project source'} count={0} />
+          )}
+        </FacetBlock>
+        <FacetBlock title={isZh ? '标签' : 'Tags'}>
+          {topCategories.length ? topCategories.map((item) => (
+            <FacetReadonly key={item.category} label={categoryLabel(normalizeCategory(item.category), isZh)} count={item.count} />
+          )) : (
+            <FacetReadonly label={isZh ? '暂无标签' : 'No tags'} count={0} />
+          )}
+        </FacetBlock>
+        <FacetBlock title={isZh ? '时间范围' : 'Time range'}>
+          <FacetReadonly label={isZh ? '最近更新' : 'Recently updated'} count={latestDoc ? 1 : 0} />
         </FacetBlock>
       </aside>
 
@@ -645,25 +766,12 @@ function KnowledgeFindView({
             <span className="codex-mono" style={{ fontSize: 11, color: 'var(--color-codex-ink-faint)' }}>
               · {formatFileSize(totalSize)}
             </span>
-            <div className="flex flex-wrap gap-1.5">
-              {topCategories.map((item) => (
-                <button
-                  key={item.category}
-                  type="button"
-                  onClick={() => onCategoryChange(normalizeCategory(item.category))}
-                  className="cx-no-hover"
-                  style={{
-                    padding: '3px 9px',
-                    borderRadius: 'var(--codex-r-pill, 999px)',
-                    background: 'var(--color-codex-bg-tint)',
-                    color: 'var(--color-codex-ink-soft)',
-                    fontSize: 11.5,
-                  }}
-                >
-                  {categoryLabel(normalizeCategory(item.category), isZh)}
-                </button>
-              ))}
-            </div>
+            <ActiveFilterChip label={selectedCategory !== 'all' ? categoryLabel(selectedCategory, isZh) : categoryLabel('all', isZh)} />
+            {selectedFileType !== 'all' ? <ActiveFilterChip label={(isZh ? FILE_TYPE_FILTERS.find((item) => item.key === selectedFileType)?.zh : FILE_TYPE_FILTERS.find((item) => item.key === selectedFileType)?.en) || selectedFileType.toUpperCase()} /> : null}
+            <button type="button" className="cx-no-hover inline-flex items-center gap-1.5" style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
+              {isZh ? '按相关度' : 'By relevance'}
+              <ChevronDown size={11} strokeWidth={1.6} aria-hidden="true" />
+            </button>
           </div>
 
           {error ? <KnowledgeError message={error} /> : null}
@@ -689,8 +797,12 @@ function KnowledgeFindView({
               <Sparkles size={15} strokeWidth={1.6} aria-hidden="true" />
             </span>
             <span style={{ fontSize: 13, color: 'var(--color-codex-accent-ink)', flex: 1 }}>
-              {isZh ? '查找结果可以作为对话和 Skill 的引用上下文。' : 'Search results can be reused as context in conversations and Skills.'}
+              {isZh ? '让 Aria 综合下面这些资料，直接回答你的问题' : 'Ask Aria to synthesize these sources and answer directly'}
             </span>
+            <button type="button" className="cx-no-hover inline-flex items-center gap-1.5" style={{ padding: '7px 14px', fontSize: 12.5, fontWeight: 500, background: 'var(--color-codex-accent)', color: 'var(--color-codex-bg-elev)', borderRadius: 'var(--codex-r-sm, 3px)' }}>
+              {isZh ? '在对话中提问' : 'Ask in chat'}
+              <ArrowRight size={12} strokeWidth={1.8} aria-hidden="true" />
+            </button>
           </div>
         </div>
 
@@ -712,6 +824,7 @@ function KnowledgeFindView({
                     doc={doc}
                     index={index}
                     isZh={isZh}
+                    query={queryLabel}
                     onCopyCitation={() => onCopyCitation(doc)}
                     onReindex={() => onReindex(doc)}
                     reindexing={reindexingId === doc.id}
@@ -748,6 +861,7 @@ function KnowledgeManageView({
   documentTotal,
   error,
   failedCount,
+  fileTypeCounts,
   indexedCount,
   isZh,
   onCategoryChange,
@@ -757,17 +871,22 @@ function KnowledgeManageView({
   onPageSizeChange,
   onRefresh,
   onReindex,
+  onClearSelection,
+  onToggleSelection,
   onUpload,
   processingCount,
   refreshing,
   reindexingId,
   searchQuery,
   selectedCategory,
+  selectedDocumentCount,
+  selectedDocumentIds,
+  selectedFileType,
+  selectedStatus,
   setSearchQuery,
-  totalSize,
-  uploadCategory,
+  setSelectedFileType,
+  setSelectedStatus,
   uploading,
-  setUploadCategory,
 }: {
   allDocumentCount: number
   categories: string[]
@@ -779,6 +898,7 @@ function KnowledgeManageView({
   documentTotal: number
   error: string | null
   failedCount: number
+  fileTypeCounts: KnowledgeFileTypeCount[]
   indexedCount: number
   isZh: boolean
   onCategoryChange: (category: string) => void
@@ -788,19 +908,25 @@ function KnowledgeManageView({
   onPageSizeChange: (pageSize: number) => void
   onRefresh: () => void
   onReindex: (doc: KnowledgeDocument) => void
+  onClearSelection: () => void
+  onToggleSelection: (docId: number) => void
   onUpload: () => void
   processingCount: number
   refreshing: boolean
   reindexingId: number | null
   searchQuery: string
   selectedCategory: string
+  selectedDocumentCount: number
+  selectedDocumentIds: number[]
+  selectedFileType: string
+  selectedStatus: string
   setSearchQuery: (value: string) => void
-  totalSize: number
-  uploadCategory: string
+  setSelectedFileType: (value: string) => void
+  setSelectedStatus: (value: string) => void
   uploading: boolean
-  setUploadCategory: (category: string) => void
 }) {
-  const hasSearch = Boolean(searchQuery.trim()) || selectedCategory !== 'all'
+  const hasSearch = Boolean(searchQuery.trim()) || selectedCategory !== 'all' || selectedFileType !== 'all' || selectedStatus !== 'all'
+  const projectCount = documents.filter((doc) => doc.project_id).length
 
   return (
     <div className="grid min-h-0 flex-1 lg:grid-cols-[236px_minmax(0,1fr)]">
@@ -821,18 +947,40 @@ function KnowledgeManageView({
         />
         <div style={{ height: 1, background: 'var(--color-codex-line-soft)', margin: '10px 6px' }} />
         <div className="codex-mono" style={{ fontSize: 10.5, color: 'var(--color-codex-ink-faint)', padding: '2px 10px 8px' }}>
-          {isZh ? '按分类' : 'By category'}
+          {isZh ? '按来源' : 'By source'}
         </div>
-        {categories.filter((category) => category !== 'all').map((category) => (
+        <SourceTreeRow
+          count={allDocumentCount}
+          icon={<Plus size={13} strokeWidth={1.5} />}
+          label={isZh ? '手动上传' : 'Manual upload'}
+          onClick={() => onCategoryChange('all')}
+        />
+        <SourceTreeRow
+          count={categoryCounts.reduce((sum, item) => sum + item.count, 0)}
+          expandable
+          open
+          icon={<Folder size={13} strokeWidth={1.5} />}
+          label={isZh ? '文件夹同步' : 'Folder sync'}
+          onClick={() => onCategoryChange('all')}
+        />
+        {categories.filter((category) => category !== 'all').slice(0, 4).map((category) => (
           <SourceTreeRow
             key={category}
             active={selectedCategory === category}
             count={categoryCounts.find((item) => normalizeCategory(item.category) === category)?.count || 0}
-            icon={<Folder size={13} strokeWidth={1.5} />}
+            indent={1}
             label={categoryLabel(category, isZh)}
             onClick={() => onCategoryChange(category)}
           />
         ))}
+        <SourceTreeRow
+          count={projectCount}
+          expandable
+          open
+          icon={<Layers size={13} strokeWidth={1.5} />}
+          label={isZh ? '项目导入' : 'Project import'}
+          onClick={() => onCategoryChange('all')}
+        />
 
         <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid var(--color-codex-line-soft)' }}>
           <div className="codex-mono" style={{ fontSize: 10.5, color: 'var(--color-codex-ink-faint)', padding: '2px 10px 8px' }}>
@@ -860,34 +1008,17 @@ function KnowledgeManageView({
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={uploadCategory}
-                onChange={(event) => setUploadCategory(event.target.value)}
-                className="codex-input"
-                style={{
-                  minHeight: 36,
-                  padding: '0 10px',
-                  border: '1px solid var(--color-codex-line)',
-                  borderRadius: 'var(--codex-r-sm, 3px)',
-                  background: 'var(--color-codex-bg-elev)',
-                  color: 'var(--color-codex-ink-soft)',
-                  fontSize: 12.5,
-                }}
-                aria-label={isZh ? '上传分类' : 'Upload category'}
-              >
-                {UPLOAD_CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {categoryLabel(category, isZh)}
-                  </option>
-                ))}
-              </select>
               <button type="button" onClick={onRefresh} disabled={refreshing} className="cx-no-hover inline-flex items-center gap-1.5" style={ghostButtonStyle}>
-                <Database size={13} strokeWidth={1.5} aria-hidden="true" />
-                {refreshing ? (isZh ? '同步中' : 'Syncing') : isZh ? '刷新索引' : 'Refresh index'}
+                <Folder size={14} strokeWidth={1.5} aria-hidden="true" />
+                {refreshing ? (isZh ? '同步中' : 'Syncing') : isZh ? '同步文件夹' : 'Sync folder'}
+              </button>
+              <button type="button" className="cx-no-hover inline-flex items-center gap-1.5" style={ghostButtonStyle}>
+                <Layers size={14} strokeWidth={1.5} aria-hidden="true" />
+                {isZh ? '从项目导入' : 'Import projects'}
               </button>
               <button type="button" onClick={onUpload} disabled={uploading} className="cx-primary-action cx-no-hover">
-                {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload size={13} strokeWidth={1.5} aria-hidden="true" />}
-                {isZh ? '上传文档' : 'Upload'}
+                {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus size={14} strokeWidth={1.7} aria-hidden="true" />}
+                {isZh ? '上传文件' : 'Upload file'}
               </button>
             </div>
           </div>
@@ -928,16 +1059,41 @@ function KnowledgeManageView({
               ) : null}
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {categories.map((category) => (
+              {FILE_TYPE_FILTERS.map((item) => (
                 <FilterPill
-                  key={category}
-                  active={selectedCategory === category}
-                  count={category === 'all' ? allDocumentCount : categoryCounts.find((item) => normalizeCategory(item.category) === category)?.count || 0}
-                  label={categoryLabel(category, isZh)}
-                  onClick={() => onCategoryChange(category)}
+                  key={item.key}
+                  active={selectedFileType === item.key}
+                  count={fileTypeFilterCount(fileTypeCounts, item.key)}
+                  label={isZh ? item.zh : item.en}
+                  onClick={() => setSelectedFileType(item.key)}
                 />
               ))}
             </div>
+            <label
+              className="inline-flex items-center gap-1.5"
+              style={{
+                padding: '6px 11px',
+                fontSize: 12.5,
+                border: '1px solid var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+                color: 'var(--color-codex-ink-soft)',
+                background: 'var(--color-codex-bg-elev)',
+              }}
+            >
+              <span style={{ color: 'var(--color-codex-ink-faint)' }}>{isZh ? '状态' : 'Status'}</span>
+              <select
+                value={selectedStatus}
+                onChange={(event) => setSelectedStatus(event.target.value)}
+                className="codex-input bg-transparent outline-none"
+                style={{ color: 'var(--color-codex-ink)', fontSize: 12.5 }}
+              >
+                {STATUS_FILTERS.map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {isZh ? item.zh : item.en}
+                  </option>
+                ))}
+              </select>
+            </label>
             <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--color-codex-ink-faint)' }}>
               {isZh ? (
                 <>
@@ -953,6 +1109,35 @@ function KnowledgeManageView({
 
           {error ? <KnowledgeError message={error} /> : null}
         </div>
+
+        {selectedDocumentCount > 0 ? (
+          <div
+            style={{
+              margin: '0 clamp(24px, 4vw, 48px)',
+              padding: '10px 16px',
+              background: 'var(--color-codex-ink)',
+              borderRadius: '0 0 var(--codex-r-sm, 3px) var(--codex-r-sm, 3px)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 16,
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ fontSize: 12.5, color: 'var(--color-codex-bg-elev)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+              {isZh ? `已选 ${selectedDocumentCount} 项` : `${selectedDocumentCount} selected`}
+            </span>
+            <div className="flex flex-wrap gap-1">
+              <BatchActionButton icon={<Layers size={12} strokeWidth={1.5} />} label={isZh ? '重新索引' : 'Reindex'} />
+              <BatchActionButton icon={<Folder size={12} strokeWidth={1.5} />} label={isZh ? '移动到…' : 'Move to...'} />
+              <BatchActionButton icon={<Tag size={12} strokeWidth={1.5} />} label={isZh ? '加标签' : 'Tag'} />
+              <BatchActionButton icon={<File size={12} strokeWidth={1.5} />} label={isZh ? '下载' : 'Download'} />
+              <BatchActionButton danger label={isZh ? '删除' : 'Delete'} />
+            </div>
+            <button type="button" onClick={onClearSelection} className="cx-no-hover ml-auto" style={{ fontSize: 12, color: 'color-mix(in oklab, var(--color-codex-bg-elev) 55%, transparent)' }}>
+              {isZh ? '取消选择' : 'Clear'}
+            </button>
+          </div>
+        ) : null}
 
         <section aria-label={isZh ? '知识库文档' : 'Knowledge documents'} className="relative min-h-0 flex-1 overflow-hidden" style={{ padding: '0 clamp(24px, 4vw, 48px)' }}>
           <div
@@ -993,8 +1178,10 @@ function KnowledgeManageView({
                       key={doc.id}
                       doc={doc}
                       isZh={isZh}
+                      selected={selectedDocumentIds.includes(doc.id)}
                       onDelete={() => onDelete(doc)}
                       onReindex={() => onReindex(doc)}
+                      onToggleSelection={() => onToggleSelection(doc.id)}
                       reindexing={reindexingId === doc.id}
                     />
                   ))}
@@ -1033,23 +1220,23 @@ const ghostButtonStyle = {
 function ManageDocumentRow({
   doc,
   isZh,
+  selected,
   onDelete,
   onReindex,
+  onToggleSelection,
   reindexing,
 }: {
   doc: KnowledgeDocument
   isZh: boolean
+  selected: boolean
   onDelete: () => void
   onReindex: () => void
+  onToggleSelection: () => void
   reindexing: boolean
 }) {
   const status = statusMeta(doc.vector_status, isZh)
   const type = fileType(doc.file_type)
-  const source = doc.project_id
-    ? isZh ? `项目 · #${doc.project_id}` : `Project · #${doc.project_id}`
-    : doc.client_id
-      ? isZh ? `客户 · #${doc.client_id}` : `Client · #${doc.client_id}`
-      : categoryLabel(normalizeCategory(doc.category), isZh)
+  const source = sourceLabel(doc, isZh)
 
   return (
     <div>
@@ -1062,17 +1249,26 @@ function ManageDocumentRow({
           gap: 14,
           alignItems: 'center',
           borderTop: '1px solid var(--color-codex-line-soft)',
+          background: selected ? 'var(--color-codex-bg-tint)' : 'transparent',
         }}
       >
-        <span
-          aria-hidden="true"
+        <button
+          type="button"
+          onClick={onToggleSelection}
+          aria-label={isZh ? `选择 ${doc.name}` : `Select ${doc.name}`}
           style={{
             width: 14,
             height: 14,
             borderRadius: 3,
-            border: '1.5px solid var(--color-codex-line-strong)',
+            border: selected ? 'none' : '1.5px solid var(--color-codex-line-strong)',
+            background: selected ? 'var(--color-codex-accent)' : 'transparent',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
-        />
+        >
+          {selected ? <Check size={10} strokeWidth={2.4} style={{ color: 'var(--color-codex-bg-elev)' }} aria-hidden="true" /> : null}
+        </button>
         <FileTypeBadge type={type} size={30} />
         <div className="min-w-0">
           <div className="truncate" style={{ fontSize: 13.5, color: 'var(--color-codex-ink)', fontWeight: 500 }}>
@@ -1109,7 +1305,7 @@ function ManageDocumentRow({
           }}
           aria-label={isZh ? `删除 ${doc.name}` : `Delete ${doc.name}`}
         >
-          <Trash2 size={13} strokeWidth={1.5} aria-hidden="true" />
+          <MoreHorizontal size={15} strokeWidth={1.5} aria-hidden="true" />
         </button>
       </div>
       {doc.vector_status === 'processing' && status.progress ? (
@@ -1159,6 +1355,7 @@ function SearchResultRow({
   doc,
   index,
   isZh,
+  query,
   onCopyCitation,
   onReindex,
   reindexing,
@@ -1166,11 +1363,14 @@ function SearchResultRow({
   doc: KnowledgeDocument
   index: number
   isZh: boolean
+  query: string
   onCopyCitation: () => void
   onReindex: () => void
   reindexing: boolean
 }) {
   const status = statusMeta(doc.vector_status, isZh)
+  const score = resultScore(doc, index)
+  const tone = scoreColor(score)
   const description =
     doc.vector_status === 'synced'
       ? isZh
@@ -1208,14 +1408,19 @@ function SearchResultRow({
           <span className="truncate" style={{ fontSize: 15, fontWeight: 500, color: 'var(--color-codex-ink)' }}>
             {doc.name}
           </span>
-          <CxStatus tone={status.tone} pulse={status.pulse}>
-            {status.label}
-          </CxStatus>
+          <span className="inline-flex shrink-0 items-center gap-1.5">
+            <span className="codex-num" style={{ fontSize: 11, fontWeight: 600, color: tone }}>{score.toFixed(2)}</span>
+            <span style={{ width: 34, height: 3, background: 'var(--color-codex-bg-sunken)', borderRadius: 99 }}>
+              <span style={{ display: 'block', width: `${score * 100}%`, height: '100%', background: tone, borderRadius: 99 }} />
+            </span>
+          </span>
+          <CxStatus tone={status.tone} pulse={status.pulse}>{status.label}</CxStatus>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-2" style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}>
-          <span>{categoryLabel(normalizeCategory(doc.category), isZh)}</span>
+          <span>{sourceLabel(doc, isZh)}</span>
           <span style={{ color: 'var(--color-codex-ink-faint)' }}>·</span>
           <TagChip>{fileType(doc.file_type)}</TagChip>
+          <span className="codex-mono" style={{ color: 'var(--color-codex-ink-faint)' }}>{isZh ? '正文' : 'Body'}</span>
           <span className="codex-mono" style={{ color: 'var(--color-codex-ink-faint)' }}>
             {formatFileSize(docSizeBytes(doc))}
           </span>
@@ -1231,9 +1436,19 @@ function SearchResultRow({
             lineHeight: 1.7,
           }}
         >
-          {description}
+          <span>{description}</span>
+          {doc.vector_status === 'synced' && query ? (
+            <>
+              {' '}
+              <span style={{ background: 'var(--color-codex-accent-bg)', color: 'var(--color-codex-accent-ink)', borderRadius: 2, padding: '0 2px', fontWeight: 500 }}>{query}</span>
+            </>
+          ) : null}
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-4" style={{ paddingLeft: 13 }}>
+          <button type="button" className="cx-no-hover inline-flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--color-codex-ink)', fontWeight: 500 }}>
+            <File size={12} strokeWidth={1.5} aria-hidden="true" />
+            {isZh ? '打开原文' : 'Open source'}
+          </button>
           {doc.vector_status === 'synced' ? (
             <button type="button" onClick={onCopyCitation} className="cx-no-hover inline-flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
               <Quote size={12} strokeWidth={1.5} aria-hidden="true" />
@@ -1252,6 +1467,10 @@ function SearchResultRow({
               {isZh ? '重新处理' : 'Retry indexing'}
             </button>
           ) : null}
+          <button type="button" className="cx-no-hover inline-flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--color-codex-accent)' }}>
+            <Sparkles size={12} strokeWidth={1.5} aria-hidden="true" />
+            {isZh ? '在对话中追问' : 'Ask follow-up'}
+          </button>
         </div>
       </div>
     </div>
@@ -1326,6 +1545,42 @@ function FilterPill({
   )
 }
 
+function BatchActionButton({ danger, icon, label }: { danger?: boolean; icon?: ReactNode; label: string }) {
+  return (
+    <button
+      type="button"
+      className="cx-no-hover inline-flex items-center gap-1.5"
+      style={{
+        padding: '5px 11px',
+        fontSize: 12,
+        color: danger ? 'color-mix(in oklab, var(--color-codex-bad) 72%, var(--color-codex-bg-elev))' : 'color-mix(in oklab, var(--color-codex-bg-elev) 85%, transparent)',
+        borderRadius: 'var(--codex-r-sm, 3px)',
+      }}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+function ActiveFilterChip({ label }: { label: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5"
+      style={{
+        padding: '3px 9px',
+        borderRadius: 'var(--codex-r-pill, 999px)',
+        background: 'var(--color-codex-bg-tint)',
+        color: 'var(--color-codex-ink-soft)',
+        fontSize: 11.5,
+      }}
+    >
+      {label}
+      <Plus size={10} strokeWidth={2} style={{ transform: 'rotate(45deg)', color: 'var(--color-codex-ink-faint)' }} aria-hidden="true" />
+    </span>
+  )
+}
+
 function FacetBlock({ children, title }: { children: ReactNode; title: string }) {
   return (
     <div style={{ marginBottom: 20 }}>
@@ -1392,15 +1647,21 @@ function FacetReadonly({ count, label }: { count: number; label: string }) {
 function SourceTreeRow({
   active,
   count,
+  expandable,
+  indent = 0,
   icon,
   label,
   onClick,
+  open,
 }: {
-  active: boolean
+  active?: boolean
   count: number
-  icon: ReactNode
+  expandable?: boolean
+  indent?: number
+  icon?: ReactNode
   label: string
   onClick: () => void
+  open?: boolean
 }) {
   return (
     <button
@@ -1409,12 +1670,14 @@ function SourceTreeRow({
       className="row-hov cx-no-hover relative flex w-full items-center gap-2"
       style={{
         padding: '7px 10px',
+        paddingLeft: 10 + indent * 18,
         borderRadius: 'var(--codex-r-sm, 3px)',
         background: active ? 'var(--color-codex-bg-tint)' : 'transparent',
       }}
     >
       {active ? <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 7, bottom: 7, width: 2, background: 'var(--color-codex-accent)', borderRadius: 99 }} /> : null}
-      <span style={{ color: active ? 'var(--color-codex-ink-soft)' : 'var(--color-codex-ink-mute)', flexShrink: 0 }}>{icon}</span>
+      {expandable ? <ChevronDown size={11} strokeWidth={1.6} style={{ color: 'var(--color-codex-ink-faint)', transform: open ? 'none' : 'rotate(-90deg)' }} aria-hidden="true" /> : null}
+      {icon ? <span style={{ color: active ? 'var(--color-codex-ink-soft)' : 'var(--color-codex-ink-mute)', flexShrink: 0 }}>{icon}</span> : null}
       <span className="truncate" style={{ flex: 1, textAlign: 'left', fontSize: 13, color: active ? 'var(--color-codex-ink)' : 'var(--color-codex-ink-soft)', fontWeight: active ? 500 : 400 }}>{label}</span>
       <span className="codex-num" style={{ fontSize: 10.5, color: 'var(--color-codex-ink-faint)' }}>{count}</span>
     </button>

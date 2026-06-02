@@ -212,6 +212,26 @@ class KnowledgeRouterTestCase(unittest.TestCase):
         self.assertGreaterEqual(counts.get("synced", 0), 1)
         self.assertEqual(counts.get("failed"), 1)
 
+    def test_list_documents_filters_by_file_type_and_status(self):
+        with Session(self.engine) as session:
+            ppt_doc = KnowledgeDocument(
+                name="deck.pptx",
+                file_type="pptx",
+                path="/tmp/deck.pptx",
+                category="general",
+                vector_status="failed",
+            )
+            session.add(ppt_doc)
+            session.commit()
+
+        resp = self.client.get("/knowledge/documents/list?file_type=ppt&status=failed")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["items"][0]["name"], "deck.pptx")
+        type_counts = {item["file_type"]: item["count"] for item in data["file_type_counts"]}
+        self.assertGreaterEqual(type_counts.get("pptx", 0), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

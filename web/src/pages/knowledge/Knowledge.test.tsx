@@ -25,6 +25,13 @@ const wrapDocuments = (items: any[]) => ({
       return counts
     }, {}),
   ).map(([status, count]) => ({ status, count })),
+  file_type_counts: Object.entries(
+    items.reduce<Record<string, number>>((counts, item) => {
+      const key = item.file_type || 'other'
+      counts[key] = (counts[key] || 0) + 1
+      return counts
+    }, {}),
+  ).map(([file_type, count]) => ({ file_type, count })),
   recent: items,
   indexed_count: items.filter((item) => item.vector_status === 'synced').length,
   total_size: items.reduce((sum, item) => sum + (item.size_bytes || item.size || 0), 0),

@@ -38,6 +38,11 @@ class KnowledgeStatusCount(BaseModel):
     count: int
 
 
+class KnowledgeFileTypeCount(BaseModel):
+    file_type: str
+    count: int
+
+
 class KnowledgeDocumentListResponse(BaseModel):
     items: list[KnowledgeDocument]
     total: int
@@ -45,6 +50,7 @@ class KnowledgeDocumentListResponse(BaseModel):
     offset: int
     categories: list[KnowledgeCategoryCount]
     status_counts: list[KnowledgeStatusCount] = []
+    file_type_counts: list[KnowledgeFileTypeCount] = []
     recent: list[KnowledgeDocument]
     indexed_count: int
     total_size: int = 0
@@ -72,6 +78,19 @@ def _knowledge_search_filter(search: str):
     )
 
 
+def _knowledge_file_type_values(file_type: str) -> list[str]:
+    normalized = file_type.strip().lower()
+    if normalized in ("ppt", "slides"):
+        return ["ppt", "pptx"]
+    if normalized in ("word", "doc"):
+        return ["doc", "docx"]
+    if normalized == "excel":
+        return ["xls", "xlsx"]
+    if normalized in ("pdf", "pptx", "docx", "xlsx", "md", "txt", "csv", "json"):
+        return [normalized]
+    return []
+
+
 @router.get("/documents")
 def list_documents(
     project_id: Optional[int] = None,
@@ -92,12 +111,15 @@ def list_documents_paginated(
     client_id: Optional[int] = None,
     search: str = "",
     category: str = "all",
+    file_type: str = "all",
+    status: str = "all",
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ):
     scope_filters = _knowledge_scope_filters(project_id, client_id)
     search_filter = _knowledge_search_filter(search)
+    file_type_values = _knowledge_file_type_values(file_type) if file_type and file_type != "all" else []
 
     stmt = select(KnowledgeDocument)
     count_stmt = select(func.count(KnowledgeDocument.id))
@@ -110,6 +132,12 @@ def list_documents_paginated(
     if category and category != "all":
         stmt = stmt.where(KnowledgeDocument.category == category)
         count_stmt = count_stmt.where(KnowledgeDocument.category == category)
+    if file_type_values:
+        stmt = stmt.where(KnowledgeDocument.file_type.in_(file_type_values))
+        count_stmt = count_stmt.where(KnowledgeDocument.file_type.in_(file_type_values))
+    if status and status != "all":
+        stmt = stmt.where(KnowledgeDocument.vector_status == status)
+        count_stmt = count_stmt.where(KnowledgeDocument.vector_status == status)
 
     total = session.exec(count_stmt).one()
     items = session.exec(
@@ -127,11 +155,16 @@ def list_documents_paginated(
         select(KnowledgeDocument.vector_status, func.count(KnowledgeDocument.id))
         .group_by(KnowledgeDocument.vector_status)
     )
+    file_type_stmt = (
+        select(KnowledgeDocument.file_type, func.count(KnowledgeDocument.id))
+        .group_by(KnowledgeDocument.file_type)
+    )
     indexed_stmt = select(func.count(KnowledgeDocument.id)).where(KnowledgeDocument.vector_status == "synced")
     recent_stmt = select(KnowledgeDocument).order_by(KnowledgeDocument.uploaded_at.desc(), KnowledgeDocument.id.desc()).limit(5)
     for condition in scope_filters:
         category_stmt = category_stmt.where(condition)
         status_stmt = status_stmt.where(condition)
+        file_type_stmt = file_type_stmt.where(condition)
         indexed_stmt = indexed_stmt.where(condition)
         recent_stmt = recent_stmt.where(condition)
 
@@ -143,6 +176,10 @@ def list_documents_paginated(
         KnowledgeStatusCount(status=(row[0] or "pending"), count=row[1])
         for row in session.exec(status_stmt).all()
     ]
+    file_type_counts = [
+        KnowledgeFileTypeCount(file_type=(row[0] or "other"), count=row[1])
+        for row in session.exec(file_type_stmt).all()
+    ]
     return KnowledgeDocumentListResponse(
         items=items,
         total=total,
@@ -150,6 +187,7 @@ def list_documents_paginated(
         offset=offset,
         categories=categories,
         status_counts=status_counts,
+        file_type_counts=file_type_counts,
         recent=session.exec(recent_stmt).all(),
         indexed_count=session.exec(indexed_stmt).one(),
         total_size=0,
