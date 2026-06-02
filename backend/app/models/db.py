@@ -484,6 +484,8 @@ class Skill(SQLModel, table=True):
     tools_definition_json: str = "[]"  # [{"name": "...", "description": "...", "input_schema": {...}}]
     # 旧版兼容：简单的工具名称列表
     tools_json: str = "[]"          # JSON list of tool names
+    builtin_key: str = ""           # Stable source key for built-in Skill sync
+    builtin_hash: str = ""          # Source hash; changed files update built-ins on startup
 
     @property
     def tools(self) -> list[str]:
