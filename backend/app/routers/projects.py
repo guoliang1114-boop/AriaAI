@@ -68,6 +68,7 @@ from app.services.project_todos import (
     update_project_todo,
 )
 from app.routers.auth import get_current_user
+from app.routers.chat_security import member_project_ids, require_project_access
 from app.routers.projects_deps import (
     _PROJECTS_TTL,
     _auto_promote_archived_project_to_client_memory,
@@ -101,9 +102,19 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 @router.get("")
 def list_projects(
     status: Optional[str] = None,
-    member_user_id: Optional[int] = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
+    # Membership filter: non-admins only see projects they belong to.
+    # ``member_project_ids`` returns ``None`` for admins (no filter)
+    # and the explicit list of ids otherwise.
+    visible_ids = member_project_ids(session, current_user)
+    if visible_ids is not None and not visible_ids:
+        # Non-admin with zero memberships — short-circuit to avoid a
+        # SQL join that would return everything if we forgot the
+        # filter. Result is also not cacheable per-user.
+        return []
+    member_user_id = current_user.id if visible_ids is not None else None
     cache_key = f"list:{status or ''}:member:{member_user_id or ''}"
     cached = projects_cache.get(cache_key)
     if cached is not None:
@@ -114,8 +125,24 @@ def list_projects(
 
 
 @router.post("", status_code=201)
-def create_project(data: ProjectCreate, session: Session = Depends(get_session)):
+def create_project(
+    data: ProjectCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     project = create_project_record(session, data.model_dump())
+    # Auto-add the creator as owner so they immediately have read +
+    # write access — without this every newly-created project would
+    # 403 the creator on the very next request.
+    try:
+        add_project_member(session, project.id, current_user.id, "owner")
+    except HTTPException as exc:
+        # 409 means a membership already existed (shouldn't happen
+        # for a brand-new project but is non-fatal). Anything else
+        # we surface so the create doesn't silently leave a project
+        # without an owner.
+        if exc.status_code != 409:
+            raise
     # Seed initial memory so AI has basic context immediately (no waiting for async rebuild)
     seed_memory = _default_project_memory(project)
     save_project_memory(session, project.id, seed_memory, trigger="project_created")
@@ -130,16 +157,26 @@ def create_project(data: ProjectCreate, session: Session = Depends(get_session))
 
 
 @router.get("/{project_id}")
-def get_project(project_id: int, session: Session = Depends(get_session)):
+def get_project(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user)
     return get_project_or_404(session, project_id)
 
 
 @router.get("/{project_id}/detail")
-def get_project_detail(project_id: int, session: Session = Depends(get_session)):
+def get_project_detail(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     """Single-request combined endpoint: project + files + milestones + folders + financials.
 
     Reduces 4-5 round trips to Supabase down to 1 HTTP call with 5 fast local queries.
     """
+    require_project_access(session, project_id, current_user)
     cache_key = f"detail:{project_id}"
     cached = projects_cache.get(cache_key)
     if cached is not None:
@@ -153,24 +190,36 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
 @router.get("/meta/dashboard-summary")
 def list_projects_dashboard_summary(
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    cache_key = "list:dashboard-summary"
+    # Same membership filter as list_projects. Admins get the full
+    # snapshot; everyone else only sees rows for projects they're a
+    # member of.
+    visible_ids = member_project_ids(session, current_user)
+    if visible_ids is not None and not visible_ids:
+        return []
+    cache_key = (
+        "list:dashboard-summary"
+        if visible_ids is None
+        else f"list:dashboard-summary:user:{current_user.id}"
+    )
     cached = projects_cache.get(cache_key)
     if cached is not None:
         return cached
 
-    rows = session.exec(
-        select(
-            Project.id,
-            Project.name,
-            Project.client,
-            Project.status,
-            Project.contract_amount,
-            Project.updated_at,
-            Project.memory_stale,
-            Project.memory_version,
-        ).order_by(Project.updated_at.desc())
-    ).all()
+    stmt = select(
+        Project.id,
+        Project.name,
+        Project.client,
+        Project.status,
+        Project.contract_amount,
+        Project.updated_at,
+        Project.memory_stale,
+        Project.memory_version,
+    ).order_by(Project.updated_at.desc())
+    if visible_ids is not None:
+        stmt = stmt.where(Project.id.in_(visible_ids))
+    rows = session.exec(stmt).all()
 
     result = [
         {
@@ -199,7 +248,13 @@ def list_projects_dashboard_summary(
 
 
 @router.patch("/{project_id}")
-async def update_project(project_id: int, data: ProjectUpdate, session: Session = Depends(get_session)):
+async def update_project(
+    project_id: int,
+    data: ProjectUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
     existing = session.get(Project, project_id)
     previous_status = existing.status if existing else None
     project = update_project_record(session, project_id, data.model_dump(exclude_none=True))
@@ -217,7 +272,12 @@ async def update_project(project_id: int, data: ProjectUpdate, session: Session 
 
 
 @router.delete("/{project_id}")
-def delete_project(project_id: int, session: Session = Depends(get_session)):
+def delete_project(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
     delete_project_cascade(session, project_id)
     _bust_project(project_id)
     return {"ok": True}
@@ -246,12 +306,23 @@ async def ai_suggest_project(body: ProjectAISuggestQuery):
 # ── Milestones ────────────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/milestones")
-def list_milestones(project_id: int, session: Session = Depends(get_session)):
+def list_milestones(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user)
     return list_project_milestones(session, project_id)
 
 
 @router.post("/{project_id}/milestones", status_code=201)
-def create_milestone(project_id: int, data: MilestoneCreate, session: Session = Depends(get_session)):
+def create_milestone(
+    project_id: int,
+    data: MilestoneCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
     ms = create_project_milestone(
         session,
         project_id,
@@ -265,7 +336,14 @@ def create_milestone(project_id: int, data: MilestoneCreate, session: Session = 
 
 
 @router.patch("/{project_id}/milestones/{ms_id}")
-def update_milestone(project_id: int, ms_id: int, data: MilestoneUpdate, session: Session = Depends(get_session)):
+def update_milestone(
+    project_id: int,
+    ms_id: int,
+    data: MilestoneUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
     ms = update_project_milestone(session, project_id, ms_id, data.model_dump(exclude_none=True))
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
@@ -273,7 +351,13 @@ def update_milestone(project_id: int, ms_id: int, data: MilestoneUpdate, session
 
 
 @router.delete("/{project_id}/milestones/{ms_id}")
-def delete_milestone(project_id: int, ms_id: int, session: Session = Depends(get_session)):
+def delete_milestone(
+    project_id: int,
+    ms_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
     delete_project_milestone(session, project_id, ms_id)
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
@@ -283,12 +367,23 @@ def delete_milestone(project_id: int, ms_id: int, session: Session = Depends(get
 # ── Financials ────────────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/financials")
-def get_financials(project_id: int, session: Session = Depends(get_session)):
+def get_financials(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user)
     return get_project_financials(session, project_id)
 
 
 @router.post("/{project_id}/financials", status_code=201)
-def add_payment(project_id: int, data: PaymentCreate, session: Session = Depends(get_session)):
+def add_payment(
+    project_id: int,
+    data: PaymentCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
     payment = add_project_payment(
         session,
         project_id,
@@ -303,7 +398,13 @@ def add_payment(project_id: int, data: PaymentCreate, session: Session = Depends
 
 
 @router.delete("/{project_id}/financials/{payment_id}")
-def delete_payment(project_id: int, payment_id: int, session: Session = Depends(get_session)):
+def delete_payment(
+    project_id: int,
+    payment_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
     delete_project_payment(session, project_id, payment_id)
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
@@ -313,8 +414,14 @@ def delete_payment(project_id: int, payment_id: int, session: Session = Depends(
 # ── Project notes (沉淀到项目) ─────────────────────────────────────────────────
 
 @router.post("/{project_id}/notes")
-def save_project_note(project_id: int, body: NoteBody, session: Session = Depends(get_session)):
+def save_project_note(
+    project_id: int,
+    body: NoteBody,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     """Append or overwrite project notes."""
+    require_project_access(session, project_id, current_user, require_write=True)
     project = save_project_notes(session, project_id, body.content, append=body.append)
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
@@ -324,13 +431,24 @@ def save_project_note(project_id: int, body: NoteBody, session: Session = Depend
 
 
 @router.get("/{project_id}/todos")
-def list_todos(project_id: int, session: Session = Depends(get_session)):
+def list_todos(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user)
     todos = list_project_todos(session, project_id)
     return [serialize_todo(todo) for todo in todos]
 
 
 @router.post("/{project_id}/todos", status_code=201)
-def create_todo(project_id: int, body: TodoCreate, session: Session = Depends(get_session)):
+def create_todo(
+    project_id: int,
+    body: TodoCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
     todo = create_project_todo(
         session,
         project_id,
@@ -345,7 +463,14 @@ def create_todo(project_id: int, body: TodoCreate, session: Session = Depends(ge
 
 
 @router.patch("/{project_id}/todos/{todo_id}")
-def update_todo(project_id: int, todo_id: int, body: TodoUpdate, session: Session = Depends(get_session)):
+def update_todo(
+    project_id: int,
+    todo_id: int,
+    body: TodoUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
     todo = update_project_todo(session, project_id, todo_id, body.model_dump(exclude_none=True))
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
@@ -353,7 +478,13 @@ def update_todo(project_id: int, todo_id: int, body: TodoUpdate, session: Sessio
 
 
 @router.delete("/{project_id}/todos/{todo_id}")
-def delete_todo(project_id: int, todo_id: int, session: Session = Depends(get_session)):
+def delete_todo(
+    project_id: int,
+    todo_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
     delete_project_todo(session, project_id, todo_id)
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
@@ -372,7 +503,12 @@ def list_my_todos(
 # ── Project Members ───────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/members", response_model=list[MemberOut])
-def list_members(project_id: int, session: Session = Depends(get_session)):
+def list_members(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user)
     ensure_project_exists(session, project_id)
     members = list_project_members(session, project_id)
     return [
@@ -383,7 +519,15 @@ def list_members(project_id: int, session: Session = Depends(get_session)):
 
 
 @router.post("/{project_id}/members", status_code=201, response_model=MemberOut)
-def add_member(project_id: int, body: MemberCreate, session: Session = Depends(get_session)):
+def add_member(
+    project_id: int,
+    body: MemberCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    # Only existing members can invite — prevents random users from
+    # adding themselves to other people's projects.
+    require_project_access(session, project_id, current_user, require_write=True)
     ensure_project_exists(session, project_id)
     member, user = add_project_member(session, project_id, body.user_id, role=body.role)
     _mark_project_memory_stale(session, project_id)
@@ -399,7 +543,13 @@ def add_member(project_id: int, body: MemberCreate, session: Session = Depends(g
 
 
 @router.delete("/{project_id}/members/{user_id}")
-def remove_member(project_id: int, user_id: int, session: Session = Depends(get_session)):
+def remove_member(
+    project_id: int,
+    user_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
     remove_project_member(session, project_id, user_id)
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
@@ -409,8 +559,14 @@ def remove_member(project_id: int, user_id: int, session: Session = Depends(get_
 # ── AI Polish for Project Notes ──────────────────────────────────────────────
 
 @router.post("/{project_id}/notes/ai-polish")
-async def ai_polish_project_notes(project_id: int, body: NotePolishBody, session: Session = Depends(get_session)):
+async def ai_polish_project_notes(
+    project_id: int,
+    body: NotePolishBody,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     """Use the active LLM to polish a rough draft into structured Markdown project notes."""
+    require_project_access(session, project_id, current_user, require_write=True)
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -421,8 +577,14 @@ async def ai_polish_project_notes(project_id: int, body: NotePolishBody, session
 
 
 @router.post("/{project_id}/notes/ai-polish-stream")
-async def ai_polish_project_notes_stream(project_id: int, body: NotePolishBody, session: Session = Depends(get_session)):
+async def ai_polish_project_notes_stream(
+    project_id: int,
+    body: NotePolishBody,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     """Stream the active LLM polishing a rough draft into structured Markdown project notes."""
+    require_project_access(session, project_id, current_user, require_write=True)
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")

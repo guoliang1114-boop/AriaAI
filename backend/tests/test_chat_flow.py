@@ -868,6 +868,15 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 email="current@example.com",
                 display_name="Current User",
                 password_hash="hashed",
+                # Admin bypass — the case suite predates the project
+                # membership gate and constructs projects directly
+                # via Session, so the test user is not auto-enrolled
+                # as a member. Admin role keeps existing assertions
+                # focused on what they actually test (archive
+                # behaviour, financial aggregation, etc.) rather
+                # than re-doing membership plumbing in every
+                # fixture.
+                is_admin=True,
             )
             session.add(current_user)
             session.commit()
@@ -1290,31 +1299,52 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             ["项目需求", "方案和报价", "项目交付文档", "项目归档信息"],
         )
 
-    def test_list_projects_filters_by_member_user_id(self):
+    def test_list_projects_filters_to_memberships_for_non_admin(self):
+        # R72 contract: non-admin users only see projects they belong
+        # to. The previous behaviour took a `member_user_id` query
+        # param; now the filter is derived server-side from
+        # ``current_user`` so callers can't bypass it by omitting the
+        # param.
+        from app.routers.auth import get_current_user as _gcu
+
         with Session(self.engine) as session:
-            user = User(
+            non_admin = User(
                 email="filter-member@example.com",
                 display_name="Filter Member",
                 password_hash="hashed",
+                is_admin=False,
             )
             member_project = Project(name="Member Project", client="Client")
             other_project = Project(name="Other Project", client="Client")
-            session.add(user)
+            session.add(non_admin)
             session.add(member_project)
             session.add(other_project)
             session.commit()
-            session.refresh(user)
+            session.refresh(non_admin)
             session.refresh(member_project)
             session.refresh(other_project)
-            session.add(ProjectMember(project_id=member_project.id, user_id=user.id))
+            session.add(ProjectMember(project_id=member_project.id, user_id=non_admin.id))
             session.commit()
-            user_id = user.id
+            non_admin_id = non_admin.id
 
-        resp = self.client.get(f"/projects?member_user_id={user_id}")
-        self.assertEqual(resp.status_code, 200)
-        projects = resp.json()
-        self.assertEqual(len(projects), 1)
-        self.assertEqual(projects[0]["name"], "Member Project")
+        # Swap in the non-admin user for this assertion only; restore
+        # the admin override on teardown to avoid leaking state into
+        # subsequent tests.
+        original_override = self.client.app.dependency_overrides[_gcu]
+
+        def override_non_admin():
+            with Session(self.engine) as session:
+                return session.get(User, non_admin_id)
+
+        self.client.app.dependency_overrides[_gcu] = override_non_admin
+        try:
+            resp = self.client.get("/projects")
+            self.assertEqual(resp.status_code, 200)
+            projects = resp.json()
+            self.assertEqual(len(projects), 1)
+            self.assertEqual(projects[0]["name"], "Member Project")
+        finally:
+            self.client.app.dependency_overrides[_gcu] = original_override
 
     def test_project_members_crud_and_detail_payload(self):
         with Session(self.engine) as session:
