@@ -18,6 +18,13 @@ const wrapDocuments = (items: any[]) => ({
       return counts
     }, {}),
   ).map(([category, count]) => ({ category, count })),
+  status_counts: Object.entries(
+    items.reduce<Record<string, number>>((counts, item) => {
+      const key = item.vector_status || 'pending'
+      counts[key] = (counts[key] || 0) + 1
+      return counts
+    }, {}),
+  ).map(([status, count]) => ({ status, count })),
   recent: items,
   indexed_count: items.filter((item) => item.vector_status === 'synced').length,
   total_size: items.reduce((sum, item) => sum + (item.size_bytes || item.size || 0), 0),
@@ -147,6 +154,27 @@ describe('Knowledge', () => {
     fireEvent.click(screen.getByRole('button', { name: '重新处理' }))
     await waitFor(() => {
       expect(mockPost).toHaveBeenCalledWith('/knowledge/documents/3/reindex')
+    })
+  })
+
+  it('shows failed documents as failed in find results', async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/knowledge/documents/list') {
+        return Promise.resolve(wrapDocuments([
+          { id: 4, name: 'failed-deck.pptx', file_type: 'pptx', path: '/docs/failed-deck.pptx', category: 'general', vector_status: 'failed', uploaded_at: '2025-01-01', size: 102400 },
+        ]))
+      }
+      if (url === '/knowledge/stats') return Promise.resolve({ document_count: 1, total_vectors: 0 })
+      return Promise.resolve([])
+    })
+    mockPost.mockResolvedValue({})
+    render(<Knowledge />)
+    await waitFor(() => screen.getAllByText('failed-deck.pptx'))
+    expect(screen.getByText(/无法索引/)).toBeInTheDocument()
+    expect(screen.queryByText(/等待解析或索引/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重新处理' }))
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/knowledge/documents/4/reindex')
     })
   })
 })

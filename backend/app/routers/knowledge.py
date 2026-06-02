@@ -33,12 +33,18 @@ class KnowledgeCategoryCount(BaseModel):
     count: int
 
 
+class KnowledgeStatusCount(BaseModel):
+    status: str
+    count: int
+
+
 class KnowledgeDocumentListResponse(BaseModel):
     items: list[KnowledgeDocument]
     total: int
     limit: int
     offset: int
     categories: list[KnowledgeCategoryCount]
+    status_counts: list[KnowledgeStatusCount] = []
     recent: list[KnowledgeDocument]
     indexed_count: int
     total_size: int = 0
@@ -117,10 +123,15 @@ def list_documents_paginated(
         .group_by(KnowledgeDocument.category)
         .order_by(func.count(KnowledgeDocument.id).desc())
     )
+    status_stmt = (
+        select(KnowledgeDocument.vector_status, func.count(KnowledgeDocument.id))
+        .group_by(KnowledgeDocument.vector_status)
+    )
     indexed_stmt = select(func.count(KnowledgeDocument.id)).where(KnowledgeDocument.vector_status == "synced")
     recent_stmt = select(KnowledgeDocument).order_by(KnowledgeDocument.uploaded_at.desc(), KnowledgeDocument.id.desc()).limit(5)
     for condition in scope_filters:
         category_stmt = category_stmt.where(condition)
+        status_stmt = status_stmt.where(condition)
         indexed_stmt = indexed_stmt.where(condition)
         recent_stmt = recent_stmt.where(condition)
 
@@ -128,12 +139,17 @@ def list_documents_paginated(
         KnowledgeCategoryCount(category=(row[0] or "uncategorized"), count=row[1])
         for row in session.exec(category_stmt).all()
     ]
+    status_counts = [
+        KnowledgeStatusCount(status=(row[0] or "pending"), count=row[1])
+        for row in session.exec(status_stmt).all()
+    ]
     return KnowledgeDocumentListResponse(
         items=items,
         total=total,
         limit=limit,
         offset=offset,
         categories=categories,
+        status_counts=status_counts,
         recent=session.exec(recent_stmt).all(),
         indexed_count=session.exec(indexed_stmt).one(),
         total_size=0,

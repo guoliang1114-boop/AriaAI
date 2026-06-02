@@ -38,12 +38,18 @@ interface KnowledgeCategoryCount {
   count: number
 }
 
+interface KnowledgeStatusCount {
+  status: KnowledgeDocument['vector_status']
+  count: number
+}
+
 interface KnowledgeDocumentListResponse {
   items: KnowledgeDocument[]
   total: number
   limit: number
   offset: number
   categories: KnowledgeCategoryCount[]
+  status_counts?: KnowledgeStatusCount[]
   recent: KnowledgeDocument[]
   indexed_count: number
   total_size: number
@@ -122,10 +128,6 @@ function statusMeta(status: KnowledgeDocument['vector_status'], isZh: boolean): 
   return { label: isZh ? '排队中' : 'Queued', tone: 'warn', pulse: true }
 }
 
-function statusCount(documents: KnowledgeDocument[], status: KnowledgeDocument['vector_status']) {
-  return documents.filter((doc) => doc.vector_status === status).length
-}
-
 export function Knowledge() {
   const { i18n } = useTranslation()
   const toast = useToast()
@@ -139,6 +141,7 @@ export function Knowledge() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([])
   const [documentTotal, setDocumentTotal] = useState(0)
   const [categoryCounts, setCategoryCounts] = useState<KnowledgeCategoryCount[]>([])
+  const [statusCounts, setStatusCounts] = useState<KnowledgeStatusCount[]>([])
   const [recentDocuments, setRecentDocuments] = useState<KnowledgeDocument[]>([])
   const [indexedCount, setIndexedCount] = useState(0)
   const [totalSize, setTotalSize] = useState(0)
@@ -180,6 +183,7 @@ export function Knowledge() {
       setDocuments(docsData.items)
       setDocumentTotal(docsData.total)
       setCategoryCounts(docsData.categories)
+      setStatusCounts(docsData.status_counts || [])
       setRecentDocuments(docsData.recent)
       setIndexedCount(docsData.indexed_count)
       setTotalSize(docsData.total_size)
@@ -223,8 +227,20 @@ export function Knowledge() {
   const allDocumentCount = stats.document_count || categoryCounts.reduce((sum, item) => sum + item.count, 0) || documentTotal
   const latestDoc = recentDocuments[0]
   const localTotalSize = totalSize || documents.reduce((sum, doc) => sum + (docSizeBytes(doc) || 0), 0)
-  const processingCount = statusCount(documents, 'processing') + statusCount(documents, 'pending')
-  const failedCount = statusCount(documents, 'failed')
+  const statusCountMap = useMemo(() => {
+    if (statusCounts.length) {
+      return statusCounts.reduce<Record<string, number>>((counts, item) => {
+        counts[item.status] = item.count
+        return counts
+      }, {})
+    }
+    return documents.reduce<Record<string, number>>((counts, doc) => {
+      counts[doc.vector_status] = (counts[doc.vector_status] || 0) + 1
+      return counts
+    }, {})
+  }, [documents, statusCounts])
+  const processingCount = (statusCountMap.processing || 0) + (statusCountMap.pending || 0)
+  const failedCount = statusCountMap.failed || 0
 
   const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -345,7 +361,11 @@ export function Knowledge() {
               setDocumentPageSize(nextPageSize)
               setDocumentPage(1)
             }}
+            onReindex={(doc) => void reindexDocument(doc)}
             onUpload={() => fileInputRef.current?.click()}
+            processingCount={processingCount}
+            failedCount={failedCount}
+            reindexingId={reindexingId}
             searchQuery={searchQuery}
             selectedCategory={selectedCategory}
             setSearchQuery={(value) => {
@@ -489,6 +509,7 @@ function KnowledgeFindView({
   documentPageSize,
   documentTotal,
   error,
+  failedCount,
   indexedCount,
   isZh,
   latestDoc,
@@ -497,7 +518,10 @@ function KnowledgeFindView({
   onCopyCitation,
   onPageChange,
   onPageSizeChange,
+  onReindex,
   onUpload,
+  processingCount,
+  reindexingId,
   searchQuery,
   selectedCategory,
   setSearchQuery,
@@ -512,6 +536,7 @@ function KnowledgeFindView({
   documentPageSize: number
   documentTotal: number
   error: string | null
+  failedCount: number
   indexedCount: number
   isZh: boolean
   latestDoc?: KnowledgeDocument
@@ -520,7 +545,10 @@ function KnowledgeFindView({
   onCopyCitation: (doc: KnowledgeDocument) => void
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
+  onReindex: (doc: KnowledgeDocument) => void
   onUpload: () => void
+  processingCount: number
+  reindexingId: number | null
   searchQuery: string
   selectedCategory: string
   setSearchQuery: (value: string) => void
@@ -558,7 +586,8 @@ function KnowledgeFindView({
         </FacetBlock>
         <FacetBlock title={isZh ? '状态' : 'Status'}>
           <FacetReadonly label={isZh ? '已索引' : 'Indexed'} count={indexedCount} />
-          <FacetReadonly label={isZh ? '等待入库' : 'Waiting'} count={Math.max(0, allDocumentCount - indexedCount)} />
+          <FacetReadonly label={isZh ? '等待入库' : 'Waiting'} count={processingCount} />
+          <FacetReadonly label={isZh ? '失败' : 'Failed'} count={failedCount} />
         </FacetBlock>
       </aside>
 
@@ -684,6 +713,8 @@ function KnowledgeFindView({
                     index={index}
                     isZh={isZh}
                     onCopyCitation={() => onCopyCitation(doc)}
+                    onReindex={() => onReindex(doc)}
+                    reindexing={reindexingId === doc.id}
                   />
                 ))}
                 <CxPagination
@@ -1129,13 +1160,34 @@ function SearchResultRow({
   index,
   isZh,
   onCopyCitation,
+  onReindex,
+  reindexing,
 }: {
   doc: KnowledgeDocument
   index: number
   isZh: boolean
   onCopyCitation: () => void
+  onReindex: () => void
+  reindexing: boolean
 }) {
   const status = statusMeta(doc.vector_status, isZh)
+  const description =
+    doc.vector_status === 'synced'
+      ? isZh
+        ? '这份文件已进入知识库，可在对话、项目上下文和 Skill 工作流中作为引用资料。'
+        : 'This file is indexed and can be reused in conversations, project context, and Skills.'
+      : doc.vector_status === 'failed'
+        ? isZh
+          ? '无法索引：当前文件未生成可检索内容。可以重新处理；如果仍失败，请检查文件是否包含可提取文字。'
+          : 'Index failed: this file has no searchable content yet. Retry indexing, or check whether the file contains extractable text.'
+        : doc.vector_status === 'processing'
+          ? isZh
+            ? '文件正在解析和索引，完成后会出现在可引用知识中。'
+            : 'This file is being parsed and indexed before it becomes citable.'
+          : isZh
+            ? '文件已排队，等待后台解析和索引。'
+            : 'This file is queued for background parsing and indexing.'
+
   return (
     <div
       className="row-hov"
@@ -1179,19 +1231,27 @@ function SearchResultRow({
             lineHeight: 1.7,
           }}
         >
-          {doc.vector_status === 'synced'
-            ? isZh
-              ? '这份文件已进入知识库，可在对话、项目上下文和 Skill 工作流中作为引用资料。'
-              : 'This file is indexed and can be reused in conversations, project context, and Skills.'
-            : isZh
-              ? '文件正在等待解析或索引，完成后会出现在可引用知识中。'
-              : 'This file is waiting for parsing or indexing before it becomes citable.'}
+          {description}
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-4" style={{ paddingLeft: 13 }}>
-          <button type="button" onClick={onCopyCitation} className="cx-no-hover inline-flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
-            <Quote size={12} strokeWidth={1.5} aria-hidden="true" />
-            {isZh ? '复制引用' : 'Copy citation'}
-          </button>
+          {doc.vector_status === 'synced' ? (
+            <button type="button" onClick={onCopyCitation} className="cx-no-hover inline-flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
+              <Quote size={12} strokeWidth={1.5} aria-hidden="true" />
+              {isZh ? '复制引用' : 'Copy citation'}
+            </button>
+          ) : null}
+          {doc.vector_status === 'failed' ? (
+            <button
+              type="button"
+              onClick={onReindex}
+              disabled={reindexing}
+              className="cx-no-hover inline-flex items-center gap-1.5"
+              style={{ fontSize: 12, color: 'var(--color-codex-accent)', fontWeight: 500 }}
+            >
+              {reindexing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+              {isZh ? '重新处理' : 'Retry indexing'}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

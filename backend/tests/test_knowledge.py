@@ -53,6 +53,14 @@ class KnowledgeRouterTestCase(unittest.TestCase):
                 yield session
 
         app.dependency_overrides[knowledge_module.get_session] = override_session
+        app.dependency_overrides[knowledge_module.get_current_user] = lambda: User(
+            id=1,
+            email="test@example.com",
+            display_name="Test User",
+            password_hash="",
+            is_admin=True,
+            is_active=True,
+        )
         self.client = TestClient(app, raise_server_exceptions=False)
 
     def tearDown(self):
@@ -184,6 +192,25 @@ class KnowledgeRouterTestCase(unittest.TestCase):
         self.assertIn("total_vectors", data)
         self.assertGreaterEqual(data["document_count"], 1)
         self.assertGreaterEqual(data["total_vectors"], 1)
+
+    def test_list_documents_includes_status_counts(self):
+        with Session(self.engine) as session:
+            failed_doc = KnowledgeDocument(
+                name="failed.pptx",
+                file_type="pptx",
+                path="/tmp/failed.pptx",
+                category="general",
+                vector_status="failed",
+            )
+            session.add(failed_doc)
+            session.commit()
+
+        resp = self.client.get("/knowledge/documents/list")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        counts = {item["status"]: item["count"] for item in data["status_counts"]}
+        self.assertGreaterEqual(counts.get("synced", 0), 1)
+        self.assertEqual(counts.get("failed"), 1)
 
 
 if __name__ == "__main__":
