@@ -1,4 +1,4 @@
-"""Document text extraction — PDF, DOCX, XLSX."""
+"""Document text extraction — PDF, DOCX, PPTX, XLSX, and plain text."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -13,10 +13,12 @@ def extract_text(path: Union[str, Path]) -> str:
         return _extract_pdf(p)
     elif suffix in (".docx", ".doc"):
         return _extract_docx(p)
+    elif suffix == ".pptx":
+        return _extract_pptx(p)
     elif suffix in (".xlsx", ".xls"):
         return _extract_xlsx(p)
-    elif suffix == ".txt":
-        return p.read_text(errors="ignore")
+    elif suffix in (".txt", ".md", ".csv", ".json"):
+        return p.read_text(encoding="utf-8", errors="replace")
     else:
         return ""
 
@@ -48,3 +50,35 @@ def _extract_xlsx(path: Path) -> str:
             if text.strip():
                 rows.append(text)
     return "\n".join(rows)
+
+
+def _extract_pptx(path: Path) -> str:
+    from pptx import Presentation
+
+    presentation = Presentation(str(path))
+    slides: list[str] = []
+    for index, slide in enumerate(presentation.slides):
+        texts: list[str] = []
+        for shape in slide.shapes:
+            texts.extend(_extract_pptx_shape_text(shape))
+        if texts:
+            slides.append(f"[Slide {index + 1}]\n" + "\n".join(texts))
+    return "\n\n".join(slides)
+
+
+def _extract_pptx_shape_text(shape) -> list[str]:
+    texts: list[str] = []
+    text = getattr(shape, "text", "")
+    if text and text.strip():
+        texts.append(text.strip())
+
+    if getattr(shape, "has_table", False):
+        for row in shape.table.rows:
+            cells = [cell.text.strip() for cell in row.cells if cell.text and cell.text.strip()]
+            if cells:
+                texts.append("\t".join(cells))
+
+    for child in getattr(shape, "shapes", []):
+        texts.extend(_extract_pptx_shape_text(child))
+
+    return texts

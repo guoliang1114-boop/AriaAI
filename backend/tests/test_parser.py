@@ -4,7 +4,7 @@ import tempfile
 import os
 from pathlib import Path
 
-from app.services.parser import extract_text, _extract_docx, _extract_xlsx
+from app.services.parser import extract_text, _extract_docx, _extract_pptx, _extract_xlsx
 
 
 class ExtractTextTestCase(unittest.TestCase):
@@ -19,36 +19,34 @@ class ExtractTextTestCase(unittest.TestCase):
         finally:
             os.unlink(path)
 
-    def test_md_file_returns_empty(self):
-        """Parser only handles pdf/docx/xlsx/txt — md returns empty."""
+    def test_md_file_extracts_plain_text(self):
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as f:
             f.write("# Title\n\nParagraph text")
             path = f.name
         try:
             result = extract_text(path)
-            self.assertEqual(result, "")
+            self.assertIn("Title", result)
+            self.assertIn("Paragraph text", result)
         finally:
             os.unlink(path)
 
-    def test_csv_file_returns_empty(self):
-        """Parser only handles pdf/docx/xlsx/txt — csv returns empty."""
+    def test_csv_file_extracts_plain_text(self):
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8') as f:
             f.write('name,age\nAlice,30\nBob,25')
             path = f.name
         try:
             result = extract_text(path)
-            self.assertEqual(result, "")
+            self.assertIn("Alice", result)
         finally:
             os.unlink(path)
 
-    def test_json_file_returns_empty(self):
-        """Parser only handles pdf/docx/xlsx/txt — json returns empty."""
+    def test_json_file_extracts_plain_text(self):
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
             f.write('{"key": "value"}')
             path = f.name
         try:
             result = extract_text(path)
-            self.assertEqual(result, "")
+            self.assertIn('"key"', result)
         finally:
             os.unlink(path)
 
@@ -168,5 +166,58 @@ class ExtractXlsxTestCase(unittest.TestCase):
             result = _extract_xlsx(Path(path))
             self.assertIn("A", result)
             self.assertIn("C", result)
+        finally:
+            os.unlink(path)
+
+
+class ExtractPptxTestCase(unittest.TestCase):
+    def test_extract_pptx(self):
+        from pptx import Presentation
+        with tempfile.NamedTemporaryFile(suffix='.pptx', delete=False) as f:
+            path = f.name
+        try:
+            presentation = Presentation()
+            slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+            slide.shapes.title.text = "Strategy title"
+            slide.placeholders[1].text = "PPT body text"
+            presentation.save(path)
+
+            result = _extract_pptx(Path(path))
+            self.assertIn("Strategy title", result)
+            self.assertIn("PPT body text", result)
+        finally:
+            os.unlink(path)
+
+    def test_extract_pptx_via_extract_text(self):
+        from pptx import Presentation
+        with tempfile.NamedTemporaryFile(suffix='.pptx', delete=False) as f:
+            path = f.name
+        try:
+            presentation = Presentation()
+            slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+            slide.shapes.title.text = "Knowledge deck"
+            presentation.save(path)
+
+            result = extract_text(path)
+            self.assertIn("Knowledge deck", result)
+        finally:
+            os.unlink(path)
+
+    def test_extract_pptx_table_text(self):
+        from pptx import Presentation
+        from pptx.util import Inches
+        with tempfile.NamedTemporaryFile(suffix='.pptx', delete=False) as f:
+            path = f.name
+        try:
+            presentation = Presentation()
+            slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+            table = slide.shapes.add_table(1, 2, Inches(1), Inches(1), Inches(6), Inches(1)).table
+            table.cell(0, 0).text = "Client"
+            table.cell(0, 1).text = "IBM strategy"
+            presentation.save(path)
+
+            result = _extract_pptx(Path(path))
+            self.assertIn("Client", result)
+            self.assertIn("IBM strategy", result)
         finally:
             os.unlink(path)

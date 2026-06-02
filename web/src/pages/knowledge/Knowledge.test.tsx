@@ -129,4 +129,24 @@ describe('Knowledge', () => {
       expect(mockDelete).toHaveBeenCalledWith('/knowledge/documents/1')
     })
   })
+
+  it('retries indexing a failed document', async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/knowledge/documents/list') {
+        return Promise.resolve(wrapDocuments([
+          { id: 3, name: 'deck.pptx', file_type: 'pptx', path: '/docs/deck.pptx', category: 'general', vector_status: 'failed', uploaded_at: '2025-01-01', size: 102400 },
+        ]))
+      }
+      if (url === '/knowledge/stats') return Promise.resolve({ document_count: 1, total_vectors: 0 })
+      return Promise.resolve([])
+    })
+    mockPost.mockResolvedValue({})
+    render(<Knowledge />)
+    await waitFor(() => screen.getAllByText('deck.pptx'))
+    fireEvent.click(screen.getByRole('button', { name: '管理' }))
+    fireEvent.click(screen.getByRole('button', { name: '重新处理' }))
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/knowledge/documents/3/reindex')
+    })
+  })
 })

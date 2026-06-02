@@ -152,6 +152,7 @@ export function Knowledge() {
   const [documentPageSize, setDocumentPageSize] = useState(DOC_PAGE_SIZE)
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [reindexingId, setReindexingId] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchData = async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -271,6 +272,20 @@ export function Knowledge() {
     }
   }
 
+  const reindexDocument = async (doc: KnowledgeDocument) => {
+    setReindexingId(doc.id)
+    try {
+      await api.post(`/knowledge/documents/${doc.id}/reindex`)
+      toast.success({ title: isZh ? '已重新排队' : 'Reindex queued', description: isZh ? '系统会重新解析并索引这份文件。' : 'Aria will parse and index this file again.' })
+      await fetchData({ silent: true })
+    } catch (err) {
+      console.error('Failed to reindex document:', err)
+      toast.error({ title: isZh ? '重新处理失败' : 'Reindex failed' })
+    } finally {
+      setReindexingId(null)
+    }
+  }
+
   const copyCitation = async (doc: KnowledgeDocument) => {
     const text = `${doc.name}\n${doc.path}`
     try {
@@ -369,9 +384,11 @@ export function Knowledge() {
               setDocumentPage(1)
             }}
             onRefresh={() => void fetchData({ silent: true })}
+            onReindex={(doc) => void reindexDocument(doc)}
             onUpload={() => fileInputRef.current?.click()}
             processingCount={processingCount}
             refreshing={refreshing}
+            reindexingId={reindexingId}
             searchQuery={searchQuery}
             selectedCategory={selectedCategory}
             setSearchQuery={(value) => {
@@ -708,9 +725,11 @@ function KnowledgeManageView({
   onPageChange,
   onPageSizeChange,
   onRefresh,
+  onReindex,
   onUpload,
   processingCount,
   refreshing,
+  reindexingId,
   searchQuery,
   selectedCategory,
   setSearchQuery,
@@ -737,9 +756,11 @@ function KnowledgeManageView({
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
   onRefresh: () => void
+  onReindex: (doc: KnowledgeDocument) => void
   onUpload: () => void
   processingCount: number
   refreshing: boolean
+  reindexingId: number | null
   searchQuery: string
   selectedCategory: string
   setSearchQuery: (value: string) => void
@@ -942,6 +963,8 @@ function KnowledgeManageView({
                       doc={doc}
                       isZh={isZh}
                       onDelete={() => onDelete(doc)}
+                      onReindex={() => onReindex(doc)}
+                      reindexing={reindexingId === doc.id}
                     />
                   ))}
                 </>
@@ -980,10 +1003,14 @@ function ManageDocumentRow({
   doc,
   isZh,
   onDelete,
+  onReindex,
+  reindexing,
 }: {
   doc: KnowledgeDocument
   isZh: boolean
   onDelete: () => void
+  onReindex: () => void
+  reindexing: boolean
 }) {
   const status = statusMeta(doc.vector_status, isZh)
   const type = fileType(doc.file_type)
@@ -1075,6 +1102,22 @@ function ManageDocumentRow({
             <span style={{ color: 'var(--color-codex-bad)' }}>{isZh ? '无法索引 — ' : 'Index failed — '}</span>
             {isZh ? '当前文件未生成可检索内容。' : 'This file has no searchable content yet.'}
           </span>
+          <button
+            type="button"
+            onClick={onReindex}
+            disabled={reindexing}
+            className="cx-no-hover ml-auto inline-flex items-center gap-1.5"
+            style={{
+              padding: '5px 9px',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+              color: 'var(--color-codex-accent)',
+              fontSize: 11.5,
+              fontWeight: 500,
+            }}
+          >
+            {reindexing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            {isZh ? '重新处理' : 'Retry'}
+          </button>
         </div>
       ) : null}
     </div>

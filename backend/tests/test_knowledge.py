@@ -1,4 +1,6 @@
 """Tests for knowledge router — document CRUD, stats."""
+import os
+import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -143,6 +145,36 @@ class KnowledgeRouterTestCase(unittest.TestCase):
             files={"file": ("test.txt", io.BytesIO(b"content"), "text/plain")},
         )
         self.assertEqual(resp.status_code, 404)
+
+    def test_reindex_document_queues_background_index(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+            f.write("retry me")
+            path = f.name
+        try:
+            with Session(self.engine) as session:
+                doc = KnowledgeDocument(
+                    name="failed.txt",
+                    file_type="txt",
+                    path=path,
+                    category="general",
+                    vector_status="failed",
+                )
+                session.add(doc)
+                session.commit()
+                session.refresh(doc)
+                doc_id = doc.id
+
+            with patch.object(knowledge_module, "_index_background") as mock_index:
+                resp = self.client.post(f"/knowledge/documents/{doc_id}/reindex")
+
+            self.assertEqual(resp.status_code, 200)
+            mock_index.assert_called_once()
+            with Session(self.engine) as session:
+                refreshed = session.get(KnowledgeDocument, doc_id)
+                self.assertEqual(refreshed.vector_status, "pending")
+                self.assertEqual(refreshed.vector_progress, 0.0)
+        finally:
+            os.unlink(path)
 
     def test_stats_endpoint_values(self):
         resp = self.client.get("/knowledge/stats")

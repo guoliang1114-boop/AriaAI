@@ -141,11 +141,20 @@ async def upload_document(
     # Without ``Form(...)`` FastAPI looks for these in the query string on a
     # multipart request, so the frontend's ``FormData.append('category', ...)``
     # silently dropped the value and every doc ended up uncategorised.
-    category: str = Form(""),
-    project_id: Optional[int] = Form(None),
-    client_id: Optional[int] = Form(None),
+    category_form: str = Form("", alias="category"),
+    project_id_form: Optional[int] = Form(None, alias="project_id"),
+    client_id_form: Optional[int] = Form(None, alias="client_id"),
+    # Keep the older query-string call style working for tests, scripts, and
+    # clients that post multipart files without adding metadata to FormData.
+    category_query: str = Query("", alias="category"),
+    project_id_query: Optional[int] = Query(None, alias="project_id"),
+    client_id_query: Optional[int] = Query(None, alias="client_id"),
     session: Session = Depends(get_session),
 ):
+    category = category_form or category_query
+    project_id = project_id_form if project_id_form is not None else project_id_query
+    client_id = client_id_form if client_id_form is not None else client_id_query
+
     if project_id is not None:
         project = session.get(Project, project_id)
         if not project:
@@ -180,13 +189,50 @@ def _index_background(doc_id: int, file_path: str) -> None:
         doc = session.get(KnowledgeDocument, doc_id)
         if not doc:
             return
-        text = parser.extract_text(file_path)
+        doc.vector_status = "processing"
+        doc.vector_progress = 0.0
+        session.add(doc)
+        session.commit()
+        try:
+            text = parser.extract_text(file_path)
+        except Exception:
+            doc.vector_status = "failed"
+            doc.vector_progress = 0.0
+            session.add(doc)
+            session.commit()
+            return
         if not text.strip():
             doc.vector_status = "failed"
+            doc.vector_progress = 0.0
             session.add(doc)
             session.commit()
             return
         asyncio.run(rag.index_document(doc, text, session))
+
+
+@router.post("/documents/{doc_id}/reindex")
+def reindex_document(
+    doc_id: int,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
+    doc = session.get(KnowledgeDocument, doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    full_path = UPLOADS_DIR / doc.path
+    if not full_path.is_file():
+        raise HTTPException(404, "Document file not found")
+
+    doc.vector_status = "pending"
+    doc.vector_progress = 0.0
+    doc.chunk_count = 0
+    session.add(doc)
+    session.commit()
+    session.refresh(doc)
+
+    background_tasks.add_task(_index_background, doc.id, str(full_path))
+    return doc
 
 
 @router.delete("/documents/{doc_id}")
