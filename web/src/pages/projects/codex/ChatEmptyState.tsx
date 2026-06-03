@@ -41,9 +41,18 @@ const STATUS_TO_PHASE_INDEX: Record<Project['status'], number> = {
   // is done, everything after is pending. Archived sits "past the
   // end" so all 5 stages render done.
   lead: 1,
+  lead_discovery: 1,
   opportunity: 2,
+  opportunity_qualified: 2,
+  proposal: 2,
+  negotiation: 2,
+  contracting: 3,
   won: 3,
   delivering: 4,
+  kickoff: 4,
+  execution: 4,
+  delivery: 4,
+  support: 4,
   archived: 5,
 }
 

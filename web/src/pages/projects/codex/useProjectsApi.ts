@@ -128,17 +128,35 @@ export function useProjectDetail(projectId: number | null): DetailState {
 /** Friendly status label for top-bar chip. */
 export const STATUS_LABEL: Record<Project['status'], string> = {
   lead: '线索期',
+  lead_discovery: '线索发现',
   opportunity: '机会期',
+  opportunity_qualified: '确认机会',
+  proposal: '方案投标',
+  negotiation: '商务谈判',
+  contracting: '合同签署',
   won: '已签约',
   delivering: '交付中',
+  kickoff: '项目启动',
+  execution: '执行中',
+  delivery: '交付验收',
+  support: '运维支持',
   archived: '已归档',
 }
 
 export const STATUS_TONE: Record<Project['status'], 'mute' | 'warn' | 'good' | 'accent' | 'neutral'> = {
   lead: 'mute',
+  lead_discovery: 'mute',
   opportunity: 'warn',
+  opportunity_qualified: 'warn',
+  proposal: 'warn',
+  negotiation: 'warn',
+  contracting: 'good',
   won: 'good',
   delivering: 'accent',
+  kickoff: 'accent',
+  execution: 'accent',
+  delivery: 'accent',
+  support: 'accent',
   archived: 'neutral',
 }
 

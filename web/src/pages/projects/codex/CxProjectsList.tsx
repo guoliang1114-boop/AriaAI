@@ -17,15 +17,14 @@ type CategoryKey = 'presale' | 'delivery'
 
 /** Backend status → pipeline stage column. Backend only stores 5
  * statuses, while the design has 5 sub-stage columns inside 商务阶段.
- * Until the project table grows a `sub_stage` field we collapse:
- *   lead        → lead column
- *   opportunity → qualify column (lumped)
- *   won         → contract column
- *   proposal / negotiation stay empty (rendered as "—") */
+ * Some existing production rows store UI sub-stage values directly,
+ * so keep both backend statuses and legacy sub-stages visible. */
 function presaleStageOf(status: Project['status']): string | null {
-  if (status === 'lead') return 'lead'
-  if (status === 'opportunity') return 'qualify'
-  if (status === 'won') return 'contract'
+  if (status === 'lead' || status === 'lead_discovery') return 'lead'
+  if (status === 'opportunity' || status === 'opportunity_qualified') return 'qualify'
+  if (status === 'proposal') return 'proposal'
+  if (status === 'negotiation') return 'negotiation'
+  if (status === 'won' || status === 'contracting') return 'contract'
   return null
 }
 
@@ -120,11 +119,11 @@ export function CxProjectsList() {
     return clients.filter((c) => !term || c.name.toLowerCase().includes(term))
   }, [clients, clientSearch])
 
-  const presale = useMemo(
-    () => projects.filter((p) => p.status === 'lead' || p.status === 'opportunity' || p.status === 'won'),
+  const presale = useMemo(() => projects.filter((p) => presaleStageOf(p.status) != null), [projects])
+  const active = useMemo(
+    () => projects.filter((p) => ['delivering', 'kickoff', 'execution', 'delivery', 'support'].includes(p.status)),
     [projects],
   )
-  const active = useMemo(() => projects.filter((p) => p.status === 'delivering'), [projects])
   const archived = useMemo(() => projects.filter((p) => p.status === 'archived'), [projects])
   const presaleStaleCount = useMemo(
     () => projects.filter((p) => p.memory_stale).length,
