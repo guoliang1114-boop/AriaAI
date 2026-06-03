@@ -603,17 +603,19 @@ function ActivityFeed({
   milestones,
   files,
   todos,
+  progressUpdates,
   projectId,
 }: {
   project: ProjectDetailType['project']
   milestones: Milestone[]
   files: ProjectFile[]
   todos: ProjectTodo[]
+  progressUpdates: ProjectDetailType['progress_updates']
   projectId: number
 }) {
   const events = useMemo<FeedEvent[]>(
-    () => synthesizeActivityFeed({ project, milestones, files, todos, projectId, limit: 8 }),
-    [project, milestones, files, todos, projectId],
+    () => synthesizeActivityFeed({ project, milestones, files, todos, progressUpdates, projectId, limit: 8 }),
+    [project, milestones, files, todos, progressUpdates, projectId],
   )
 
   return (
