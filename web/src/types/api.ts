@@ -20,12 +20,28 @@ export interface LoginRequest {
 }
 
 // Project
+export type ProjectStatus =
+  | 'lead'
+  | 'lead_discovery'
+  | 'opportunity'
+  | 'opportunity_qualified'
+  | 'proposal'
+  | 'negotiation'
+  | 'contracting'
+  | 'won'
+  | 'delivering'
+  | 'kickoff'
+  | 'execution'
+  | 'delivery'
+  | 'support'
+  | 'archived'
+
 export interface Project {
   id: number
   name: string
   client: string
   description: string
-  status: 'lead' | 'opportunity' | 'won' | 'delivering' | 'archived'
+  status: ProjectStatus
   created_at: string
   updated_at: string
   context_summary?: string
