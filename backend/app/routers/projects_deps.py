@@ -197,6 +197,12 @@ class TodoUpdate(BaseModel):
     assigned_to_user_id: Optional[int] = None
 
 
+class ProgressUpdateCreate(BaseModel):
+    content: str
+    next_step: str = ""
+    risk: str = ""
+
+
 class NoteBody(BaseModel):
     content: str
     append: bool = True   # True = append to existing notes; False = overwrite

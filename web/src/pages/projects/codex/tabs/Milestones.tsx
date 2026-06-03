@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type {
   Milestone,
   ProjectDetail as ProjectDetailType,
+  ProjectProgressUpdate,
   ProjectTodo,
 } from '../../../../types/api'
 import { useToast } from '../../../../contexts/ToastContext'
@@ -26,6 +27,7 @@ import {
   CxTodoFormDialog,
   toggleTodoDone,
 } from '../CxTodoActions'
+import { CxProgressUpdateDialog } from '../CxProgressUpdateActions'
 
 interface MilestonesProps {
   projectId: number
@@ -58,6 +60,7 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
   const [todoCreating, setTodoCreating] = useState(false)
   const [todoDeleting, setTodoDeleting] = useState<ProjectTodo | null>(null)
   const [todoTogglingId, setTodoTogglingId] = useState<number | null>(null)
+  const [progressCreating, setProgressCreating] = useState(false)
 
   const toggleTodo = async (t: ProjectTodo) => {
     if (todoTogglingId === t.id) return
@@ -118,10 +121,11 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
         milestones,
         files: detail.files,
         todos,
+        progressUpdates: detail.progress_updates,
         projectId,
         limit: 50,
       }),
-    [project, milestones, detail.files, todos, projectId],
+    [project, milestones, detail.files, todos, detail.progress_updates, projectId],
   )
   const grouped = useMemo(() => groupFeedByDay(feed), [feed])
 
@@ -180,6 +184,11 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
 
         {/* RIGHT — milestones + todos panels stacked */}
         <aside style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
+          <ProjectProgressPanel
+            updates={detail.progress_updates}
+            onCreate={() => setProgressCreating(true)}
+          />
+
           <CxPanel
             title="里程碑"
             subtitle={`${done} / ${total} 完成`}
@@ -361,7 +370,98 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
         onClose={() => setTodoDeleting(null)}
         onDeleted={refetch}
       />
+      <CxProgressUpdateDialog
+        open={progressCreating}
+        projectId={projectId}
+        onClose={() => setProgressCreating(false)}
+        onSaved={refetch}
+      />
     </CxProjectShell>
+  )
+}
+
+function ProjectProgressPanel({
+  updates,
+  onCreate,
+}: {
+  updates: ProjectProgressUpdate[]
+  onCreate: () => void
+}) {
+  const latest = updates[0]
+  return (
+    <CxPanel
+      title="项目进展"
+      subtitle={latest ? `${updates.length} 条团队更新` : '用一句话同步项目推进'}
+      action={
+        <button
+          type="button"
+          onClick={onCreate}
+          style={{
+            fontSize: 12,
+            color: 'var(--accent)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          <CxIcon name="plus" size={11} stroke={1.6} /> 更新
+        </button>
+      }
+    >
+      {!latest ? (
+        <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', lineHeight: 1.7 }}>
+          还没有人工进展。团队成员可以在这里补充最新沟通、下一步和卡点。
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginBottom: 5 }}>当前状态</div>
+            <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.65 }}>
+              {latest.content}
+            </div>
+            <div style={{ marginTop: 7, fontSize: 11.5, color: 'var(--ink-faint)' }}>
+              {latest.created_by?.display_name ?? '—'} · {formatFeedTime(new Date(latest.created_at))}
+            </div>
+          </div>
+          <ProgressHint label="下一步" value={latest.next_step} empty="暂未填写下一步" />
+          <ProgressHint label="风险/卡点" value={latest.risk} empty="暂无明确风险" warn />
+          {updates.length > 1 && (
+            <div style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 10 }}>
+              {updates.slice(1, 4).map((u) => (
+                <div key={u.id} style={{ padding: '7px 0', fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.55 }}>
+                  <span style={{ color: 'var(--ink-mute)' }}>
+                    {u.created_by?.display_name ?? '—'} · {formatFeedTime(new Date(u.created_at))}
+                  </span>
+                  <br />
+                  {u.content}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </CxPanel>
+  )
+}
+
+function ProgressHint({
+  label,
+  value,
+  empty,
+  warn = false,
+}: {
+  label: string
+  value: string
+  empty: string
+  warn?: boolean
+}) {
+  return (
+    <div>
+      <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 13, color: value && warn ? 'var(--warn)' : value ? 'var(--ink)' : 'var(--ink-faint)', lineHeight: 1.55 }}>
+        {value || empty}
+      </div>
+    </div>
   )
 }
 

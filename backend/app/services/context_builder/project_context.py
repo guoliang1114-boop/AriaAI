@@ -16,6 +16,7 @@ from app.models.db import (
     Project,
     ProjectFile,
     ProjectPayment,
+    ProjectProgressUpdate,
     ProjectTodo,
 )
 from app.services.project_files import active_project_files_stmt
@@ -195,6 +196,22 @@ def build_project_context(
             status_icon = "✓" if todo.is_done else "○"
             due = f" (due: {todo.due_date})" if todo.due_date else ""
             lines.append(f"  {status_icon} {todo.content}{due}")
+
+    progress_updates = session.exec(
+        select(ProjectProgressUpdate)
+        .where(ProjectProgressUpdate.project_id == project.id)
+        .order_by(ProjectProgressUpdate.created_at.desc())
+        .limit(8)
+    ).all()
+    if progress_updates:
+        lines.append("\n**Recent Progress Updates:**")
+        for update in progress_updates:
+            by = update.created_by.display_name if update.created_by else "unknown"
+            lines.append(f"  - {by}: {update.content}")
+            if update.next_step:
+                lines.append(f"    next: {update.next_step}")
+            if update.risk:
+                lines.append(f"    risk: {update.risk}")
     
     should_inject_file_text = bool(file_ids) or _content_requests_file_details(content)
 

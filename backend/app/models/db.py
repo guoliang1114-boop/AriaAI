@@ -87,6 +87,7 @@ class Project(SQLModel, table=True):
     payments: list["ProjectPayment"] = Relationship(back_populates="project")
     todos: list["ProjectTodo"] = Relationship(back_populates="project")
     members: list["ProjectMember"] = Relationship(back_populates="project")
+    progress_updates: list["ProjectProgressUpdate"] = Relationship(back_populates="project")
 
 
 class ProjectMemorySummary(SQLModel, table=True):
@@ -152,6 +153,19 @@ class ProjectTodo(SQLModel, table=True):
 
     project: Optional[Project] = Relationship(back_populates="todos")
     assigned_user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[ProjectTodo.assigned_to_user_id]"})
+
+
+class ProjectProgressUpdate(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    content: str
+    next_step: str = ""
+    risk: str = ""
+    created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+    project: Optional[Project] = Relationship(back_populates="progress_updates")
+    created_by: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[ProjectProgressUpdate.created_by_user_id]"})
 
 
 class ProjectMember(SQLModel, table=True):

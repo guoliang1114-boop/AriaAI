@@ -90,6 +90,21 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
         {/* Main column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 }}>
           <CxPanel
+            title="项目进展"
+            subtitle={detail.progress_updates.length > 0 ? '团队最近更新' : '还没有人工进展'}
+            action={
+              <a
+                style={{ fontSize: 11.5, color: 'var(--accent)' }}
+                href={`/projects/${projectId}/milestones`}
+              >
+                去活动页更新 →
+              </a>
+            }
+          >
+            <ProgressSummary updates={detail.progress_updates} />
+          </CxPanel>
+
+          <CxPanel
             title="项目快照"
             subtitle={
               project.context_summary
@@ -254,6 +269,7 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
             milestones={milestones}
             files={detail.files}
             todos={todos}
+            progressUpdates={detail.progress_updates}
             projectId={projectId}
           />
         </div>
@@ -528,6 +544,53 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
         onRemoved={refetch}
       />
     </CxProjectShell>
+  )
+}
+
+function ProgressSummary({ updates }: { updates: ProjectDetailType['progress_updates'] }) {
+  const latest = updates[0]
+  if (!latest) {
+    return (
+      <div style={{ fontSize: 13, color: 'var(--ink-faint)', lineHeight: 1.7 }}>
+        团队还没有更新项目进展。可以到「活动」页补一句最新情况。
+      </div>
+    )
+  }
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div>
+        <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginBottom: 5 }}>当前状态</div>
+        <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.65 }}>{latest.content}</div>
+        <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--ink-faint)' }}>
+          {latest.created_by?.display_name ?? '—'} · {formatFeedTime(new Date(latest.created_at))}
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <ProgressField label="下一步" value={latest.next_step} empty="暂未填写下一步" />
+        <ProgressField label="风险/卡点" value={latest.risk} empty="暂无明确风险" warn />
+      </div>
+    </div>
+  )
+}
+
+function ProgressField({
+  label,
+  value,
+  empty,
+  warn = false,
+}: {
+  label: string
+  value: string
+  empty: string
+  warn?: boolean
+}) {
+  return (
+    <div>
+      <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 13.5, color: value && warn ? 'var(--warn)' : value ? 'var(--ink)' : 'var(--ink-faint)', lineHeight: 1.55 }}>
+        {value || empty}
+      </div>
+    </div>
   )
 }
 

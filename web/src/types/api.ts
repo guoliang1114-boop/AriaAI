@@ -591,6 +591,17 @@ export interface ProjectTodo {
   updated_at: string
 }
 
+export interface ProjectProgressUpdate {
+  id: number
+  project_id: number
+  content: string
+  next_step: string
+  risk: string
+  created_by_user_id?: number | null
+  created_by?: { id: number; display_name: string } | null
+  created_at: string
+}
+
 export interface MyProjectTodo extends ProjectTodo {
   project_name: string
   priority?: 'low' | 'medium' | 'high'
@@ -623,6 +634,7 @@ export interface ProjectDetail {
   md_notes: string
   todos: ProjectTodo[]
   members: ProjectMember[]
+  progress_updates: ProjectProgressUpdate[]
   financials: ProjectFinancials
 }
 
