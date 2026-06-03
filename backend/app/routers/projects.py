@@ -57,6 +57,11 @@ from app.services.project_milestones import (
     update_project_milestone,
 )
 from app.services.project_notes import build_project_note_polish_messages, save_project_notes
+from app.services.project_progress import (
+    create_project_progress_update,
+    list_project_progress_updates,
+    serialize_progress_update,
+)
 from app.routers.projects_deps import complete_with_selected_model, stream_with_selected_model
 from app.services.project_todos import (
     create_project_todo,
@@ -84,6 +89,7 @@ from app.routers.projects_deps import (
     NoteBody,
     NotePolishBody,
     PaymentCreate,
+    ProgressUpdateCreate,
     ProjectAISuggestQuery,
     ProjectAISuggestion,
     ProjectCreate,
@@ -362,6 +368,45 @@ def delete_milestone(
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return {"ok": True}
+
+
+# ── Project Progress Updates ─────────────────────────────────────────────────
+
+@router.get("/{project_id}/progress-updates")
+def list_progress_updates(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user)
+    return [
+        serialize_progress_update(update)
+        for update in list_project_progress_updates(session, project_id)
+    ]
+
+
+@router.post("/{project_id}/progress-updates", status_code=201)
+def create_progress_update(
+    project_id: int,
+    data: ProgressUpdateCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user, require_write=True)
+    content = data.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Progress content cannot be empty")
+    update = create_project_progress_update(
+        session,
+        project_id,
+        content=content,
+        next_step=data.next_step.strip(),
+        risk=data.risk.strip(),
+        created_by_user_id=current_user.id,
+    )
+    _mark_project_memory_stale(session, project_id)
+    _bust_project(project_id)
+    return serialize_progress_update(_refresh_instance(session, update))
 
 
 # ── Financials ────────────────────────────────────────────────────────────────

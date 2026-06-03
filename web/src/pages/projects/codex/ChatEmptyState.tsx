@@ -138,10 +138,11 @@ export function ChatEmptyState({ projectId, detail, onSelectPrompt }: EmptyState
         milestones,
         files,
         todos,
+        progressUpdates: detail.progress_updates,
         projectId,
         limit: 3,
       }).slice(0, 3),
-    [project, milestones, files, todos, projectId],
+    [project, milestones, files, todos, detail.progress_updates, projectId],
   )
 
   return (

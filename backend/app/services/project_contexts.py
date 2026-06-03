@@ -11,6 +11,7 @@ from app.models.db import Project, ProjectMemorySnapshot, ProjectMemorySummary
 from app.services.project_files import list_project_files
 from app.services.project_financials import list_project_payments
 from app.services.project_milestones import list_project_milestones
+from app.services.project_progress import list_project_progress_updates
 from app.services.project_todos import list_project_todos
 from app.services.stakeholder_contexts import (
     format_client_stakeholders_for_prompt,
@@ -20,12 +21,14 @@ from app.services.time_utils import utc_now_naive
 
 MAX_SUMMARY_MILESTONES = 6
 MAX_SUMMARY_FILES = 8
+MAX_SUMMARY_PROGRESS_UPDATES = 5
 MAX_FILE_SUMMARY_CHARS = 60
 MAX_DESCRIPTION_CHARS = 240
 OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 
 MAX_MEMORY_FILE_SUMMARY_CHARS = 200
 MAX_MEMORY_DESCRIPTION_CHARS = 1200
+MAX_MEMORY_PROGRESS_UPDATES = 8
 PROJECT_MEMORY_SUMMARY_TYPES = (
     "overview",
     "risk",
@@ -201,6 +204,7 @@ def build_project_context_data(session: Session, project_id: int) -> tuple[Proje
 
     milestones = list_project_milestones(session, project_id)
     files = list_project_files(session, project_id)
+    progress_updates = list_project_progress_updates(session, project_id, limit=MAX_SUMMARY_PROGRESS_UPDATES)
 
     lines = [
         f"Project: {project.name}",
@@ -209,6 +213,15 @@ def build_project_context_data(session: Session, project_id: int) -> tuple[Proje
     ]
     if project.description:
         lines.append(f"Description: {project.description[:MAX_DESCRIPTION_CHARS]}")
+    if progress_updates:
+        lines.append(f"Progress updates (showing latest {len(progress_updates)}):")
+        for update in progress_updates:
+            by = update.created_by.display_name if update.created_by else "unknown"
+            lines.append(f"  - {by}: {update.content}")
+            if update.next_step:
+                lines.append(f"    next: {update.next_step}")
+            if update.risk:
+                lines.append(f"    risk: {update.risk}")
     if milestones:
         completed_count = sum(1 for milestone in milestones if milestone.is_done)
         lines.append(
@@ -247,6 +260,7 @@ def build_project_memory_data(session: Session, project_id: int) -> tuple[Projec
     files = list_project_files(session, project_id)
     todos = list_project_todos(session, project_id)
     payments = list_project_payments(session, project_id)
+    progress_updates = list_project_progress_updates(session, project_id, limit=MAX_MEMORY_PROGRESS_UPDATES)
     client_stakeholders = list_client_stakeholder_dicts_by_name(session, project.client)
 
     lines = [
@@ -261,6 +275,15 @@ def build_project_memory_data(session: Session, project_id: int) -> tuple[Projec
         lines.append(f"Notes:\n{project.notes[:MAX_MEMORY_DESCRIPTION_CHARS]}")
     if project.md_notes:
         lines.append(f"Markdown notes:\n{project.md_notes[:MAX_MEMORY_DESCRIPTION_CHARS]}")
+    if progress_updates:
+        lines.append(f"Progress updates ({len(progress_updates)} recent):")
+        for update in progress_updates:
+            by = update.created_by.display_name if update.created_by else "unknown"
+            lines.append(f"  - {by}: {update.content}")
+            if update.next_step:
+                lines.append(f"    next: {update.next_step}")
+            if update.risk:
+                lines.append(f"    risk: {update.risk}")
     if milestones:
         completed_count = sum(1 for milestone in milestones if milestone.is_done)
         lines.append(f"Milestones ({len(milestones)} total, {completed_count} completed):")

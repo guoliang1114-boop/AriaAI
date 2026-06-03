@@ -2,6 +2,7 @@ import type {
   Milestone,
   Project,
   ProjectFile,
+  ProjectProgressUpdate,
   ProjectTodo,
 } from '../../../types/api'
 
@@ -25,7 +26,7 @@ export interface FeedEvent {
   what: string
   href?: string
   /** Category badge for the expanded view ("文档" / "里程碑" / etc.). */
-  category: '记忆' | '里程碑' | '待办' | '文档' | '档案'
+  category: '进展' | '记忆' | '里程碑' | '待办' | '文档' | '档案'
 }
 
 interface SynthInput {
@@ -33,6 +34,7 @@ interface SynthInput {
   milestones: Milestone[]
   files: ProjectFile[]
   todos: ProjectTodo[]
+  progressUpdates?: ProjectProgressUpdate[]
   projectId: number
   /** Max events to keep. Default 30 — Overview consumer slices
    * further. */
@@ -44,10 +46,28 @@ export function synthesizeActivityFeed({
   milestones,
   files,
   todos,
+  progressUpdates = [],
   projectId,
   limit = 30,
 }: SynthInput): FeedEvent[] {
   const out: FeedEvent[] = []
+
+  for (const update of progressUpdates) {
+    const ts = parseIsoDate(update.created_at)
+    if (!ts) continue
+    const pieces = [update.content]
+    if (update.next_step) pieces.push(`下一步: ${update.next_step}`)
+    if (update.risk) pieces.push(`风险: ${update.risk}`)
+    out.push({
+      id: `progress:${update.id}`,
+      ts,
+      tone: update.risk ? 'warn' : 'accent',
+      who: update.created_by?.display_name ?? '—',
+      what: truncateText(pieces.join(' · '), 90),
+      href: `/projects/${projectId}/milestones`,
+      category: '进展',
+    })
+  }
 
   // Memory rebuilds — memory_updated_at marks the last time the
   // structured memory changed (manual edit or LLM rebuild).
