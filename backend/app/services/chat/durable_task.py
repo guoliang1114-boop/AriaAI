@@ -34,7 +34,7 @@ from app.services.task_orchestrator import (
 )
 from app.services.intent_router import classify_chat_intent_async
 from app.services.chat.markdown_followup import save_previous_answer_as_markdown
-from app.services.title_generator import schedule_title_generation
+from app.services.title_generator import generate_conversation_title
 from app.services.chat.state import ChatSessionState
 from app.services.chat.product_run_events import (
     ToolProgressStatus,
@@ -407,6 +407,38 @@ def _task_confirmation_reason(runtime: ChatRuntime, req: SendMessageRequest, tas
     return ""
 
 
+async def _stream_conversation_title(runtime: ChatRuntime, req, bind):
+    """Generate the conversation title in-band and yield a ``conversation_title``
+    SSE event so the open page updates live.
+
+    The durable-task stream used to fire-and-forget ``schedule_title_generation``,
+    which writes the title to the DB but never tells the client — so the open
+    conversation kept showing the ``对话 #<id>`` placeholder until a hard refresh.
+    Mirror the regular chat path (persist.py) instead: generate in-band, push the
+    typed event. The frontend keeps reading past ``done`` until the stream closes,
+    so emitting after ``done`` is fine.
+    """
+    try:
+        generated = await generate_conversation_title(
+            conv_id=runtime.conv_id,
+            user_content=req.content,
+            session_factory=lambda: Session(bind),
+            complete_fn=runtime.llm.complete,
+            language=getattr(req, "language", None),
+        )
+    except Exception as exc:  # pragma: no cover - non-fatal, fallback title stays
+        logger.warning("[durable_task] auto-title generation failed: %s", exc)
+        return
+    if generated:
+        yield sse_event(
+            {
+                "type": "conversation_title",
+                "conversation_id": runtime.conv_id,
+                "title": generated,
+            }
+        )
+
+
 async def run_durable_task(
     runtime: ChatRuntime,
     req: SendMessageRequest,
@@ -620,13 +652,8 @@ async def run_durable_task(
                     logger.warning("[P0] failed to persist paused task trace: %s", exc)
                 yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
                 if need_title and full_text:
-                    schedule_title_generation(
-                        conv_id=runtime.conv_id,
-                        user_content=req.content,
-                        bind=bind,
-                        complete_fn=runtime.llm.complete,
-                        language=getattr(req, "language", None),
-                    )
+                    async for title_evt in _stream_conversation_title(runtime, req, bind):
+                        yield title_evt
                 return
             task_payload = serialize_task_run(task_session, task, include_events=True)
             yield sse_event({"type": "task_run", "task": task_payload})
@@ -739,13 +766,8 @@ async def run_durable_task(
         yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
 
         if need_title and full_text:
-            schedule_title_generation(
-                conv_id=runtime.conv_id,
-                user_content=req.content,
-                bind=bind,
-                complete_fn=runtime.llm.complete,
-                language=getattr(req, "language", None),
-            )
+            async for title_evt in _stream_conversation_title(runtime, req, bind):
+                yield title_evt
 
     except Exception as exc:
         logger.error(f"[durable_task_stream error] {exc}", exc_info=True)
