@@ -433,6 +433,10 @@ async def classify_chat_intent_async(
         "Tool access is controlled by a separate deterministic tool_access_policy and must not be inferred from analysis requests. "
         "For ambiguous non-destructive deliverable requests, you may return artifact_contract with delivery_required=true, "
         "output_kind, title, and allowed_tools. Only do this when the user wants a real file delivered. "
+        "When delivery is required but the user did NOT explicitly name a file format, set output_kind to 'md'. "
+        "Only choose docx, pptx, xlsx, or pdf when the user explicitly asks for that format "
+        "(e.g. 'word'/'doc'/'docx', 'ppt'/'pptx', 'excel'/'xlsx', 'pdf'). A bare request like '给我一个方案' / "
+        "'写一份报告' with no format word defaults to md, not docx. "
         "Never infer destructive or write permissions from vague analysis requests."
     )
     prompt = {
