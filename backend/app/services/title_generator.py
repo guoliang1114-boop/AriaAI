@@ -45,7 +45,7 @@ async def generate_conversation_title(
     user_content: str,
     session_factory,
     complete_fn: TitleCompleteFn,
-    max_tokens: int = 20,
+    max_tokens: int = 512,
     language: str | None = None,
 ) -> Optional[str]:
     """
@@ -59,7 +59,12 @@ async def generate_conversation_title(
         user_content: User's first message (used as title fallback and context)
         session_factory: Callable that returns a new Session (to avoid async boundary issues)
         complete_fn: Async function to call LLM (takes messages and max_tokens)
-        max_tokens: Max tokens for title generation
+        max_tokens: Max tokens for title generation. Must leave headroom for
+            reasoning models (e.g. kimi-k2.6): max_tokens is the TOTAL output
+            budget including the model's reasoning trace. Too small a budget
+            gets fully consumed by reasoning, leaving an empty ``content`` —
+            and the non-streaming complete() then falls back to surfacing the
+            raw reasoning trace as the "title".
     
     Returns:
         Generated title or None if generation failed
@@ -127,5 +132,11 @@ def schedule_title_generation(
             language=language,
         )
 
-    # Schedule without awaiting
-    asyncio.ensure_future(_task())
+    # Schedule without awaiting. Only attach to a running loop; creating a task
+    # on a merely configured loop leaves a dangling coroutine in tests and can
+    # be dropped silently when the loop is closed.
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(_task())
