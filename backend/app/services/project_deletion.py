@@ -4,7 +4,9 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import (
+    ChatTrace,
     Conversation,
+    ConversationState,
     DocumentChunk,
     GeneratedFile,
     KnowledgeDocument,
@@ -13,6 +15,7 @@ from app.models.db import (
     PendingToolAction,
     Project,
     ProjectFile,
+    ProjectFileVersion,
     ProjectFolder,
     ProjectMember,
     ProjectMemorySnapshot,
@@ -37,6 +40,40 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
         select(Conversation).where(Conversation.project_id == project_id)
     ).all()
     conversation_ids = [conversation.id for conversation in conversations if conversation.id is not None]
+
+    # ChatTrace, ConversationState, and ProjectFileVersion were added after this
+    # cascade was first written and were never included. They carry FKs to
+    # conversation / message / project_file / project, so deleting those parents
+    # below raises an IntegrityError (surfaced to the client as a 500). They are
+    # leaf tables (nothing references them), so delete them up front. Dedupe by
+    # id since a row can match both the project_id and conversation_id filters.
+    traces: dict[int, ChatTrace] = {}
+    for trace in session.exec(select(ChatTrace).where(ChatTrace.project_id == project_id)).all():
+        traces[trace.id] = trace
+    if conversation_ids:
+        for trace in session.exec(
+            select(ChatTrace).where(ChatTrace.conversation_id.in_(conversation_ids))
+        ).all():
+            traces[trace.id] = trace
+    for trace in traces.values():
+        session.delete(trace)
+
+    conversation_states: dict[int, ConversationState] = {}
+    for state in session.exec(select(ConversationState).where(ConversationState.project_id == project_id)).all():
+        conversation_states[state.id] = state
+    if conversation_ids:
+        for state in session.exec(
+            select(ConversationState).where(ConversationState.conversation_id.in_(conversation_ids))
+        ).all():
+            conversation_states[state.id] = state
+    for state in conversation_states.values():
+        session.delete(state)
+
+    for version in session.exec(
+        select(ProjectFileVersion).where(ProjectFileVersion.project_id == project_id)
+    ).all():
+        session.delete(version)
+    session.flush()
 
     task_runs = session.exec(
         select(TaskRun).where(TaskRun.project_id == project_id)
