@@ -844,13 +844,17 @@ function ThreadView({
             />
           ))}
 
-        {!busy && (
-          <ChatActionPreview
-            batches={pendingActionBatches}
-            actingKey={pendingActionKey}
-            onConfirm={onConfirmAction}
-            onReject={onRejectAction}
-          />
+        {!busy && pendingActionBatches.length > 0 && (
+          // Indent past the avatar (30) + gap (14) so the card aligns under
+          // the assistant message body, matching the reference layout.
+          <div style={{ paddingLeft: 44 }}>
+            <ChatActionPreview
+              batches={pendingActionBatches}
+              actingKey={pendingActionKey}
+              onConfirm={onConfirmAction}
+              onReject={onRejectAction}
+            />
+          </div>
         )}
       </div>
 

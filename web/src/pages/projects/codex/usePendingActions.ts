@@ -93,14 +93,14 @@ export function usePendingActions(
     async (batch: PendingActionBatch, path: string, body: Record<string, unknown>) => {
       const key = batchKey(batch)
       if (actingKey) return
+      // Keep the card in place (buttons disable + show progress) until the
+      // backend resolves; then refetch pending (drops the resolved card) and
+      // the thread (shows the backend's result message).
       setActingKey(key)
-      // Optimistically drop the card so it can't be double-submitted.
-      setBatches((prev) => prev.filter((b) => batchKey(b) !== key))
       try {
         await api.post(path, body)
-        await onResolved()
+        await Promise.all([refetch(), onResolved()])
       } catch {
-        // Re-surface the card on failure so the user can retry.
         await refetch()
       } finally {
         setActingKey(null)

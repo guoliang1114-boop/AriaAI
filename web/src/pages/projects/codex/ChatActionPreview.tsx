@@ -3,8 +3,13 @@ import type { PendingActionBatch } from './usePendingActions'
 import type { PendingToolAction } from '../../../types/api'
 
 /** HITAS Action Preview — the confirm/reject card for high-risk tool
- * actions the backend paused. One card per approval batch; confirming
- * executes the batch's frozen tools in sequence on the backend. */
+ * actions the backend paused ("Human-in-the-loop tool approval"). One
+ * card per approval batch; confirming runs the batch's frozen tools in
+ * sequence on the backend, which writes a result message.
+ *
+ * Visual language follows the reference design: a warm "等待确认" header
+ * with the tool name tag, a title + description body, a key/value preview
+ * box built from the action's ``details``, and an approve/reject footer. */
 
 interface ChatActionPreviewProps {
   batches: PendingActionBatch[]
@@ -17,134 +22,89 @@ function batchKey(batch: PendingActionBatch): string {
   return batch.batchId || `single:${batch.actions[0]?.id}`
 }
 
-function actionIcon(action: PendingToolAction): 'trash' | 'edit' | 'wrench' {
-  const t = `${action.action_type} ${action.tool_name}`.toLowerCase()
-  if (t.includes('delete') || t.includes('trash') || t.includes('remove')) return 'trash'
-  if (t.includes('modify') || t.includes('edit') || t.includes('update') || t.includes('write')) return 'edit'
-  return 'wrench'
+/** Backend ``details`` are mostly "键：值" strings — split so they render
+ * in the key/value preview grid; fall back to a full-width row. */
+function splitDetail(detail: string): { k: string; v: string } | { full: string } {
+  const m = /^(.+?)[：:]\s*(.+)$/.exec(detail.trim())
+  if (m && m[1].length <= 10) return { k: m[1], v: m[2] }
+  return { full: detail }
 }
 
-function isDestructive(action: PendingToolAction): boolean {
-  const t = `${action.risk_level} ${action.action_type} ${action.tool_name}`.toLowerCase()
-  return t.includes('high') || t.includes('delete') || t.includes('destructive') || t.includes('trash')
-}
+const WARN_TINT = 'color-mix(in oklch, var(--warn) 14%, var(--bg-elev))'
 
 export function ChatActionPreview({ batches, actingKey, onConfirm, onReject }: ChatActionPreviewProps) {
   if (batches.length === 0) return null
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 4 }}>
       {batches.map((batch) => {
         const key = batchKey(batch)
         const busy = actingKey === key
         const acting = actingKey != null
-        const danger = batch.actions.some(isDestructive)
-        const accent = danger ? 'var(--bad)' : 'var(--accent)'
-        const tint = danger ? 'color-mix(in oklch, var(--bad) 8%, transparent)' : 'var(--accent-bg)'
         const multi = batch.actions.length > 1
+        const tag = multi ? `共 ${batch.actions.length} 项` : batch.actions[0]?.tool_name
         return (
           <div
             key={key}
             style={{
-              border: `1px solid ${danger ? 'color-mix(in oklch, var(--bad) 35%, transparent)' : 'color-mix(in oklch, var(--accent) 30%, transparent)'}`,
-              background: tint,
+              border: '1px solid var(--line-strong)',
               borderRadius: 'var(--r-md)',
-              padding: '12px 14px',
+              background: 'var(--bg-elev)',
+              maxWidth: 580,
+              overflow: 'hidden',
+              boxShadow: '0 1px 2px oklch(0.4 0.02 75 / 0.04)',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            {/* header */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                padding: '9px 16px',
+                background: WARN_TINT,
+                borderBottom: '1px solid var(--line)',
+                fontSize: 12,
+                color: 'var(--warn)',
+                fontWeight: 500,
+              }}
+            >
               <span
                 style={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: 'var(--r-sm)',
-                  background: danger ? 'color-mix(in oklch, var(--bad) 16%, transparent)' : 'var(--accent-bg)',
-                  color: accent,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  width: 6,
+                  height: 6,
+                  borderRadius: 99,
+                  background: 'currentColor',
                   flexShrink: 0,
+                  animation: 'pulse 2s ease-in-out infinite',
                 }}
-              >
-                <CxIcon name={actionIcon(batch.actions[0])} size={13} />
-              </span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-                {multi ? `需要确认 ${batch.actions.length} 个操作` : batch.actions[0].title || '需要确认操作'}
-              </span>
+              />
+              等待确认 · 执行前需要你批准
               <span
-                style={{
-                  marginLeft: 'auto',
-                  fontSize: 10.5,
-                  color: accent,
-                  background: danger ? 'color-mix(in oklch, var(--bad) 14%, transparent)' : 'var(--accent-bg)',
-                  padding: '2px 7px',
-                  borderRadius: 'var(--r-pill)',
-                  fontWeight: 500,
-                }}
+                className="num"
+                style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-faint)', fontWeight: 400 }}
               >
-                {danger ? '高风险' : '需确认'}
+                {tag}
               </span>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* body */}
+            <div style={{ padding: '15px 16px 4px', display: 'flex', flexDirection: 'column', gap: 16 }}>
               {batch.actions.map((action, i) => (
-                <div key={action.id} style={{ display: 'flex', gap: 8 }}>
-                  {multi && (
-                    <span className="num" style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 1 }}>
-                      {i + 1}.
-                    </span>
-                  )}
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    {(multi || !action.title) && (
-                      <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink)' }}>
-                        {action.title || action.tool_name}
-                      </div>
-                    )}
-                    {action.description && (
-                      <div style={{ fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.6, marginTop: 1 }}>
-                        {action.description}
-                      </div>
-                    )}
-                    {action.details?.length > 0 && (
-                      <ul
-                        style={{
-                          margin: '4px 0 0',
-                          paddingLeft: 16,
-                          fontSize: 11.5,
-                          color: 'var(--ink-mute)',
-                          lineHeight: 1.6,
-                        }}
-                      >
-                        {action.details.map((d, di) => (
-                          <li key={di}>{d}</li>
-                        ))}
-                      </ul>
-                    )}
-                    <div style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 3 }}>
-                      <span className="num">{action.tool_name}</span>
-                    </div>
-                  </div>
-                </div>
+                <ActionBody key={action.id} action={action} index={multi ? i + 1 : undefined} />
               ))}
             </div>
 
-            <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={() => onReject(batch)}
-                disabled={acting}
-                style={{
-                  padding: '6px 14px',
-                  fontSize: 12.5,
-                  color: 'var(--ink-soft)',
-                  background: 'transparent',
-                  border: '1px solid var(--line)',
-                  borderRadius: 'var(--r-sm)',
-                  cursor: acting ? 'not-allowed' : 'pointer',
-                  opacity: acting && !busy ? 0.5 : 1,
-                }}
-              >
-                {busy ? '处理中…' : '取消'}
-              </button>
+            {/* footer */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '13px 16px',
+                marginTop: 14,
+                borderTop: '1px solid var(--line-soft)',
+              }}
+            >
               <button
                 type="button"
                 onClick={() => onConfirm(batch)}
@@ -153,24 +113,105 @@ export function ChatActionPreview({ batches, actingKey, onConfirm, onReject }: C
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 6,
-                  padding: '6px 14px',
-                  fontSize: 12.5,
-                  fontWeight: 500,
-                  color: danger ? '#fff' : 'var(--accent-ink)',
-                  background: danger ? 'var(--bad)' : 'var(--accent-bg)',
-                  border: `1px solid ${danger ? 'var(--bad)' : 'color-mix(in oklch, var(--accent) 30%, transparent)'}`,
+                  padding: '7px 15px',
+                  background: 'var(--accent)',
+                  color: 'var(--bg-elev)',
                   borderRadius: 'var(--r-sm)',
+                  fontSize: 13,
+                  fontWeight: 500,
                   cursor: acting ? 'not-allowed' : 'pointer',
                   opacity: acting && !busy ? 0.5 : 1,
                 }}
               >
-                <CxIcon name="check" size={13} />
+                <CxIcon name="check" size={13} stroke={2} />
                 {busy ? '执行中…' : multi ? '全部确认执行' : '确认执行'}
               </button>
+              <button
+                type="button"
+                onClick={() => onReject(batch)}
+                disabled={acting}
+                style={{
+                  padding: '7px 12px',
+                  fontSize: 13,
+                  color: 'var(--ink-mute)',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: acting ? 'not-allowed' : 'pointer',
+                  opacity: acting ? 0.5 : 1,
+                }}
+              >
+                拒绝
+              </button>
+              <span
+                style={{
+                  marginLeft: 'auto',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 11.5,
+                  color: 'var(--ink-faint)',
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 8v4M12 16h.01" />
+                </svg>
+                确认后将立即执行此操作
+              </span>
             </div>
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function ActionBody({ action, index }: { action: PendingToolAction; index?: number }) {
+  return (
+    <div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
+        {index != null && <span className="num" style={{ color: 'var(--ink-mute)', marginRight: 6 }}>{index}.</span>}
+        {action.title || action.tool_name}
+      </div>
+      {action.description && (
+        <div style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.7, marginTop: 6 }}>
+          {action.description}
+        </div>
+      )}
+      {(action.details?.length ?? 0) > 0 && (
+        <div
+          style={{
+            marginTop: 14,
+            border: '1px solid var(--line-soft)',
+            borderRadius: 'var(--r-sm)',
+            background: 'var(--bg-sunken)',
+            padding: '12px 14px',
+            display: 'grid',
+            gridTemplateColumns: 'auto 1fr',
+            rowGap: 9,
+            columnGap: 20,
+            fontSize: 13,
+            alignItems: 'baseline',
+          }}
+        >
+          {action.details.map((detail, di) => {
+            const parsed = splitDetail(detail)
+            if ('full' in parsed) {
+              return (
+                <div key={di} style={{ gridColumn: '1 / -1', color: 'var(--ink)', lineHeight: 1.5 }}>
+                  {parsed.full}
+                </div>
+              )
+            }
+            return (
+              <div key={di} style={{ display: 'contents' }}>
+                <span style={{ color: 'var(--ink-mute)', fontSize: 12 }}>{parsed.k}</span>
+                <span style={{ color: 'var(--ink)', lineHeight: 1.5 }}>{parsed.v}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
