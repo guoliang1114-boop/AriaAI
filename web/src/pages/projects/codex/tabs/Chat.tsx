@@ -33,6 +33,10 @@ import {
 interface ChatProps {
   projectId: number
   detail: ProjectDetailType
+  /** Refetch the aggregated project detail (files, folders, …). Called
+   * after a HITAS confirm so a deleted/modified file drops out of the
+   * 空间 tree immediately instead of waiting for a manual refresh. */
+  refetch?: () => Promise<void>
 }
 
 /** Project chat tab — full two-way chat in the project shell.
@@ -43,7 +47,7 @@ interface ChatProps {
  * parent so the 空间 tree can read the same conversation's
  * artifacts without re-fetching. ThreadView is now a pure renderer
  * + composer that takes everything via props. */
-export function CxProjectChat({ projectId, detail }: ChatProps) {
+export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
   const { project } = detail
   const toast = useToast()
   const { t } = useTranslation()
@@ -108,11 +112,13 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
   // HITAS — high-risk tool actions the backend paused for confirmation.
   // On confirm/reject the backend writes a result message, so we refetch
   // the thread and drop the local stream-pending layer (now persisted
-  // server-side) to avoid duplicates.
+  // server-side) to avoid duplicates. We also refetch the project detail so
+  // a deleted/modified file drops out of the 空间 tree right away (its
+  // ``deleted_at`` is now set and ``ChatSpaceTree`` filters those out).
   const pendingActions = usePendingActions(
     selectedId,
     async () => {
-      await refetchMessages()
+      await Promise.all([refetchMessages(), refetch?.()])
       setPending([])
     },
     (msg) => {

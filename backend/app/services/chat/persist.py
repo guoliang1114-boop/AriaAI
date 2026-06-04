@@ -39,7 +39,7 @@ from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
 from app.services.chat.trace import persist_chat_trace
 from app.services.chat.workflow import workflow_status
-from app.services.title_generator import generate_conversation_title, schedule_title_generation
+from app.services.title_generator import schedule_title_generation
 from app.tools import registry
 from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME
 
@@ -1023,33 +1023,25 @@ async def run_persist(
 
         yield sse_event(_message_persisted(state.run_id, assistant_message_id))
 
-    # Auto-title — best-practice path. When this is the first turn of
-    # a fresh conversation, we run the title LLM in-band (after the
-    # main response is persisted) and push the result via a typed
-    # SSE event so the frontend updates the sidebar immediately. No
-    # polling, no fire-and-forget — the title arrives before
-    # ``done`` and the rail snaps to the final value.
+    # Auto-title — runs in the BACKGROUND so it never blocks ``done``.
+    # In-band title generation was an LLM call that could take 10-16s,
+    # holding the SSE stream open long after the reply finished. The
+    # frontend clears its "busy" state on stream close, so that tail
+    # delayed both the visible completion AND anything gated on it —
+    # notably the HITAS confirmation card, which only surfaces once the
+    # stream settles. The conversation keeps the stand-in truncation
+    # title set by ``persist_assistant_message`` until the background
+    # task upgrades it and invalidates the conversation-list cache.
     if need_title and full_text:
         try:
-            generated = await generate_conversation_title(
+            schedule_title_generation(
                 conv_id=runtime.conv_id,
                 user_content=req.content,
-                session_factory=lambda: Session(bind),
+                bind=bind,
                 complete_fn=runtime.llm.complete,
                 language=getattr(req, "language", None),
             )
-            if generated:
-                yield sse_event(
-                    {
-                        "type": "conversation_title",
-                        "conversation_id": runtime.conv_id,
-                        "title": generated,
-                    }
-                )
         except Exception as exc:
-            # Title generation failure is non-fatal — the stand-in
-            # truncation title set by persist_assistant_message
-            # stays in place. Log and move on.
-            logger.warning("[persist] auto-title generation failed: %s", exc)
+            logger.warning("[persist] auto-title scheduling failed: %s", exc)
 
     yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
