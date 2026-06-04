@@ -58,15 +58,13 @@ jobs:
           python -m pip install --retries 5 --timeout 60 -r requirements.txt || \
           python -m pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
 
-      - name: Backend Tests (excluding knowledge backlog)
-        run: |
-          cd backend
-          python -m pip install pytest
-          python -m pytest -q \
-            --ignore=tests/test_knowledge.py \
-            --ignore=tests/test_knowledge_v005_api.py \
-            --ignore=tests/test_knowledge_v005_models.py \
-            --ignore=tests/test_knowledge_v005_permissions.py
+      # NOTE: Backend tests are intentionally NOT run in the deploy workflow.
+      # The suite requires a live PostgreSQL (create_test_engine ->
+      # postgresql://...:5432/ariaai_test) and this job provisions no DB
+      # service, so running them here only blocks production deploys with
+      # "connection refused". Backend tests run locally; a dedicated
+      # Postgres-backed CI workflow (decoupled from deploy) is the right home
+      # for gating them.
 
       - name: Backend Smoke Check
         run: |
