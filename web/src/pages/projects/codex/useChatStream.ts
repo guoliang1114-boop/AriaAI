@@ -64,6 +64,12 @@ interface UseChatStreamReturn {
    * conversation. Null until the first turn's capability event
    * lands. */
   capability: ChatCapabilityFrame | null
+  /** Stable id assigned to THIS turn's assistant reply at send time.
+   * The caller renders the in-flight reply as a draft message with
+   * this id, and the final `onAssistantMessage` reuses it — so the
+   * same React node updates in place at `done` instead of remounting
+   * (no end-of-stream reformat flash). */
+  streamingMessageId: number
   send: (content: string) => Promise<void>
   stop: () => void
 }
@@ -112,6 +118,11 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   const [streamingContent, setStreamingContent] = useState('')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [capability, setCapability] = useState<ChatCapabilityFrame | null>(null)
+  // Stable id for the current turn's assistant reply. State so the
+  // caller re-renders the draft under the right key; ref mirror so the
+  // done/stop handlers (in callbacks) read it without stale closures.
+  const [streamingMessageId, setStreamingMessageId] = useState(0)
+  const assistantDraftIdRef = useRef(0)
   // Refs for the long-lived stream parser to avoid stale closures.
   const accumulatedRef = useRef('')
   const artifactsRef = useRef<GeneratedArtifact[]>([])
@@ -141,7 +152,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     const partial = accumulatedRef.current
     if (partial.trim() && conversationId != null) {
       const assistantMsg: Message = {
-        id: Date.now() + 1,
+        id: assistantDraftIdRef.current,
         conversation_id: conversationId,
         role: 'assistant',
         content: `${partial}\n\n（已停止）`,
@@ -171,8 +182,13 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       setStatus('sending')
       setStatusMessage('已收到，正在连接模型…')
 
+      const userMsgId = Date.now()
+      // Reserve this turn's assistant id up front so the draft bubble
+      // and the final message share a React key (in-place reconcile).
+      assistantDraftIdRef.current = userMsgId + 1
+      setStreamingMessageId(assistantDraftIdRef.current)
       const userMsg: Message = {
-        id: Date.now(),
+        id: userMsgId,
         conversation_id: conversationId,
         role: 'user',
         content: text,
@@ -338,7 +354,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       }
 
       const assistantMsg: Message = {
-        id: Date.now() + 1,
+        id: assistantDraftIdRef.current,
         conversation_id: conversationId,
         role: 'assistant',
         content: accumulatedRef.current,
@@ -369,5 +385,5 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     ],
   )
 
-  return { status, streamingContent, statusMessage, capability, send, stop }
+  return { status, streamingContent, statusMessage, capability, streamingMessageId, send, stop }
 }

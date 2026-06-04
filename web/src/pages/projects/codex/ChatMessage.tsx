@@ -59,9 +59,22 @@ interface MessageBubbleProps {
   message: Message
   projectId: number
   onArtifactClick?: (artifact: GeneratedArtifact) => void
+  /** Render as the in-flight reply: live Markdown body + a "生成中"
+   * header pulse, with artifact / reference / action chrome suppressed
+   * (none of it is available until the stream's `done` event). The
+   * caller keeps the React key stable across the streaming→final
+   * transition so this node updates in place instead of remounting. */
+  isStreaming?: boolean
+  streamingStatus?: string | null
 }
 
-export function ProjectChatMessage({ message, projectId, onArtifactClick }: MessageBubbleProps) {
+export function ProjectChatMessage({
+  message,
+  projectId,
+  onArtifactClick,
+  isStreaming = false,
+  streamingStatus = null,
+}: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const meta = useMemo(() => parseMeta(message.metadata_json), [message.metadata_json])
 
@@ -110,7 +123,22 @@ export function ProjectChatMessage({ message, projectId, onArtifactClick }: Mess
           >
             {isUser ? '我' : 'Aria'}
           </span>
-          <span className="num">{formatUpdatedRelative(message.created_at)}</span>
+          {isStreaming ? (
+            <>
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: 99,
+                  background: 'var(--accent)',
+                  animation: 'pulse 1.2s ease-in-out infinite',
+                }}
+              />
+              <span>{streamingStatus || '生成中…'}</span>
+            </>
+          ) : (
+            <span className="num">{formatUpdatedRelative(message.created_at)}</span>
+          )}
         </div>
 
         {isUser ? (
@@ -128,22 +156,26 @@ export function ProjectChatMessage({ message, projectId, onArtifactClick }: Mess
           </p>
         ) : (
           <>
-            {meta.progress.length > 0 && <SkillProgressPill steps={meta.progress} />}
-            {meta.artifacts.map((a, i) => (
-              <ArtifactCard
-                key={`${a.id ?? a.path}-${i}`}
-                artifact={a}
-                onClick={onArtifactClick}
-              />
-            ))}
-            <div
-              className="md-root"
-              style={{ fontSize: 14, lineHeight: 1.75, color: 'var(--ink)' }}
-            >
-              <MarkdownRenderer content={message.content} />
-            </div>
-            {meta.references.length > 0 && <ReferenceChips refs={meta.references} />}
-            <AriaActionChips content={message.content} projectId={projectId} />
+            {!isStreaming && meta.progress.length > 0 && <SkillProgressPill steps={meta.progress} />}
+            {!isStreaming &&
+              meta.artifacts.map((a, i) => (
+                <ArtifactCard
+                  key={`${a.id ?? a.path}-${i}`}
+                  artifact={a}
+                  onClick={onArtifactClick}
+                />
+              ))}
+            {message.content && (
+              <div
+                key="aria-md-body"
+                className="md-root"
+                style={{ fontSize: 14, lineHeight: 1.75, color: 'var(--ink)' }}
+              >
+                <MarkdownRenderer content={message.content} />
+              </div>
+            )}
+            {!isStreaming && meta.references.length > 0 && <ReferenceChips refs={meta.references} />}
+            {!isStreaming && <AriaActionChips content={message.content} projectId={projectId} />}
           </>
         )}
       </div>

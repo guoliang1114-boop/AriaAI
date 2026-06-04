@@ -13,7 +13,6 @@ import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxConversationRenameDialog } from '../CxConversationActions'
 import { ProjectChatMessage } from '../ChatMessage'
-import { MarkdownRenderer } from '../../../../components/MarkdownRenderer'
 import { ChatArtifactPreview } from '../ChatArtifactPreview'
 import { ChatEmptyState } from '../ChatEmptyState'
 import { ChatSpaceTree } from '../ChatSpaceTree'
@@ -83,6 +82,7 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
     streamingContent,
     statusMessage,
     capability,
+    streamingMessageId,
     send,
     stop,
   } = useChatStream({
@@ -232,6 +232,7 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
               streamStatus={streamStatus}
               streamingContent={streamingContent}
               streamStatusMessage={statusMessage}
+              streamingMessageId={streamingMessageId}
               capability={capability}
               onSend={send}
               onStop={stop}
@@ -577,6 +578,7 @@ interface ThreadViewProps {
   streamStatus: ChatStreamStatus
   streamingContent: string
   streamStatusMessage: string | null
+  streamingMessageId: number
   capability: ChatCapabilityFrame | null
   onSend: (text: string) => Promise<void>
   onStop: () => void
@@ -596,6 +598,7 @@ function ThreadView({
   streamStatus,
   streamingContent,
   streamStatusMessage,
+  streamingMessageId,
   capability,
   onSend,
   onStop,
@@ -655,6 +658,25 @@ function ThreadView({
   }
 
   const busy = streamStatus === 'sending' || streamStatus === 'streaming'
+
+  // Throttle the live reply so Markdown re-parses ~12×/s, not per SSE token.
+  const throttledStreaming = useThrottledValue(streamingContent, 80)
+  // Render the in-flight reply as a draft message appended to the list — same
+  // component and React key the final message will use — so `done` updates the
+  // node in place (artifact card slides in) instead of remounting it.
+  const renderMessages: Message[] = busy
+    ? [
+        ...messages,
+        {
+          id: streamingMessageId,
+          conversation_id: conversationId,
+          role: 'assistant',
+          content: throttledStreaming,
+          metadata_json: '',
+          created_at: new Date().toISOString(),
+        },
+      ]
+    : messages
 
   return (
     <>
@@ -770,16 +792,16 @@ function ThreadView({
 
         {!messagesLoading &&
           !messagesError &&
-          messages.map((m) => (
+          renderMessages.map((m) => (
             <ProjectChatMessage
               key={m.id}
               message={m}
               projectId={projectId}
               onArtifactClick={onOpenArtifact}
+              isStreaming={busy && m.id === streamingMessageId}
+              streamingStatus={streamStatusMessage}
             />
           ))}
-
-        {busy && <StreamingBubble content={streamingContent} status={streamStatusMessage} />}
       </div>
 
       {/* Composer */}
@@ -1124,17 +1146,10 @@ function CapabilityPill({ capability }: { capability: ChatCapabilityFrame }) {
   )
 }
 
-/* ────────────────────────────────────────────────────────────────
- * StreamingBubble — placeholder Aria bubble shown while a reply
- * is in flight. Renders the partial content as live Markdown (no
- * progress / artifact / reference parsing since none of that is
- * available until the 'done' event lands).
- * ──────────────────────────────────────────────────────────────── */
-
 /**
  * Throttle a fast-changing value to at most one update per `intervalMs`
  * (leading + trailing). SSE deltas arrive token-by-token; re-parsing Markdown
- * on every token is wasteful and flickers, so the streaming bubble renders a
+ * on every token is wasteful and flickers, so the in-flight reply renders a
  * throttled snapshot. The trailing edge guarantees the last delta lands.
  */
 function useThrottledValue<T>(value: T, intervalMs: number): T {
@@ -1149,71 +1164,4 @@ function useThrottledValue<T>(value: T, intervalMs: number): T {
     return () => window.clearTimeout(id)
   }, [value, intervalMs])
   return throttled
-}
-
-function StreamingBubble({
-  content,
-  status,
-}: {
-  content: string
-  status: string | null
-}) {
-  // Re-parse at most ~12×/s instead of once per SSE token.
-  const throttledContent = useThrottledValue(content, 80)
-  return (
-    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-      <span
-        style={{
-          width: 30,
-          height: 30,
-          marginTop: 3,
-          borderRadius: 'var(--r-sm)',
-          background: 'var(--accent-bg)',
-          color: 'var(--accent)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        <CxIcon name="sparkle" size={14} />
-      </span>
-      <div style={{ flex: 1, paddingTop: 3, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 11.5,
-            color: 'var(--ink-mute)',
-            marginBottom: 6,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
-          <span style={{ color: 'var(--accent-ink)', fontWeight: 500 }}>Aria</span>
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: 99,
-              background: 'var(--accent)',
-              animation: 'pulse 1.2s ease-in-out infinite',
-            }}
-          />
-          <span>{status || '生成中…'}</span>
-        </div>
-        {throttledContent && (
-          <div
-            style={{
-              fontSize: 14,
-              lineHeight: 1.75,
-              color: 'var(--ink)',
-              wordBreak: 'break-word',
-            }}
-          >
-            <MarkdownRenderer content={throttledContent} />
-          </div>
-        )}
-      </div>
-    </div>
-  )
 }
