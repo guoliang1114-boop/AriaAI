@@ -197,3 +197,40 @@ $$SBIE = Payroll Carve-out + Tangible Asset Carve-out$$
 - 确认SBIE计算的完整性
 - 审核补足税分配的合理性
 - 评估IIR/UTPR/QDMTT适用顺序
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 判断集团是否达到 Pillar Two 门槛，并识别高风险辖区。
+- **Standard**: 输出 GloBE ETR、补足税、SBIE、安全港和数据缺口分析。
+- **Deep**: 结合集团合并报表、辖区财税数据、递延税、当地 QDMTT 和申报时间线，形成落地实施包。
+
+### GloBE Assessment Model
+
+| 步骤 | 判断内容 | 输出 |
+|------|----------|------|
+| 门槛 | 合并收入是否达到 7.5 亿欧元 | 适用性结论 |
+| 辖区 | 按辖区汇总收入、税前利润、税费 | 辖区清单 |
+| ETR | 调整后覆盖税额 / GloBE 收入 | ETR 测算表 |
+| 安全港 | CbCR、简化 ETR、常规利润测试 | 安全港判断 |
+| 补足税 | IIR、UTPR、QDMTT 顺序 | 税额分配 |
+
+### Quality Gates
+
+- [ ] 数据来源区分合并报表、税务申报和管理口径。
+- [ ] 每个辖区的调整项都有解释和责任人。
+- [ ] 安全港判断没有替代正式计算，除非条件充分。
+- [ ] QDMTT、IIR、UTPR 顺序和当地生效日期已确认。
+- [ ] 输出包含数据缺口、系统需求和申报时间线。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Pillar Two applicability memo | 判断适用性 | 集团收入门槛、实体范围、辖区和生效时间 | Word / Markdown |
+| Jurisdictional ETR model | 测算辖区风险 | GloBE 收入、覆盖税额、ETR、补足税和调整项 | Excel |
+| Safe harbour assessment | 判断简化规则 | CbCR 数据、简化 ETR、常规利润测试和结论 | Excel / Word |
+| Data gap register | 落地准备 | 数据项、来源、owner、缺口、系统改造和截止日 | Excel |
+| Top-up tax allocation memo | 管理层决策 | IIR、UTPR、QDMTT 顺序、税额和责任主体 | Word |
+| Pillar Two implementation roadmap | 项目实施 | 阶段、数据、系统、流程、治理和申报时间线 | PPT |

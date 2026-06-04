@@ -164,3 +164,34 @@ Rel_Serving(db, server, "stores data")
 | Security Architecture | Security controls | `Technology_*`, `Motivation_*` | [security-architecture.md](examples/security-architecture.md) |
 | Data Architecture | Data flow & ownership | `Application_DataObject`, `Rel_Access_*` | [data-architecture.md](examples/data-architecture.md) |
 | DevOps Pipeline | CI/CD delivery chain | `Technology_*`, `Application_*` | [devops-pipeline.md](examples/devops-pipeline.md) |
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 根据用户描述生成单视角 ArchiMate 图。
+- **Standard**: 选择业务、应用、技术、动机或迁移视角，并输出可渲染 PlantUML。
+- **Deep**: 结合项目架构、业务能力、系统清单、数据流和迁移计划，形成多视角架构图包。
+
+### Viewpoint Decision Logic
+
+先判断用户要解释什么：业务能力、应用集成、技术部署、动机目标、安全控制还是迁移路线。不同问题不能混在一张图里；复杂架构应拆成多个 viewpoint。
+
+### Quality Gates
+
+- [ ] 元素层级符合 ArchiMate 语义，不混用业务/应用/技术层。
+- [ ] 关系类型准确，避免全部使用普通箭头。
+- [ ] 图中节点数量适中，必要时拆图。
+- [ ] 命名能被业务和技术读者理解。
+- [ ] 输出包含可复制 PlantUML 和简短解读。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| ArchiMate viewpoint diagram | 单一架构视角 | 视角目标、元素、关系、PlantUML 和说明 | PlantUML / Markdown |
+| Enterprise architecture pack | 多层架构说明 | 业务、应用、技术、动机、迁移视角和关系 | Markdown / PPT |
+| Capability map | 业务能力建模 | 能力、层级、owner、支撑应用和目标关联 | PlantUML / PPT |
+| Application integration view | 系统集成说明 | 应用、接口、数据对象、协议和依赖关系 | PlantUML |
+| Migration roadmap view | 架构演进 | 当前/目标 plateau、work package、里程碑和依赖 | PlantUML / PPT |
+| Diagram QA checklist | 发布前检查 | 语义、关系、层级、命名、密度和可读性 | Checklist |

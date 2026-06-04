@@ -180,3 +180,39 @@ description: "税务争议应对：涵盖税务稽查、纳税评估、反避税
 - 将方案保存至项目的 `output/` 目录
 - 文件命名：`tax-dispute-strategy-{企业名称}-{YYYYMMDD}.md`
 - 敏感信息需脱敏处理，证据原件另行保管
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 判断争议性质、风险等级和下一步回应。
+- **Standard**: 输出争议焦点、证据清单、沟通策略、时间线和应对方案。
+- **Deep**: 结合稽查通知、约谈记录、申报资料、合同、凭证和税局观点，形成复议/诉讼前策略包。
+
+### Dispute Path Decision
+
+| 路径 | 适用条件 | 风险 |
+|------|----------|------|
+| 主动说明和补充证据 | 事实清楚、证据可补强 | 需控制口径 |
+| 沟通协商 | 争议点可解释、金额可控 | 可能形成不利承诺 |
+| 行政复议 | 法律适用或程序存在争议 | 时间和资料要求高 |
+| 行政诉讼 | 重大金额或原则性争议 | 周期长、公开性高 |
+
+### Quality Gates
+
+- [ ] 法定期限、回复期限和救济期限明确。
+- [ ] 证据清单区分已有、待补、难以取得。
+- [ ] 与税局沟通口径避免承认未验证事实。
+- [ ] 策略同时考虑金额、声誉、后续年度和集团影响。
+- [ ] 敏感资料有脱敏和访问控制要求。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Tax dispute strategy memo | 争议应对 | 争议焦点、事实、法规、证据、路径和建议 | Word |
+| Evidence binder index | 准备证据 | 证据、来源、证明目的、状态、责任人和缺口 | Excel |
+| Tax authority communication script | 税局沟通 | 口径、事实边界、可确认事项、不能承诺事项 | Markdown |
+| Risk exposure model | 量化争议金额 | 本金、滞纳金、罚款、概率、情景和现金影响 | Excel |
+| Administrative review / litigation brief | 复议或诉讼 | 事实、争点、法律依据、证据和请求事项 | Word |
+| Management escalation pack | 高层决策 | 金额、路径、风险、建议、期限和决策请求 | PPT |

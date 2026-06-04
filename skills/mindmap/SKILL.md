@@ -156,3 +156,34 @@ right to left direction
 | Multi-line text breaks parser | Use `: ... ;` block syntax, ensure trailing `;` exists |
 | Colors not applied | Verify hex format (`#RRGGBB`) or stereotype class names |
 | Layout direction unexpected | Add explicit `top to bottom direction` or `right to left direction` |
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 把主题拆成 2-3 层思维导图。
+- **Standard**: 形成结构清晰、左右平衡、带颜色层级的 PlantUML mindmap。
+- **Deep**: 结合项目目标、知识库内容、会议记录或战略框架，生成可用于研讨、培训或汇报的结构化导图。
+
+### Structure Logic
+
+先确定导图目的：发散、归纳、决策、学习、路线图或问题拆解。目的不同，分支应分别按 MECE、时间、责任、因果或优先级组织。
+
+### Quality Gates
+
+- [ ] 一级分支 3-7 个，避免过宽或过窄。
+- [ ] 同层节点使用同一分类口径。
+- [ ] 分支深度不超过可读范围。
+- [ ] 颜色用于表达语义，不只是装饰。
+- [ ] 输出包含 PlantUML 和必要的结构解释。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Mind map | 主题拆解 | 中心主题、一级分支、二级分支和结构说明 | PlantUML / Markdown |
+| Issue tree | 咨询问题拆解 | 核心问题、MECE 分支、假设和证据需求 | PlantUML / PPT |
+| Knowledge map | 知识整理 | 主题、概念、关系、引用和后续阅读 | PlantUML / Markdown |
+| Decision tree | 路径选择 | 判断条件、分支、结果、风险和建议 | PlantUML |
+| Workshop map | 研讨会输出 | 议题、观点、投票、行动项和责任人 | PlantUML / Markdown |
+| Mindmap QA checklist | 发布前 | 分支数量、层级、一致性、方向和颜色语义 | Checklist |

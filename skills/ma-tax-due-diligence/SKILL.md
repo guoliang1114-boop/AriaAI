@@ -193,3 +193,40 @@ description: "并购税务尽职调查：历史合规性、税务风险敞口、
 - 将报告保存至项目的 `output/` 目录
 - 文件命名：`tax-dd-report-{目标公司名称}-{YYYYMMDD}.md`
 - 报告应标注保密级别，限制访问范围
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出税务尽调高风险事项和交易影响。
+- **Standard**: 输出税种风险、历史合规、税收优惠、交易结构影响和风险金额。
+- **Deep**: 结合 SPA、估值、价格调整、赔偿条款、交割清单和并购后整合计划，形成交易可用的税务风险包。
+
+### Deal Impact Model
+
+| 风险类型 | 交易影响 |
+|----------|----------|
+| 历史欠税或少缴 | 价格调整、赔偿条款、交割条件 |
+| 税收优惠不稳 | 盈利预测调整、后续合规承诺 |
+| 关联交易风险 | 赔偿上限、专项税务保障 |
+| 发票或增值税风险 | 运营整改、税务储备 |
+| 特殊性税务处理不确定 | 交易结构重审或税局沟通 |
+
+### Quality Gates
+
+- [ ] 每项风险有事实、法规依据、金额估计和交易影响。
+- [ ] 区分已确认风险、潜在风险和资料缺口。
+- [ ] 报告给出 SPA 保护建议，而不仅是风险描述。
+- [ ] 税务风险与估值、现金流和交割安排联动。
+- [ ] 敏感资料和客户保密要求已标注。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Tax due diligence report | 并购税务尽调 | 风险、事实、税种、金额、交易影响和建议 | Word / PPT |
+| Tax risk register | 汇总风险 | 风险、证据、金额、概率、SPA 影响和 owner | Excel |
+| Historical compliance review | 审查历史申报 | 税种、期间、申报、差异、处罚和资料缺口 | Excel |
+| Tax exposure model | 量化风险 | 本金、滞纳金、罚款、情景和价格调整影响 | Excel |
+| SPA tax protection memo | 支持交易文件 | 陈述保证、赔偿、保留款、条件和价格调整建议 | Word |
+| Post-deal tax action list | 交割后事项 | 补申报、备案、整改、整合和责任人 | Excel / Tasks |

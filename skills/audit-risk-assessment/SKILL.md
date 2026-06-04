@@ -202,3 +202,34 @@ description: "基于 ISA 315 (Revised 2019) 框架执行审计计划阶段的风
 生成风险评估文档后，建议保存：
 - 作为 Markdown：`update_project_markdown_document`
 - 作为 Word：`write_project_office_document`（file_type=docx）
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出重大错报风险清单和初步审计响应。
+- **Standard**: 形成风险评估矩阵、账户认定映射、控制了解和审计策略。
+- **Deep**: 结合行业、财务波动、前期错报、舞弊风险、IT 环境和控制测试计划，形成完整计划阶段底稿。
+
+### Assertion Mapping Model
+
+每项风险必须映射到财务报表项目和认定：存在、完整性、准确性、截止、计价、权利义务、列报。没有认定映射的风险不能直接转化为审计程序。
+
+### Quality Gates
+
+- [ ] 风险来源包含行业、企业、账户、交易和舞弊维度。
+- [ ] 每项重大风险都有认定、理由、证据和响应。
+- [ ] 高风险账户与实质性程序设计相衔接。
+- [ ] 内控了解结论没有被误写成控制有效性结论。
+- [ ] 数据缺口和管理层假设已单独披露。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Risk assessment memo | 审计计划阶段 | 行业风险、企业风险、账户风险、舞弊风险和审计响应 | Word / Markdown |
+| Risk and assertion matrix | 设计审计程序前 | 风险、账户、认定、固有风险、控制风险、响应程序 | Excel |
+| Fraud risk assessment | 必须评估舞弊风险 | 压力、机会、合理化、红旗信号和应对程序 | Markdown / Excel |
+| Internal control understanding note | 了解内控 | 流程、控制点、设计评价、资料来源和缺口 | Word |
+| Planning meeting pack | 项目组计划会 | 关键风险、重大性、审计策略、资源和时间安排 | PPT |
+| Data request list | 信息缺口明显 | 财务、流程、合同、系统、访谈和管理层说明清单 | Markdown / Excel |

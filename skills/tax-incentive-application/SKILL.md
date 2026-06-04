@@ -186,3 +186,39 @@ description: "企业所得税税收优惠适用分析：高新技术企业15%、
 - 将报告保存至项目的 `output/` 目录
 - 文件命名：`tax-incentive-assessment-{企业名称}-{YYYYMMDD}.md`
 - 附上政策依据清单和支撑材料清单
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 判断企业可能适用的税收优惠和主要缺口。
+- **Standard**: 输出优惠适用性评估、测算、资料清单和申报路径。
+- **Deep**: 结合收入结构、研发项目、人员、知识产权、财务归集和历史申报，形成申报资料包。
+
+### Incentive Fit Model
+
+| 优惠类型 | 关键条件 | 证据材料 |
+|----------|----------|----------|
+| 高新技术企业 | 技术领域、研发占比、科技人员、知识产权 | 研发台账、专利、人员清单 |
+| 研发费用加计扣除 | 项目立项、费用归集、辅助账 | 项目资料、费用明细 |
+| 小型微利企业 | 人数、资产、应纳税所得额 | 财报、纳税申报表 |
+| 区域优惠 | 注册地、主营业务、实质运营 | 营业执照、业务合同 |
+
+### Quality Gates
+
+- [ ] 每项优惠逐条件判断，不只给政策清单。
+- [ ] 节税测算区分当期收益和未来持续收益。
+- [ ] 资料缺口和补救路径明确。
+- [ ] 优惠适用与收入、成本、研发归集口径一致。
+- [ ] 风险提示包含后续核查、口径变化和追缴风险。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Incentive eligibility memo | 判断优惠适用 | 条件、证据、缺口、收益、风险和建议 | Word |
+| Tax saving model | 测算优惠收益 | 税前所得、税率、扣除、优惠、现金影响和情景 | Excel |
+| Application material checklist | 准备申报 | 材料、来源、owner、状态、缺口和截止日 | Excel |
+| R&D expense support pack | 研发加计扣除 | 项目、人员、费用、辅助账、证据和归集口径 | Excel / Word |
+| High-tech enterprise scorecard | 高新申请 | 技术领域、知识产权、人员、收入、研发和评分 | Excel |
+| Post-approval compliance plan | 优惠后管理 | 后续留存、抽查风险、年度复核和整改事项 | Markdown / Excel |

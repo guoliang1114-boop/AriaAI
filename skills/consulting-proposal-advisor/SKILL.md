@@ -197,3 +197,91 @@ Use adjacent capabilities when the deliverable requires them:
 - For DOCX proposals, SOWs, or redline-style document deliverables, use document-capable tools and verify formatting.
 - For high-polish PPTX production, use presentation-capable tools. In AriaAI chat, call `generate_ppt_from_skill`; in local Codex/offline workflows, `scripts/create_neutral_pptx.cjs` may be used when appropriate.
 - For bespoke visuals, concept images, or simple supporting illustrations, use image generation only when a bitmap visual improves the proposal. Prefer editable charts and diagrams for consulting logic.
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 产出一页建议或 10-14 页提案结构，用于快速对齐方向。
+- **Standard**: 产出完整咨询提案、方案、实施计划、价值和风险。
+- **Deep**: 结合客户记忆、历史项目、知识库案例、行业资料和竞争态势，产出合伙人评审级提案。
+
+### Aria Context Enrichment
+
+在 Aria 中优先读取客户背景、项目目标、历史会议、客户偏好、已沉淀案例和同类项目资产。提案要体现“为什么是这个客户、这个时点、这个团队、这个方案”。
+
+### Quality Gates
+
+- [ ] 开头给出明确推荐，而不是中性介绍。
+- [ ] 每个工作流对应客户问题、交付物和价值。
+- [ ] 价值测算有假设，不能只写“提升效率”。
+- [ ] 风险、依赖、客户投入和治理机制明确。
+- [ ] PPT 或文档输出前经过 storyline 检查。
+
+## Consulting Excellence Layer
+
+### Problem Framing Standard
+
+Before drafting a proposal, convert the request into a consulting problem statement:
+
+```text
+Client is facing [business pressure], causing [measurable consequence].
+The real decision is whether/how to [strategic choice].
+The proposal must prove [recommended path] is better because [evidence].
+```
+
+Do not start from services or workstreams. Start from the client decision and the cost of inaction.
+
+### Hypothesis Tree
+
+For ambiguous requests, build a hypothesis tree before writing:
+
+| Branch | Question | Evidence Needed | Proposal Implication |
+|--------|----------|-----------------|----------------------|
+| Market / external pressure | Why must the client act now? | Market, competitor, regulation, customer data | Urgency and burning platform |
+| Internal pain | What is structurally broken? | Interviews, KPIs, process data, system evidence | Diagnosis and scope |
+| Solution fit | What intervention will actually work? | Case examples, capability gap, constraints | Recommended workstreams |
+| Value case | What value can be created? | Baseline, assumptions, benchmark, scenarios | ROI and prioritization |
+| Feasibility | What could block execution? | Governance, budget, data, people, timeline | Roadmap and risk controls |
+
+### Executive Proposal Rules
+
+- Use a one-sentence answer on the first page: what we recommend, why now, and expected value.
+- Each section must answer a management question, not merely introduce a topic.
+- Every proposed workstream must include output, owner, client input, decision gate, and value contribution.
+- If facts are missing, mark assumptions explicitly and show what needs validation in week 1.
+- Include a "why us / why this approach" argument only when it is specific to capability, assets, method, or experience.
+
+### Anti-Generic Rewrite Rules
+
+Replace generic consulting language with concrete actions:
+
+| Weak phrase | Stronger consulting expression |
+|-------------|--------------------------------|
+| 提升效率 | 将会员运营活动从人工筛选改为规则+模型触发，减少活动准备周期 |
+| 打造闭环 | 建立从数据采集、标签生成、活动触发到效果复盘的周度运营机制 |
+| 赋能业务 | 为门店、销售或交付团队提供可执行名单、话术和跟进节奏 |
+| 优化管理 | 明确决策权、指标口径、会议节奏和异常升级机制 |
+
+### Proposal Quality Bar
+
+A proposal is client-ready only if a partner can answer these in 3 minutes:
+
+- What decision does the client need to make?
+- What is the recommended path?
+- What evidence supports it?
+- What value is at stake?
+- What will happen in the first 30 days?
+- What does the client need to provide?
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Opportunity one-pager | 早期售前或客户方向未清晰 | 客户问题、触发事件、推荐方向、初步价值、下一步 | Markdown / Word |
+| Consulting proposal | 客户需要正式方案 | 背景、诊断、方案、工作流、交付物、计划、价值、风险、团队 | Word / PPT |
+| Executive recommendation memo | 需要先对齐管理层判断 | 一句话建议、关键证据、方案取舍、决策请求、30 天行动 | Markdown / Word |
+| SOW / workplan | 方案进入商务或立项 | 范围、交付物、里程碑、双方责任、假设、排除项 | Word |
+| Business case | 需要投资审批或预算 | 投入、收益、假设、敏感性、风险、回收期 | Excel / PPT |
+| Proposal deck | 客户需要汇报材料 | Storyline、每页结论、证据、视觉建议、speaker notes | PPT |
+| Follow-up action pack | 会后推进 | 待确认问题、责任人、材料清单、时间表、客户输入 | Markdown / Tasks |

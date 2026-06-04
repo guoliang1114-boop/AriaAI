@@ -140,3 +140,34 @@ description: "起草审计报告，基于ISA 700/701/706框架，覆盖意见类
 
 ## Saving
 将审计报告保存至 `audit-workpapers/[年份]/report/audit-report-draft.md`，最终版本保存至 `audit-reports/[年份]/[被审计单位名称]-audit-report.md`。
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 根据给定事实判断审计意见类型和报告关键段落。
+- **Standard**: 起草完整审计报告，覆盖意见、基础、KAM、强调事项和其他信息。
+- **Deep**: 结合审计调整、未更正错报、KAM 底稿、治理层沟通和管理层声明，形成可复核报告包。
+
+### Opinion Decision Gate
+
+必须先判断：证据是否充分适当、错报是否重大、影响是否广泛、披露是否充分、持续经营是否存在重大不确定性。报告文字必须能回溯到对应底稿和治理层沟通记录。
+
+### Quality Gates
+
+- [ ] 意见类型与错报/范围受限判断一致。
+- [ ] KAM 描述包含为何重要、如何应对和相关披露。
+- [ ] 强调事项不替代修正意见。
+- [ ] 公司名称、期间、报表组成和日期准确。
+- [ ] 报告版本与最终财务报表一致。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Audit opinion decision memo | 判断报告意见类型 | 事实、错报/范围受限、重大性、广泛性、意见结论 | Markdown / Word |
+| Draft audit report | 起草正式报告 | 意见段、基础段、KAM、强调事项、其他信息和日期 | Word |
+| KAM analysis memo | 评估关键审计事项 | 事项背景、为何重要、审计应对、披露引用 | Markdown / Word |
+| Going concern reporting note | 存续经营不确定性 | 事项、管理层计划、审计证据、报告影响 | Markdown |
+| Governance reporting pack | 与治理层沟通 | 未更正错报、重大判断、报告影响、决策请求 | PPT / Word |
+| Final report checklist | 发布前复核 | 名称、期间、报表、意见、日期、签署和版本一致性 | Checklist |

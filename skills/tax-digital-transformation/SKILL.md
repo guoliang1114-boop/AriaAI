@@ -163,3 +163,51 @@ description: "税务数字化转型：税务系统选型、电子发票（金税
 保存路径：`/cases/{client}/tax-digital/`
 文件命名：`tax-digital-roadmap-{company}-{date}.md`
 关联文件：系统选型评估表、接口设计文档、实施计划
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 识别税务数字化痛点和优先建设方向。
+- **Standard**: 输出税务流程诊断、系统选型、数据治理、自动申报和实施路线图。
+- **Deep**: 结合 ERP、发票、申报、税务风险、共享中心和金税四期要求，设计端到端税务数字化蓝图。
+
+### Transformation Blueprint
+
+| 能力域 | 目标能力 | 常见交付物 |
+|--------|----------|------------|
+| 发票管理 | 全电发票开具、接收、查验、归档、风险识别 | 发票流程图、控制矩阵 |
+| 税务数据 | 税务数据标准、主数据、口径映射、质量规则 | 数据字典、字段映射表 |
+| 自动申报 | 多税种计算、申报表生成、校验和留痕 | 自动化规则清单 |
+| 风险监控 | 指标预警、异常交易、税负波动、政策匹配 | 税务风险仪表盘 |
+| 系统集成 | ERP、财务共享、发票平台、申报平台接口 | 集成架构图 |
+
+### Vendor and Build Decision
+
+系统选型必须比较：
+
+- 标准产品适配度。
+- ERP 集成复杂度。
+- 税种覆盖和申报自动化深度。
+- 数据安全和权限控制。
+- 实施周期、成本和运维能力。
+
+### Quality Gates
+
+- [ ] 路线图区分流程、数据、系统、组织和控制五条主线。
+- [ ] 每个自动化场景都有输入、规则、输出和异常处理。
+- [ ] 金税四期或全电发票相关判断有明确依据。
+- [ ] ROI 包含效率、风险降低、合规质量和运维成本。
+- [ ] 实施计划包含试点、推广、培训和上线后稳定期。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Tax digital diagnostic | 现状诊断 | 流程、系统、数据、痛点、风险和机会 | PPT / Word |
+| Tax process blueprint | 设计目标流程 | 税种流程、角色、数据、控制、异常和系统触点 | PPT / BPMN |
+| Tax data dictionary | 数据治理 | 字段、口径、来源、owner、质量规则和映射 | Excel |
+| System selection scorecard | 选型 | 需求、供应商、评分、成本、风险和建议 | Excel / PPT |
+| Implementation roadmap | 项目推进 | 阶段、里程碑、系统、数据、流程、培训和 KPI | PPT |
+| ROI model | 投资论证 | 投入、运维、效率、风险降低、收益和敏感性 | Excel |
+| UAT and go-live checklist | 上线准备 | 场景、数据、权限、测试、缺陷、培训和切换 | Excel |

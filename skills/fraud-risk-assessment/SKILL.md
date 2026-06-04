@@ -212,3 +212,34 @@ description: "舞弊风险评估：舞弊三角理论、红旗信号、反舞弊
 保存路径：`/cases/{client}/fraud-risk/`
 文件命名：`fraud-risk-assessment-{company}-{date}.md`
 关联文件：红旗信号清单、数据分析结果、内控缺陷清单
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出舞弊红旗、重点账户和建议程序。
+- **Standard**: 形成舞弊风险矩阵、控制绕过分析、数据测试和应对建议。
+- **Deep**: 结合访谈、举报、异常交易、权限日志和历史缺陷，形成调查触发判断和治理层汇报材料。
+
+### Fraud Scenario Model
+
+每个舞弊风险应按“动机/压力、机会、合理化、可观察红旗、可测试数据、控制缺口、应对程序”展开，而不是只列风险名称。
+
+### Quality Gates
+
+- [ ] 舞弊风险与具体流程、账户或岗位绑定。
+- [ ] 管理层凌驾控制风险单独评估。
+- [ ] 红旗信号有证据来源和调查建议。
+- [ ] 数据分析结果与访谈或底稿证据相互印证。
+- [ ] 输出区分审计响应、内控整改和潜在调查升级。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Fraud risk assessment memo | 舞弊风险识别 | 舞弊情景、红旗、控制缺口、应对程序和优先级 | Word / Markdown |
+| Fraud scenario matrix | 需要系统化拆解 | 动机、机会、合理化、红旗、数据测试、控制响应 | Excel |
+| Red flag register | 有异常信号 | 红旗、来源、证据、影响、责任人和调查建议 | Excel |
+| Data analytics plan | 需要数据测试 | 数据源、规则、异常阈值、样本和复核方式 | Markdown / Excel |
+| Governance briefing | 向治理层汇报 | 高风险场景、管理层凌驾风险、应对计划和决策请求 | PPT |
+| Investigation trigger memo | 可能升级调查 | 触发事实、初步证据、保全建议、范围和风险 | Word |

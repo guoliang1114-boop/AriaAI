@@ -419,3 +419,96 @@ Allowed `layout_key` values:
 
 - **Framework details**: See `references/frameworks.md` for expanded methodology descriptions, assessment questionnaires, and benchmark data
 - **Industry notes**: See `references/industry-notes.md` for industry-specific digital transformation patterns, KPI benchmarks, and common pitfalls
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出数字化现状判断、核心机会和三阶段路线图。
+- **Standard**: 输出战略诊断、目标蓝图、能力体系、路线图、治理和投资。
+- **Deep**: 结合客户历史项目、知识库案例、系统现状、组织能力、财务目标和行业标杆，形成高层汇报级数字化战略。
+
+### Aria Context Enrichment
+
+优先读取项目记忆中的客户目标、当前阶段、已有文档、会议纪要、待办和历史交付物。若存在客户偏好或行业案例，应反映到战略重点、表达风格和落地节奏中。
+
+### Quality Gates
+
+- [ ] 战略目标能连接业务增长、效率、风险或体验。
+- [ ] 能力蓝图不是技术清单，而包含场景、数据、流程和组织。
+- [ ] 路线图有依赖、阶段门、资源和 KPI。
+- [ ] 投资估算包含技术、数据、组织和变革管理。
+- [ ] 输出能转为 PPT、路线图表或项目执行 backlog。
+
+## Consulting Excellence Layer
+
+### Transformation Thesis
+
+Every digital strategy must start with a transformation thesis:
+
+```text
+Because [market/customer/operation pressure] is changing,
+[client] must shift from [current operating logic] to [future operating logic],
+by building [3-5 capabilities],
+so that [business outcome] improves within [time horizon].
+```
+
+This thesis guides the whole deck. If a capability, initiative, or system does not support the thesis, remove it or mark it as non-core.
+
+### Business Capability First
+
+Do not start with systems. Translate technology into business capabilities:
+
+| Business Goal | Capability | Data / Process | Technology | KPI |
+|---------------|------------|----------------|------------|-----|
+| Increase retention | Member lifecycle operation | Customer tags, campaign workflow | CDP, MA, analytics | Repeat purchase, churn |
+| Improve delivery margin | Project cockpit | Project cost, tasks, risks | PM system, BI | Margin, delay rate |
+| Reduce compliance risk | Digital control tower | Control evidence, alerts | Workflow, rules engine | Issue closure time |
+
+### Digital Strategy Issue Tree
+
+Use this issue tree for deep work:
+
+1. Where is value leaking today?
+2. Which digital capabilities can close the gap?
+3. What data and process foundation is missing?
+4. What operating model must change?
+5. What should be piloted first, scaled second, and institutionalized third?
+6. What investment and governance rhythm is required?
+
+### Roadmap Depth Standard
+
+Each roadmap initiative must include:
+
+- Business outcome and KPI.
+- Required process change.
+- Required data asset.
+- Required system or integration.
+- Owner and decision gate.
+- Dependency and risk.
+- 90-day proof point.
+
+### Executive Review Standard
+
+For leadership decks, include one page each for:
+
+- Transformation thesis.
+- Current value leakage.
+- Capability blueprint.
+- Use-case portfolio.
+- Operating model.
+- Investment and value case.
+- 90-day mobilization plan.
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Digital maturity diagnostic | 项目启动或现状评估 | 六维成熟度、痛点、价值泄漏、证据和差距 | Markdown / PPT |
+| Transformation thesis memo | 高层方向对齐 | 转型命题、为什么现在、目标状态、核心能力、成功标准 | Markdown / Word |
+| Digital capability blueprint | 设计目标蓝图 | 业务能力、场景、数据、流程、技术、KPI、责任人 | PPT / Markdown |
+| Use-case / initiative portfolio | 选择建设重点 | 候选举措、价值、可行性、依赖、优先级、阶段 | Excel / PPT |
+| Target operating model | 组织和治理设计 | 角色、流程、决策权、会议节奏、指标和能力要求 | PPT / Word |
+| 3-year roadmap | 转入规划和执行 | 阶段、里程碑、依赖、投资、交付物、KPI | PPT / Excel |
+| Investment and value case | 预算或立项 | 成本、收益、假设、回收期、风险和敏感性 | Excel / PPT |
+| Executive strategy deck | 管理层汇报 | Storyline、诊断、蓝图、路线图、投资、治理、90 天计划 | PPT |

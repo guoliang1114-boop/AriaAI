@@ -210,3 +210,88 @@ Ke = Rf + β × ERP + α（公司特定风险溢价）
 保存路径：`/cases/{client}/valuation/`
 文件命名：`valuation-report-{target}-{date}.md`
 关联文件：财务模型、可比公司数据、可比交易数据
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出估值方法选择、关键假设和估值区间。
+- **Standard**: 输出 DCF、可比公司、可比交易、敏感性和定价建议。
+- **Deep**: 结合财务模型、商业尽调、协同、资本结构、交易条款和投资回报要求，形成投委会估值包。
+
+### Valuation Judgment Model
+
+估值必须解释方法权重，而不是机械平均。根据公司阶段、盈利稳定性、行业可比性、交易目的和数据质量选择 DCF、交易法、市场法或成本法。
+
+### Quality Gates
+
+- [ ] 财务预测与商业逻辑一致。
+- [ ] WACC、终值、增长率和利润率假设可解释。
+- [ ] 可比公司和交易剔除理由清楚。
+- [ ] 敏感性分析覆盖关键价值驱动因素。
+- [ ] 定价建议连接交易结构、协同和谈判空间。
+
+## Consulting Excellence Layer
+
+### Valuation as Decision Support
+
+Valuation is not a spreadsheet exercise. It must support a decision:
+
+- What price range is defensible?
+- What assumptions make the deal work or fail?
+- How much synergy can be paid away?
+- What should be structured as earnout, holdback, or price adjustment?
+- Where is the negotiation walk-away point?
+
+### Assumption Governance
+
+Classify assumptions:
+
+| Type | Examples | Treatment |
+|------|----------|-----------|
+| Management case | Revenue growth, margin expansion | Challenge and normalize |
+| Diligence-adjusted case | Churn, concentration, capex, working capital | Use as base case |
+| Upside case | Synergy, cross-sell, cost savings | Probability weight |
+| Downside case | Loss of customer, margin compression | Stress test |
+
+### Pricing Bridge
+
+Always build a bridge from enterprise value to price:
+
+```text
+Enterprise value
+- Net debt
+- Debt-like items
+- Working capital adjustment
+- Tax / legal exposures
++ Cash-like items
+= Equity value / offer price
+```
+
+### Sensitivity Standards
+
+At minimum test:
+
+- Revenue growth.
+- EBITDA margin.
+- WACC / discount rate.
+- Terminal growth or exit multiple.
+- Synergy realization.
+- Customer loss or volume decline.
+
+### Output Standard
+
+Final valuation advice must include valuation range, recommended offer range, walk-away logic, negotiation levers, and key diligence items that could move price.
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Valuation memo | 需要解释估值判断 | 估值结论、方法权重、关键假设、风险和建议价格区间 | Word / Markdown |
+| DCF model | 现金流可预测时 | 收入、利润、CapEx、NWC、WACC、终值和敏感性 | Excel |
+| Trading comps analysis | 有可比上市公司 | 可比公司、筛选理由、倍数、调整项和估值区间 | Excel / PPT |
+| Precedent transactions analysis | 有可比交易 | 交易样本、时间、规模、倍数、控制权溢价和适用性 | Excel / PPT |
+| Football field | 多方法综合展示 | DCF、comps、交易法、管理层案例和区间比较 | PPT |
+| Pricing bridge | 从 EV 到报价 | 净债务、类债务、营运资本、税务风险、调整项 | Excel / PPT |
+| Scenario and sensitivity pack | 关键假设不确定 | 上行、基准、下行、敏感性、break-even 和 walk-away | Excel |
+| Negotiation price guidance | 出价或谈判 | 推荐报价、保留价格、让步空间、earnout/holdback 建议 | PPT / Memo |

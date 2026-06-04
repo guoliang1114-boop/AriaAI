@@ -205,3 +205,81 @@ description: "债务重组：债务结构分析、重组路径设计、债权人
 保存路径：`/cases/{client}/debt-restructuring/`
 文件命名：`debt-restructuring-proposal-{company}-{date}.md`
 关联文件：债务清单、现金流模型、法律意见书
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出债务压力、可选路径和谈判重点。
+- **Standard**: 输出债务结构、现金流、债权人分层、重组方案和谈判策略。
+- **Deep**: 结合债务合同、担保、现金流模型、资产处置、法律约束和债权人画像，形成重组方案包。
+
+### Restructuring Decision Model
+
+| 方案 | 适用条件 | 关注点 |
+|------|----------|--------|
+| 展期 | 短期流动性压力，业务仍可恢复 | 现金流覆盖、利率调整 |
+| 减免 | 偿债缺口明确，债权人需承担损失 | 公平性、谈判筹码 |
+| 债转股 | 长期价值仍在，现金偿付困难 | 估值、控制权、退出 |
+| 资产处置 | 非核心资产可变现 | 时间、折价、税费 |
+
+### Quality Gates
+
+- [ ] 债权人顺位、担保和交叉违约条款已识别。
+- [ ] 现金流预测有保守、基准和乐观情景。
+- [ ] 每个方案显示债权人回收率和公司可持续性。
+- [ ] 谈判策略区分金融债权人、供应商和其他利益方。
+- [ ] 推荐方案包含时间线、条件和备选路径。
+
+## Consulting Excellence Layer
+
+### Restructuring Storyline
+
+A restructuring recommendation must explain:
+
+1. Why the current capital structure is unsustainable.
+2. How much liquidity runway remains.
+3. Which stakeholders control the outcome.
+4. Which restructuring options preserve the most enterprise value.
+5. What concessions are required from each stakeholder.
+6. What happens if no agreement is reached.
+
+### Liquidity First
+
+Always build the work around a 13-week cash view when available:
+
+| Week | Opening Cash | Receipts | Critical Payments | Debt Service | Closing Cash | Covenant / Trigger |
+|------|--------------|----------|-------------------|--------------|--------------|--------------------|
+
+If no cash data exists, request it or produce a data request list before recommending aggressive options.
+
+### Stakeholder Map
+
+| Stakeholder | Exposure | Security | Motivation | Likely Position | Negotiation Lever |
+|-------------|----------|----------|------------|-----------------|-------------------|
+| Senior lenders |  |  |  |  |  |
+| Trade creditors |  |  |  |  |  |
+| Shareholders |  |  |  |  |  |
+| Employees / unions |  |  |  |  |  |
+| Government / regulators |  |  |  |  |  |
+
+### Plan B Requirement
+
+Every consensual restructuring plan must include a fallback scenario: standstill failure, enforcement, insolvency filing, asset sale, or emergency financing.
+
+### Output Standard
+
+The final output should include liquidity diagnosis, creditor waterfall, option comparison, recommended term sheet, negotiation strategy, communications plan and implementation timetable.
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Liquidity diagnostic memo | 判断危机程度 | 现金余额、runway、关键支付、违约风险和触发点 | Markdown / PPT |
+| 13-week cash flow | 短期现金管理 | 周度收款、付款、债务服务、缺口和行动项 | Excel |
+| Creditor waterfall | 判断债权人回收 | 债务层级、担保、优先级、回收率和敏感性 | Excel / PPT |
+| Stakeholder map | 制定谈判策略 | 债权人、股东、供应商、员工、监管方立场和筹码 | PPT |
+| Restructuring options paper | 比较重组路径 | 展期、减免、债转股、资产处置、再融资和影响 | Word / PPT |
+| Indicative term sheet | 进入谈判 | 期限、利率、偿还、减免、担保、约束和条件 | Word |
+| Negotiation plan | 与债权人沟通 | 顺序、话术、让步、底线、材料和时间表 | Markdown / PPT |
+| Contingency plan | 协商失败准备 | standstill failure、执行、破产、紧急融资和沟通预案 | Word / PPT |

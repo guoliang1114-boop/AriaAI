@@ -151,3 +151,48 @@ description: "海关与贸易合规：海关估价、HS归类、原产地规则�
 保存路径：`/cases/{client}/customs-compliance/`
 文件命名：`customs-compliance-{company}-{date}.md`
 关联文件：进出口合同、发票、原产地证书、海关稽查报告
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 识别 HS 归类、估价、原产地或保税模式中的主要风险。
+- **Standard**: 输出归类建议、估价调整、原产地优惠、关税优化和合规整改计划。
+- **Deep**: 结合商品资料、合同、发票、报关单、BOM、特许权使用费协议和历史稽查记录，形成可供海关沟通的证据包。
+
+### Compliance Decision Logic
+
+| 主题 | 判断路径 | 关键证据 |
+|------|----------|----------|
+| HS 归类 | 商品功能、材质、用途、归类总规则、税则注释 | 产品说明、BOM、样品、预归类 |
+| 海关估价 | 成交价格、关联关系影响、特许权使用费、协助费用 | 合同、发票、付款记录、许可协议 |
+| 原产地 | 实质性改变、区域价值成分、直运规则 | 原产地证、生产流程、供应链文件 |
+| 保税模式 | 货物流、账册、单耗、内销补税 | 保税账册、仓储记录、核销资料 |
+
+### Risk and Opportunity Output
+
+输出必须同时覆盖：
+
+1. 现有申报风险和潜在补税金额。
+2. 可申请优惠或优化路径。
+3. 需要准备的证据材料。
+4. 与海关沟通或申请预裁定的建议。
+
+### Quality Gates
+
+- [ ] HS 归类建议有商品事实和规则依据，不只给编码。
+- [ ] 估价分析识别关联交易、特许权使用费和协助费用。
+- [ ] 原产地优惠检查证书、运输路径和实质性改变条件。
+- [ ] 关税节省测算区分确定收益和待确认收益。
+- [ ] 整改计划包含责任人、材料、时点和海关沟通策略。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Customs compliance diagnostic | 总体合规检查 | 商品、归类、估价、原产地、保税和稽查风险 | Word / PPT |
+| HS classification memo | 归类判断 | 商品事实、规则依据、备选编码、风险和建议 | Word |
+| Customs valuation analysis | 估价风险 | 成交价格、调整项、关联关系、特许权使用费 | Excel / Word |
+| FTA origin benefit assessment | 优惠关税 | 协定、原产地规则、证书、节税和限制条件 | Excel |
+| Customs audit response pack | 海关稽查 | 问题、证据、口径、补税测算和沟通策略 | Word / Excel |
+| Remediation roadmap | 合规整改 | 问题、措施、owner、材料、时点和复核方式 | Excel / PPT |

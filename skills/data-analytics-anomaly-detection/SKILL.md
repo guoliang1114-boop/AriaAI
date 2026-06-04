@@ -422,3 +422,34 @@ audit/
 │   │   │   ├── DA-Findings-Report.md
 │   │   │   └── DA-Technical-Appendix.md
 ```
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 对给定数据字段提出异常检测方法和风险点。
+- **Standard**: 执行数据质量检查、异常检测、发现分级和调查建议。
+- **Deep**: 形成可复现分析包，包含数据字典、清洗规则、脚本、结果表、抽样建议和管理层报告。
+
+### Investigation Loop
+
+异常不是结论。每个异常结果必须进入闭环：数据质量排除、业务解释收集、证据抽样、风险评级、管理层回应和后续程序。
+
+### Quality Gates
+
+- [ ] 数据范围、期间、字段口径和缺失值处理已说明。
+- [ ] 异常规则有业务含义，不只是统计离群。
+- [ ] 结果区分误报、待调查和高风险事项。
+- [ ] 分析过程可复现，保留参数、脚本或规则。
+- [ ] 输出能连接到审计程序、调查程序或整改行动。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Data quality assessment | 分析前 | 数据范围、字段、缺失、重复、异常和口径问题 | Markdown / Excel |
+| Analytics test plan | 设计数据测试 | 目标、规则、数据源、阈值、输出和复核方式 | Markdown |
+| Anomaly results table | 输出异常 | 异常编号、规则、金额、对象、风险和状态 | Excel / CSV |
+| Findings report | 管理层或审计汇报 | 方法、结果、重点异常、影响和建议 | Word / PPT |
+| Technical appendix | 保留可复现过程 | 数据处理、参数、脚本、规则和限制条件 | Markdown |
+| Investigation tracker | 后续核查 | 异常、owner、解释、证据、结论和整改状态 | Excel |

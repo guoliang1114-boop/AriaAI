@@ -159,3 +159,51 @@ description: "其他间接税：消费税、印花税、房产税、城市维护
 保存路径：`/cases/{client}/indirect-taxes/`
 文件命名：`indirect-tax-compliance-{company}-{date}.md`
 关联文件：合同台账、房产登记资料、消费税计算底稿
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 判断企业是否涉及消费税、印花税、房产税、城建税及附加等风险。
+- **Standard**: 输出多税种适用清单、补退税测算、差距分析和整改建议。
+- **Deep**: 结合合同台账、资产台账、发票、申报表、商品清单和历史检查结果，形成可追溯底稿。
+
+### Multi-Tax Screening Logic
+
+| 税种 | 触发信号 | 关键资料 |
+|------|----------|----------|
+| 消费税 | 生产、委托加工、进口应税消费品 | 商品清单、BOM、销售合同 |
+| 印花税 | 合同、产权转移、营业账簿、证券交易 | 合同台账、合同金额、税目匹配 |
+| 房产税 | 自有房产、出租房产、地下建筑物 | 产权证、固定资产卡片、租赁合同 |
+| 城建税及附加 | 实缴增值税、消费税 | 申报表、所在地税率 |
+| 其他地方税费 | 资源、环保、土地使用等特殊场景 | 资产、许可、生产和排放资料 |
+
+### Output Depth
+
+每项税种输出：
+
+1. 是否适用。
+2. 计税依据。
+3. 税率或征收率。
+4. 已申报金额和应申报金额。
+5. 差异原因。
+6. 补税、退税或调整建议。
+
+### Quality Gates
+
+- [ ] 税种筛查覆盖企业业务、资产、合同和所在地。
+- [ ] 计税依据与财务账、合同台账或资产台账可勾稽。
+- [ ] 优惠政策注明适用条件和有效期。
+- [ ] 补退税测算区分本金、滞纳金和潜在罚款。
+- [ ] 整改建议可执行，并明确申报期和责任部门。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Indirect tax diagnostic | 多税种合规检查 | 税种适用、计税依据、申报差异、风险和建议 | Word / PPT |
+| Excise tax calculation sheet | 涉及消费税 | 商品、税目、税率、计税价格、应纳税额和证据 | Excel |
+| Stamp duty review table | 合同印花税检查 | 合同类型、税目、金额、税率、已缴和差异 | Excel |
+| Property tax assessment | 房产税检查 | 房产、原值、租金、税率、优惠和应纳税额 | Excel |
+| Local surcharge reconciliation | 城建税及附加 | 增值税/消费税、所在地、税率、已申报和差异 | Excel |
+| Remediation and filing plan | 需要整改补申报 | 补税、退税、滞纳金、责任人、申报期和资料 | Excel / Word |
