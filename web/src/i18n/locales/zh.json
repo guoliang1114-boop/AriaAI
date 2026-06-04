@@ -534,5 +534,16 @@
     "copied": "已复制",
     "refresh": "刷新",
     "checking": "检查中"
+  },
+  "chatActionPreview": {
+    "header": "等待确认 · 执行前需要你批准",
+    "itemCount": "共 {{count}} 项",
+    "executing": "执行中…",
+    "confirmAll": "全部确认执行",
+    "confirm": "确认执行",
+    "reject": "拒绝",
+    "footerHint": "确认后将立即执行此操作",
+    "requestFailed": "操作失败",
+    "stillExecuting": "操作仍在后台执行，稍后会继续刷新结果。"
   }
 }

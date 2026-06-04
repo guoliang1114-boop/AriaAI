@@ -54,6 +54,8 @@ class PendingActionItem(BaseModel):
     description: str
     details: list[str]
     status: str
+    result: Optional[dict[str, Any]] = None
+    error_message: Optional[str] = None
     created_at: str
     expires_at: Optional[str] = None
 
@@ -97,6 +99,8 @@ def _pending_action_item(action: PendingToolAction) -> PendingActionItem:
         description=payload["description"],
         details=payload["details"],
         status=payload["status"],
+        result=payload.get("result"),
+        error_message=payload.get("error_message"),
         created_at=payload["created_at"] or "",
         expires_at=payload.get("expires_at"),
     )

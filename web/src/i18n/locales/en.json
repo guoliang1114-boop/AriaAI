@@ -536,6 +536,17 @@
     "refresh": "Refresh",
     "checking": "Checking"
   },
+  "chatActionPreview": {
+    "header": "Waiting for approval · Review before execution",
+    "itemCount": "{{count}} items",
+    "executing": "Executing…",
+    "confirmAll": "Confirm all",
+    "confirm": "Confirm",
+    "reject": "Reject",
+    "footerHint": "This action will run immediately after approval",
+    "requestFailed": "Action failed",
+    "stillExecuting": "The action is still running in the background. Results will keep refreshing."
+  },
   "errors": {
     "actions": {
       "goBack": "Go back",

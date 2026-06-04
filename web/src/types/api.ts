@@ -824,6 +824,8 @@ export interface PendingToolAction {
   description: string
   details: string[]
   status: string
+  result?: Record<string, unknown> | null
+  error_message?: string | null
   created_at: string
   expires_at?: string
 }
@@ -831,6 +833,15 @@ export interface PendingToolAction {
 export interface PendingActionsResponse {
   items: PendingToolAction[]
   has_pending: boolean
+}
+
+export interface ConfirmActionResponse {
+  status: string
+  result?: Record<string, unknown> | null
+  error_message?: string | null
+  message_id?: number | null
+  approval_batch_id?: string | null
+  action_ids?: number[] | null
 }
 
 export interface PendingToolConfirmation {

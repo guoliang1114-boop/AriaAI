@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { CxIcon } from './CxIcons'
 import type { PendingActionBatch } from './usePendingActions'
 import type { PendingToolAction } from '../../../types/api'
@@ -33,6 +34,7 @@ function splitDetail(detail: string): { k: string; v: string } | { full: string 
 const WARN_TINT = 'color-mix(in oklch, var(--warn) 14%, var(--bg-elev))'
 
 export function ChatActionPreview({ batches, actingKey, onConfirm, onReject }: ChatActionPreviewProps) {
+  const { t } = useTranslation()
   if (batches.length === 0) return null
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 4 }}>
@@ -41,7 +43,9 @@ export function ChatActionPreview({ batches, actingKey, onConfirm, onReject }: C
         const busy = actingKey === key
         const acting = actingKey != null
         const multi = batch.actions.length > 1
-        const tag = multi ? `共 ${batch.actions.length} 项` : batch.actions[0]?.tool_name
+        const tag = multi
+          ? t('chatActionPreview.itemCount', { count: batch.actions.length })
+          : batch.actions[0]?.tool_name
         return (
           <div
             key={key}
@@ -78,7 +82,7 @@ export function ChatActionPreview({ batches, actingKey, onConfirm, onReject }: C
                   animation: 'pulse 2s ease-in-out infinite',
                 }}
               />
-              等待确认 · 执行前需要你批准
+              {t('chatActionPreview.header')}
               <span
                 className="num"
                 style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-faint)', fontWeight: 400 }}
@@ -124,7 +128,11 @@ export function ChatActionPreview({ batches, actingKey, onConfirm, onReject }: C
                 }}
               >
                 <CxIcon name="check" size={13} stroke={2} />
-                {busy ? '执行中…' : multi ? '全部确认执行' : '确认执行'}
+                {busy
+                  ? t('chatActionPreview.executing')
+                  : multi
+                    ? t('chatActionPreview.confirmAll')
+                    : t('chatActionPreview.confirm')}
               </button>
               <button
                 type="button"
@@ -140,7 +148,7 @@ export function ChatActionPreview({ batches, actingKey, onConfirm, onReject }: C
                   opacity: acting ? 0.5 : 1,
                 }}
               >
-                拒绝
+                {t('chatActionPreview.reject')}
               </button>
               <span
                 style={{
@@ -156,7 +164,7 @@ export function ChatActionPreview({ batches, actingKey, onConfirm, onReject }: C
                   <circle cx="12" cy="12" r="9" />
                   <path d="M12 8v4M12 16h.01" />
                 </svg>
-                确认后将立即执行此操作
+                {t('chatActionPreview.footerHint')}
               </span>
             </div>
           </div>

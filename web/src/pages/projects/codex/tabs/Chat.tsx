@@ -46,6 +46,7 @@ interface ChatProps {
 export function CxProjectChat({ projectId, detail }: ChatProps) {
   const { project } = detail
   const toast = useToast()
+  const { t } = useTranslation()
   const {
     data: conversations,
     loading: convsLoading,
@@ -108,10 +109,22 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
   // On confirm/reject the backend writes a result message, so we refetch
   // the thread and drop the local stream-pending layer (now persisted
   // server-side) to avoid duplicates.
-  const pendingActions = usePendingActions(selectedId, async () => {
-    await refetchMessages()
-    setPending([])
-  })
+  const pendingActions = usePendingActions(
+    selectedId,
+    async () => {
+      await refetchMessages()
+      setPending([])
+    },
+    (msg) => {
+      toast.error({
+        title: t('chatActionPreview.requestFailed'),
+        description:
+          msg === 'Action is still executing'
+            ? t('chatActionPreview.stillExecuting')
+            : msg,
+      })
+    },
+  )
   const refetchPendingActions = pendingActions.refetch
 
   // A streamed turn may have created pending actions; refetch once the

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../../api/client'
-import type { PendingActionsResponse, PendingToolAction } from '../../../types/api'
+import type {
+  ConfirmActionResponse,
+  PendingActionsResponse,
+  PendingToolAction,
+} from '../../../types/api'
 
 /** HITAS (Human-in-the-Loop tool approval) client hook for the project
  * chat tab.
@@ -33,6 +37,17 @@ interface UsePendingActionsReturn {
   reject: (batch: PendingActionBatch, reason?: string) => Promise<void>
 }
 
+const TERMINAL_ACTION_STATUSES = new Set(['completed', 'failed', 'rejected', 'skipped', 'superseded'])
+const ACTION_POLL_INTERVAL_MS = 2000
+const ACTION_POLL_ATTEMPTS = 90
+
+class ActionStillExecutingError extends Error {
+  constructor() {
+    super('Action is still executing')
+    this.name = 'ActionStillExecutingError'
+  }
+}
+
 function groupByBatch(actions: PendingToolAction[]): PendingActionBatch[] {
   const order: string[] = []
   const map = new Map<string, PendingToolAction[]>()
@@ -56,9 +71,33 @@ function batchKey(batch: PendingActionBatch): string {
   return batch.batchId || `single:${batch.actions[0]?.id}`
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message
+  return 'Action request failed'
+}
+
+async function waitForActionsToSettle(actionIds: number[]): Promise<PendingToolAction[]> {
+  let latest: PendingToolAction[] = []
+  for (let attempt = 0; attempt < ACTION_POLL_ATTEMPTS; attempt += 1) {
+    latest = await Promise.all(
+      actionIds.map((id) => api.get<PendingToolAction>(`/chat/actions/${id}`)),
+    )
+    if (latest.every((action) => TERMINAL_ACTION_STATUSES.has(String(action.status || '').toLowerCase()))) {
+      return latest
+    }
+    await sleep(ACTION_POLL_INTERVAL_MS)
+  }
+  throw new ActionStillExecutingError()
+}
+
 export function usePendingActions(
   conversationId: number | null,
   onResolved: () => void | Promise<void>,
+  onError?: (message: string) => void,
 ): UsePendingActionsReturn {
   const [batches, setBatches] = useState<PendingActionBatch[]>([])
   const [loading, setLoading] = useState(false)
@@ -98,15 +137,21 @@ export function usePendingActions(
       // the thread (shows the backend's result message).
       setActingKey(key)
       try {
-        await api.post(path, body)
+        const response = await api.post<ConfirmActionResponse>(path, body)
+        if (response.status === 'executing' && response.action_ids?.length) {
+          await waitForActionsToSettle(response.action_ids)
+        }
         await Promise.all([refetch(), onResolved()])
-      } catch {
-        await refetch()
+      } catch (err) {
+        onError?.(errorMessage(err))
+        if (!(err instanceof ActionStillExecutingError)) {
+          await refetch()
+        }
       } finally {
         setActingKey(null)
       }
     },
-    [actingKey, onResolved, refetch],
+    [actingKey, onError, onResolved, refetch],
   )
 
   const confirm = useCallback(
