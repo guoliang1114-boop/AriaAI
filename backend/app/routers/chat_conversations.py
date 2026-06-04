@@ -169,9 +169,9 @@ def create_conversation(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    # Conversations are isolated per-user even for admins: creating one inside a
-    # project requires real membership (no admin super-user bypass), matching
-    # list/read access. Standalone (project_id is None) creation stays open.
+    # Creating a conversation inside a project requires write membership;
+    # admins have an oversight bypass (see require_conversation_membership),
+    # matching list/read access. Standalone (project_id is None) stays open.
     if req.project_id is not None:
         require_conversation_membership(session, req.project_id, current_user, require_write=True)
     return create_conversation_record(

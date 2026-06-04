@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models.db import Conversation, ProjectMember, User
+from app.models.db import Conversation, Project, ProjectMember, User
 from app.routers.auth import get_current_user
 
 
@@ -25,13 +25,15 @@ def member_project_ids(session: Session, current_user: User) -> list[int] | None
 
 
 def membership_project_ids(session: Session, current_user: User) -> list[int]:
-    """Project ids the user is an actual ``ProjectMember`` of.
+    """Project ids whose conversations the user may see in cross-project lists.
 
-    Unlike ``member_project_ids`` (which returns ``None`` for admins to grant a
-    global view of projects), this always reflects real membership rows.
-    Conversations are isolated per-user even for admins, so conversation
-    visibility scopes through this helper rather than the admin override.
+    Admins get global conversation oversight: every project id is returned so
+    the unfiltered conversation list surfaces all project conversations (their
+    own standalone conversations still scope by owner). Non-admins are limited
+    to projects they are an actual ``ProjectMember`` of.
     """
+    if current_user.is_admin:
+        return list(session.exec(select(Project.id)).all())
     return list(
         session.exec(
             select(ProjectMember.project_id).where(ProjectMember.user_id == current_user.id)
@@ -46,12 +48,14 @@ def require_conversation_membership(
     *,
     require_write: bool = False,
 ) -> None:
-    """Require actual project membership, WITHOUT the admin super-user bypass.
+    """Require project membership, with an admin super-user bypass.
 
-    ``require_project_access`` lets admins through for project management; that
-    bypass intentionally does not apply to conversation access, which stays
-    isolated per-user (admins included).
+    Admins have global conversation oversight, so they pass this gate for any
+    project. Non-admins must be a real ``ProjectMember`` (and, when
+    ``require_write`` is set, an owner/editor) of the project.
     """
+    if current_user.is_admin:
+        return
     member = session.exec(
         select(ProjectMember).where(
             ProjectMember.project_id == project_id,

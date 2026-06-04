@@ -58,9 +58,9 @@ def test_list_conversations_is_scoped_to_membership_and_owner():
     assert "other standalone" not in titles
 
 
-def test_admin_does_not_see_other_users_conversations():
-    """Conversations stay isolated per-user even for admins: the admin sidebar
-    must NOT surface other users' standalone or non-member project conversations."""
+def test_admin_sees_all_project_conversations_but_only_own_standalone():
+    """Admins have global oversight of project conversations, but standalone
+    (project-less) conversations stay owner-scoped even for admins."""
     conversations_cache.delete_prefix("list:")
     session = _session()
     admin = _user(session, "admin@example.com", is_admin=True)
@@ -76,12 +76,13 @@ def test_admin_does_not_see_other_users_conversations():
 
     titles = {conversation.title for conversation in conversations}
     assert "admin standalone" in titles
-    assert "other standalone" not in titles
-    assert "other project" not in titles
+    assert "other project" in titles          # admin oversight: visible
+    assert "other standalone" not in titles   # standalone stays owner-scoped
 
 
-def test_admin_cannot_open_other_users_conversation():
-    """Direct access to another user's conversation by id is 403 for admins too."""
+def test_admin_can_open_project_conversation_but_not_others_standalone():
+    """Admins may open any project conversation, but a project-less conversation
+    owned by another user stays 403 (owner-scoped)."""
     session = _session()
     admin = _user(session, "admin@example.com", is_admin=True)
     other = _user(session, "other@example.com")
@@ -95,10 +96,14 @@ def test_admin_cannot_open_other_users_conversation():
     session.refresh(standalone)
     session.refresh(project_conv)
 
-    for conversation in (standalone, project_conv):
-        with pytest.raises(Exception) as exc:
-            require_conversation_access(session, conversation.id, admin)
-        assert getattr(exc.value, "status_code", None) == 403
+    # Project conversation: admin oversight allows access.
+    opened = require_conversation_access(session, project_conv.id, admin)
+    assert opened.id == project_conv.id
+
+    # Another user's standalone conversation: still 403 for admins.
+    with pytest.raises(Exception) as exc:
+        require_conversation_access(session, standalone.id, admin)
+    assert getattr(exc.value, "status_code", None) == 403
 
 
 def test_non_member_cannot_create_project_conversation():
@@ -116,21 +121,21 @@ def test_non_member_cannot_create_project_conversation():
     assert getattr(exc.value, "status_code", None) == 403
 
 
-def test_admin_cannot_create_conversation_in_non_member_project():
-    """Admins lose the super-user bypass for conversations: creating one inside a
-    project they are not a member of is 403, matching list/read isolation."""
+def test_admin_can_create_conversation_in_non_member_project():
+    """Admin oversight extends to writes: an admin may create a conversation in
+    a project they are not a member of."""
     session = _session()
     admin = _user(session, "admin@example.com", is_admin=True)
     project = _project(session, "Other's project")
 
-    with pytest.raises(Exception) as exc:
-        create_conversation(
-            CreateConversationRequest(project_id=project.id, title="new"),
-            session=session,
-            current_user=admin,
-        )
+    conversation = create_conversation(
+        CreateConversationRequest(project_id=project.id, title="new"),
+        session=session,
+        current_user=admin,
+    )
 
-    assert getattr(exc.value, "status_code", None) == 403
+    assert conversation.project_id == project.id
+    assert conversation.owner_user_id == admin.id
 
 
 def test_chat_request_rejects_project_scope_mismatch():
