@@ -1,10 +1,11 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import i18n from 'i18next'
 import { initReactI18next, I18nextProvider } from 'react-i18next'
 import en from '../../i18n/locales/en.json'
 import zh from '../../i18n/locales/zh.json'
+import { api } from '../../api/client'
 
 vi.mock('../../api/client', () => ({
   api: {
@@ -17,6 +18,10 @@ vi.mock('../../api/client', () => ({
     post: vi.fn(() => Promise.resolve({})),
   },
 }))
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 function initI18n() {
   if (!i18n.isInitialized) {
@@ -83,6 +88,34 @@ describe('AISettings', () => {
     renderWithProviders(AISettings, '/settings/ai')
     await waitFor(() => {
       expect(document.body.textContent).toBeTruthy()
+    })
+  })
+
+  it('persists the low-cost model as the intent router model', async () => {
+    const getMock = api.get as unknown as ReturnType<typeof vi.fn>
+    getMock.mockImplementation((url: string) => {
+      if (url === '/settings/') {
+        return Promise.resolve({
+          language: 'en-US',
+          selected_model: 'claude-sonnet-4-6',
+          intent_router_model: 'kimi-k2.6',
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    const { AISettings } = await import('./AISettings')
+    renderWithProviders(AISettings, '/settings/ai')
+
+    await waitFor(() => {
+      expect(screen.getByText('Low-cost model')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/settings/intent_router_model', { value: 'kimi-k2.6' })
+      expect(api.put).toHaveBeenCalledWith('/settings/intent_router_provider', { value: 'kimi' })
     })
   })
 })

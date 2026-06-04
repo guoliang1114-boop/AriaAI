@@ -82,6 +82,7 @@ class IntentDecision:
     method: str
     tool_access_policy: ToolAccessPolicy = ToolAccessPolicy.NONE
     artifact_contract: ArtifactContract = field(default_factory=ArtifactContract)
+    turn_mode: str = ""
     trace: dict[str, Any] = field(default_factory=dict)
 
 
@@ -431,6 +432,10 @@ async def classify_chat_intent_async(
         "Use write_artifact / modify_existing_file / destructive_action only when the user explicitly asks for that side effect. "
         "Use task_orchestration + durable_task for explicit file or office deliverable workflows. "
         "Tool access is controlled by a separate deterministic tool_access_policy and must not be inferred from analysis requests. "
+        "Also classify turn_mode as answer_only, plan_only, execute_now, or plan_then_execute. "
+        "Use plan_only when the user asks for a plan or says not to execute. "
+        "Use plan_then_execute only when the user explicitly asks to plan first and then execute after confirmation. "
+        "Use execute_now only when the user wants the assistant to perform the action now. "
         "For ambiguous non-destructive deliverable requests, you may return artifact_contract with delivery_required=true, "
         "output_kind, title, and allowed_tools. Only do this when the user wants a real file delivered. "
         "When delivery is required but the user did NOT explicitly name a file format, set output_kind to 'md'. "
@@ -456,6 +461,7 @@ async def classify_chat_intent_async(
             "tool_access_policy": "diagnostic only; deterministic router owns this field",
             "confidence": "number 0-1",
             "reason": "short string",
+            "turn_mode": "answer_only|plan_only|execute_now|plan_then_execute",
             "artifact_contract": {
                 "delivery_required": "boolean; true only when a real file/artifact must be created",
                 "output_kind": "pptx|xlsx|docx|pdf|md",
@@ -482,6 +488,9 @@ async def classify_chat_intent_async(
 
     proposed_mode = _coerce_chat_mode(data.get("chat_mode"), rule.chat_mode)
     proposed_policy = _coerce_action_policy(data.get("action_policy"), rule.action_policy)
+    proposed_turn_mode = str(data.get("turn_mode") or "").strip().lower()
+    if proposed_turn_mode not in {"answer_only", "plan_only", "execute_now", "plan_then_execute"}:
+        proposed_turn_mode = getattr(rule, "turn_mode", "") or ""
     confidence = _confidence(data.get("confidence"), rule.confidence)
     if confidence < LLM_ROUTER_MIN_CONFIDENCE:
         return IntentDecision(
@@ -490,6 +499,7 @@ async def classify_chat_intent_async(
             tool_access_policy=rule.tool_access_policy,
             task_route=rule.task_route,
             artifact_contract=rule.artifact_contract,
+            turn_mode=rule.turn_mode,
             confidence=rule.confidence,
             reason=rule.reason,
             method=rule.method,
@@ -544,6 +554,7 @@ async def classify_chat_intent_async(
             tool_access_policy=rule.tool_access_policy,
             task_route=rule.task_route,
             artifact_contract=rule.artifact_contract,
+            turn_mode=rule.turn_mode,
             confidence=rule.confidence,
             reason=rule.reason,
             method=rule.method,
@@ -567,6 +578,7 @@ async def classify_chat_intent_async(
         tool_access_policy=final_tool_access,
         task_route=proposed_route,
         artifact_contract=final_contract,
+        turn_mode=proposed_turn_mode,
         confidence=confidence,
         reason=str(data.get("reason") or rule.reason or "llm_router"),
         method="llm_router",

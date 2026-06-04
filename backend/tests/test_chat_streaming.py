@@ -5,7 +5,12 @@ import json
 import unittest
 from datetime import datetime
 from typing import Optional
+from unittest.mock import patch
 
+from sqlmodel import Session, SQLModel
+
+from app.models.db import Setting
+from app.services.chat.runtime import _resolve_intent_router_model
 from app.services.chat_streaming import (
     OUTPUT_TRUNCATED_MARKER,
     ChatRuntime,
@@ -46,6 +51,7 @@ from app.services.chat.tool_executor import (
 from app.tools import registry
 from app.tools.office_documents import READ_PROJECT_FILE_TOOL_NAME
 from app.tools.project_markdown import READ_MARKDOWN_TOOL_NAME
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class DummyRequest:
@@ -66,6 +72,51 @@ class DummyRequest:
         self.rag_doc_ids = rag_doc_ids or []
         self.file_ids = file_ids or []
         self.force_skill = force_skill
+
+
+class ResolveIntentRouterModelTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
+        SQLModel.metadata.create_all(self.engine)
+
+    def tearDown(self):
+        SQLModel.metadata.drop_all(self.engine)
+        self.engine.dispose()
+
+    def test_uses_configured_low_cost_model_when_provider_key_exists(self):
+        with patch.dict("os.environ", {}, clear=True), Session(self.engine) as session:
+            session.add(Setting(key="intent_router_model", value="mimo-v2.5-flash"))
+            session.add(Setting(key="intent_router_provider", value="mimo"))
+            session.add(Setting(key="mimo_api_key", value="test-mimo-key"))
+            session.commit()
+
+            model, provider, source = _resolve_intent_router_model(session, "claude-sonnet-4-6")
+
+        self.assertEqual(model, "mimo-v2.5-flash")
+        self.assertEqual(provider, "mimo")
+        self.assertEqual(source, "settings.intent_router_model")
+
+    def test_falls_back_to_legacy_deepseek_when_configured_provider_key_missing(self):
+        with patch.dict("os.environ", {}, clear=True), Session(self.engine) as session:
+            session.add(Setting(key="intent_router_model", value="mimo-v2.5-flash"))
+            session.add(Setting(key="intent_router_provider", value="mimo"))
+            session.add(Setting(key="deepseek_api_key", value="test-deepseek-key"))
+            session.commit()
+
+            model, provider, source = _resolve_intent_router_model(session, "claude-sonnet-4-6")
+
+        self.assertEqual(model, "deepseek-chat")
+        self.assertEqual(provider, "deepseek")
+        self.assertEqual(source, "default.deepseek")
+
+    def test_falls_back_to_selected_model_without_any_router_key(self):
+        with patch.dict("os.environ", {}, clear=True), Session(self.engine) as session:
+            model, provider, source = _resolve_intent_router_model(session, "kimi-k2.6")
+
+        self.assertEqual(model, "kimi-k2.6")
+        self.assertEqual(provider, "kimi")
+        self.assertEqual(source, "fallback.selected_model")
 
 
 class TryExtractToolUseJsonTests(unittest.TestCase):

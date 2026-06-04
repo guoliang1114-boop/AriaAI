@@ -1015,9 +1015,39 @@ export interface PlannedTool {
   input_summary: string
 }
 
+export interface PlannedStep {
+  index: number
+  title: string
+  description: string
+  tool_name?: string | null
+}
+
+export interface TurnContract {
+  mode: 'answer_only' | 'plan_only' | 'execute_now' | 'plan_then_execute' | string
+  user_goal: string
+  needs_tools: boolean
+  needs_artifact: boolean
+  artifact_type?: string | null
+  target_scope: string
+  execution_scope: string
+  expected_response: string
+  requires_confirmation: boolean
+  write_allowed: boolean
+  confidence: number
+  source: string
+  reason: string
+  missing_info: string[]
+}
+
 export interface ChatPlanResponse {
+  plan_id: string
   plan_text: string
   planned_tools: PlannedTool[]
+  planned_steps: PlannedStep[]
+  turn_contract: Partial<TurnContract>
+  execution_mode: string
+  requires_confirmation: boolean
+  expected_output: string
 }
 
 export interface StreamEvent {

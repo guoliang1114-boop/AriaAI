@@ -49,6 +49,8 @@ _ADMIN_ONLY_SETTING_KEYS = frozenset(
         "api_base_url",
         "ai_model",  # legacy alias, kept for backwards compatibility
         "selected_model",
+        "intent_router_model",
+        "intent_router_provider",
         "llm_provider",
         "temperature",
         "max_tokens",
@@ -243,6 +245,8 @@ def remove_api_key():
 _SETTING_METADATA = {
     # LLM Settings (Layer 3: Runtime user settings)
     "selected_model": {"layer": 3, "category": "llm", "editable": True, "type": "string"},
+    "intent_router_model": {"layer": 3, "category": "llm", "editable": True, "type": "string"},
+    "intent_router_provider": {"layer": 3, "category": "llm", "editable": True, "type": "string"},
     "llm_provider": {"layer": 3, "category": "llm", "editable": True, "type": "string"},
     "temperature": {"layer": 3, "category": "llm", "editable": True, "type": "float", "min": 0, "max": 2},
     "max_tokens": {"layer": 3, "category": "llm", "editable": True, "type": "int", "min": 256, "max": 32768},

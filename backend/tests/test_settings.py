@@ -66,7 +66,14 @@ class SettingsRouterTestCase(unittest.TestCase):
 
     def test_admin_only_keys_reject_non_admin_writes(self):
         # Non-admin cannot modify sensitive global config.
-        for key in ("api_base_url", "selected_model", "temperature", "max_tokens"):
+        for key in (
+            "api_base_url",
+            "selected_model",
+            "intent_router_model",
+            "intent_router_provider",
+            "temperature",
+            "max_tokens",
+        ):
             resp = self.client.put(f"/settings/{key}", json={"value": "x"})
             self.assertEqual(resp.status_code, 403, f"{key} should be admin-only")
 

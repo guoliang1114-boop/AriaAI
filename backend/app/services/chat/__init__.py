@@ -231,6 +231,9 @@ async def stream_chat_events(
         "tools_granted_count": len(_capability_tool_names),
         "chat_mode": str(runtime.chat_mode or ""),
     }
+    _prepare_metrics = runtime.prepare_metrics if isinstance(runtime.prepare_metrics, dict) else {}
+    if isinstance(_prepare_metrics.get("turn_contract"), dict):
+        _capability_payload["turn_contract"] = _prepare_metrics["turn_contract"]
     logger.info(
         "[capability] run_id=%s action_policy=%s tool_access=%s "
         "intent_reason=%s intent_method=%s tools_granted=%d chat_mode=%s",

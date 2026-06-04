@@ -203,6 +203,18 @@ function getProviderForModel(modelId: string): ProviderKey {
   return getModel(modelId).provider
 }
 
+function inferProviderForModelId(modelId: string): ProviderKey {
+  const known = MODEL_OPTIONS.find((model) => model.id === modelId)
+  if (known) return known.provider
+  const normalized = modelId.toLowerCase()
+  if (normalized.startsWith('claude-')) return 'anthropic'
+  if (normalized.startsWith('moonshot-') || normalized.startsWith('kimi-')) return 'moonshot'
+  if (normalized.startsWith('deepseek-')) return 'deepseek'
+  if (normalized.startsWith('glm-')) return 'bigmodel'
+  if (normalized.startsWith('mimo-') || normalized.startsWith('xiaomi/mimo-')) return 'mimo'
+  return 'anthropic'
+}
+
 function formatRelativeTime(timestamp: number | null, isZh: boolean): string {
   if (!timestamp) return isZh ? '暂无记录' : 'No recent test'
   const elapsedMs = Date.now() - timestamp
@@ -403,8 +415,9 @@ export function AISettings() {
       setError('')
       const settings = await api.get<Record<string, string>>('/settings/')
       const nextModel = settings.selected_model || 'claude-sonnet-4-6'
+      const nextIntentRouterModel = settings.intent_router_model || 'deepseek-v4-pro'
       setSelectedModel(nextModel)
-      setStrategyModels((current) => ({ ...current, default: nextModel }))
+      setStrategyModels((current) => ({ ...current, default: nextModel, lowCost: nextIntentRouterModel }))
       setTemperature(Number(settings.temperature || 0.7))
       setMaxTokens(Number(settings.max_tokens || 8192))
       setTopP(Number(settings.top_p || 1))
@@ -496,10 +509,14 @@ export function AISettings() {
       const model = getModel(selectedModel)
       const fixed = model.fixedParams
       const provider = PROVIDER_TO_SETTING[model.provider] || 'claude'
+      const intentRouterProviderKey = inferProviderForModelId(strategyModels.lowCost)
+      const intentRouterProvider = PROVIDER_TO_SETTING[intentRouterProviderKey] || 'deepseek'
       const saveCalls = [
         api.put('/settings/selected_model', { value: selectedModel }),
         api.put('/settings/llm_provider', { value: provider }),
         api.put('/settings/ai_model', { value: selectedModel }),
+        api.put('/settings/intent_router_model', { value: strategyModels.lowCost }),
+        api.put('/settings/intent_router_provider', { value: intentRouterProvider }),
         api.put('/settings/temperature', { value: String(fixed?.temperature ?? temperature) }),
         api.put('/settings/max_tokens', { value: String(Math.min(maxTokens, model.maxTokens)) }),
         api.put('/settings/top_p', { value: String(fixed?.topP ?? topP) }),

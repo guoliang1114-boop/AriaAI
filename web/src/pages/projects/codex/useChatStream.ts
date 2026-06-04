@@ -36,6 +36,7 @@ export interface ChatCapabilityFrame {
   tools_granted: string[]
   tools_granted_count: number
   chat_mode: string
+  turn_contract?: Record<string, unknown>
 }
 
 interface UseChatStreamArgs {
@@ -87,6 +88,7 @@ interface StreamEvent {
   tools_granted?: string[]
   tools_granted_count?: number
   chat_mode?: string
+  turn_contract?: Record<string, unknown>
   // conversation_title event payload
   conversation_id?: number
   title?: string
@@ -251,6 +253,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
             tools_granted: Array.isArray(ev.tools_granted) ? ev.tools_granted : [],
             tools_granted_count: ev.tools_granted_count ?? 0,
             chat_mode: ev.chat_mode ?? '',
+            turn_contract: ev.turn_contract,
           })
         } else if (ev.type === 'status') {
           if (ev.message) setStatusMessage(ev.message)

@@ -8,6 +8,7 @@ import yaml
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.intent_contract import build_chat_intent_contract
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
+from app.services.chat.turn_contract import build_turn_contract
 from app.services.intent_router import classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_access, filter_tools_for_policy, policy_allows_tool
 from app.services.tool_descriptions import load_tool_spec, tool_description
@@ -93,6 +94,61 @@ def test_llm_router_can_clarify_ambiguous_portfolio_mode():
     assert decision.method == "llm_router"
     assert decision.trace["rule_baseline"]["chat_mode"] == "project_deep_dive"
     assert decision.trace["llm_payload"]["chat_mode"] == "cross_project_portfolio"
+
+
+def test_turn_contract_classifies_analysis_question_as_answer_only():
+    req = SendMessageRequest(
+        content="梳理一下现在的对话机制是否有问题，特别是在理解用户提问和 plan 如何回复执行上。",
+        project_id=26,
+    )
+    decision = classify_chat_intent(req)
+    contract = build_turn_contract(decision, req, tools=[])
+    assert contract.mode == "answer_only"
+    assert contract.needs_artifact is False
+    assert contract.expected_response == "direct_answer"
+
+
+def test_turn_contract_honors_plan_only_language():
+    req = SendMessageRequest(
+        content="先给我计划，不要执行，也不要改项目空间。",
+        project_id=26,
+    )
+    decision = classify_chat_intent(req)
+    contract = build_turn_contract(decision, req, tools=[])
+    assert contract.mode == "plan_only"
+    assert contract.expected_response == "plan_without_execution"
+    assert contract.write_allowed is False
+
+
+def test_turn_contract_marks_explicit_artifact_as_execute_now():
+    req = SendMessageRequest(
+        content="请生成一份 markdown 项目进展报告并保存到项目空间。",
+        project_id=26,
+    )
+    decision = classify_chat_intent(req)
+    contract = build_turn_contract(decision, req, tools=[{"name": "update_project_markdown_document"}])
+    assert contract.mode == "execute_now"
+    assert contract.needs_artifact is True
+    assert contract.artifact_type == "md"
+    assert contract.write_allowed is True
+
+
+def test_llm_router_can_return_turn_mode_without_changing_safety_policy():
+    async def fake_llm(*args, **kwargs):
+        return (
+            '{"chat_mode":"project_deep_dive","action_policy":"direct_answer",'
+            '"turn_mode":"plan_only","confidence":0.74,"reason":"user asked for plan only"}'
+        )
+
+    req = SendMessageRequest(
+        content="先给我一个执行方案，不要执行。",
+        project_id=26,
+    )
+    decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
+    contract = build_turn_contract(decision, req, tools=[])
+    assert decision.method == "llm_router"
+    assert decision.turn_mode == "plan_only"
+    assert contract.mode == "plan_only"
 
 
 def test_llm_router_cannot_upgrade_direct_memory_analysis_to_write_without_user_intent():

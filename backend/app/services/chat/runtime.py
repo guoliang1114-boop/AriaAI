@@ -31,6 +31,7 @@ from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.chat_tools import ChatRuntime
 from app.services.chat.intent_contract import build_chat_intent_contract
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, MODE_CONFIG, ToolAccessPolicy
+from app.services.chat.turn_contract import build_turn_contract
 from app.services.chat.working_memory import (
     build_working_memory,
     format_working_memory_for_prompt,
@@ -89,6 +90,21 @@ INTENT_ROUTER_MODEL = "deepseek-chat"
 INTENT_ROUTER_MAX_TOKENS = 500
 INTENT_ROUTER_TEMPERATURE = 0
 
+PROVIDER_API_KEY_SETTINGS = {
+    "claude": "api_key",
+    "kimi": "kimi_api_key",
+    "deepseek": "deepseek_api_key",
+    "bigmodel": "bigmodel_api_key",
+    "mimo": "mimo_api_key",
+}
+PROVIDER_API_KEY_ENVS = {
+    "claude": ("ANTHROPIC_API_KEY",),
+    "kimi": ("MOONSHOT_API_KEY",),
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "bigmodel": ("BIGMODEL_API_KEY", "ZHIPU_API_KEY"),
+    "mimo": ("MIMO_API_KEY", "XIAOMI_API_KEY"),
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -98,6 +114,38 @@ def _has_deepseek_api_key(session: Session) -> bool:
     if setting and setting.value.strip():
         return True
     return bool(os.environ.get("DEEPSEEK_API_KEY"))
+
+
+def _provider_has_api_key(session: Session, provider: str) -> bool:
+    provider = (provider or "").lower().strip()
+    setting_key = PROVIDER_API_KEY_SETTINGS.get(provider)
+    if setting_key:
+        setting = session.get(_Setting, setting_key)
+        if setting and setting.value.strip():
+            return True
+    return any(os.environ.get(env) for env in PROVIDER_API_KEY_ENVS.get(provider, ()))
+
+
+def _setting_value(session: Session, key: str) -> str:
+    setting = session.get(_Setting, key)
+    return setting.value.strip() if setting and setting.value else ""
+
+
+def _resolve_intent_router_model(session: Session, selected_model: str) -> tuple[str, str, str]:
+    configured_model = _setting_value(session, "intent_router_model")
+    configured_provider = _setting_value(session, "intent_router_provider")
+    if configured_model:
+        provider = configured_provider or resolve_provider_from_model(configured_model)
+        provider = provider.lower().strip()
+        if provider in {"anthropic", "moonshot", "xiaomi"}:
+            provider = {"anthropic": "claude", "moonshot": "kimi", "xiaomi": "mimo"}[provider]
+        if provider in PROVIDER_API_KEY_SETTINGS and _provider_has_api_key(session, provider):
+            return configured_model, provider, "settings.intent_router_model"
+
+    if _has_deepseek_api_key(session):
+        return INTENT_ROUTER_MODEL, "deepseek", "default.deepseek"
+
+    return selected_model, resolve_provider_from_model(selected_model), "fallback.selected_model"
 
 
 def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
@@ -511,6 +559,37 @@ def _append_capability_frame(
     return f"{system.rstrip()}{chr(10).join(lines)}"
 
 
+def _append_turn_contract_frame(system: str, turn_contract: dict) -> str:
+    lines = ["", "", "## Turn Contract"]
+    for key in (
+        "mode",
+        "user_goal",
+        "needs_tools",
+        "needs_artifact",
+        "artifact_type",
+        "target_scope",
+        "execution_scope",
+        "expected_response",
+        "requires_confirmation",
+        "write_allowed",
+        "reason",
+    ):
+        value = turn_contract.get(key)
+        if value in ("", None, [], ()):
+            continue
+        lines.append(f"- {key}: {value}")
+    lines.extend(
+        [
+            "",
+            "Follow this contract exactly: if mode=plan_only, do not execute tools"
+            " and clearly state that no action has been taken; if mode=execute_now,"
+            " complete the requested action within the granted tools and report the"
+            " actual completion state.",
+        ]
+    )
+    return f"{system.rstrip()}{chr(10).join(lines)}"
+
+
 def _accessible_project_ids(session: Session, owner_user_id: int | None) -> list[int] | None:
     """Project ids the acting user is a member of, for scoping workspace/portfolio
     memory context. Returns ``None`` when there is no acting user (internal/system
@@ -736,6 +815,14 @@ def prepare_chat_runtime(
         intent_decision.action_policy,
         intent_decision.tool_access_policy,
     )
+    turn_contract = build_turn_contract(
+        intent_decision,
+        req,
+        tools=runtime_tools,
+        skill_applied=bool(effective_skill),
+    )
+    prepare_metrics["turn_contract"] = turn_contract.to_dict()
+    system = _append_turn_contract_frame(system, turn_contract.to_dict())
     system = _append_capability_frame(system, intent_decision, runtime_tools)
 
     # V0.0.4 track B: inject the current user's explicit preferences (language,
@@ -818,15 +905,10 @@ async def prepare_chat_runtime_async(
     _, _, effective_skill_id, _ = _resolve_effective_skill(session, req)
     selected_model = _resolve_requested_model(session, req)
 
-    # Use a cheap, fast model for intent classification.
-    # DeepSeek is preferred; fall back to the user's selected model if
-    # DeepSeek is not configured.
-    if _has_deepseek_api_key(session):
-        router_model = INTENT_ROUTER_MODEL
-        router_llm = _load_provider_module("deepseek")
-    else:
-        router_model = selected_model
-        router_llm = _load_provider_module(resolve_provider_from_model(selected_model))
+    # Use a configured cheap/fast model for intent classification, with the
+    # legacy DeepSeek default and selected-model fallback kept for compatibility.
+    router_model, router_provider, router_model_source = _resolve_intent_router_model(session, selected_model)
+    router_llm = _load_provider_module(router_provider)
 
     intent_decision = await classify_chat_intent_async(
         req,
@@ -834,6 +916,9 @@ async def prepare_chat_runtime_async(
         llm_complete=router_llm.complete,
         model=router_model,
     )
+    intent_decision.trace["router_model"] = router_model
+    intent_decision.trace["router_provider"] = router_provider
+    intent_decision.trace["router_model_source"] = router_model_source
     return prepare_chat_runtime(
         session,
         req,

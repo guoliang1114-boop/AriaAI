@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from app.database import get_session
@@ -24,9 +25,22 @@ class PlannedTool(BaseModel):
     input_summary: str
 
 
+class PlannedStep(BaseModel):
+    index: int
+    title: str
+    description: str
+    tool_name: Optional[str] = None
+
+
 class ChatPlanResponse(BaseModel):
+    plan_id: str
     plan_text: str
     planned_tools: list[PlannedTool]
+    planned_steps: list[PlannedStep] = Field(default_factory=list)
+    turn_contract: dict = Field(default_factory=dict)
+    execution_mode: str = "plan_only"
+    requires_confirmation: bool = False
+    expected_output: str = "plan_without_execution"
 
 
 def _summarize_tool_input(tool_name: str, tool_input: dict) -> str:
@@ -52,6 +66,42 @@ def _format_tools_for_plan_prompt(tools: list[dict] | None) -> str:
         desc = t.get("description", "")
         lines.append(f'- `{name}`: {desc}')
     return "\n".join(lines)
+
+
+def _build_structured_plan_steps(plan_text: str, planned_tools: list[PlannedTool]) -> list[PlannedStep]:
+    steps: list[PlannedStep] = []
+    for idx, tool in enumerate(planned_tools, start=1):
+        steps.append(
+            PlannedStep(
+                index=idx,
+                title=f"准备并调用 {tool.name}",
+                description=tool.input_summary or tool.description,
+                tool_name=tool.name,
+            )
+        )
+    if steps:
+        steps.append(
+            PlannedStep(
+                index=len(steps) + 1,
+                title="校验并汇总结果",
+                description="检查工具执行结果是否满足用户目标，并明确说明已完成、未完成或需要确认的部分。",
+            )
+        )
+        return steps
+    lines = [line.strip(" -\t") for line in plan_text.splitlines() if line.strip()]
+    for line in lines:
+        if len(steps) >= 5:
+            break
+        if line.startswith(("#", "{")):
+            continue
+        steps.append(
+            PlannedStep(
+                index=len(steps) + 1,
+                title=line[:48],
+                description=line[:220],
+            )
+        )
+    return steps
 
 
 def _extract_tool_uses_from_text(text: str) -> list[dict]:
@@ -107,10 +157,15 @@ async def generate_chat_plan(
     # Embed tool definitions in the system prompt so the model knows what's available
     # without being triggered to actually call them.
     tools_description = _format_tools_for_plan_prompt(runtime.tools)
+    turn_contract = {}
+    if isinstance(runtime.prepare_metrics, dict) and isinstance(runtime.prepare_metrics.get("turn_contract"), dict):
+        turn_contract = runtime.prepare_metrics["turn_contract"]
 
     plan_system = (
         runtime.system
         + "\n\n【计划模式】当前处于计划模式。请分析用户需求并制定详细的执行计划。"
+        + "\n\n本轮 Turn Contract："
+        + json.dumps(turn_contract, ensure_ascii=False)
         + "\n\n"
         + tools_description
         + "\n\n要求：\n"
@@ -119,7 +174,8 @@ async def generate_chat_plan(
         "3. 如果会调用工具，请说明工具名称和用途\n"
         "4. 说明预期输出\n"
         "5. 不要实际执行任何工具调用，只返回计划文本\n"
-        "6. 如果需要调用工具，可以在回复中嵌入 tool_use JSON 块来表明意图"
+        "6. 必须明确写出：本轮只是计划，尚未执行\n"
+        "7. 如果需要调用工具，可以在回复中嵌入 tool_use JSON 块来表明意图"
     )
 
     plan_messages = [
@@ -162,4 +218,14 @@ async def generate_chat_plan(
             )
         )
 
-    return ChatPlanResponse(plan_text=plan_text.strip(), planned_tools=planned_tools)
+    steps = _build_structured_plan_steps(plan_text, planned_tools)
+    return ChatPlanResponse(
+        plan_id=str(uuid.uuid4()),
+        plan_text=plan_text.strip(),
+        planned_tools=planned_tools,
+        planned_steps=steps,
+        turn_contract=turn_contract,
+        execution_mode=str(turn_contract.get("mode") or "plan_only"),
+        requires_confirmation=bool(turn_contract.get("requires_confirmation", False)),
+        expected_output=str(turn_contract.get("expected_response") or "plan_without_execution"),
+    )
