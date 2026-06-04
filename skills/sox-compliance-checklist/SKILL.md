@@ -197,3 +197,34 @@ description: "基于PCAOB AS 2201和SOX Section 302/404，执行萨班斯-奥克
 - 管理层评估报告：`/sox-compliance/{YYYY}/management-assessment.md`
 - 缺陷追踪表：`/sox-compliance/{YYYY}/deficiency-tracker.md`
 - 测试证据：`/sox-compliance/{YYYY}/testing-evidence/`
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出 SOX 范围、关键流程和缺陷关注点。
+- **Standard**: 形成 RCM、测试计划、缺陷评级和管理层认证清单。
+- **Deep**: 结合重要账户、流程、ITGC、实体层控制、外部审计意见和补救测试，形成 SOX 404 项目包。
+
+### Deficiency Rating Logic
+
+缺陷评级必须判断发生可能性、潜在错报金额、补偿性控制、管理层监督和是否构成重大缺陷或重要缺陷。
+
+### Quality Gates
+
+- [ ] SOX 范围与重要账户、披露和流程映射一致。
+- [ ] RCM 中每个控制都有风险、频率、证据和测试方法。
+- [ ] 样本和测试期间符合控制频率。
+- [ ] 缺陷评级有量化和定性依据。
+- [ ] 补救测试和管理层认证时间线明确。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| SOX scoping memo | 年度 SOX 启动 | 重要账户、披露、流程、地点、系统和范围理由 | Word |
+| Risk control matrix | 设计和测试控制 | 风险、控制、频率、owner、证据、测试方法 | Excel |
+| Control testing plan | 测试执行前 | 控制清单、样本、期间、测试人、复核人和时间 | Excel |
+| Deficiency evaluation memo | 发现控制缺陷 | 事实、潜在错报、可能性、补偿控制和评级 | Word |
+| Remediation and retest tracker | 整改和补测 | 缺陷、整改措施、owner、截止日、补测结果 | Excel |
+| Management certification pack | 管理层认证 | 控制结论、缺陷状态、披露事项和签署材料 | PPT / Word |

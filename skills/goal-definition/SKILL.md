@@ -166,3 +166,73 @@ When user asks for OKRs:
 After generating goal document, offer to save:
 - As Markdown: `update_project_markdown_document`
 - As Word: `write_project_office_document` (file_type=docx)
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 把模糊目标改写成 3-5 条 SMART 目标。
+- **Standard**: 输出目标树、成功指标、责任人、里程碑和验收标准。
+- **Deep**: 结合项目背景、客户战略、约束、历史目标和当前待办，形成可执行 OKR / 项目目标体系。
+
+### Goal Quality Logic
+
+目标必须回答：为什么要做、做到什么程度、谁负责、何时完成、如何衡量、依赖什么、失败信号是什么。缺少衡量方式的目标不能进入最终版。
+
+### Quality Gates
+
+- [ ] 每个目标都有可量化或可验收指标。
+- [ ] 目标与项目阶段和客户价值一致。
+- [ ] 里程碑、责任人和依赖关系明确。
+- [ ] 有不做什么和范围边界。
+- [ ] 输出能直接转成任务、项目记忆或汇报材料。
+
+## Consulting Excellence Layer
+
+### From Problem Tree to Goal Tree
+
+Do not define goals in isolation. Start from:
+
+```text
+Problem → Root cause → Desired business outcome → Success metric → Initiative → Owner → Milestone
+```
+
+This prevents goals from becoming slogans.
+
+### Goal System
+
+For consulting projects, create a goal system with four levels:
+
+| Level | Question | Example |
+|-------|----------|---------|
+| North Star | What outcome matters most? | 提升会员生命周期价值 |
+| Outcome Metrics | How will success be measured? | 复购率、客单价、流失率 |
+| Initiative Goals | What work changes the outcome? | 建立会员分层和触达机制 |
+| Operating Metrics | How do we track execution? | 标签覆盖率、活动响应率 |
+
+### Trade-off Clarification
+
+Ask or infer trade-offs:
+
+- Speed vs accuracy.
+- Growth vs margin.
+- Standardization vs flexibility.
+- Automation vs human review.
+- Short-term delivery vs capability building.
+
+### Output Standard
+
+Final goal documents should include goal statement, rationale, metric definition, baseline, target, owner, milestone, dependency, risk, and acceptance criteria.
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Goal clarification memo | 用户目标模糊 | 原始目标、问题、重写目标、假设和待确认问题 | Markdown |
+| Problem-to-goal tree | 需要从问题推导目标 | 症状、根因、业务结果、目标、指标、举措 | Markdown / PPT |
+| OKR sheet | 团队执行管理 | Objective、KR、owner、baseline、target、confidence | Excel / Markdown |
+| Success metrics dictionary | 指标口径不清 | 指标定义、口径、数据源、频率、责任人 | Excel / Markdown |
+| Scope boundary statement | 防止范围蔓延 | In scope、out of scope、依赖、假设、变更机制 | Markdown / Word |
+| Acceptance criteria | 验收交付物 | 交付物、验收条件、证据、审批人、截止日期 | Markdown |
+| Milestone plan | 转入执行 | 阶段、里程碑、任务、owner、依赖、风险 | Excel / Tasks |
+| Project backlog seed | 需要进入任务系统 | Epic、任务、优先级、责任人、状态、下一步 | Tasks / Markdown |

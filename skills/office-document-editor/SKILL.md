@@ -291,3 +291,34 @@ User: "把 PPT 里所有的 '旧公司' 改成 '新公司'"
 ### Pattern 5: Create Edited Copy
 User: "基于这个 PPT 做一个修改版，不要改原文件"
 → read_project_file → edit_project_office_document(output_name="修改版.pptx", edits=[...])
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 执行明确的单点修改，如替换文字、改标题或更新单页。
+- **Standard**: 执行多处结构化编辑，并保留原格式和可追踪说明。
+- **Deep**: 结合用户意图、文档结构、品牌格式、内容逻辑和版本管理，生成可交付修订版。
+
+### Editing Decision Logic
+
+先判断用户要“改内容、改结构、改格式、改数据、改风格还是创建副本”。不同意图对应不同编辑策略；不明确时优先创建副本，避免破坏原文件。
+
+### Quality Gates
+
+- [ ] 明确是否修改原文件或创建副本。
+- [ ] 保留原有版式、编号、表格和图片位置。
+- [ ] 多处替换前确认大小写、全角半角和语境。
+- [ ] 对 PPT/Word/Excel 分别检查格式和数据一致性。
+- [ ] 输出说明修改了哪些位置，便于用户复核。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Edited document copy | 修改正式文件 | 新文件、修改内容、保留格式和修改摘要 | DOCX / PPTX / XLSX |
+| Change summary | 用户复核 | 文件、位置、原内容、新内容、原因和影响 | Markdown |
+| Redline-style revision note | 需要审阅 | 修改点、建议、风险、待确认问题 | Word / Markdown |
+| PPT update package | 修改演示文稿 | 页码、标题、内容、图表、备注和版式检查 | PPTX |
+| Excel update package | 修改表格 | sheet、单元格、公式、数据源和校验结果 | XLSX |
+| Document QA checklist | 交付前 | 格式、编号、链接、图片、表格、公式和版本 | Checklist |

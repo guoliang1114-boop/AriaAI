@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import Project, ProjectFolder
+from app.models.db import Project, ProjectFile, ProjectFolder
 from app.services.context_builder import build_chat_context, _safe_project_file_path
 from app.tools import registry
 from app.tools import project_markdown as project_markdown_tool
@@ -107,6 +107,59 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
         self.assertIn("Initial", content)
         self.assertIn("Next update", content)
         self.assertTrue(project.memory_stale)
+
+    def test_tool_replaces_existing_markdown_matched_by_name(self):
+        """The in-chat modify path: the model routes '更新一下 plan.md' to mode=replace
+        with only a file_name (no file_id). The tool must resolve the existing MD by
+        name and overwrite it — not 404 or create a duplicate."""
+        project_id = self._create_project()
+
+        with patch.object(project_markdown_tool, "engine", self.engine), patch.object(
+            project_markdown_tool,
+            "UPLOADS_DIR",
+            self.uploads_dir,
+        ):
+            asyncio.run(
+                registry.execute(
+                    PROJECT_MARKDOWN_TOOL_NAME,
+                    {
+                        "project_id": project_id,
+                        "mode": "create",
+                        "file_name": "plan.md",
+                        "content": "# Plan\n\nFirst draft",
+                    },
+                )
+            )
+            replaced = asyncio.run(
+                registry.execute(
+                    PROJECT_MARKDOWN_TOOL_NAME,
+                    {
+                        "project_id": project_id,
+                        "mode": "replace",
+                        "file_name": "plan.md",
+                        "content": "# Plan\n\nFinal version",
+                    },
+                )
+            )
+
+        self.assertEqual(replaced["status"], "success")
+        self.assertEqual(replaced["output"]["action"], "updated")
+        with Session(self.engine) as session:
+            files = session.exec(
+                select(ProjectFile).where(
+                    ProjectFile.project_id == project_id,
+                    ProjectFile.file_type == "md",
+                )
+            ).all()
+            content = project_markdown_tool.read_project_document_content(
+                files[0],
+                uploads_dir=self.uploads_dir,
+            )
+
+        # Replaced in place — exactly one MD file, old content gone.
+        self.assertEqual(len(files), 1)
+        self.assertIn("Final version", content)
+        self.assertNotIn("First draft", content)
 
     def test_tool_auto_assigns_created_markdown_to_matching_project_folder(self):
         project_id = self._create_project()

@@ -17,9 +17,9 @@ from app.routers.chat_schemas import (
 from app.models.db import User
 from app.routers.auth import get_current_user
 from app.routers.chat_security import (
-    member_project_ids,
+    membership_project_ids,
     require_conversation_access,
-    require_project_access,
+    require_conversation_membership,
 )
 from app.services.chat_store import (
     create_conversation_record,
@@ -144,13 +144,13 @@ def list_conversations(
     current_user: User = Depends(get_current_user),
 ):
     if project_id is not None:
-        require_project_access(session, project_id, current_user)
+        require_conversation_membership(session, project_id, current_user)
     return list_conversations_cached(
         session,
         project_id=project_id,
         standalone=standalone,
-        accessible_project_ids=member_project_ids(session, current_user),
-        owner_user_id=None if current_user.is_admin else current_user.id,
+        accessible_project_ids=membership_project_ids(session, current_user),
+        owner_user_id=current_user.id,
     )
 
 
@@ -169,7 +169,11 @@ def create_conversation(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    require_project_access(session, req.project_id, current_user, require_write=True)
+    # Conversations are isolated per-user even for admins: creating one inside a
+    # project requires real membership (no admin super-user bypass), matching
+    # list/read access. Standalone (project_id is None) creation stays open.
+    if req.project_id is not None:
+        require_conversation_membership(session, req.project_id, current_user, require_write=True)
     return create_conversation_record(
         session,
         project_id=req.project_id,

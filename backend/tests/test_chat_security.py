@@ -4,7 +4,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.models.db import Conversation, Project, ProjectMember, User
 from app.routers.chat_conversations import create_conversation, list_conversations
 from app.routers.chat_schemas import CreateConversationRequest
-from app.routers.chat_security import require_chat_request_access
+from app.routers.chat_security import require_chat_request_access, require_conversation_access
 from app.services.cache import conversations_cache
 
 
@@ -58,6 +58,49 @@ def test_list_conversations_is_scoped_to_membership_and_owner():
     assert "other standalone" not in titles
 
 
+def test_admin_does_not_see_other_users_conversations():
+    """Conversations stay isolated per-user even for admins: the admin sidebar
+    must NOT surface other users' standalone or non-member project conversations."""
+    conversations_cache.delete_prefix("list:")
+    session = _session()
+    admin = _user(session, "admin@example.com", is_admin=True)
+    other = _user(session, "other@example.com")
+    other_project = _project(session, "Other's project")
+    session.add(ProjectMember(project_id=other_project.id, user_id=other.id, role="editor"))
+    session.add(Conversation(title="admin standalone", owner_user_id=admin.id))
+    session.add(Conversation(title="other standalone", owner_user_id=other.id))
+    session.add(Conversation(title="other project", project_id=other_project.id))
+    session.commit()
+
+    conversations = list_conversations(session=session, current_user=admin)
+
+    titles = {conversation.title for conversation in conversations}
+    assert "admin standalone" in titles
+    assert "other standalone" not in titles
+    assert "other project" not in titles
+
+
+def test_admin_cannot_open_other_users_conversation():
+    """Direct access to another user's conversation by id is 403 for admins too."""
+    session = _session()
+    admin = _user(session, "admin@example.com", is_admin=True)
+    other = _user(session, "other@example.com")
+    other_project = _project(session, "Other's project")
+    session.add(ProjectMember(project_id=other_project.id, user_id=other.id, role="editor"))
+    standalone = Conversation(title="other standalone", owner_user_id=other.id)
+    project_conv = Conversation(title="other project", project_id=other_project.id)
+    session.add(standalone)
+    session.add(project_conv)
+    session.commit()
+    session.refresh(standalone)
+    session.refresh(project_conv)
+
+    for conversation in (standalone, project_conv):
+        with pytest.raises(Exception) as exc:
+            require_conversation_access(session, conversation.id, admin)
+        assert getattr(exc.value, "status_code", None) == 403
+
+
 def test_non_member_cannot_create_project_conversation():
     session = _session()
     user = _user(session, "outsider@example.com")
@@ -68,6 +111,23 @@ def test_non_member_cannot_create_project_conversation():
             CreateConversationRequest(project_id=project.id, title="new"),
             session=session,
             current_user=user,
+        )
+
+    assert getattr(exc.value, "status_code", None) == 403
+
+
+def test_admin_cannot_create_conversation_in_non_member_project():
+    """Admins lose the super-user bypass for conversations: creating one inside a
+    project they are not a member of is 403, matching list/read isolation."""
+    session = _session()
+    admin = _user(session, "admin@example.com", is_admin=True)
+    project = _project(session, "Other's project")
+
+    with pytest.raises(Exception) as exc:
+        create_conversation(
+            CreateConversationRequest(project_id=project.id, title="new"),
+            session=session,
+            current_user=admin,
         )
 
     assert getattr(exc.value, "status_code", None) == 403

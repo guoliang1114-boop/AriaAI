@@ -112,6 +112,39 @@ class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
         self.assertIn("# Client Project Portfolio Context", chat_context.project_context)
         self.assertIn("Matched projects: 3", chat_context.project_context)
 
+    def test_workspace_inventory_scoped_to_accessible_projects(self):
+        """Regression: standalone/inventory chat must not leak memory from
+        projects the user is not a member of. accessible_project_ids restricts
+        the inventory; an empty list yields no workspace context."""
+        with Session(self.engine) as session:
+            mine = Project(name="Mine Project", client="Client", status="active", description="mine")
+            theirs = Project(name="Theirs Project", client="Client", status="active", description="theirs")
+            session.add(mine)
+            session.add(theirs)
+            session.commit()
+            session.refresh(mine)
+            session.refresh(theirs)
+            content = "总结全部项目情况及风险"
+
+            scoped = build_chat_context(
+                session, content=content, accessible_project_ids=[mine.id]
+            )
+            unscoped = build_chat_context(session, content=content)
+            none_accessible = build_chat_context(
+                session, content=content, accessible_project_ids=[]
+            )
+
+        # Scoped: only the member project appears, the other is hidden.
+        self.assertIn("Mine Project", scoped.project_context)
+        self.assertNotIn("Theirs Project", scoped.project_context)
+        self.assertIn("Total projects listed below: 1", scoped.project_context)
+        # No restriction (internal/system path): both still appear.
+        self.assertIn("Mine Project", unscoped.project_context)
+        self.assertIn("Theirs Project", unscoped.project_context)
+        # Zero memberships → no workspace memory at all.
+        self.assertNotIn("Mine Project", none_accessible.project_context)
+        self.assertNotIn("Theirs Project", none_accessible.project_context)
+
     def test_project_context_uses_file_list_without_reading_file_text_by_default(self):
         with Session(self.engine) as session:
             project = Project(name="File Project", client="Client", status="active")

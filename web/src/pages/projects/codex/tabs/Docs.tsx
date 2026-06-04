@@ -15,6 +15,7 @@ import {
   CxFileMoveDialog,
   CxFolderCreateDialog,
   CxFolderDeleteDialog,
+  CxMarkdownCreateDialog,
   CxUploadDropzone,
 } from '../CxDocsActions'
 
@@ -152,6 +153,7 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
     file: 0,
   })
   const [creatingFolder, setCreatingFolder] = useState(false)
+  const [creatingMarkdown, setCreatingMarkdown] = useState(false)
   const [deletingFolder, setDeletingFolder] = useState<ProjectFolder | null>(null)
   const [deletingFile, setDeletingFile] = useState<ProjectFile | null>(null)
   const [movingFile, setMovingFile] = useState<ProjectFile | null>(null)
@@ -211,6 +213,26 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
               <span className="num" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
                 {groups.length} 夹 · {totalFiles} 份
               </span>
+              <button
+                type="button"
+                onClick={() => setCreatingMarkdown(true)}
+                title="新建 Markdown"
+                style={{
+                  height: 24,
+                  padding: '0 8px',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--r-sm)',
+                  color: 'var(--ink-mute)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: 'var(--bg-elev)',
+                  fontSize: 11,
+                }}
+              >
+                <CxIcon name="file" size={12} />
+                MD
+              </button>
               <button
                 type="button"
                 onClick={() => setCreatingFolder(true)}
@@ -409,6 +431,15 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
         projectId={projectId}
         onClose={() => setCreatingFolder(false)}
         onSaved={refetch}
+      />
+      <CxMarkdownCreateDialog
+        open={creatingMarkdown}
+        projectId={projectId}
+        folderId={sel.folder === UNFILED_ID ? null : sel.folder}
+        onClose={() => setCreatingMarkdown(false)}
+        onSaved={async () => {
+          await refetch()
+        }}
       />
       <CxFolderDeleteDialog
         open={deletingFolder !== null}

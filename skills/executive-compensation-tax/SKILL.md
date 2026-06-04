@@ -221,3 +221,40 @@ description: "高管薪酬税务优化：中国个人所得税法、股权激励
 - 保存路径：`projects/{project-name}/executive-comp-tax/`
 - 文件命名：`exec-comp-tax-plan-{executive}-{date}.md`
 - 关联文件：薪酬明细、股权激励方案、个税计算底稿
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 判断年终奖、股权激励、递延薪酬的主要优化空间。
+- **Standard**: 输出薪酬包税负测算、临界点分析、优化方案和实施步骤。
+- **Deep**: 覆盖跨境高管、董事费、长期激励、递延安排、雇主成本和高管沟通材料。
+
+### Compensation Design Model
+
+| 模块 | 优化重点 | 输出 |
+|------|----------|------|
+| 固定薪酬 | 综合所得税率、专项附加扣除 | 基准税负 |
+| 年终奖 | 单独计税与并入综合所得比较 | 临界点方案 |
+| 股权激励 | 行权/解禁时点、递延纳税 | 长期激励税负 |
+| 福利递延 | 企业年金、商业健康保险 | 合规福利建议 |
+| 跨境因素 | 居民身份、协定、境外抵免 | 跨境风险提示 |
+
+### Quality Gates
+
+- [ ] 每个方案同时展示员工税后收入和企业总成本。
+- [ ] 年终奖临界点测算避免“多发少得”。
+- [ ] 股权激励规则与具体工具一致。
+- [ ] 跨境高管已结合居民身份和所得来源地。
+- [ ] 建议兼顾税务、薪酬激励和公司治理可接受性。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Executive compensation tax memo | 高管薪酬优化 | 薪酬结构、税负、优化方案、风险和建议 | Word |
+| Bonus threshold model | 年终奖优化 | 单独计税/综合所得、临界点、税后收入和建议 | Excel |
+| Long-term incentive tax model | 股权或递延激励 | 工具、时点、税额、现金流和跨境影响 | Excel |
+| Cross-border executive note | 跨境任职 | 居民身份、所得来源、协定、抵免和申报义务 | Word |
+| Board compensation pack | 董事会/薪酬委员会 | 方案、成本、员工税后、治理风险和决策事项 | PPT |
+| Implementation checklist | 落地执行 | 合同、申报、扣缴、备案、沟通和时间线 | Excel |

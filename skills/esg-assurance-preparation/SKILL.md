@@ -394,3 +394,41 @@ audit/
 │   │   │   ├── ESG-Improvement-Roadmap.md
 │   │   │   └── ESG-Assurance-Checklist.md
 ```
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 判断 ESG 鉴证准备的主要缺口。
+- **Standard**: 输出指标范围、数据源、控制矩阵、证据清单和整改路线。
+- **Deep**: 结合 ISSB/ESRS/GRI 要求、组织边界、GHG 数据、供应链数据和内控成熟度，形成准鉴证资料包。
+
+### Assurance Readiness Model
+
+| 维度 | 判断问题 |
+|------|----------|
+| 指标边界 | 报告边界、组织边界、运营控制边界是否一致 |
+| 数据质量 | 来源、口径、系统、人工调整和复核是否可追溯 |
+| 控制设计 | 采集、计算、审批、披露是否有控制点 |
+| 证据链 | 每个披露指标是否有底稿和支持文件 |
+| 整改路线 | 哪些缺口影响有限保证或合理保证 |
+
+### Quality Gates
+
+- [ ] ESG 指标和披露准则逐项映射。
+- [ ] GHG 计算口径、排放因子和边界已说明。
+- [ ] 数据所有者、复核人和审批人明确。
+- [ ] 鉴证证据足以支持披露，不只保留汇总表。
+- [ ] 整改计划区分披露前必须修复和后续优化。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| ESG readiness diagnostic | 鉴证准备启动 | 准则映射、指标范围、数据源、缺口和优先级 | PPT / Word |
+| ESG data inventory | 盘点披露数据 | 指标、owner、系统、口径、频率、证据位置 | Excel |
+| Control matrix for ESG reporting | 建立披露控制 | 风险、控制、频率、证据、owner 和复核人 | Excel |
+| GHG evidence pack | 温室气体指标 | 边界、排放源、因子、计算、证据和复核 | Excel / Markdown |
+| Assurance evidence index | 支持外部鉴证 | 指标、证据、来源、期间、状态和缺口 | Excel |
+| Remediation roadmap | 修复缺口 | 缺口、影响、措施、owner、截止日和优先级 | PPT / Excel |
+| ESG assurance committee pack | 高层汇报 | 准备状态、重大缺口、风险、资源和决策请求 | PPT |

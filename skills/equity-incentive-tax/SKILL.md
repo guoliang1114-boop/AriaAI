@@ -139,3 +139,43 @@ description: "股权激励税务筹划：股票期权、限制性股票、RSU的
 保存路径：`/cases/{client}/equity-incentive-tax/`
 文件命名：`equity-tax-plan-{company}-{date}.md`
 关联文件：股权激励计划文件、公允价值评估报告、外汇登记文件
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 判断激励工具、纳税时点和主要风险。
+- **Standard**: 输出税负测算、递延纳税适用性、备案申报路径和实施清单。
+- **Deep**: 同时覆盖境内外员工、上市/非上市公司、RSU/期权/限制性股票、外汇登记、劳动关系和跨境申报。
+
+### Decision Matrix
+
+| 激励工具 | 关键税务时点 | 重点判断 | 常见风险 |
+|----------|--------------|----------|----------|
+| 股票期权 | 行权、出售 | 行权价、公允价值、是否可单独计税 | 备案缺失、折扣定价 |
+| 限制性股票 | 解禁、出售 | 归属条件、市场价格、锁定期 | 时点误判、个税扣缴不足 |
+| RSU | 归属、出售 | 境内外服务期间分摊 | 跨境员工双重征税 |
+| 股权奖励 | 授予、解禁 | 是否构成工资薪金或股权转让 | 公允价值证据不足 |
+
+### Aria Context Enrichment
+
+优先读取激励计划、董事会/股东会决议、员工名单、服务期间、授予/归属/行权安排、公允价值评估、外汇登记资料和历史个税申报。若客户偏好稳健合规，应优先给出低争议方案。
+
+### Quality Gates
+
+- [ ] 纳税义务发生时点逐工具确认，没有混用期权、RSU、限制性股票规则。
+- [ ] 税负测算区分公司扣缴义务、员工个人税负和总薪酬成本。
+- [ ] 境外员工或跨境服务期间已做收入来源地分摊。
+- [ ] 备案、外汇、证券监管和劳动关系影响均已列明。
+- [ ] 推荐方案说明节税收益、执行难度和被税局挑战风险。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Equity incentive tax memo | 设计或调整激励计划 | 工具、纳税时点、税负、备案、风险和建议 | Word |
+| Tax calculation model | 测算员工税负 | 授予、归属、行权、出售、税率和现金流 | Excel |
+| Cross-border employee allocation table | 涉及境外员工 | 服务期间、来源地、双重征税、抵免和申报义务 | Excel |
+| Filing and compliance checklist | 执行计划 | 税务备案、扣缴申报、外汇登记和材料清单 | Excel |
+| Employee communication note | 对员工解释 | 计划、税务影响、申报责任、注意事项和 FAQ | Word |
+| Board decision pack | 管理层审批 | 激励结构、成本、税负、风险和实施路线 | PPT |

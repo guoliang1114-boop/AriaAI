@@ -243,3 +243,35 @@ description: "合规调查设计：内部调查范围、证据保全、访谈策
 保存路径：`/cases/{client}/investigation/`
 文件命名：`investigation-plan-{case-id}-{date}.md`
 关联文件：证据清单、访谈记录、特权日志、最终报告
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出调查范围、证据保全和首轮访谈建议。
+- **Standard**: 输出调查计划、证据清单、访谈策略、法律风险和汇报机制。
+- **Deep**: 结合举报材料、邮件/交易数据、组织关系、法律顾问意见和监管风险，形成可执行调查工作包。
+
+### Investigation Control Logic
+
+调查必须先固定范围和权限，再收集证据，最后访谈。不要在证据保全前扩大访谈，以免造成串供、销毁证据或破坏法律特权。
+
+### Quality Gates
+
+- [ ] 调查范围包含包含项和排除项。
+- [ ] 证据保全覆盖电子、纸质、系统、聊天和第三方资料。
+- [ ] 访谈顺序基于证据风险和角色关系。
+- [ ] 法律特权、数据隐私和劳动法风险已评估。
+- [ ] 汇报机制区分事实发现、法律判断和管理建议。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Investigation plan | 启动调查 | 背景、范围、方法、团队、时间线、汇报机制 | Word |
+| Evidence preservation notice | 需要保全证据 | 保全对象、系统、人员、时间、操作限制和责任人 | Email / Word |
+| Evidence inventory | 证据管理 | 证据编号、来源、保全状态、访问权限和关联事项 | Excel |
+| Interview plan | 访谈前 | 访谈对象、顺序、问题、证据、风险和注意事项 | Markdown / Word |
+| Privilege log | 涉及法律特权 | 文件、人员、目的、特权依据和访问控制 | Excel |
+| Investigation status pack | 阶段汇报 | 已完成工作、初步发现、风险、下一步和决策请求 | PPT |
+| Final investigation report | 形成结论 | 事实、证据、分析、结论、整改建议和限制条件 | Word |

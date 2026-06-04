@@ -17,6 +17,65 @@
 | **可测可验** | 每个 Skill 至少包含一个 example input/output 对 |
 | **单语一致** | 同一 Skill 内保持单一工作语言；默认中文，技术术语保留英文 |
 
+### 1.1 质变升级标准
+
+Skill 不应只是提示词模板，而应成为可复用的专业工作单元。每次升级至少覆盖以下四类能力：
+
+| 能力层 | 升级要求 | 达标表现 |
+|--------|----------|----------|
+| **上下文能力** | 能主动利用项目记忆、客户上下文、知识库、历史文档和当前对话 | 输出能贴合客户、行业、项目阶段，而不是泛化回答 |
+| **判断能力** | 有明确的决策树、评分矩阵、适用条件、风险等级或选项比较逻辑 | 面对复杂问题能给出路径选择，而不是平均罗列 |
+| **交付能力** | 输出不止一段文字，而是可转为 memo、PPT、Excel、报告、清单或行动计划 | 用户可以直接保存、复用、交付或继续加工 |
+| **验证能力** | 有质量门槛、证据规则、假设披露、数据缺口和复核清单 | 能减少幻觉、过度承诺和不可执行建议 |
+
+每个 Skill 升级时必须增加或强化以下内容：
+
+1. **Mode Selection**：区分快速回答、标准交付、深度研究三种模式。
+2. **Context Enrichment**：说明如何吸收项目记忆、客户记忆、知识库和上传文件。
+3. **Advanced Reasoning**：补充本 Skill 特有的判断矩阵、决策树、风险/价值/可行性模型。
+4. **Deliverable Contract**：明确输出物结构、可下载/可保存形态和后续可调用 Skill。
+5. **Quality Gates**：交付前必须检查事实、假设、引用、金额、日期、责任人和下一步。
+
+升级目标不是把所有 Skill 写成同样长度，而是让每个 Skill 从“会答题”提升到“会完成一个专业任务”。
+
+### 1.2 咨询类 Skill 特别标准
+
+咨询类 Skill 是 Aria 的核心产品能力。凡涉及战略、提案、交易、估值、PMI、重组、目标定义、会议洞察和 PPT 交付的 Skill，必须额外满足：
+
+| 标准 | 要求 |
+|------|------|
+| **结论先行** | 先回答管理层要做什么决策，再展开分析 |
+| **问题树/假设树** | 复杂问题先拆成 issue tree 或 hypothesis tree |
+| **证据链** | 每个关键结论对应事实、访谈、数据、案例、假设或待验证项 |
+| **方案取舍** | 不能平均罗列选项，必须给出推荐路径和不推荐原因 |
+| **价值量化** | 尽量量化收入、成本、效率、风险、现金流或能力价值 |
+| **落地机制** | 输出包含阶段、里程碑、责任人、依赖、治理和风险 |
+| **客户上下文** | 必须吸收客户记忆、项目记忆、历史会议、知识库案例和上传资料 |
+| **交付物目录** | 每个咨询能力必须声明可交付资产，而不是只说明分析过程 |
+
+咨询类输出的最低交付标准：
+
+```markdown
+1. 管理层答案：一句话结论
+2. 当前判断：事实、症状、根因
+3. 推荐方案：路径、取舍、为什么现在
+4. 价值测算：收益、成本、假设、敏感性
+5. 实施路线：阶段、里程碑、责任人、治理
+6. 风险与依赖：阻碍、缓释、决策点
+7. 下一步：30/60/90 天行动
+```
+
+每个咨询类 Skill 必须包含 `Deliverable Catalog`，并至少定义：
+
+| 字段 | 说明 |
+|------|------|
+| `Deliverable` | 交付物名称，如诊断 memo、路线图、PPT deck、价值模型 |
+| `When to use` | 什么场景下输出该交付物 |
+| `Minimum content` | 交付物最低内容要求 |
+| `Format` | Markdown、PPT、Excel、Word、任务清单或项目记忆 |
+
+如果用户没有指定交付物，Skill 应根据问题阶段自动选择：早期用诊断 memo / issue tree，中期用方案和路线图，后期用执行计划、治理机制、跟踪表和高管 deck。
+
 ---
 
 ## 2. 强制目录结构
@@ -57,6 +116,7 @@ skills/{skill-name}/
 ---
 name: skill-name                           # 【必须】kebab-case，与目录名一致
 description: "一句话描述，包含触发条件和输出物"   # 【必须】50–120 字，一句话说明
+allowed-tools: "Read Write Bash"          # 【可选】Agent Skills 兼容字段，空格分隔
 version: "1.0.0"                          # 【必须】semver 格式
 domain: "audit"                           # 【必须】audit | tax | consulting | tech
 tags: ["audit", "report", "ISA-700"]      # 【推荐】用于搜索和分类
@@ -82,7 +142,20 @@ dependencies:                             # 【可选】依赖声明
 | `domain` | string | 四选一：`audit` / `tax` / `consulting` / `tech` | `"audit"` |
 | `tags` | array | 3–8 个标签，小写，用空格分隔的多词用短横线 | `["ISA-315", "risk-matrix", "audit-planning"]` |
 | `status` | string | 三选一 | `"stable"` |
+| `allowed-tools` | string | 可选；Agent Skills 兼容字段，使用空格分隔，不使用数组 | `"Read Write Bash"` |
 | `dependencies` | array | 每个依赖必须说明 `reason` | 见上方示例 |
+
+### 3.2.1 Agent Skills 轻度兼容边界
+
+Aria Skill 的 frontmatter 尽量兼容 Agent Skills 的基础字段，包括 `name`、`description`、`allowed-tools` 等。兼容目标是让外部工具可以解析 Skill 元数据，而不是承诺外部 Agent 可以直接执行 Aria Skill。
+
+如需声明 `allowed-tools`，应放在 frontmatter 顶层，并使用空格分隔字符串：
+
+```yaml
+allowed-tools: "Read Write Bash"
+```
+
+不要把 `allowed-tools` 写成数组，也不要放入 `metadata` 下。`metadata` 仅用于 Aria 自有扩展字段。Aria Skill 的运行语义仍以 Aria 的项目记忆、客户上下文、知识库、Run Harness 和内部工具链为准。
 
 ### 3.3 description 编写模板
 

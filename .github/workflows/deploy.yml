@@ -44,7 +44,7 @@ jobs:
       - name: Frontend Tests
         run: |
           cd web
-          npm run test:project-chat
+          npm test -- --run
 
       - name: Frontend Lint
         run: |
@@ -57,6 +57,16 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --retries 5 --timeout 60 -r requirements.txt || \
           python -m pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
+
+      - name: Backend Tests (excluding knowledge backlog)
+        run: |
+          cd backend
+          python -m pip install pytest
+          python -m pytest -q \
+            --ignore=tests/test_knowledge.py \
+            --ignore=tests/test_knowledge_v005_api.py \
+            --ignore=tests/test_knowledge_v005_models.py \
+            --ignore=tests/test_knowledge_v005_permissions.py
 
       - name: Backend Smoke Check
         run: |

@@ -172,3 +172,39 @@ description: "预约定价安排申请：可行性评估、申请流程、定价
 - 保存路径：`projects/{project-name}/apa-arrangement/`
 - 文件命名：`apa-proposal-{entity}-{date}.md`
 - 关联文件：转让定价同期资料、可比公司分析报告、功能风险分析
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 判断 APA 是否值得申请，并列出关键条件。
+- **Standard**: 输出 APA 可行性评估、交易范围、资料清单和申请路径。
+- **Deep**: 结合历史转让定价文档、可比分析、税局沟通记录和未来交易预测，形成预沟通材料和谈判策略。
+
+### APA Decision Logic
+
+| 判断维度 | 高适用性信号 | 低适用性信号 |
+|----------|--------------|--------------|
+| 交易稳定性 | 交易模式稳定、预测可信 | 商业模式频繁变化 |
+| 金额重要性 | 关联交易金额大、持续多年 | 交易金额小或一次性 |
+| 争议风险 | 历史被关注、利润波动大 | 风险低且已有充分支持 |
+| 数据可得性 | 功能风险、可比数据、预测完整 | 资料缺失严重 |
+
+### Quality Gates
+
+- [ ] APA 范围清晰，不把所有关联交易笼统打包。
+- [ ] 定价方法和关键假设能被未来年度持续验证。
+- [ ] 资料包覆盖历史、当前和预测三类数据。
+- [ ] 税局沟通策略区分预沟通、正式申请和谈签阶段。
+- [ ] 明确申请成本、时间和不申请的替代方案。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| APA feasibility memo | 判断是否申请 APA | 交易范围、稳定性、风险、资料、成本和建议 | Word / Markdown |
+| Covered transaction profile | 明确 APA 范围 | 交易类型、金额、关联方、功能风险和定价政策 | Excel / Word |
+| Pre-filing meeting pack | 税局预沟通 | 申请背景、方法选择、关键假设、问题清单和诉求 | PPT / Word |
+| APA application checklist | 准备正式申请 | 资料清单、责任人、完成状态、缺口和截止日 | Excel |
+| Critical assumptions register | 谈签和执行 | 关键假设、监控指标、触发条件和调整机制 | Excel |
+| Annual compliance report outline | APA 执行年度 | 实际交易、利润水平、偏差、解释和调整 | Word |

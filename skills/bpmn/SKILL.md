@@ -161,3 +161,34 @@ reject --> end_fail
 | Microservice Orchestration | Service choreography | `mxgraph.bpmn.event.*`, `mxgraph.eip.*` | [microservice-orchestration.md](examples/microservice-orchestration.md) |
 | Event-Driven Architecture | Pub/Sub event flows | `mxgraph.bpmn.event.*`, `mxgraph.eip.*` | [event-driven.md](examples/event-driven.md) |
 | Customer Service | Support ticket lifecycle | `mxgraph.bpmn.event.*`, `mxgraph.bpmn.gateway2.*` | [customer-service.md](examples/customer-service.md) |
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 把文字流程转成基础 BPMN。
+- **Standard**: 补齐泳道、事件、网关、任务、异常路径和消息流。
+- **Deep**: 结合角色职责、系统边界、审批规则、SLA 和异常场景，形成流程优化或自动化设计图。
+
+### Process Modeling Logic
+
+先确定流程边界、开始/结束事件、参与角色和关键决策点。没有明确事件和责任人的流程不应直接画成最终 BPMN。
+
+### Quality Gates
+
+- [ ] 每个泳道对应真实角色、部门或系统。
+- [ ] 网关条件互斥且完整。
+- [ ] 异常、退回、超时和取消路径已处理。
+- [ ] 消息流和顺序流没有混用。
+- [ ] 输出包含图和流程说明，便于业务复核。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| BPMN process diagram | 文字流程转图 | 开始/结束、任务、泳道、网关、异常路径 | PlantUML / Markdown |
+| Process narrative | 业务复核 | 流程目标、角色、输入、输出、规则和异常 | Word / Markdown |
+| Approval workflow map | 审批流程 | 申请、审批层级、条件、退回、超时和通知 | BPMN / PPT |
+| Integration flow diagram | 系统/消息流 | 发送方、接收方、消息、转换、错误处理 | BPMN / EIP |
+| Process improvement backlog | 流程优化 | 痛点、根因、改进项、owner、优先级和收益 | Excel / Tasks |
+| BPMN QA checklist | 发布前 | 泳道、网关、事件、异常、命名和可读性检查 | Checklist |

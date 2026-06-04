@@ -387,3 +387,34 @@ Primitive note: `org-update`, `customer-story`, and `partner-brief` now share a 
 6. **Use type scale consistently** — Follow the size hierarchy defined above
 7. **Accent with restraint** — One accent color, used sparingly for rules and highlights
 8. **Fill space intentionally** — If a section looks empty, restructure hierarchy before adding filler content
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 把一段内容压缩成单张信息卡。
+- **Standard**: 设计有层级、重点、数据和视觉节奏的信息卡。
+- **Deep**: 根据受众、渠道、品牌语气和内容密度，生成系列化信息卡或汇报页组件。
+
+### Information Design Logic
+
+先判断内容类型：概念解释、数据摘要、事件公告、风险提示、方法框架或项目状态。不同类型应使用不同层级，而不是套同一个版式。
+
+### Quality Gates
+
+- [ ] 主标题能表达核心信息，而不是泛泛命名。
+- [ ] 信息密度与卡片尺寸匹配。
+- [ ] 关键数字、标签和结论有视觉优先级。
+- [ ] HTML 可直接嵌入 Markdown，无代码围栏。
+- [ ] 颜色、字体和留白不会压过内容。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Single infocard | 单主题总结 | 标题、核心结论、重点数据、解释和行动提示 | HTML in Markdown |
+| Executive one-card brief | 高管快速阅读 | 结论、证据、影响、风险和下一步 | HTML in Markdown |
+| Comparison card | 方案对比 | 选项、优劣势、取舍、推荐和条件 | HTML in Markdown |
+| Risk / issue card | 风险提示 | 风险、影响、触发信号、缓释和 owner | HTML in Markdown |
+| Series card set | 多主题传播 | 统一样式、编号、主题、层级和 CTA | HTML / Markdown |
+| Visual QA checklist | 发布前 | 信息密度、层级、颜色、可读性和嵌入方式 | Checklist |

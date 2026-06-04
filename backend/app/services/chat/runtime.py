@@ -6,10 +6,10 @@ import os
 import time
 from dataclasses import replace
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.config import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
-from app.models.db import Conversation, Message, Skill
+from app.models.db import Conversation, Message, ProjectMember, Skill
 from app.models.db import Setting as _Setting
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat_store import (
@@ -511,6 +511,22 @@ def _append_capability_frame(
     return f"{system.rstrip()}{chr(10).join(lines)}"
 
 
+def _accessible_project_ids(session: Session, owner_user_id: int | None) -> list[int] | None:
+    """Project ids the acting user is a member of, for scoping workspace/portfolio
+    memory context. Returns ``None`` when there is no acting user (internal/system
+    path) — meaning no restriction. Applies to everyone, admins included:
+    conversations and project memory are isolated per-user. Project creators are
+    auto-added as members, so a user still sees their own projects' memory.
+    """
+    if owner_user_id is None:
+        return None
+    return list(
+        session.exec(
+            select(ProjectMember.project_id).where(ProjectMember.user_id == owner_user_id)
+        ).all()
+    )
+
+
 def _resolve_requested_model(session: Session, req: SendMessageRequest) -> str:
     selected_model = get_selected_model(session)
     user_model = (req.model or "").strip()
@@ -673,6 +689,7 @@ def prepare_chat_runtime(
         default_max_tokens=max_tokens,
         mention_context=req.mention_context.model_dump() if req.mention_context else None,
         context_mode=context_mode,
+        accessible_project_ids=_accessible_project_ids(session, owner_user_id),
     )
     prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["context_mode"] = context_mode

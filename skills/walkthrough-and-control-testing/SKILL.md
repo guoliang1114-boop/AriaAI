@@ -257,3 +257,34 @@ audit/
 │   │   │   ├── CT-C03-月度对账.md
 │   │   │   └── sampling-records/
 ```
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出穿行测试问题清单和关键控制点。
+- **Standard**: 形成流程记录、RCM、穿行测试、控制测试和缺陷评价。
+- **Deep**: 结合流程图、系统截图、样本、访谈、权限日志和历史缺陷，形成完整控制测试底稿。
+
+### Control Evaluation Logic
+
+每个控制必须判断设计有效性和运行有效性。设计无效时，不应继续用样本测试证明运行有效；运行例外必须评估频率、原因、补偿控制和影响。
+
+### Quality Gates
+
+- [ ] 穿行测试覆盖交易从发起到入账的完整路径。
+- [ ] 控制目标、风险和控制活动匹配。
+- [ ] 样本选取符合控制频率和测试期间。
+- [ ] 例外有原因、影响和缺陷评级。
+- [ ] 底稿包含证据索引、执行人和复核人。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Process walkthrough narrative | 流程了解 | 交易路径、角色、系统、关键控制和证据 | Word / Markdown |
+| Flowchart / process map | 流程复杂或需沟通 | 泳道、任务、控制点、系统和异常路径 | BPMN / PPT |
+| Risk control matrix | 控制识别 | 风险、控制、频率、控制类型、证据和 owner | Excel |
+| Control test workpaper | 运行有效性测试 | 样本、证据、测试结果、例外和结论 | Excel / Markdown |
+| Control deficiency memo | 发现例外或缺陷 | 事实、原因、影响、评级和整改建议 | Word |
+| Evidence index | 证据较多 | 证据编号、来源、期间、关联控制和存放位置 | Excel |

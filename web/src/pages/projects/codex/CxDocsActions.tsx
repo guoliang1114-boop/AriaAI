@@ -133,6 +133,121 @@ export function CxFolderCreateDialog({
   )
 }
 
+interface MarkdownCreateDialogProps {
+  open: boolean
+  projectId: number
+  folderId?: number | null
+  onClose: () => void
+  onSaved: (file: ProjectFile) => void | Promise<void>
+}
+
+/** Create a new empty Markdown (.md) file in the project space. The backend
+ * (POST /projects/:id/documents) appends the .md suffix and writes the file;
+ * it can then be edited inline with the existing Markdown editor. */
+export function CxMarkdownCreateDialog({
+  open,
+  projectId,
+  folderId,
+  onClose,
+  onSaved,
+}: MarkdownCreateDialogProps) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const [name, setName] = useState('')
+
+  useEffect(() => {
+    if (open) setName('')
+  }, [open])
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (busy) return
+    if (!name.trim()) {
+      toast.warning({ title: '文件名不能为空' })
+      return
+    }
+    setBusy(true)
+    try {
+      const file = await api.post<ProjectFile>(`/projects/${projectId}/documents`, {
+        name: name.trim(),
+        content: '',
+        folder_id: folderId != null && folderId >= 0 ? folderId : null,
+      })
+      toast.success({ title: 'Markdown 已创建' })
+      onClose()
+      await onSaved(file)
+    } catch (err) {
+      toast.error({
+        title: '创建失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <CxDialog
+      open={open}
+      onClose={onClose}
+      title="新建 Markdown"
+      size="sm"
+      busy={busy}
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            style={{
+              padding: '6px 14px',
+              fontSize: 13,
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+              color: 'var(--color-codex-ink-soft)',
+              background: 'transparent',
+              cursor: busy ? 'not-allowed' : 'pointer',
+            }}
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            form="cx-markdown-form"
+            disabled={busy}
+            style={{
+              padding: '6px 16px',
+              fontSize: 13,
+              fontWeight: 500,
+              borderRadius: 'var(--codex-r-sm, 3px)',
+              background: 'var(--color-codex-ink)',
+              color: 'var(--color-codex-bg-elev)',
+              cursor: busy ? 'not-allowed' : 'pointer',
+              opacity: busy ? 0.6 : 1,
+            }}
+          >
+            {busy ? '创建中…' : '创建'}
+          </button>
+        </>
+      }
+    >
+      <form id="cx-markdown-form" onSubmit={submit}>
+        <label style={LABEL_STYLE}>文件名</label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+          autoFocus
+          placeholder="例:项目方案、会议纪要(.md 可省略)"
+          className="codex-input"
+          style={INPUT_STYLE}
+        />
+      </form>
+    </CxDialog>
+  )
+}
+
 interface FolderDeleteDialogProps {
   open: boolean
   projectId: number

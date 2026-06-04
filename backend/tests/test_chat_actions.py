@@ -26,20 +26,27 @@ def _session():
     return Session(engine)
 
 
-def _conversation(session: Session) -> Conversation:
-    conversation = Conversation(title="Approval flow")
-    session.add(conversation)
-    session.commit()
-    session.refresh(conversation)
-    return conversation
-
-
 def _admin(session: Session) -> User:
+    # Idempotent: a test may build the conversation (owned by this admin) and
+    # later fetch the same acting user. Conversations are isolated per-user even
+    # for admins, so the acting user must actually own the conversation.
+    existing = session.exec(select(User).where(User.email == "admin@example.com")).first()
+    if existing:
+        return existing
     user = User(email="admin@example.com", password_hash="x", is_admin=True)
     session.add(user)
     session.commit()
     session.refresh(user)
     return user
+
+
+def _conversation(session: Session) -> Conversation:
+    owner = _admin(session)
+    conversation = Conversation(title="Approval flow", owner_user_id=owner.id)
+    session.add(conversation)
+    session.commit()
+    session.refresh(conversation)
+    return conversation
 
 
 def test_hitas_routes_are_registered_once_under_chat_prefix():
@@ -512,6 +519,9 @@ def test_confirm_action_rejects_mismatched_project_scope(monkeypatch):
     session.add(project)
     session.commit()
     session.refresh(project)
+    admin = _admin(session)
+    session.add(ProjectMember(project_id=project.id, user_id=admin.id))
+    session.commit()
     conversation = Conversation(title="Approval flow", project_id=project.id)
     session.add(conversation)
     session.commit()
@@ -678,15 +688,15 @@ def test_concurrent_confirm_prevents_double_execution(monkeypatch, tmp_path):
 
     # Create shared data in a parent session
     parent = Session(engine)
-    conversation = Conversation(title="Race test")
-    parent.add(conversation)
-    parent.commit()
-    parent.refresh(conversation)
     user = User(email="race@example.com", password_hash="x", is_admin=True)
     parent.add(user)
     parent.commit()
     parent.refresh(user)
     user_id = user.id
+    conversation = Conversation(title="Race test", owner_user_id=user.id)
+    parent.add(conversation)
+    parent.commit()
+    parent.refresh(conversation)
 
     action = PendingToolAction(
         conversation_id=conversation.id,

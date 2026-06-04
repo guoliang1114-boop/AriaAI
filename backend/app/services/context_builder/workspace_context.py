@@ -1,4 +1,6 @@
 """Workspace-level context builders."""
+from typing import Optional
+
 from sqlmodel import Session, select
 
 from app.models.db import Milestone, Project, ProjectPayment
@@ -15,6 +17,20 @@ from app.services.context_builder.query_classifiers import (
     _find_client_name_in_query,
     _normalize_client_match_text,
 )
+
+
+def _restrict_to_accessible(projects, accessible_project_ids: Optional[list[int]]):
+    """Filter a project list to the user's accessible (member) projects.
+
+    ``None`` means "no restriction" — used by internal/system callers that
+    pass no user. A list (possibly empty) restricts to those project ids, so
+    workspace/portfolio context never leaks memory from projects the user is
+    not a member of. Conversations and project memory are isolated per-user.
+    """
+    if accessible_project_ids is None:
+        return list(projects)
+    allowed = set(accessible_project_ids)
+    return [project for project in projects if project.id in allowed]
 
 
 def build_global_workspace_context(session: Session) -> str:
@@ -84,11 +100,14 @@ def build_global_workspace_context(session: Session) -> str:
     return "\n".join(ws_lines)
 
 
-def build_lightweight_workspace_context(session: Session) -> str:
+def build_lightweight_workspace_context(
+    session: Session, accessible_project_ids: Optional[list[int]] = None
+) -> str:
     """Build a memory-first workspace brief for standalone chat."""
     all_projects = session.exec(
         select(Project).where(Project.status != "archived").order_by(Project.updated_at.desc())
     ).all()
+    all_projects = _restrict_to_accessible(all_projects, accessible_project_ids)
 
     if not all_projects:
         return ""
@@ -135,6 +154,7 @@ def build_client_project_portfolio_context(
     fallback_client_name: str = "",
     *,
     force: bool = False,
+    accessible_project_ids: Optional[list[int]] = None,
 ) -> str:
     """Build a complete per-client project inventory for portfolio questions."""
     client_name = _find_client_name_in_query(session, content) or fallback_client_name.strip()
@@ -149,6 +169,7 @@ def build_client_project_portfolio_context(
         for project in session.exec(select(Project).order_by(Project.updated_at.desc())).all()
         if _normalize_client_match_text(project.client) == normalized_client
     ]
+    projects = _restrict_to_accessible(projects, accessible_project_ids)
     if not projects:
         return ""
 
@@ -220,12 +241,19 @@ def build_client_project_portfolio_context(
     return "\n".join(lines)
 
 
-def build_workspace_project_inventory_context(session: Session, content: str, *, force: bool = False) -> str:
+def build_workspace_project_inventory_context(
+    session: Session,
+    content: str,
+    *,
+    force: bool = False,
+    accessible_project_ids: Optional[list[int]] = None,
+) -> str:
     """Build a complete workspace project inventory for all-project questions."""
     if not force and not is_workspace_project_inventory_query(content):
         return ""
 
     projects = session.exec(select(Project).order_by(Project.updated_at.desc())).all()
+    projects = _restrict_to_accessible(projects, accessible_project_ids)
     if not projects:
         return ""
 

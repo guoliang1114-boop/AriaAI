@@ -228,3 +228,34 @@ Use an SVG overlay to draw orthogonal (right-angle) connectors between component
 6. **Use icons sparingly** — Add emojis to titles for visual hierarchy
 7. **Maintain color semantics** — Stick to the established color meanings
 8. **Consider responsive design** — Grids automatically adapt to content
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 生成一张清晰的分层架构图。
+- **Standard**: 输出业务、应用、数据、集成、基础设施和安全层的完整架构视图。
+- **Deep**: 结合非功能需求、部署约束、数据流、系统边界和演进路线，形成架构说明包。
+
+### Architecture Decision Logic
+
+架构图必须先明确目标：现状说明、目标蓝图、迁移路线、微服务拓扑、数据平台、AI 系统或安全架构。目标不同，层级、组件和连接关系不同。
+
+### Quality Gates
+
+- [ ] 图中每个组件都有明确职责。
+- [ ] 数据流、控制流和依赖关系不混淆。
+- [ ] 关键非功能需求如性能、安全、可用性已反映。
+- [ ] 没有为了美观加入无业务含义的组件。
+- [ ] 输出能直接嵌入方案、PPT 或技术文档。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Layered architecture diagram | 展示系统总体架构 | 层级、组件、职责、连接和关键技术 | HTML / Markdown |
+| Target architecture blueprint | 设计目标状态 | 业务能力、应用、数据、集成、基础设施和安全 | HTML / PPT |
+| Deployment topology | 说明部署 | 环境、节点、网络、服务、存储和边界 | HTML / Markdown |
+| Non-functional requirement map | 架构评审 | 性能、可用性、安全、扩展性和运维要求 | Markdown / PPT |
+| Migration architecture view | 演进规划 | 当前、过渡、目标、依赖和风险 | PPT / Markdown |
+| Architecture review checklist | 评审前 | 范围、组件、接口、NFR、安全和可维护性 | Checklist |

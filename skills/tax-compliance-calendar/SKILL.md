@@ -190,3 +190,40 @@ description: "税务合规日历：涵盖中国各税种申报截止日期、季
 - 将日历保存至项目的 `output/` 目录
 - 文件命名：`tax-calendar-{企业名称}-{YYYYMMDD}.md`
 - 建议导出为 .ics 格式导入日历系统
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出未来 30/60/90 天申报提醒。
+- **Standard**: 输出全年税务合规日历、责任人、申报频率和资料要求。
+- **Deep**: 结合行业、地区、多主体、税种、优惠和历史逾期记录，形成可运营的合规管理机制。
+
+### Calendar Logic
+
+| 维度 | 处理规则 |
+|------|----------|
+| 主体 | 按法人、分支机构、项目公司分别列示 |
+| 税种 | 区分月报、季报、年报、一次性事项 |
+| 地区 | 标注地方税费、节假日顺延和地方口径 |
+| 责任 | 每项申报有准备人、复核人、审批人 |
+| 风险 | 高风险节点提前设置二次提醒 |
+
+### Quality Gates
+
+- [ ] 日期使用具体年月日，不只写“次月”或“季度后”。
+- [ ] 节假日顺延和地方差异已标注。
+- [ ] 每项申报有资料来源、责任人和提前准备时间。
+- [ ] 年度事项如汇算清缴、关联申报、同期资料已覆盖。
+- [ ] 输出可转为任务、日历或项目待办。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Annual tax compliance calendar | 年度合规管理 | 税种、主体、频率、日期、资料和责任人 | Excel / Calendar |
+| 30/60/90-day tax task list | 短期提醒 | 事项、截止日、owner、资料、状态和风险 | Tasks / Markdown |
+| Filing responsibility matrix | 多主体管理 | 主体、税种、准备人、复核人、审批人和备份人 | Excel |
+| Compliance evidence checklist | 准备申报资料 | 申报表、账务、发票、合同、审批和存档位置 | Excel |
+| Late filing risk memo | 存在逾期风险 | 逾期事项、影响、滞纳金、补救和沟通建议 | Word |
+| Calendar import file spec | 接入日历系统 | 事项、日期、提醒、描述、owner 和链接 | ICS / CSV |

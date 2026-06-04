@@ -202,3 +202,90 @@ description: "并购后整合（PMI）：Day 1清单、百日计划、组织/系
 保存路径：`/cases/{client}/pmi/`
 文件命名：`pmi-plan-{target}-{date}.md`
 关联文件：Day 1清单、百日计划甘特图、协同效应追踪表
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出 Day 1 风险、百日重点和协同机会。
+- **Standard**: 输出 PMI 治理、工作流、百日计划、协同追踪和风险管理。
+- **Deep**: 结合交易逻辑、协同模型、组织架构、系统、人员、客户和文化差异，形成整合管理办公室工作包。
+
+### PMI Workstream Model
+
+至少覆盖：治理、财务、法务合规、人力组织、IT 系统、运营供应链、客户商业、品牌沟通和协同价值追踪。每条工作流必须有负责人、里程碑、风险和依赖。
+
+### Quality Gates
+
+- [ ] Day 1 必须事项和 100 天优化事项分开。
+- [ ] 协同效应有基线、目标、责任人和跟踪频率。
+- [ ] 组织和人才风险不被系统整合掩盖。
+- [ ] 客户、供应商和员工沟通计划明确。
+- [ ] 整合节奏与交易承诺和业务连续性一致。
+
+## Consulting Excellence Layer
+
+### Integration Thesis
+
+PMI must start from the deal thesis:
+
+```text
+We bought / combined this business to achieve [strategic intent].
+Integration should protect [must-not-break assets],
+capture [value pools],
+and change [operating model elements] without disrupting [business continuity risks].
+```
+
+If the integration plan does not connect to the deal thesis, it becomes a task list rather than a value program.
+
+### Synergy Management Office
+
+Set up a synergy office view:
+
+| Synergy Type | Baseline | Target | Owner | Tracking Rhythm | Evidence |
+|--------------|----------|--------|-------|-----------------|----------|
+| Revenue | Current revenue / pipeline | Uplift target | Commercial lead | Monthly | CRM, bookings |
+| Cost | Current cost base | Run-rate saving | Function lead | Monthly | P&L, headcount |
+| Capital | Working capital / capex | Release target | Finance lead | Monthly | Cash metrics |
+| Capability | New capability built | Milestone | PMO | Biweekly | Delivery evidence |
+
+### Integration Risk Logic
+
+Classify risks into:
+
+- Day 1 continuity risks.
+- Value capture risks.
+- People and culture risks.
+- Customer and supplier risks.
+- System and data risks.
+- Regulatory and legal risks.
+
+Each risk needs owner, trigger, mitigation, escalation path and decision deadline.
+
+### Executive Cadence
+
+Deep PMI output must define:
+
+- IMO governance.
+- Weekly workstream standup.
+- Biweekly issue escalation.
+- Monthly synergy review.
+- Executive steering committee.
+- Day 1, Day 30, Day 100 and Day 180 milestones.
+
+### Output Standard
+
+The final PMI deliverable must include an integration blueprint, Day 1 checklist, 100-day plan, synergy tracker, risk register, communication plan and decision log.
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Integration blueprint | 交易完成前后对齐整体方案 | 整合原则、范围、工作流、治理、关键里程碑 | PPT / Word |
+| Day 1 readiness checklist | 交割前准备 | 法务、财务、人员、系统、客户、供应商和沟通事项 | Excel / Markdown |
+| 100-day integration plan | 交割后执行 | 工作流、里程碑、责任人、依赖、风险和交付物 | Excel / PPT |
+| Synergy tracker | 跟踪交易价值 | 协同类型、基线、目标、owner、实际进展、证据 | Excel |
+| IMO governance pack | 建立整合管理办公室 | 角色、会议、决策权、升级机制、报告模板 | PPT / Word |
+| Integration risk register | 控制整合风险 | 风险、触发信号、影响、缓释、责任人、截止日期 | Excel |
+| Communication plan | 管理员工/客户/供应商预期 | 受众、信息、渠道、时间、负责人、Q&A | Word / PPT |
+| Steering committee deck | 高层例会 | 进展、风险、协同、决策请求、下阶段重点 | PPT |

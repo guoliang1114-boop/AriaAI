@@ -319,3 +319,34 @@ audit/
 │   │   │   ├── ITGC-SOC-第三方报告.md
 │   │   │   └── ITGC-Deficiencies-缺陷评估.md
 ```
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 判断 ITGC 范围、关键系统和高风险控制。
+- **Standard**: 输出访问、变更、开发、运维控制测试方案和证据清单。
+- **Deep**: 结合系统清单、接口、权限矩阵、SOC 报告、日志和自动化控制依赖，形成 ITGC 结论包。
+
+### ITGC Scoping Logic
+
+关键系统范围必须从财务报表影响、关键业务流程、自动化控制依赖、数据接口、外包服务和上年缺陷六个维度判断。
+
+### Quality Gates
+
+- [ ] 系统范围和关键控制依赖关系清楚。
+- [ ] 权限测试覆盖新增、变更、离职和特权用户。
+- [ ] 变更测试覆盖审批、测试、上线和回退。
+- [ ] SOC 报告差异和补充用户控制已评估。
+- [ ] ITGC 缺陷能连接到业务控制和审计影响。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| ITGC scoping memo | 确定系统范围 | 关键系统、流程依赖、接口、SOC、范围理由 | Word / Markdown |
+| System inventory | 系统盘点 | 系统、owner、流程、数据、接口、财报影响 | Excel |
+| ITGC test plan | 执行测试前 | 控制、频率、样本、证据、测试方法和负责人 | Excel |
+| Access control workpaper | 权限测试 | 用户清单、特权用户、新增/变更/离职和例外 | Excel / Markdown |
+| Change management workpaper | 变更测试 | 变更清单、审批、测试、上线、回退和例外 | Excel |
+| ITGC deficiency memo | 缺陷评价 | 缺陷、根因、业务影响、补偿控制和整改建议 | Word |

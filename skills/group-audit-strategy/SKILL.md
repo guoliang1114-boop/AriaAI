@@ -167,3 +167,34 @@ description: "制定集团审计策略，基于ISA 600框架，覆盖组成部�
 
 ## Saving
 将集团审计策略保存至 `audit-workpapers/[年份]/group-audit/group-audit-strategy.md`，组成部分审计指令保存至 `audit-workpapers/[年份]/group-audit/component-instructions/[组成部分名称].md`。
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 判断重要组成部分、范围和集团审计关注点。
+- **Standard**: 输出组成部分分类、重要性分配、集团指令和沟通计划。
+- **Deep**: 结合合并范围、跨境组件、组成部分审计师能力、共享服务和合并调整，形成集团审计管理包。
+
+### Component Classification Logic
+
+组成部分分类必须同时考虑财务重大性、特定风险、地区监管、复杂交易、共享服务依赖和组成部分审计师可控性。
+
+### Quality Gates
+
+- [ ] 组成部分分类有量化阈值和定性理由。
+- [ ] 重要性分配与集团整体重要性可勾稽。
+- [ ] 集团指令覆盖风险、程序、报告模板和时间节点。
+- [ ] 组成部分审计师沟通和复核计划明确。
+- [ ] 合并调整、集团层控制和共享服务未遗漏。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Group audit strategy memo | 集团审计计划 | 集团范围、组成部分分类、风险、审计策略和时间线 | Word |
+| Component scoping matrix | 确定组成部分范围 | 财务重大性、特定风险、程序类型、审计师和报告要求 | Excel |
+| Component auditor instruction | 给组成部分审计师 | 风险、重要性、程序、交付物、时间和沟通要求 | Word |
+| Materiality allocation table | 分配重要性 | 集团重要性、组成部分重要性、明显微小错报和依据 | Excel |
+| Group consolidation risk memo | 合并层面风险 | 合并调整、抵销、外币折算、共享服务和控制 | Markdown |
+| Group audit status pack | 集团审计推进 | 各组成部分进度、问题、未决事项和决策请求 | PPT / Excel |

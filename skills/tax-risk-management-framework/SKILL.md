@@ -170,3 +170,39 @@ description: "税务风险管理框架：税务风险识别、评估、监控、
 保存路径：`/cases/{client}/tax-risk-framework/`
 文件命名：`tax-risk-framework-{company}-{date}.md`
 关联文件：风险评估问卷、KRI数据源、控制措施清单
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出税务风险热力图和优先整改事项。
+- **Standard**: 输出风险分类、控制设计、KRI 指标、责任分工和报告机制。
+- **Deep**: 结合集团组织、税种、系统、历史检查、重大交易和税务数字化现状，形成治理体系。
+
+### Risk Governance Model
+
+| 层级 | 机制 | 产出 |
+|------|------|------|
+| 董事会/管理层 | 税务风险偏好和重大事项审批 | 税务治理政策 |
+| 税务部门 | 风险识别、申报复核、政策跟踪 | 风险台账和 KRI |
+| 业务/财务 | 合同、发票、交易和数据前置控制 | 控制清单 |
+| 内审/合规 | 独立测试和整改追踪 | 评估报告 |
+
+### Quality Gates
+
+- [ ] 风险分类覆盖税种、交易、系统、人员和地区。
+- [ ] 每个 KRI 有数据源、阈值、频率和责任人。
+- [ ] 控制措施区分预防性、侦测性和纠正性。
+- [ ] 整改闭环有到期日、证据和复核人。
+- [ ] 框架能嵌入现有财务、法务、内控和内审机制。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Tax risk governance framework | 建立税务治理 | 风险偏好、组织、职责、流程、报告和升级机制 | Word / PPT |
+| Tax risk register | 识别风险 | 风险、税种、影响、可能性、控制、owner 和状态 | Excel |
+| KRI dashboard design | 监控风险 | 指标、阈值、数据源、频率、owner 和动作 | Excel / PPT |
+| Tax control matrix | 设计控制 | 风险、控制、频率、证据、系统和复核人 | Excel |
+| Remediation tracker | 整改闭环 | 问题、措施、owner、截止日、证据和复核状态 | Excel |
+| Management reporting pack | 定期汇报 | 风险趋势、重大事项、整改进展、决策请求 | PPT |

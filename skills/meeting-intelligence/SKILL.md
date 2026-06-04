@@ -143,3 +143,108 @@ After generating minutes, ask user if they want to save:
 - Both formats
 
 Always offer to save to project space.
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 只输出会议摘要、关键决策和行动项，适合短会或用户临时追问。
+- **Standard**: 输出完整会议纪要、风险、待办、责任人、截止时间和下次会议建议。
+- **Deep**: 针对客户访谈、项目例会、售前会议或管理层会议，进一步提取客户画像、项目机会、异议、承诺和可沉淀到项目记忆的事实。
+
+### Context Enrichment
+
+处理会议材料时，优先结合：
+
+- 当前项目名称、阶段、客户、关键干系人。
+- 历史会议纪要与未完成行动项。
+- 项目记忆中已有的目标、风险、范围和决策。
+- 客户记忆中的偏好、关注点、组织关系和历史合作。
+
+如果会议内容与已有记忆冲突，应标记为“需确认”，不要直接覆盖旧记忆。
+
+### Intelligence Extraction Model
+
+| 信息类型 | 判断规则 | 输出位置 |
+|----------|----------|----------|
+| 决策 | 有明确同意、确认、批准、否决或选择 | 关键决策 |
+| 行动项 | 有责任人、动作、截止日期或交付物 | 行动项 |
+| 风险 | 出现阻塞、担心、依赖、资源不足、范围变化 | 风险与问题 |
+| 客户偏好 | 反复强调的风格、关注指标、沟通方式 | 客户记忆候选 |
+| 项目事实 | 范围、时间、预算、系统、组织、约束变化 | 项目记忆候选 |
+
+### Memory Handoff
+
+在 Deep 模式下，额外输出“可沉淀记忆”区块：
+
+```markdown
+## 可沉淀记忆
+| 类型 | 内容 | 置信度 | 是否需人工确认 |
+|------|------|--------|----------------|
+| 项目事实 |  | 高/中/低 | 是/否 |
+| 客户偏好 |  | 高/中/低 | 是/否 |
+| 风险信号 |  | 高/中/低 | 是/否 |
+```
+
+### Quality Gates
+
+- [ ] 每个行动项都有责任人；缺失时标记“待确认”。
+- [ ] 每个日期使用明确格式，避免“下周”“月底”等模糊表达。
+- [ ] 决策与讨论意见分开，不把倾向性发言误写成正式决策。
+- [ ] 重要客户原话保留短引用，但不大段复制全文。
+- [ ] 已识别哪些内容应进入项目记忆或客户记忆。
+
+## Consulting Excellence Layer
+
+### Consulting Signal Extraction
+
+Beyond minutes, extract consulting signals:
+
+| Signal | What To Look For | Why It Matters |
+|--------|------------------|----------------|
+| Decision pressure | Deadline, sponsor demand, board meeting | Proposal urgency |
+| Buying criteria | Budget, value, proof, risk concerns | Sales strategy |
+| Stakeholder map | Sponsor, blocker, user, approver | Influence plan |
+| Pain intensity | Repeated complaints, quantified loss | Problem framing |
+| Scope boundary | What they refuse or defer | SOW and expectation control |
+| Success metric | How client will judge outcome | Project goal |
+
+### Meeting-to-Consulting Handoff
+
+After important meetings, produce:
+
+1. Executive summary.
+2. Confirmed decisions.
+3. Open questions.
+4. Client pain and root cause hypotheses.
+5. Stakeholder positions.
+6. Opportunity or risk signals.
+7. Recommended follow-up.
+8. Memory candidates.
+
+### Follow-up Recommendation Logic
+
+Each follow-up should say:
+
+- Who should do it.
+- What message or artifact is needed.
+- Why it matters.
+- When it should happen.
+- What risk exists if delayed.
+
+### Output Standard
+
+For client-facing meetings, the output should support both project execution and account development. Do not reduce it to a neutral transcript summary.
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Structured meeting minutes | 常规会议整理 | 摘要、议题、决策、行动项、风险、待确认问题 | Markdown / Word |
+| Decision log | 有关键决策 | 决策、背景、决策人、日期、影响、后续动作 | Markdown / Table |
+| Action tracker | 需要跟进执行 | 行动项、owner、截止日期、状态、依赖、风险 | Tasks / Excel |
+| Stakeholder signal brief | 客户会议或售前 | 角色、立场、关注点、阻力、影响力、跟进建议 | Markdown |
+| Issue and risk register | 项目例会 | 问题、风险、影响、责任人、缓释、升级路径 | Excel / Markdown |
+| Consulting opportunity brief | 发现潜在机会 | 客户痛点、触发事件、价值假设、建议动作 | Markdown |
+| Memory handoff pack | 需要沉淀记忆 | 项目事实、客户偏好、风险信号、置信度、是否需确认 | Markdown / Memory |
+| Follow-up note draft | 会后发客户或团队 | 感谢、确认事项、行动项、材料请求、下次节点 | Email / Markdown |

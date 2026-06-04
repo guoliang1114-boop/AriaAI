@@ -182,3 +182,89 @@ The base template can reuse the `digital-strategy` PPT template until a dedicate
 - `research-report`
 - `one-page-summary`
 - `training`
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 生成 8-12 页结构清晰的初稿或 slide outline。
+- **Standard**: 生成 15-25 页咨询级 PPT，包含 storyline、页面结构和视觉建议。
+- **Deep**: 结合客户记忆、项目文档、知识库案例、数据表和品牌要求，生成可评审的完整 deck plan。
+
+### Storyline Gate
+
+生成 PPT 前必须先确认：受众是谁、他们要做什么决策、核心结论是什么、证据链如何展开、下一步行动是什么。没有 storyline 的内容不能直接进入页面生成。
+
+### Quality Gates
+
+- [ ] 每页标题是结论，不只是主题。
+- [ ] 每页只有一个主信息，并有证据或结构支持。
+- [ ] 页面类型与内容匹配：对比、矩阵、路线图、KPI、风险、行动计划等。
+- [ ] 文字密度适合投屏和阅读。
+- [ ] 输出前检查章节节奏、重复页面和空洞表述。
+
+## Consulting Excellence Layer
+
+### Deck Narrative Archetypes
+
+Choose one narrative before building pages:
+
+| Archetype | Use When | Typical Flow |
+|-----------|----------|--------------|
+| Recommendation | User needs a decision | Answer → evidence → options → recommendation → action |
+| Diagnosis | User needs problem clarity | Symptoms → root causes → implications → priorities |
+| Transformation | User needs roadmap | Ambition → current gap → target model → roadmap → governance |
+| Investment | User needs funding / deal decision | Thesis → market/value → risks → financials → decision |
+| Project Update | User needs steering | Progress → issues → decisions → next milestones |
+
+### Slide Evidence Standard
+
+Every analytical slide should contain:
+
+- Message title.
+- One primary visual structure.
+- Evidence or assumption.
+- Management implication.
+- Decision or next action.
+
+If a slide has only descriptive bullets, upgrade it into a table, matrix, roadmap, KPI view, operating model, risk register or decision page.
+
+### Page Type Library
+
+Use these page types deliberately:
+
+- Issue tree.
+- Current vs target.
+- Pain point heatmap.
+- Value pool.
+- Option comparison.
+- Prioritization matrix.
+- Operating model.
+- Roadmap.
+- Investment case.
+- Risk and mitigation.
+- Governance cadence.
+- 30/60/90 day plan.
+
+### Executive Deck Quality Bar
+
+A strong consulting deck can be read in two modes:
+
+- **Skim mode**: titles alone tell the story.
+- **Review mode**: body content contains enough evidence for discussion.
+
+If titles do not form a logical storyline, revise titles before generating PPTX.
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Storyline one-pager | 生成 PPT 前 | 受众、决策、核心结论、章节逻辑、关键证据 | Markdown |
+| Slide-by-slide outline | 用户要 PPT 大纲 | 页标题、key message、内容要点、视觉建议、speaker note | Markdown |
+| Executive deck | 高管汇报 | 结论、证据、选择、路线图、风险、决策请求 | PPT |
+| Proposal deck | 售前提案 | 背景、诊断、方案、工作计划、价值、团队、下一步 | PPT |
+| Board / IC pack | 董事会或投委会 | 投资/战略命题、关键假设、风险、财务、决策事项 | PPT |
+| Workshop deck | 工作坊 | 目标、议程、输入材料、讨论页、练习、输出模板 | PPT |
+| Project update deck | 项目周/月报 | 进展、成果、风险、决策请求、下阶段计划 | PPT |
+| One-page summary | 快速同步 | 一页结论、关键数据、行动项和风险 | PPT / PDF |
+| Speaker notes pack | 用户需要讲稿 | 每页讲述逻辑、转场、强调点和可能问题 | Markdown / PPT notes |

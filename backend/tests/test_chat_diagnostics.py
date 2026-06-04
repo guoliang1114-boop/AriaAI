@@ -130,6 +130,20 @@ class ChatTraceDiagnosticsRouteTestCase(unittest.TestCase):
         drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
+        # Persist the acting user so conversations can be owned by it (Postgres
+        # enforces the owner_user_id FK, and conversation access is per-user).
+        with Session(self.engine) as session:
+            admin = User(
+                email="admin@example.com",
+                password_hash="x",
+                is_admin=True,
+                is_active=True,
+            )
+            session.add(admin)
+            session.commit()
+            session.refresh(admin)
+            self.admin_id = admin.id
+
         def override_session():
             with Session(self.engine) as session:
                 yield session
@@ -138,7 +152,7 @@ class ChatTraceDiagnosticsRouteTestCase(unittest.TestCase):
         app.include_router(chat_router_module.router)
         app.dependency_overrides[chat_diagnostics_router_module.get_session] = override_session
         app.dependency_overrides[chat_diagnostics_router_module.get_current_user] = lambda: User(
-            id=1,
+            id=self.admin_id,
             email="admin@example.com",
             password_hash="x",
             is_admin=True,
@@ -152,7 +166,9 @@ class ChatTraceDiagnosticsRouteTestCase(unittest.TestCase):
 
     def test_get_message_trace_returns_exact_message_trace(self):
         with Session(self.engine) as session:
-            conv = Conversation(title="Trace test")
+            # Owned by the acting user; conversations are isolated per-user even
+            # for admins, so the trace endpoint requires real ownership.
+            conv = Conversation(title="Trace test", owner_user_id=self.admin_id)
             session.add(conv)
             session.flush()
             msg = Message(conversation_id=conv.id, role="assistant", content="done")

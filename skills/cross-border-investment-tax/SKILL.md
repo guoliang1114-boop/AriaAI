@@ -197,3 +197,40 @@ description: "跨境投资税务架构：控股公司、融资安排、知识产
 - 保存路径：`projects/{project-name}/cross-border-tax/`
 - 文件命名：`cross-border-structure-{target}-{date}.md`
 - 关联文件：税收协定分析、融资协议、架构图
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 判断投资架构中的预提税、CFC、融资和 IP 风险。
+- **Standard**: 输出控股架构、融资安排、协定待遇、CFC 和税负测算。
+- **Deep**: 结合目标国规则、集团实体、资金路径、退出路径和商业实质，形成多方案架构比较。
+
+### Structure Comparison Model
+
+| 方案维度 | 判断问题 |
+|----------|----------|
+| 控股层级 | 是否降低预提税且具备商业实质 |
+| 融资安排 | 债资比、利息扣除、资本弱化、预提税 |
+| IP 布局 | IP 归属、许可费、DEMPE 功能和转让定价 |
+| 利润汇回 | 股息、利息、服务费、特许权使用费路径 |
+| 退出税负 | 股权转让、间接转让、当地资本利得税 |
+
+### Quality Gates
+
+- [ ] 协定待遇分析同时考虑受益所有人和反滥用条款。
+- [ ] 架构方案有商业实质，不只追求低税率。
+- [ ] 融资、IP 和利润汇回路径能相互匹配。
+- [ ] CFC、间接转让和当地反避税风险已列入。
+- [ ] 推荐方案包含设立、资金流、申报和退出路线。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Cross-border structure memo | 设计投资架构 | 控股、融资、IP、利润汇回、退出和风险 | Word / PPT |
+| Treaty analysis table | 比较协定待遇 | 国家、所得类型、税率、受益所有人和限制条件 | Excel |
+| Withholding tax model | 测算利润汇回 | 股息、利息、服务费、特许权使用费和税负 | Excel |
+| Financing structure memo | 债务/股权安排 | 债资比、利息扣除、预提税、资本弱化和现金流 | Word |
+| CFC and anti-avoidance risk note | 风险评估 | CFC、PPT、GAAR、间接转让和商业实质 | Markdown / Word |
+| Implementation checklist | 架构落地 | 实体设立、协议、资金流、备案、申报和时间线 | Excel |

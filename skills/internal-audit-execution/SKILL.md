@@ -147,3 +147,34 @@ Internal auditors must base conclusions and engagement results on appropriate an
 - 审计程序表：`/audit-engagements/{YYYY}/{project-name}/audit-program.md`
 - 访谈记录：`/audit-engagements/{PROJECT}/interview-notes/`
 - 抽样工作底稿：`/audit-engagements/{YYYY}/{project-name}/sampling-workpaper.md`
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出审计程序和访谈清单。
+- **Standard**: 形成审计方案、样本计划、发现矩阵、整改建议和报告大纲。
+- **Deep**: 结合年度计划、历史发现、流程资料、数据分析和访谈记录，形成完整内审项目底稿。
+
+### Finding Evaluation Model
+
+发现必须包含条件、标准、原因、影响、风险等级、管理层回应、整改责任人和到期日。没有影响和原因的发现不得进入正式报告。
+
+### Quality Gates
+
+- [ ] 审计目标、范围和程序一一对应。
+- [ ] 样本选择和覆盖范围可复核。
+- [ ] 访谈证据和文件证据相互支持。
+- [ ] 发现评级有统一标准。
+- [ ] 整改建议具体到责任人、时间和验证方式。
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Internal audit program | 项目执行前 | 审计目标、范围、程序、样本、负责人和时间 | Excel / Markdown |
+| Process walkthrough memo | 理解流程 | 流程、角色、系统、控制、证据和风险点 | Word |
+| Working paper pack | 执行审计程序 | 程序、样本、证据、发现、复核和结论 | Markdown / Word |
+| Finding matrix | 汇总发现 | 条件、标准、原因、影响、风险等级和建议 | Excel |
+| Draft internal audit report | 报告阶段 | 背景、范围、发现、评级、管理层回应和整改计划 | Word |
+| Remediation tracker | 跟踪整改 | 发现、owner、措施、截止日期、状态和验证证据 | Excel / Tasks |

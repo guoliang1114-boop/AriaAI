@@ -210,3 +210,81 @@ description: "商业尽职调查：市场吸引力、竞争定位、客户质量
 保存路径：`/cases/{client}/commercial-dd/`
 文件命名：`cdd-report-{target}-{date}.md`
 关联文件：客户访谈纪要、竞争分析底稿、市场规模模型
+
+## Capability Upgrade
+
+### Mode Selection
+
+- **Quick**: 输出投资亮点、主要风险和需进一步验证的问题。
+- **Standard**: 输出市场、竞争、客户、增长质量、商业模式和投资建议。
+- **Deep**: 结合访谈、财务、客户数据、市场研究、交易模型和历史案例，形成投委会可用 CDD 报告。
+
+### Investment Thesis Model
+
+商业尽调必须围绕投资论证展开：市场是否足够大、增长是否可持续、竞争优势是否真实、客户质量是否稳、商业模式是否可扩张、估值假设是否站得住。
+
+### Quality Gates
+
+- [ ] 结论区分事实、访谈观点、假设和待验证事项。
+- [ ] 市场规模和增长假设有来源或明确标注假设。
+- [ ] 客户集中度、流失率和复购质量已评估。
+- [ ] 竞争分析解释目标公司为什么能赢。
+- [ ] 输出能直接支持估值、交易条款或下一步尽调。
+
+## Consulting Excellence Layer
+
+### Investment Committee Answer
+
+Commercial due diligence must answer one board-level question:
+
+```text
+Should we invest in this business at this valuation, under which assumptions, with what risks and value creation plan?
+```
+
+Every analysis section should support buy / no-buy / price-adjust / condition-precedent decisions.
+
+### CDD Hypothesis Tree
+
+| Hypothesis | Tests | Common Evidence |
+|------------|-------|-----------------|
+| Market is attractive | Size, growth, profit pool, regulation | Market reports, expert calls, public data |
+| Target can win | Differentiation, channel, product, brand | Customer interviews, win/loss, competitor mapping |
+| Growth is durable | Cohort, retention, repeat, pipeline | CRM, revenue bridge, customer data |
+| Economics are scalable | Gross margin, CAC, utilization, operating leverage | Financials, unit economics, process data |
+| Risks are manageable | Concentration, regulation, key people, tech debt | Contracts, interviews, risk register |
+
+### Interview Triangulation
+
+Do not treat interviews as facts by themselves. Triangulate:
+
+- Customer says value is high → check retention, renewal, price premium.
+- Management says market is growing → check external data and pipeline.
+- Sales says differentiation is strong → check win/loss and competitor response.
+- Finance shows margin expansion → check mix, one-offs and accounting policy.
+
+### Red Flag Register
+
+Always include a red flag register:
+
+| Red Flag | Evidence | Deal Impact | Mitigation |
+|----------|----------|-------------|------------|
+| Customer concentration | Top customer % revenue | Price discount or condition | Retention plan / earnout |
+| Growth quality weak | One-off projects or channel stuffing | Lower multiple | Normalize revenue |
+| Competitive moat unclear | Low switching cost | Higher risk premium | Differentiation diligence |
+
+### Output Standard
+
+Final CDD output should include investment thesis, disconfirming evidence, key sensitivities, diligence gaps, and value creation agenda. Avoid writing only a market report.
+
+### Deliverable Catalog
+
+| Deliverable | When to use | Minimum content | Format |
+|-------------|-------------|-----------------|--------|
+| Investment thesis memo | 交易早期判断 | 买入逻辑、关键假设、反证点、初步风险和下一步尽调 | Markdown / Word |
+| Market attractiveness report | 市场空间判断 | 市场规模、增长、利润池、监管、趋势和假设 | PPT / Word |
+| Customer quality analysis | 验证收入质量 | 客户集中度、留存、复购、NPS、流失和访谈证据 | Excel / PPT |
+| Competitive position assessment | 判断目标能否赢 | 竞争格局、差异化、替代品、进入壁垒、win/loss | PPT |
+| Revenue quality bridge | 调整收入和增长 | 历史收入、一次性收入、价格/量/客户变化、可持续性 | Excel |
+| Red flag register | 投资委员会前 | 红旗、证据、交易影响、缓释措施、责任人 | Excel / Markdown |
+| Value creation agenda | 投后价值规划 | 增长、定价、渠道、产品、组织和 100 天行动 | PPT |
+| Investment committee deck | 投委会决策 | 投资论证、证据、风险、估值影响、建议和条件 | PPT |
