@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -17,6 +18,23 @@ from app.services.time_utils import utc_now_naive
 _CONV_TTL = CONVERSATION_CACHE_TTL
 _RETENTION_DAYS = max(CHAT_RETENTION_DAYS, 1)
 logger = logging.getLogger(__name__)
+_PLACEHOLDER_CONVERSATION_TITLES = {
+    "new chat",
+    "new conversation",
+    "new workstream",
+    "新建对话",
+    "新对话",
+}
+_NUMBERED_CONVERSATION_TITLE_RE = re.compile(r"^(?:对话|conversation)\s*#\d+$", re.IGNORECASE)
+
+
+def _is_placeholder_conversation_title(title: str | None) -> bool:
+    normalized = (title or "").strip()
+    if not normalized:
+        return True
+    if normalized.lower() in _PLACEHOLDER_CONVERSATION_TITLES:
+        return True
+    return bool(_NUMBERED_CONVERSATION_TITLE_RE.match(normalized))
 
 
 def list_conversations_cached(
@@ -296,12 +314,10 @@ def persist_assistant_message(
         conv = new_session.get(Conversation, conv_id)
         if conv:
             conv.updated_at = utc_now_naive()
-            # Title-generation trigger. Fires when the title is a
-            # stand-in — either the legacy "New Workstream" marker
-            # OR an empty string (the project chat tab creates
-            # conversations without a title; /chat sets a 15-char
-            # truncation up front and is not re-titled here).
-            if not (conv.title or "").strip() or conv.title == "New Workstream":
+            # Title-generation trigger. Fires when the title is still a
+            # stand-in, including legacy numbered/default labels from older UI
+            # paths. Real user-edited titles are preserved.
+            if _is_placeholder_conversation_title(conv.title):
                 conv.title = user_content[:40] + ("…" if len(user_content) > 40 else "")
                 need_title = True
             new_session.add(conv)

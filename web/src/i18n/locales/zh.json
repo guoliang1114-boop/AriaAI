@@ -81,6 +81,7 @@
   "chat": {
     "title": "对话",
     "newChat": "新建对话",
+    "creatingConversation": "创建中…",
     "searchConversations": "搜索对话…",
     "noResults": "无结果",
     "today": "今天",
@@ -88,6 +89,8 @@
     "thisWeek": "本周",
     "earlier": "更早",
     "newConversation": "新对话",
+    "noProjectConversations": "还没有项目对话。",
+    "startProjectConversation": "点击“新建对话”开始第一段。",
     "collapseSidebar": "收起侧边栏",
     "openSidebar": "打开侧边栏",
     "project": "项目",

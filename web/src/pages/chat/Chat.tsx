@@ -1542,14 +1542,8 @@ export function Chat() {
     try {
       let currentConvId = conversation?.id
       if (!currentConvId) {
-        // Auto-generate title from first message
-        const cleanContent = msgText.replace(/[#*`[\]]/g, '').trim()
-        const title = cleanContent
-          ? cleanContent.slice(0, 15) + (cleanContent.length > 15 ? '...' : '')
-          : t('chat.newChat', 'New Chat')
-        
         const newConv = await api.post<Conversation>('/chat/conversations', {
-          project_id: selectedProject, skill_id: skillForThisMessage, title,
+          project_id: selectedProject, skill_id: skillForThisMessage, title: '',
         })
         currentConvId = newConv.id
         currentConvIdForCleanup = newConv.id

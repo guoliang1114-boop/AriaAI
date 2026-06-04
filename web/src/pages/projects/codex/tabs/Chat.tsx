@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import type {
   Conversation,
@@ -349,6 +350,7 @@ function ChatsListView({
   onSelect,
   onNew,
 }: ChatsListViewProps) {
+  const { t } = useTranslation()
   return (
     <div
       style={{
@@ -379,7 +381,7 @@ function ChatsListView({
           marginBottom: 6,
         }}
       >
-        <CxIcon name="plus" size={12} /> {creating ? '创建中…' : '新建对话'}
+        <CxIcon name="plus" size={12} /> {creating ? t('chat.creatingConversation', 'Creating...') : t('chat.newChat', 'New Chat')}
         <span style={{ marginLeft: 'auto', fontSize: 10.5, opacity: 0.6 }}>⌘N</span>
       </button>
 
@@ -413,9 +415,9 @@ function ChatsListView({
             lineHeight: 1.6,
           }}
         >
-          还没有项目对话。
+          {t('chat.noProjectConversations', 'No project conversations yet.')}
           <br />
-          点击「新建对话」开始第一段。
+          {t('chat.startProjectConversation', 'Click "New Chat" to start.')}
         </div>
       )}
 
@@ -440,6 +442,7 @@ function ConversationGroups({
   selectedId: number | null
   onSelect: (id: number) => void
 }) {
+  const { t } = useTranslation()
   const today: Conversation[] = []
   const yesterday: Conversation[] = []
   const older: Conversation[] = []
@@ -455,18 +458,18 @@ function ConversationGroups({
   return (
     <>
       {today.length > 0 && (
-        <ConversationBucket label="今天" items={today} selectedId={selectedId} onSelect={onSelect} />
+        <ConversationBucket label={t('chat.today', 'Today')} items={today} selectedId={selectedId} onSelect={onSelect} />
       )}
       {yesterday.length > 0 && (
         <ConversationBucket
-          label="昨天"
+          label={t('chat.yesterday', 'Yesterday')}
           items={yesterday}
           selectedId={selectedId}
           onSelect={onSelect}
         />
       )}
       {older.length > 0 && (
-        <ConversationBucket label="更早" items={older} selectedId={selectedId} onSelect={onSelect} />
+        <ConversationBucket label={t('chat.earlier', 'Earlier')} items={older} selectedId={selectedId} onSelect={onSelect} />
       )}
     </>
   )
@@ -483,6 +486,7 @@ function ConversationBucket({
   selectedId: number | null
   onSelect: (id: number) => void
 }) {
+  const { t } = useTranslation()
   return (
     <>
       <div style={{ color: 'var(--ink-faint)', fontSize: 11, padding: '8px 10px 4px' }}>
@@ -529,7 +533,7 @@ function ConversationBucket({
                 whiteSpace: 'nowrap',
               }}
             >
-              {c.title || `对话 #${c.id}`}
+              {c.title || t('chat.newConversation', 'New Conversation')}
             </div>
             <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 2 }}>
               {formatUpdatedRelative(c.updated_at)}
@@ -608,6 +612,7 @@ function ThreadView({
 }: ThreadViewProps) {
   const navigate = useNavigate()
   const toast = useToast()
+  const { t } = useTranslation()
   const [deleting, setDeleting] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -712,7 +717,7 @@ function ThreadView({
             whiteSpace: 'nowrap',
           }}
         >
-          {conversation?.title || `对话 #${conversationId}`}
+          {conversation?.title || t('chat.newConversation', 'New Conversation')}
         </h2>
         <ConversationMenu
           onRename={() => setRenaming(true)}

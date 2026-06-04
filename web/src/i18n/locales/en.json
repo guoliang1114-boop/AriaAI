@@ -81,6 +81,7 @@
   "chat": {
     "title": "Chat",
     "newChat": "New Chat",
+    "creatingConversation": "Creating...",
     "searchConversations": "Search conversations…",
     "noResults": "No results",
     "today": "Today",
@@ -88,6 +89,8 @@
     "thisWeek": "This week",
     "earlier": "Earlier",
     "newConversation": "New Conversation",
+    "noProjectConversations": "No project conversations yet.",
+    "startProjectConversation": "Click \"New Chat\" to start.",
     "collapseSidebar": "Collapse sidebar",
     "openSidebar": "Open sidebar",
     "project": "PROJECT",

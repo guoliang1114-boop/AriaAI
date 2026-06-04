@@ -97,6 +97,33 @@ def test_persist_assistant_message_records_state_update_failure():
         engine.dispose()
 
 
+def test_persist_assistant_message_replaces_numbered_placeholder_title():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            conv = Conversation(title="对话 #286")
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+            conv_id = conv.id
+
+        persist_assistant_message(
+            engine,
+            conv_id,
+            "可以，我来梳理。",
+            "梳理一下新疆项目当前风险和下一步动作",
+            {},
+        )
+
+        with Session(engine) as session:
+            updated = session.get(Conversation, conv_id)
+
+        assert updated is not None
+        assert updated.title == "梳理一下新疆项目当前风险和下一步动作"
+    finally:
+        engine.dispose()
+
+
 def test_project_document_updates_create_version_snapshots(tmp_path):
     engine = _engine()
     try:
