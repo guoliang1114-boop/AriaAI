@@ -556,6 +556,28 @@ def _append_capability_frame(
                 "如需生成文件,请改成『生成一份 md 项目报告』这样明确的措辞。\"",
             ]
         )
+    elif intent_decision.tool_access_policy == ToolAccessPolicy.WRITE_ALLOWED:
+        # When write/destructive tools are granted, the model must issue the
+        # structured tool call directly. Modify/delete tool calls are frozen by
+        # the system and shown to the user as a confirmation card (HITAS Action
+        # Preview) BEFORE anything runs — so calling the tool does not execute
+        # immediately. Models otherwise tend to ask "确认删除吗?" in text and
+        # never call the tool, which silently blocks the whole flow.
+        lines.extend(
+            [
+                "",
+                "**To create, modify, or delete project content, CALL the"
+                " appropriate tool directly — do NOT ask the user to confirm in"
+                " chat first.** Modify and destructive tool calls are automatically"
+                " frozen by the system and surfaced to the user as a confirmation"
+                " card (Action Preview) before anything executes; issuing the tool"
+                " call does not change anything by itself, it triggers that"
+                " confirmation UI. Replying with a text question like"
+                " \"确认删除吗?\" instead of calling the tool blocks the action and"
+                " is incorrect. Make the structured tool call and let the system"
+                " handle user confirmation.",
+            ]
+        )
     return f"{system.rstrip()}{chr(10).join(lines)}"
 
 
