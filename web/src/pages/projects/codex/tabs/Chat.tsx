@@ -14,6 +14,8 @@ import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxConversationRenameDialog } from '../CxConversationActions'
 import { ProjectChatMessage } from '../ChatMessage'
+import { ChatActionPreview } from '../ChatActionPreview'
+import { usePendingActions, type PendingActionBatch } from '../usePendingActions'
 import { ChatArtifactPreview } from '../ChatArtifactPreview'
 import { ChatEmptyState } from '../ChatEmptyState'
 import { ChatSpaceTree } from '../ChatSpaceTree'
@@ -68,6 +70,7 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
     data: serverMessages,
     loading: msgsLoading,
     error: msgsError,
+    refetch: refetchMessages,
   } = useConversationMessages(selectedId)
   const [pending, setPending] = useState<Message[]>([])
   useEffect(() => {
@@ -100,6 +103,27 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
     },
     onError: (msg) => toast.error({ title: '发送失败', description: msg }),
   })
+
+  // HITAS — high-risk tool actions the backend paused for confirmation.
+  // On confirm/reject the backend writes a result message, so we refetch
+  // the thread and drop the local stream-pending layer (now persisted
+  // server-side) to avoid duplicates.
+  const pendingActions = usePendingActions(selectedId, async () => {
+    await refetchMessages()
+    setPending([])
+  })
+  const refetchPendingActions = pendingActions.refetch
+
+  // A streamed turn may have created pending actions; refetch once the
+  // stream settles so the confirm card surfaces.
+  const prevStreamStatusRef = useRef<ChatStreamStatus>(streamStatus)
+  useEffect(() => {
+    const prev = prevStreamStatusRef.current
+    prevStreamStatusRef.current = streamStatus
+    if (streamStatus === 'idle' && (prev === 'streaming' || prev === 'sending')) {
+      void refetchPendingActions()
+    }
+  }, [streamStatus, refetchPendingActions])
 
   // Auto-select the most recently-updated conversation when the
   // list arrives or refreshes. Don't overwrite the user's pick.
@@ -235,6 +259,10 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
               streamStatusMessage={statusMessage}
               streamingMessageId={streamingMessageId}
               capability={capability}
+              pendingActionBatches={pendingActions.batches}
+              pendingActionKey={pendingActions.actingKey}
+              onConfirmAction={pendingActions.confirm}
+              onRejectAction={pendingActions.reject}
               onSend={send}
               onStop={stop}
               onOpenArtifact={setOpenArtifact}
@@ -584,6 +612,10 @@ interface ThreadViewProps {
   streamStatusMessage: string | null
   streamingMessageId: number
   capability: ChatCapabilityFrame | null
+  pendingActionBatches: PendingActionBatch[]
+  pendingActionKey: string | null
+  onConfirmAction: (batch: PendingActionBatch) => void
+  onRejectAction: (batch: PendingActionBatch) => void
   onSend: (text: string) => Promise<void>
   onStop: () => void
   onOpenArtifact: (artifact: GeneratedArtifact) => void
@@ -604,6 +636,10 @@ function ThreadView({
   streamStatusMessage,
   streamingMessageId,
   capability,
+  pendingActionBatches,
+  pendingActionKey,
+  onConfirmAction,
+  onRejectAction,
   onSend,
   onStop,
   onOpenArtifact,
@@ -643,7 +679,7 @@ function ThreadView({
       top: scrollRef.current.scrollHeight,
       behavior: 'auto',
     })
-  }, [messages.length])
+  }, [messages.length, pendingActionBatches.length])
 
   const handleDelete = async () => {
     if (deleting) return
@@ -807,6 +843,15 @@ function ThreadView({
               streamingStatus={streamStatusMessage}
             />
           ))}
+
+        {!busy && (
+          <ChatActionPreview
+            batches={pendingActionBatches}
+            actingKey={pendingActionKey}
+            onConfirm={onConfirmAction}
+            onReject={onRejectAction}
+          />
+        )}
       </div>
 
       {/* Composer */}

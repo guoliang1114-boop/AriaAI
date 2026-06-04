@@ -270,40 +270,44 @@ interface MessagesState {
   data: Message[]
   loading: boolean
   error: string | null
+  /** Re-pull the thread from the server. Used after a HITAS
+   * confirm/reject persists a result message. */
+  refetch: () => Promise<void>
 }
 
 export function useConversationMessages(conversationId: number | null): MessagesState {
   const [data, setData] = useState<Message[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Guards against a stale response from a previous conversation
+  // overwriting the current one when the user switches quickly.
+  const activeConvRef = useRef<number | null>(conversationId)
+  activeConvRef.current = conversationId
 
-  useEffect(() => {
+  const refetch = useCallback(async () => {
     if (conversationId == null) {
       setData([])
       setLoading(false)
       setError(null)
       return
     }
-    let cancelled = false
     setLoading(true)
     setError(null)
-    api
-      .get<Message[]>(`/chat/conversations/${conversationId}/messages`)
-      .then((rows) => {
-        if (!cancelled) setData(rows)
-      })
-      .catch((err) => {
-        if (!cancelled) setError(readError(err))
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
+    try {
+      const rows = await api.get<Message[]>(`/chat/conversations/${conversationId}/messages`)
+      if (activeConvRef.current === conversationId) setData(rows)
+    } catch (err) {
+      if (activeConvRef.current === conversationId) setError(readError(err))
+    } finally {
+      if (activeConvRef.current === conversationId) setLoading(false)
     }
   }, [conversationId])
 
-  return { data, loading, error }
+  useEffect(() => {
+    void refetch()
+  }, [refetch])
+
+  return { data, loading, error, refetch }
 }
 
 /** Project meeting briefing — single fetch on mount + a manual
