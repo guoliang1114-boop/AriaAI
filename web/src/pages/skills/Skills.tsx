@@ -428,6 +428,20 @@ const buildCategoriesFromCounts = (counts: SkillCategoryCount[], allLabel: strin
   return [{ id: "all", label: allLabel, count: total }, ...sorted];
 };
 
+const buildCategoryGroupToken = (categoryIds: string[]) => `cats:${categoryIds.join(",")}`;
+
+const parseCategorySelection = (selection: string) => {
+  if (selection.startsWith("cats:")) {
+    return selection
+      .slice("cats:".length)
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (selection.startsWith("cat:")) return [selection.slice("cat:".length)];
+  return [];
+};
+
 function useSkillsData(
   allLabel: string,
   isZh: boolean,
@@ -574,7 +588,8 @@ export function Skills() {
       const lineId = selection.slice("line:".length);
       return (PRACTICE_LINE_GROUPS[lineId] ?? []).flatMap((group) => group.categoryIds);
     }
-    if (selection.startsWith("cat:")) return [selection.slice("cat:".length)];
+    const categorySelection = parseCategorySelection(selection);
+    if (categorySelection.length > 0) return categorySelection;
     return [];
   }, [selection]);
   const {
@@ -622,7 +637,7 @@ export function Skills() {
   // collapse each group's category IDs to ``{ label, count }`` rows
   // for the sidebar. A group with zero skills is hidden so users
   // don't stare at empty rows.
-  type SidebarSubGroup = { id: string; label: string; count: number };
+  type SidebarSubGroup = { id: string; label: string; count: number; token: string };
   type SidebarLine = {
     lineId: PracticeLineId;
     lineLabel: string;
@@ -643,13 +658,10 @@ export function Skills() {
       lineTotal += count;
       if (count > 0) {
         subGroups.push({
-          // Sub-group id is the first category in the group — that's
-          // what we pass through ``cat:<id>`` selection / right pane
-          // filter. When a group has multiple ``categoryIds`` we treat
-          // the whole group as one filter via the line id.
           id: group.categoryIds[0] ?? `${lineId}-${group.label.en}`,
           label: isZh ? group.label.zh : group.label.en,
           count,
+          token: buildCategoryGroupToken(group.categoryIds),
         });
       }
     }
@@ -675,9 +687,12 @@ export function Skills() {
     visibleKeys = groups.flatMap((g) => g.categoryIds);
     const meta = isPracticeLineId(lineId) ? getPracticeLineMeta(lineId) : null;
     titleOverride = meta ? (isZh ? meta.title.zh : meta.title.en) : null;
-  } else if (selection.startsWith("cat:")) {
-    const catId = selection.slice("cat:".length);
-    visibleKeys = [catId];
+  } else if (selection.startsWith("cat:") || selection.startsWith("cats:")) {
+    visibleKeys = parseCategorySelection(selection);
+    const selectedGroup = sidebarLines
+      .flatMap((line) => line.subGroups)
+      .find((sub) => sub.token === selection || selection === `cat:${sub.id}`);
+    titleOverride = selectedGroup?.label ?? null;
   } else {
     visibleKeys = Array.from(skillsByCategoryKey.keys());
   }
@@ -829,25 +844,27 @@ export function Skills() {
                 </button>
                 {line.subGroups.map((sub) => {
                   const subActive = selection === `cat:${sub.id}`;
+                  const nextToken = sub.token;
+                  const active = selection === nextToken || subActive;
                   return (
                     <button
                       key={sub.id}
                       type="button"
                       className="row-hov cx-no-hover w-full text-left"
                       style={{
-                        ...sidebarLinkStyle(subActive),
+                        ...sidebarLinkStyle(active),
                         // Indent the sub-group items so the hierarchy
                         // reads at a glance.
                         paddingLeft: 20,
                       }}
-                      onClick={() => selectSkillScope(`cat:${sub.id}`)}
+                      onClick={() => selectSkillScope(nextToken)}
                     >
                       <span>{sub.label}</span>
                       <span
                         className="font-mono"
                         style={{
                           fontSize: 11.5,
-                          color: subActive
+                          color: active
                             ? "var(--color-codex-accent)"
                             : "var(--color-codex-ink-faint)",
                         }}
@@ -875,7 +892,7 @@ export function Skills() {
             <div className="flex justify-between">
               <span>{isZh ? "总数" : "Total"}</span>
               <span className="font-mono" style={{ color: "var(--color-codex-ink)" }}>
-                {skills.length}
+                {allCategoryCount}
               </span>
             </div>
             <div className="flex justify-between">
@@ -966,23 +983,19 @@ export function Skills() {
                 }}
               >
                 {(() => {
-                  const visibleSkillCount = visibleGroups.reduce(
-                    (sum, g) => sum + g.items.length,
-                    0,
-                  );
                   if (selection === "all") {
                     return isZh
-                      ? `把重复的工作沉淀成可调用的模板。共 ${skills.length} 个 Skill，分 ${sidebarLines.length} 个业务线。`
-                      : `Recurring work, captured as reusable templates. ${skills.length} skills across ${sidebarLines.length} practice lines.`;
+                      ? `把重复的工作沉淀成可调用的模板。共 ${allCategoryCount} 个 Skill，分 ${sidebarLines.length} 个业务线。`
+                      : `Recurring work, captured as reusable templates. ${allCategoryCount} skills across ${sidebarLines.length} practice lines.`;
                   }
                   if (selection.startsWith("line:")) {
                     return isZh
-                      ? `该业务线下共 ${visibleSkillCount} 个 Skill，按子分类分组。`
-                      : `${visibleSkillCount} skills in this practice line, grouped by sub-category.`;
+                      ? `该业务线下共 ${skillTotal} 个 Skill，按子分类分组。`
+                      : `${skillTotal} skills in this practice line, grouped by sub-category.`;
                   }
                   return isZh
-                    ? `当前分类下 ${visibleSkillCount} 个 Skill。`
-                    : `${visibleSkillCount} skills in this category.`;
+                    ? `当前分类下 ${skillTotal} 个 Skill。`
+                    : `${skillTotal} skills in this category.`;
                 })()}
               </p>
             </div>
