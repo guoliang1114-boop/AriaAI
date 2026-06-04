@@ -18,7 +18,16 @@ FORMAT_TERMS: dict[str, tuple[str, ...]] = {
     "pptx": ("ppt", "pptx", "powerpoint", "deck", "slides", "幻灯片", "演示文稿", "演示材料", "客户介绍"),
     "xlsx": ("excel", "xlsx", "xls", "spreadsheet", "表格", "工作簿", "访谈表", "问卷excel", "台账"),
     "md": ("markdown", ".md", " md", "md ", "md文档", "markdown文档"),
-    "docx": ("word", "doc", "document", "docx", "文档", "报告", "方案", "材料"),
+    # Docx detection is intentionally narrow — only the literal
+    # format names. Previously "文档/报告/方案/材料" were also here,
+    # but those are extremely common Chinese consulting words and
+    # were silently turning every "帮我准备方案" / "出一份报告"
+    # into a Word artifact request. Users who actually want Word
+    # now have to say "word" / "doc" / "docx". Default for general
+    # text-shaped requests falls through to create_text_artifact
+    # (md) or, when no creation verb is present, to a direct
+    # in-chat answer.
+    "docx": ("word", "doc", "document", "docx"),
     "pdf": ("pdf",),
 }
 

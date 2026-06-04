@@ -96,20 +96,27 @@ def resolve_action_policy(
         )
         return policy, "action.question", "question", 0.86
 
-    if ctx.project_id and signals.is_explicit_file_read:
-        return (
-            ActionPolicy.READ_ONLY_TOOL,
-            "action.explicit_read",
-            "explicit_read",
-            0.9,
-        )
-
+    # Explicit modify intent wins over the file-read heuristic (Phase 4:
+    # explicit write/modify intent has priority over read hints). A clear
+    # edit verb + a document target ("更新一下 plan.md", "把…改成…") must
+    # not be downgraded to READ_ONLY just because the message also mentions
+    # a file — otherwise the markdown-edit tool is rank-blocked and the edit
+    # silently no-ops. Checked before ``is_explicit_file_read`` for that
+    # reason; questions are still handled by the earlier ``is_question`` rule.
     if signals.has_explicit_modify_intent:
         return (
             ActionPolicy.MODIFY_EXISTING_FILE,
             "action.explicit_modify",
             "explicit_modify",
             0.93,
+        )
+
+    if ctx.project_id and signals.is_explicit_file_read:
+        return (
+            ActionPolicy.READ_ONLY_TOOL,
+            "action.explicit_read",
+            "explicit_read",
+            0.9,
         )
 
     if signals.artifact_intent.requested:

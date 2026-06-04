@@ -53,7 +53,7 @@ SUPPORTED_TASK_TYPES = {
 }
 _PPT_INTENT_TERMS = ("ppt", "pptx", "powerpoint", "deck", "slides", "幻灯片", "演示文稿", "演示材料", "客户介绍")
 _EXCEL_INTENT_TERMS = ("excel", "xlsx", "xls", "spreadsheet", "表格", "工作簿", "访谈表", "台账")
-_DOCX_INTENT_TERMS = ("word", "docx", "文档", "报告", "方案", "材料")
+_DOCX_INTENT_TERMS = ("word", "docx")  # See artifact_intent.py FORMAT_TERMS for the rationale on dropping 文档/报告/方案/材料.
 _PDF_INTENT_TERMS = ("pdf",)
 _MARKDOWN_INTENT_TERMS = ("markdown", ".md", " md", "md ", "md文档", "markdown文档")
 _CREATE_INTENT_TERMS = (

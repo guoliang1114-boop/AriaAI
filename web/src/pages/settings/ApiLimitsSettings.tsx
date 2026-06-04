@@ -31,6 +31,58 @@ type CombinedJob = ({ scope: 'project' } & ProjectMemoryJob) | ({ scope: 'client
 
 const API_FAILURE_PAGE_SIZE = 10
 
+function normalizeSummaryResponse(summary?: Partial<MemoryOperationsSummaryResponse>): MemoryOperationsSummaryResponse {
+  return {
+    counts: {
+      jobs: summary?.counts?.jobs ?? 0,
+      rebuild_jobs: summary?.counts?.rebuild_jobs ?? 0,
+      summary_warm_jobs: summary?.counts?.summary_warm_jobs ?? 0,
+      retrying_jobs: summary?.counts?.retrying_jobs ?? 0,
+      recent_failures: summary?.counts?.recent_failures ?? 0,
+      recent_successes: summary?.counts?.recent_successes ?? 0,
+      manual_attention: summary?.counts?.manual_attention ?? 0,
+    },
+    failure_summary: {
+      category_counts: summary?.failure_summary?.category_counts ?? {},
+      scope_counts: {
+        project: summary?.failure_summary?.scope_counts?.project ?? 0,
+        client: summary?.failure_summary?.scope_counts?.client ?? 0,
+      },
+      top_category: summary?.failure_summary?.top_category ?? 'unknown',
+      top_category_count: summary?.failure_summary?.top_category_count ?? 0,
+      manual_attention_categories: summary?.failure_summary?.manual_attention_categories ?? [],
+    },
+    budget: {
+      project: summary?.budget?.project,
+      client: summary?.budget?.client,
+      project_low: summary?.budget?.project_low ?? false,
+      client_low: summary?.budget?.client_low ?? false,
+    },
+    recent_failures: summary?.recent_failures ?? [],
+    recent_successes: summary?.recent_successes ?? [],
+    pages: {
+      jobs: {
+        items: summary?.pages?.jobs?.items ?? [],
+        total: summary?.pages?.jobs?.total ?? 0,
+        limit: summary?.pages?.jobs?.limit ?? 0,
+        offset: summary?.pages?.jobs?.offset ?? 0,
+      },
+      failures: {
+        items: summary?.pages?.failures?.items ?? [],
+        total: summary?.pages?.failures?.total ?? 0,
+        limit: summary?.pages?.failures?.limit ?? 0,
+        offset: summary?.pages?.failures?.offset ?? 0,
+      },
+      successes: {
+        items: summary?.pages?.successes?.items ?? [],
+        total: summary?.pages?.successes?.total ?? 0,
+        limit: summary?.pages?.successes?.limit ?? 0,
+        offset: summary?.pages?.successes?.offset ?? 0,
+      },
+    },
+  }
+}
+
 type FailureItem =
   | {
       scope: 'project'
@@ -285,7 +337,7 @@ export function ApiLimitsSettings() {
         setLoading(true)
       }
       setError('')
-      const summary = await api.get<MemoryOperationsSummaryResponse>('/memory/operations/summary', {
+      const summary = normalizeSummaryResponse(await api.get<Partial<MemoryOperationsSummaryResponse>>('/memory/operations/summary', {
         params: {
           jobs_limit: 100,
           jobs_offset: 0,
@@ -294,7 +346,7 @@ export function ApiLimitsSettings() {
           failure_limit: failurePageSize,
           failure_offset: (failurePage - 1) * failurePageSize,
         },
-      })
+      }))
       setJobs((summary.pages?.jobs?.items ?? []) as unknown as CombinedJob[])
       setRetryingJobsTotal(summary.counts.retrying_jobs)
       setProjectBudget(summary.budget.project ?? null)

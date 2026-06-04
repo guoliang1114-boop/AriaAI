@@ -262,11 +262,13 @@ class ChatRouterTestCase(unittest.TestCase):
 
             old_conv = Conversation(
                 title="Old Chat",
+                owner_user_id=self.current_user_id,
                 created_at=now - timedelta(days=10),
                 updated_at=now - timedelta(days=8),
             )
             recent_conv = Conversation(
                 title="Recent Chat",
+                owner_user_id=self.current_user_id,
                 created_at=now - timedelta(days=20),
                 updated_at=now - timedelta(days=1),
             )
@@ -337,6 +339,11 @@ class ChatRouterTestCase(unittest.TestCase):
             session.add(project)
             session.commit()
             session.refresh(project)
+            # Conversation access is membership-based even for admins; make the
+            # acting user a writer on the project so the delete is authorized.
+            session.add(
+                ProjectMember(project_id=project.id, user_id=self.current_user_id, role="owner")
+            )
             conv = Conversation(title="Task Chat", project_id=project.id)
             session.add(conv)
             session.commit()
@@ -395,7 +402,7 @@ class ChatRouterTestCase(unittest.TestCase):
 
     def test_send_route_persists_prepare_failure_for_refresh(self):
         with Session(self.engine) as session:
-            conv = Conversation(title="Prepare Failure")
+            conv = Conversation(title="Prepare Failure", owner_user_id=self.current_user_id)
             session.add(conv)
             session.commit()
             session.refresh(conv)

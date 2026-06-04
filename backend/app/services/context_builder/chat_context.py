@@ -49,8 +49,15 @@ def build_chat_context(
     default_max_tokens: int = 4096,
     mention_context: Optional[dict] = None,
     context_mode: str = "",
+    accessible_project_ids: Optional[list[int]] = None,
 ) -> ChatContext:
-    """Build complete chat context including skill, project, and RAG."""
+    """Build complete chat context including skill, project, and RAG.
+
+    ``accessible_project_ids`` scopes the workspace/portfolio/inventory memory
+    builders to projects the user is a member of. ``None`` means no restriction
+    (internal/system callers); a list (possibly empty) prevents cross-project
+    memory leaks in standalone / portfolio / inventory chat modes.
+    """
     # Merge mention_context file_ids into file_ids so @-mentioned files get injected
     _mention = mention_context or {}
     _mentioned_file_ids = _mention.get("file_ids") or []
@@ -76,6 +83,7 @@ def build_chat_context(
             content,
             fallback_client_name=project.client if project and project.client and (force_portfolio or normalized_scope == "client") else "",
             force=force_portfolio,
+            accessible_project_ids=accessible_project_ids,
         )
     if force_inventory or (
         not explicit_context_mode
@@ -83,7 +91,9 @@ def build_chat_context(
         and not current_project_only
         and (project_id is None or normalized_scope == "global")
     ):
-        workspace_inventory_context = build_workspace_project_inventory_context(session, content, force=force_inventory)
+        workspace_inventory_context = build_workspace_project_inventory_context(
+            session, content, force=force_inventory, accessible_project_ids=accessible_project_ids
+        )
     if current_project_only and project_id:
         project_context = build_project_context(session, project_id, file_ids, content=content, mention_context=mention_context)
     elif portfolio_context:
@@ -93,7 +103,7 @@ def build_chat_context(
     elif project_id:
         project_context = build_project_context(session, project_id, file_ids, content=content, mention_context=mention_context)
     else:
-        project_context = build_lightweight_workspace_context(session)
+        project_context = build_lightweight_workspace_context(session, accessible_project_ids)
 
     if knowledge_scope == "client" and project is not None and not portfolio_context:
         if project and project.client.strip():

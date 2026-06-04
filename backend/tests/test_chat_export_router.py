@@ -24,7 +24,7 @@ class ChatExportTestCase(unittest.TestCase):
             session.refresh(user)
             self.user_id = user.id
 
-            conv = Conversation(user_id=user.id, title="Export Test Chat")
+            conv = Conversation(owner_user_id=user.id, title="Export Test Chat")
             session.add(conv)
             session.commit()
             session.refresh(conv)
@@ -94,7 +94,7 @@ class ChatExportTestCase(unittest.TestCase):
 
     def test_export_empty_conversation(self):
         with Session(self.engine) as session:
-            conv = Conversation(user_id=self.user_id, title="Empty Chat")
+            conv = Conversation(owner_user_id=self.user_id, title="Empty Chat")
             session.add(conv)
             session.commit()
             session.refresh(conv)

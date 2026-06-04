@@ -1,4 +1,34 @@
 cases:
+  # Regression: common edit phrasings used to misroute to read_only_tool
+  # ("编辑" was not a modify verb; "更新…markdown文档" tripped the file-read
+  # heuristic before the modify check), which rank-blocked the MD edit tool
+  # and made in-chat MD edits silently no-op.
+  - id: edit_markdown_verb_requires_modify
+    content: "帮我编辑 plan.md，把第一段重写一下。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: modify_existing_file
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: modify_project_space
+    expected_write_allowed: true
+    allow_tools:
+      - name: update_project_markdown_document
+        input:
+          mode: replace
+
+  - id: update_markdown_document_requires_modify
+    content: "更新一下项目总结那个 markdown 文档，把最新进展补进去。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: modify_existing_file
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: modify_project_space
+    expected_write_allowed: true
+    allow_tools:
+      - name: update_project_markdown_document
+        input:
+          mode: replace
+
   - id: direct_project_memory_summary
     content: "请基于当前项目的结构化记忆，给我一个 5 条以内的项目概览摘要，覆盖当前阶段、关键进展、风险和下一步动作。"
     project_id: 27
