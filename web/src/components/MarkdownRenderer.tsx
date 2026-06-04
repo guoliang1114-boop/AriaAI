@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Check, Copy } from 'lucide-react'
@@ -76,8 +76,14 @@ function CodeBlock({ language, children }: { language: string; children: string 
   )
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
-  const safeContent = stripUnsafeMarkdownHtml(stripMarkdownToolUseJson(normalizeMarkdownTables(content)))
+const MarkdownRendererImpl: React.FC<MarkdownRendererProps> = ({ content }) => {
+  // Sanitization is three line-by-line / regex / JSON passes over the whole
+  // message — memoize so re-renders (list updates, throttled streaming) don't
+  // re-run them when the content string is unchanged.
+  const safeContent = useMemo(
+    () => stripUnsafeMarkdownHtml(stripMarkdownToolUseJson(normalizeMarkdownTables(content))),
+    [content],
+  )
 
   return (
     <ReactMarkdown
@@ -188,3 +194,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
     </ReactMarkdown>
   )
 }
+
+// Memoized: list re-renders and throttled streaming updates only re-parse when
+// the content string actually changes.
+export const MarkdownRenderer = React.memo(MarkdownRendererImpl)
