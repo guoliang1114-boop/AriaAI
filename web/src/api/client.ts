@@ -6,6 +6,25 @@ interface ErrorResponsePayload {
   message?: string
 }
 
+// File uploads (multipart/form-data) can take far longer than a JSON API
+// call: a multi-MB PDF over a typical connection routinely exceeds the 15s
+// default, which aborted the request client-side (ECONNABORTED) even though
+// the backend had already saved the file. Give FormData bodies a generous
+// timeout (aligned with nginx proxy_read_timeout = 300s) unless the caller
+// passes an explicit timeout.
+const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000
+
+function withUploadTimeout(
+  body: unknown,
+  config?: AxiosRequestConfig,
+): AxiosRequestConfig | undefined {
+  const isUpload = typeof FormData !== 'undefined' && body instanceof FormData
+  if (isUpload && config?.timeout === undefined) {
+    return { ...config, timeout: UPLOAD_TIMEOUT_MS }
+  }
+  return config
+}
+
 class ApiClient {
   private client: AxiosInstance
   private isDev = import.meta.env.DEV
@@ -124,17 +143,17 @@ class ApiClient {
   }
 
   async post<T>(path: string, body?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    const response = await this.client.post<T>(path, body, config)
+    const response = await this.client.post<T>(path, body, withUploadTimeout(body, config))
     return response.data
   }
 
   async put<T>(path: string, body?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    const response = await this.client.put<T>(path, body, config)
+    const response = await this.client.put<T>(path, body, withUploadTimeout(body, config))
     return response.data
   }
 
   async patch<T>(path: string, body?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    const response = await this.client.patch<T>(path, body, config)
+    const response = await this.client.patch<T>(path, body, withUploadTimeout(body, config))
     return response.data
   }
 

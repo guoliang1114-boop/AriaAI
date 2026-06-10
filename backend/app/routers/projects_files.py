@@ -532,8 +532,13 @@ def restore_file_version(project_id: int, file_id: int, version_id: int, session
     return {"ok": True, "restored_version_id": version_id, "file": result}
 
 
+# NOTE: sync ``def`` on purpose. The save path does blocking file I/O
+# (shutil.copyfileobj over the uploaded SpooledTemporaryFile); FastAPI runs
+# sync endpoints in a threadpool, so a large upload no longer blocks the
+# asyncio event loop (which previously stalled concurrent requests and made
+# uploads appear to hang).
 @router.post("/{project_id}/files", status_code=201)
-async def upload_file(
+def upload_file(
     project_id: int,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
