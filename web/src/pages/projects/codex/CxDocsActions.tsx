@@ -496,12 +496,14 @@ export function CxUploadDropzone({ projectId, folderId, onUploaded }: UploadDrop
     setBusy(true)
     let ok = 0
     let failed = 0
+    let lastError: unknown = null
     for (const f of Array.from(files)) {
       try {
         await uploadOne(f)
         ok += 1
-      } catch {
+      } catch (err) {
         failed += 1
+        lastError = err
       }
     }
     setBusy(false)
@@ -511,7 +513,15 @@ export function CxUploadDropzone({ projectId, folderId, onUploaded }: UploadDrop
         description: failed > 0 ? `${failed} 份失败` : undefined,
       })
     } else {
-      toast.error({ title: '上传失败' })
+      const isTimeout =
+        (lastError as { code?: string } | null)?.code === 'ECONNABORTED' ||
+        ((lastError as { message?: string } | null)?.message ?? '').includes('timeout')
+      toast.error({
+        title: '上传失败',
+        description: isTimeout
+          ? '上传超时,文件可能较大或网络较慢。请刷新确认是否已上传,或重试。'
+          : undefined,
+      })
     }
     await onUploaded()
   }
