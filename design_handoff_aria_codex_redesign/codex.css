@@ -1,0 +1,153 @@
+/* ============================================================
+   AriaAI · Codex Style
+   Mono-first · Off-white parchment · Tree connectors · Quiet color
+   ============================================================ */
+
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500;600&display=swap");
+
+* { box-sizing: border-box; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-thumb { background: rgba(0,0,0,.08); border-radius: 99px; }
+*::-webkit-scrollbar-track { background: transparent; }
+html, body { margin: 0; padding: 0; }
+button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+input, textarea, select { font: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
+
+@keyframes codex-drift {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(8px, -6px); }
+}
+@keyframes codex-float-a {
+  0%, 100% { transform: translate(0, 0); opacity: 0.9; }
+  50%      { transform: translate(-30px, 18px); opacity: 1; }
+}
+@keyframes codex-float-b {
+  0%, 100% { transform: translate(0, 0); opacity: 0.7; }
+  50%      { transform: translate(20px, -22px); opacity: 1; }
+}
+
+/* Shimmer animation for skeleton loaders */
+@keyframes codex-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes codex-progress {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* Density — uses zoom to visibly rescale entire frame */
+.density-compact { --row-h: 32px; --space-y: 6px; --pad-section: 24px; --pad-frame: 28px; }
+.density-regular { --row-h: 38px; --space-y: 10px; --pad-section: 32px; --pad-frame: 40px; }
+.density-comfy   { --row-h: 48px; --space-y: 16px; --pad-section: 44px; --pad-frame: 56px; }
+.density-compact .frame-codex { zoom: 0.92; }
+.density-comfy   .frame-codex { zoom: 1.10; }
+
+/* Radius */
+.radius-sharp { --r-sm: 0;    --r-md: 0;    --r-lg: 2px;  --r-pill: 0; }
+.radius-soft  { --r-sm: 3px;  --r-md: 6px;  --r-lg: 10px; --r-pill: 999px; }
+.radius-round { --r-sm: 6px;  --r-md: 10px; --r-lg: 16px; --r-pill: 999px; }
+
+/* ----------------- Codex theme (light) ----------------- */
+.theme-codex {
+  --font-ui: "Inter", "Noto Sans SC", -apple-system, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+
+  /* Near-white with a whisper of warmth */
+  --bg: #FCFBF7;
+  --bg-elev: #FFFFFF;
+  --bg-sunken: #F4F1EA;
+  --bg-tint: #F3F0E7;
+
+  --ink: #1A1815;
+  --ink-soft: #514C44;
+  --ink-mute: #8B8270;
+  --ink-faint: #B8AE99;
+
+  /* Hairline lines — very faint */
+  --line: oklch(0.88 0.012 75);
+  --line-soft: oklch(0.92 0.008 75);
+  --line-strong: oklch(0.78 0.015 75);
+
+  /* Quiet active green — codex's "alive" signal */
+  --accent: oklch(0.5 0.07 150);
+  --accent-soft: oklch(0.92 0.04 150);
+  --accent-ink: oklch(0.4 0.08 150);
+  --accent-bg: oklch(0.96 0.02 150);
+
+  --good: oklch(0.55 0.08 150);
+  --warn: oklch(0.6 0.1 65);
+  --bad:  oklch(0.55 0.14 25);
+  --info: oklch(0.5 0.07 235);
+
+  /* Tabular numerals + monospaced features */
+  --feat-mono: "ss01", "ss02", "calt", "zero";
+}
+
+.theme-codex.dark {
+  --bg: #15130F;
+  --bg-elev: #1C1916;
+  --bg-sunken: #100E0B;
+  --bg-tint: #211D17;
+
+  --ink: #E8E2D1;
+  --ink-soft: #B5AC97;
+  --ink-mute: #7F7666;
+  --ink-faint: #524A3D;
+
+  --line: oklch(0.26 0.008 75);
+  --line-soft: oklch(0.22 0.005 75);
+  --line-strong: oklch(0.32 0.012 75);
+
+  --accent: oklch(0.72 0.08 150);
+  --accent-soft: oklch(0.28 0.04 150);
+  --accent-ink: oklch(0.82 0.08 150);
+  --accent-bg: oklch(0.22 0.025 150);
+}
+
+/* ----------------- Frame ----------------- */
+.frame-codex {
+  width: 100%; height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.6;
+  display: flex;
+  overflow: hidden;
+  font-feature-settings: "cv11", "ss03";
+}
+.frame-codex .ui { font-family: var(--font-ui); }
+.frame-codex .mono { font-family: var(--font-mono); font-feature-settings: var(--feat-mono); }
+.frame-codex .num { font-variant-numeric: tabular-nums; }
+
+/* Hairline rule classes */
+.rule-h { border-top: 1px solid var(--line); height: 1px; }
+.rule-soft { border-top: 1px solid var(--line-soft); height: 1px; }
+
+/* Tree connector glyph helper (use ::before content) */
+.tree-pre {
+  font-family: var(--font-mono);
+  color: var(--ink-faint);
+  letter-spacing: -0.01em;
+  user-select: none;
+  white-space: pre;
+}
+
+/* Subtle hover */
+.row-hov:hover { background: var(--bg-tint); }
+
+/* Quiet pulsing dot for "running" */
+@keyframes codex-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.dot-pulse { animation: codex-pulse 2s ease-in-out infinite; }
+
+/* Focus ring */
+.codex-input:focus { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* Subtle inline cursor */
+@keyframes blink { 50% { opacity: 0; } }
+.cursor-blink::after { content: "▍"; color: var(--accent); margin-left: 1px; animation: blink 1s steps(2) infinite; }
