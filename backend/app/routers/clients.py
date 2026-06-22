@@ -290,8 +290,9 @@ def unlink_document(client_id: int, doc_id: int, session: Session = Depends(get_
 @router.post("/ai-suggest", response_model=list[AISuggestion])
 async def ai_suggest(body: AISuggestQuery):
     system = (
-        "You are an expert business analyst assistant for a consulting firm. "
-        "When given a company name or description, return structured client profile suggestions."
+        "You are an expert business analyst assistant for a Chinese consulting firm. "
+        "When given a company name or description, return structured client profile suggestions. "
+        "Always respond in Simplified Chinese (简体中文)."
     )
     prompt = f"""The user typed: "{body.query}"
 
@@ -299,13 +300,18 @@ Based on this, generate 1 to 3 plausible client profile suggestions for a consul
 If the query is unambiguous, return 1 suggestion.
 If the query could match multiple entities, return up to 3 distinct suggestions.
 
+All field values MUST be written in Simplified Chinese (简体中文):
+- "name": the company's official Chinese name (use the registered Chinese name when the company has one).
+- "industry": industry / sector, in Chinese.
+- "notes": 1-2 sentence background relevant to consulting engagements, in Chinese.
+
 Return ONLY a valid JSON array with this exact schema:
 [
   {{
-    "name": "Full official company name",
-    "industry": "Industry / sector",
+    "name": "公司全称（中文）",
+    "industry": "行业 / 领域",
     "contact": "",
-    "notes": "1-2 sentence background relevant to consulting engagements"
+    "notes": "与咨询业务相关的 1-2 句背景介绍"
   }}
 ]
 """

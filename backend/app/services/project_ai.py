@@ -29,17 +29,19 @@ Generate 1 to 3 consulting project name and description suggestions.
 - If the idea is specific, return 1 suggestion.
 - If the idea is broad or ambiguous, return up to 3 distinct angle variations.
 
+All field values MUST be written in Simplified Chinese (简体中文).
+
 Return ONLY a valid JSON array (no markdown, no extra text):
 [
   {{
-    "name": "Crisp, professional project title (5-8 words max)",
-    "description": "2-3 sentence scope statement: objectives, key workstreams, and expected deliverable"
+    "name": "简洁专业的项目名称（中文，控制在 8-15 字）",
+    "description": "2-3 句项目范围说明：目标、关键工作流和预期交付物（中文）"
   }}
 ]
 
 Rules:
-- name: concise, consulting-style (e.g. "China Market Entry Strategy", "Digital Transformation Roadmap")
-- description: professional, specific, actionable — no filler phrases
+- name: 简洁、咨询风格（如“中国市场进入战略”“数字化转型路线图”）
+- description: 专业、具体、可执行 —— 不要套话
 - Return pure JSON array only"""
     return [{"role": "user", "content": prompt}]
 
