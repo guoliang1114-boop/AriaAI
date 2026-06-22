@@ -235,7 +235,15 @@ export function Clients() {
     setAiSuggestions([]);
 
     try {
-      const results = await api.post<ClientSuggestion[]>("/clients/ai-suggest", { query });
+      // LLM completion behind this endpoint routinely takes >15s (the global
+      // axios default), which aborted client-side as ECONNABORTED even though
+      // the backend finished. Give it a generous timeout, matching the
+      // memory-rebuild calls elsewhere.
+      const results = await api.post<ClientSuggestion[]>(
+        "/clients/ai-suggest",
+        { query },
+        { timeout: 60000 },
+      );
       setAiSuggestions(results);
       if (results.length === 0) {
         setAiError(isZh ? "AI 没有返回可用建议。" : "AI returned no suggestions.");
