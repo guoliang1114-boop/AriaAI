@@ -44,13 +44,42 @@ Rules:
     return [{"role": "user", "content": prompt}]
 
 
+def extract_json_array_from_text(raw: str) -> str:
+    """Best-effort extraction of a JSON array from an LLM response.
+
+    Models (notably thinking models like kimi-k2.*) often wrap the array in a
+    prose preamble or a ```json fenced block instead of returning the bare
+    array the prompt asks for. The previous parser only handled the exact case
+    where the response *started* with ```, so anything else hit
+    ``json.loads`` on non-JSON and raised "Expecting value: line 1 column 1
+    (char 0)". This handles: bare arrays, fenced blocks (with or without a
+    preamble), and arrays embedded in surrounding prose. Returns "[]" when no
+    array-like content is found, so callers degrade to "no suggestions"
+    instead of crashing.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return "[]"
+    # Prefer the body of a fenced code block if one is present anywhere.
+    if "```" in text:
+        segments = text.split("```")
+        if len(segments) >= 2:
+            block = segments[1].lstrip()
+            if block[:4].lower() == "json":
+                block = block[4:]
+            block = block.strip()
+            if block:
+                text = block
+    # Slice the outermost array, dropping any surrounding prose.
+    start = text.find("[")
+    end = text.rfind("]")
+    if start >= 0 and end > start:
+        return text[start : end + 1]
+    return "[]"
+
+
 def parse_project_ai_suggestions(raw: str) -> list[dict[str, str]]:
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    suggestions = json.loads(text)
+    suggestions = json.loads(extract_json_array_from_text(raw))
     return [
         {
             "name": suggestion["name"],

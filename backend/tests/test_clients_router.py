@@ -142,6 +142,40 @@ class ClientsCrudTestCase(unittest.TestCase):
         self.assertIn("system", mocked_complete.await_args.kwargs)
         self.assertEqual(mocked_complete.await_args.kwargs["max_tokens"], 800)
 
+    def test_ai_suggest_handles_prose_wrapped_json(self):
+        """Regression: kimi-k2.* often returns the array behind a prose
+        preamble / fenced block. The old parser only stripped a leading
+        ``` and otherwise hit json.loads on non-JSON, raising
+        "Expecting value: line 1 column 1 (char 0)" (a 500 in prod)."""
+        with patch.object(
+            clients_module,
+            "complete_with_selected_model",
+            new=AsyncMock(
+                return_value=(
+                    "Here are some suggestions for you:\n\n```json\n"
+                    '[{"name": "Acme Corp", "industry": "Manufacturing", '
+                    '"contact": "", "notes": "Industrial supplier."}]\n```'
+                )
+            ),
+        ):
+            resp = self.client.post("/clients/ai-suggest", json={"query": "acme"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()[0]["name"], "Acme Corp")
+
+    def test_ai_suggest_empty_model_output_degrades_to_no_suggestions(self):
+        """An empty / non-JSON model response should return [] (UI shows
+        'no suggestions') rather than 500."""
+        with patch.object(
+            clients_module,
+            "complete_with_selected_model",
+            new=AsyncMock(return_value="I'm not able to help with that."),
+        ):
+            resp = self.client.post("/clients/ai-suggest", json={"query": "acme"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), [])
+
 
 class ClientsStakeholderTestCase(unittest.TestCase):
     def setUp(self):

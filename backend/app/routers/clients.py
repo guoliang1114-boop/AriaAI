@@ -18,6 +18,7 @@ from app.models.db import ClientRecord, KnowledgeDocument, Project
 from app.services import scheduler as scheduler_service
 from app.services.cache import clients_cache
 from app.services.client_contexts import build_client_memory_summary_prompt
+from app.services.project_ai import extract_json_array_from_text
 from app.services.project_llm import complete_with_selected_model
 from app.routers.clients_deps import (
     _CLIENTS_KEY,
@@ -315,12 +316,7 @@ Return ONLY a valid JSON array with this exact schema:
             system=system,
             max_tokens=800,
         )
-        text = raw.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        suggestions = json.loads(text)
+        suggestions = json.loads(extract_json_array_from_text(raw))
         return [AISuggestion(**item) for item in suggestions[:3]]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"AI suggestion failed: {exc}") from exc
