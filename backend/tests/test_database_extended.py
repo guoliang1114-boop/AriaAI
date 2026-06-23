@@ -92,6 +92,52 @@ class DatabaseHealthTestCase(unittest.TestCase):
         self.assertGreater(result["table_count"], 0)
 
 
+class AlembicMigrationGraphTestCase(unittest.TestCase):
+    """Guards against the dual-head class of bug.
+
+    On 2026-06-16 migration 019_v1_19 was authored with down_revision=018_v1_18
+    while the live chain had already advanced 018 -> 020 -> 021 -> 022. That
+    forked the graph into two heads (019 + 022), which makes
+    ``alembic upgrade head`` ambiguous; the deploy aborted at the migration
+    step (before the backend restart) and *silently* failed every push for six
+    days — the site stayed up on the old build, so nothing surfaced. These
+    tests fail fast in CI instead of in production.
+    """
+
+    def _script_directory(self):
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        backend_dir = Path(__file__).resolve().parent.parent
+        config = Config(str(backend_dir / "alembic.ini"))
+        config.set_main_option("script_location", str(backend_dir / "alembic"))
+        return ScriptDirectory.from_config(config)
+
+    def test_exactly_one_head(self):
+        heads = self._script_directory().get_heads()
+        self.assertEqual(
+            len(heads),
+            1,
+            f"Alembic has {len(heads)} heads ({sorted(heads)}); "
+            "`alembic upgrade head` will be ambiguous and the deploy will abort. "
+            "Point the new migration's down_revision at the current single tip, "
+            "or add a no-op merge revision (down_revision=(headA, headB)).",
+        )
+
+    def test_no_duplicate_revision_ids(self):
+        revisions = [r.revision for r in self._script_directory().walk_revisions()]
+        duplicates = sorted({r for r in revisions if revisions.count(r) > 1})
+        self.assertEqual(duplicates, [], f"Duplicate Alembic revision ids: {duplicates}")
+
+    def test_head_is_resolvable(self):
+        # ScriptDirectory.get_revision("head") raises when there are multiple
+        # heads — the same failure mode the deploy hits. Asserting it resolves
+        # is a second, behaviour-level guard alongside the count check.
+        script = self._script_directory()
+        head = script.get_revision("head")
+        self.assertIsNotNone(head)
+
+
 class TestDatabaseUtilityIsolationTestCase(unittest.TestCase):
     def test_xdist_worker_uses_dedicated_postgres_schema(self):
         from tests import test_database as test_database_module
