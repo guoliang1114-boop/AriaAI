@@ -13,16 +13,20 @@
  * Data hooks, navigation handlers, and the Workspace's role as the
  * first authenticated route are unchanged.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
+  Activity,
+  AlertCircle,
   ArrowRight,
   Calendar,
+  CheckCircle2,
+  Clock3,
   FileText,
   MessageSquare,
   RefreshCw,
-  Sparkles,
+  Send,
   Target,
 } from "lucide-react";
 import type { AxiosError } from "axios";
@@ -49,6 +53,15 @@ interface DashboardProjectSummary {
   memory_version?: number
 }
 
+type PulseEvent = {
+  id: string;
+  tone: "accent" | "good" | "warn" | "neutral";
+  title: string;
+  meta: string;
+  at: string;
+  href: string;
+}
+
 function formatRelativeTime(value?: string | null, isZh = true) {
   if (!value) return isZh ? "暂无记录" : "No recent activity";
   const diffMinutes = Math.floor((Date.now() - parseAppDateTime(value).getTime()) / 60000);
@@ -62,6 +75,21 @@ function formatRelativeTime(value?: string | null, isZh = true) {
   if (diffMinutes < 2880) return isZh ? "昨天" : "Yesterday";
   const days = Math.floor(diffMinutes / 1440);
   return isZh ? `${days} 天前` : `${days} d ago`;
+}
+
+function getDaysSince(value?: string | null) {
+  if (!value) return Number.POSITIVE_INFINITY;
+  return Math.floor((Date.now() - parseAppDateTime(value).getTime()) / 86400000);
+}
+
+function getDormantReason(project: DashboardProjectSummary, isZh: boolean) {
+  const days = getDaysSince(project.updated_at);
+  if (project.memory_stale || (project.memory_version ?? 0) === 0) {
+    return isZh ? "项目记忆需要刷新" : "Memory needs refresh";
+  }
+  if (days >= 30) return isZh ? `已 ${days} 天未更新` : `${days} days without update`;
+  if (days >= 14) return isZh ? `已 ${days} 天没有新动态` : `${days} days quiet`;
+  return null;
 }
 
 function getStageLabel(status: string, isZh: boolean): string {
@@ -239,12 +267,12 @@ export function Workspace() {
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [todos, setTodos] = useState<MyProjectTodo[]>([]);
   const [user] = useState<User | null>(() => getStoredUser());
+  const [quickUpdateProjectId, setQuickUpdateProjectId] = useState<number | null>(null);
+  const [quickUpdateText, setQuickUpdateText] = useState("");
+  const [quickUpdateSubmitting, setQuickUpdateSubmitting] = useState(false);
+  const [quickUpdateMessage, setQuickUpdateMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    void loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -274,12 +302,21 @@ export function Workspace() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isZh]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   const activeProjects = useMemo(
     () => projects.filter((p) => p.status !== "archived"),
     [projects],
   );
+
+  useEffect(() => {
+    if (quickUpdateProjectId || !activeProjects.length) return;
+    setQuickUpdateProjectId(activeProjects[0].id);
+  }, [activeProjects, quickUpdateProjectId]);
 
   const recentConversations = useMemo(
     () =>
@@ -335,6 +372,60 @@ export function Workspace() {
     (todo) => todo.priority === "high",
   ).length;
 
+  const dormantProjects = useMemo(
+    () =>
+      activeProjects
+        .map((project) => ({
+          project,
+          reason: getDormantReason(project, isZh),
+          days: getDaysSince(project.updated_at),
+        }))
+        .filter((item): item is { project: DashboardProjectSummary; reason: string; days: number } =>
+          Boolean(item.reason),
+        )
+        .sort((a, b) => b.days - a.days)
+        .slice(0, 4),
+    [activeProjects, isZh],
+  );
+
+  const pulseEvents = useMemo<PulseEvent[]>(() => {
+    const projectEvents = activeProjects.map((project) => ({
+      id: `project:${project.id}`,
+      tone: getDormantReason(project, isZh) ? "warn" : "accent",
+      title: isZh ? `${project.name} 有项目更新` : `${project.name} updated`,
+      meta: [
+        project.client || (isZh ? "未填写客户" : "No client"),
+        getStageLabel(project.status, isZh),
+      ].join(" · "),
+      at: project.updated_at,
+      href: `/projects/${project.id}`,
+    }) satisfies PulseEvent);
+
+    const chatEvents = recentConversations.slice(0, 4).map((conv) => ({
+      id: `chat:${conv.id}`,
+      tone: "neutral",
+      title: conv.title || (isZh ? "未命名对话" : "Untitled chat"),
+      meta: isZh ? "最近对话" : "Recent chat",
+      at: conv.updated_at,
+      href: conv.project_id
+        ? `/projects/${conv.project_id}/chat?conversation=${conv.id}`
+        : `/chat?conversation=${conv.id}`,
+    }) satisfies PulseEvent);
+
+    const todoEvents = todayTodos.slice(0, 3).map((todo) => ({
+      id: `todo:${todo.id}`,
+      tone: todo.priority === "high" ? "warn" : "good",
+      title: todo.content,
+      meta: todo.project_name || (isZh ? "待办" : "Todo"),
+      at: todo.due_date || todo.updated_at,
+      href: `/projects/${todo.project_id}/milestones`,
+    }) satisfies PulseEvent);
+
+    return [...projectEvents, ...chatEvents, ...todoEvents]
+      .sort((a, b) => parseAppDateTime(b.at).getTime() - parseAppDateTime(a.at).getTime())
+      .slice(0, 6);
+  }, [activeProjects, isZh, recentConversations, todayTodos]);
+
   const skillCards = isZh ? SKILL_CARDS.zh : SKILL_CARDS.en;
 
   const handleSkillCardClick = (card: SkillCard) => {
@@ -343,6 +434,28 @@ export function Workspace() {
       navigate(`/chat?skill=${match.id}`);
     } else {
       navigate(`/chat?q=${encodeURIComponent(card.fallbackPrompt)}`);
+    }
+  };
+
+  const handleQuickUpdateSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const content = quickUpdateText.trim();
+    if (!quickUpdateProjectId || !content) return;
+    try {
+      setQuickUpdateSubmitting(true);
+      setQuickUpdateMessage(null);
+      await api.post(`/projects/${quickUpdateProjectId}/progress-updates`, {
+        content,
+        next_step: "",
+        risk: "",
+      });
+      setQuickUpdateText("");
+      setQuickUpdateMessage(isZh ? "已记录项目进展" : "Progress update saved");
+      await loadData();
+    } catch {
+      setQuickUpdateMessage(isZh ? "更新失败，请稍后重试" : "Update failed. Try again later");
+    } finally {
+      setQuickUpdateSubmitting(false);
     }
   };
 
@@ -490,6 +603,214 @@ export function Workspace() {
                 </button>
               </div>
             </header>
+
+            {/* Platform pulse */}
+            <section>
+              <SectionHeader
+                title={isZh ? "平台脉搏" : "Platform pulse"}
+                action={
+                  <span style={{ fontSize: 11, color: "var(--color-codex-ink-faint)" }}>
+                    {isZh ? "自动汇总最新信号" : "live signals"}
+                  </span>
+                }
+              />
+              <div
+                className="grid"
+                style={{
+                  gridTemplateColumns: "minmax(0, 1.25fr) minmax(260px, 0.75fr)",
+                  gap: 14,
+                  alignItems: "stretch",
+                }}
+              >
+                <div
+                  style={{
+                    background: "var(--color-codex-bg-elev)",
+                    border: "1px solid var(--color-codex-line)",
+                    borderRadius: "var(--codex-r-md, 6px)",
+                    padding: "16px 18px",
+                  }}
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="inline-flex items-center gap-2" style={{ fontSize: 13, color: "var(--color-codex-ink)" }}>
+                      <Activity className="h-3.5 w-3.5" aria-hidden="true" />
+                      {isZh ? "最近动态" : "Recent activity"}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate("/projects")}
+                      style={{ fontSize: 11, color: "var(--color-codex-accent)" }}
+                    >
+                      {isZh ? "项目中心 →" : "Projects →"}
+                    </button>
+                  </div>
+                  {pulseEvents.length ? (
+                    <div className="flex flex-col" style={{ gap: 2 }}>
+                      {pulseEvents.slice(0, 5).map((event) => (
+                        <button
+                          key={event.id}
+                          type="button"
+                          onClick={() => navigate(event.href)}
+                          className="codex-row-hov grid w-full items-center text-left"
+                          style={{
+                            gridTemplateColumns: "10px minmax(0, 1fr) auto",
+                            gap: 10,
+                            padding: "8px 6px",
+                            borderRadius: "var(--codex-r-sm, 3px)",
+                          }}
+                        >
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              width: 6,
+                              height: 6,
+                              borderRadius: 999,
+                              background:
+                                event.tone === "warn"
+                                  ? "var(--color-codex-warn)"
+                                  : event.tone === "good"
+                                    ? "var(--color-codex-good)"
+                                    : event.tone === "accent"
+                                      ? "var(--color-codex-accent)"
+                                      : "var(--color-codex-ink-faint)",
+                            }}
+                          />
+                          <span style={{ minWidth: 0 }}>
+                            <span
+                              style={{
+                                display: "block",
+                                fontSize: 13,
+                                color: "var(--color-codex-ink)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {event.title}
+                            </span>
+                            <span
+                              style={{
+                                display: "block",
+                                fontSize: 11,
+                                color: "var(--color-codex-ink-mute)",
+                                marginTop: 2,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {event.meta}
+                            </span>
+                          </span>
+                          <span
+                            className="font-mono"
+                            style={{
+                              fontSize: 11,
+                              color: "var(--color-codex-ink-faint)",
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {formatRelativeTime(event.at, isZh)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: 12, color: "var(--color-codex-ink-mute)", lineHeight: 1.6 }}>
+                      {isZh ? "还没有可汇总的动态。" : "No activity to summarize yet."}
+                    </p>
+                  )}
+                </div>
+
+                <form
+                  onSubmit={handleQuickUpdateSubmit}
+                  style={{
+                    background: "var(--color-codex-bg-elev)",
+                    border: "1px solid var(--color-codex-line)",
+                    borderRadius: "var(--codex-r-md, 6px)",
+                    padding: "16px 18px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                  }}
+                >
+                  <div className="inline-flex items-center gap-2" style={{ fontSize: 13, color: "var(--color-codex-ink)" }}>
+                    <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    {isZh ? "快速更新状态" : "Quick status update"}
+                  </div>
+                  <select
+                    value={quickUpdateProjectId ?? ""}
+                    onChange={(event) => setQuickUpdateProjectId(Number(event.target.value) || null)}
+                    disabled={!activeProjects.length || quickUpdateSubmitting}
+                    style={{
+                      width: "100%",
+                      minHeight: 34,
+                      background: "var(--color-codex-bg)",
+                      border: "1px solid var(--color-codex-line)",
+                      borderRadius: "var(--codex-r-sm, 3px)",
+                      color: "var(--color-codex-ink)",
+                      fontSize: 12.5,
+                      padding: "0 10px",
+                    }}
+                  >
+                    {activeProjects.length ? (
+                      activeProjects.slice(0, 12).map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">{isZh ? "暂无项目" : "No projects"}</option>
+                    )}
+                  </select>
+                  <textarea
+                    value={quickUpdateText}
+                    onChange={(event) => setQuickUpdateText(event.target.value)}
+                    disabled={!activeProjects.length || quickUpdateSubmitting}
+                    placeholder={isZh ? "一句话记录：今天推进了什么？哪里卡住？" : "One line: what moved, what is blocked?"}
+                    rows={3}
+                    style={{
+                      width: "100%",
+                      resize: "vertical",
+                      minHeight: 76,
+                      background: "var(--color-codex-bg)",
+                      border: "1px solid var(--color-codex-line)",
+                      borderRadius: "var(--codex-r-sm, 3px)",
+                      color: "var(--color-codex-ink)",
+                      fontSize: 12.5,
+                      lineHeight: 1.55,
+                      padding: "9px 10px",
+                    }}
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <span style={{ fontSize: 11, color: "var(--color-codex-ink-faint)" }}>
+                      {quickUpdateMessage || (isZh ? "会写入项目进展，并触发记忆待刷新" : "Saves to project progress")}
+                    </span>
+                    <button
+                      type="submit"
+                      disabled={!quickUpdateProjectId || !quickUpdateText.trim() || quickUpdateSubmitting}
+                      className="inline-flex items-center gap-1.5"
+                      style={{
+                        padding: "7px 11px",
+                        fontSize: 12,
+                        background:
+                          !quickUpdateProjectId || !quickUpdateText.trim() || quickUpdateSubmitting
+                            ? "var(--color-codex-bg-tint)"
+                            : "var(--color-codex-ink)",
+                        color:
+                          !quickUpdateProjectId || !quickUpdateText.trim() || quickUpdateSubmitting
+                            ? "var(--color-codex-ink-mute)"
+                            : "var(--color-codex-bg-elev)",
+                        borderRadius: "var(--codex-r-sm, 3px)",
+                        fontWeight: 500,
+                      }}
+                    >
+                      <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                      {quickUpdateSubmitting ? (isZh ? "提交中" : "Saving") : isZh ? "记录" : "Save"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </section>
 
             {/* Quick skills */}
             <section>
@@ -725,6 +1046,75 @@ export function Workspace() {
             }}
             data-testid="workspace-right-rail"
           >
+            <div data-testid="workspace-stale-projects">
+              <SectionHeader
+                title={isZh ? `待更新 · ${dormantProjects.length}` : `Needs update · ${dormantProjects.length}`}
+                action={
+                  dormantProjects.length ? (
+                    <CxStatus tone="warn">{isZh ? "需跟进" : "follow up"}</CxStatus>
+                  ) : (
+                    <CxStatus tone="good">{isZh ? "新鲜" : "fresh"}</CxStatus>
+                  )
+                }
+              />
+              {dormantProjects.length ? (
+                dormantProjects.map(({ project, reason }) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    onClick={() => navigate(`/projects/${project.id}`)}
+                    className="codex-row-hov block w-full text-left"
+                    style={{
+                      padding: "8px 8px",
+                      marginLeft: -8,
+                      borderRadius: "var(--codex-r-sm, 3px)",
+                    }}
+                  >
+                    <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
+                      <AlertCircle
+                        className="h-3 w-3 flex-shrink-0"
+                        aria-hidden="true"
+                        style={{ color: "var(--color-codex-warn)" }}
+                      />
+                      <span
+                        style={{
+                          fontSize: 13,
+                          color: "var(--color-codex-ink)",
+                          fontWeight: 500,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {project.name}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: "var(--color-codex-ink-mute)",
+                        marginTop: 3,
+                        paddingLeft: 20,
+                      }}
+                    >
+                      {reason}
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "var(--color-codex-ink-mute)",
+                    padding: "8px 0",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {isZh ? "近期项目都有更新记录。" : "All active projects look recently touched."}
+                </p>
+              )}
+            </div>
+
             {/* Today's todos — checkbox + title + project · due + priority dot */}
             <div data-testid="workspace-today-todos">
               <SectionHeader
@@ -995,7 +1385,7 @@ export function Workspace() {
                 fontSize: 11,
               }}
             >
-              <Sparkles className="h-3 w-3" aria-hidden="true" />
+              <Clock3 className="h-3 w-3" aria-hidden="true" />
               <span className="inline-flex items-center gap-1.5">
                 <CxLogo size={16} showWordmark={false} />
                 {isZh ? "Aria · 工作台" : "Aria · workspace"}
