@@ -755,7 +755,7 @@ export function Workspace() {
                     {activeProjects.length ? (
                       activeProjects.slice(0, 12).map((project) => (
                         <option key={project.id} value={project.id}>
-                          {project.name}
+                          {project.name} · {project.client || (isZh ? "未填写客户" : "No client")}
                         </option>
                       ))
                     ) : (
