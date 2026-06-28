@@ -1,5 +1,6 @@
 export const loadPreferenceOnboarding = () => import('./pages/PreferenceOnboarding')
 export const loadWorkspace = () => import('./pages/Workspace')
+export const loadWeekly = () => import('./pages/weekly/WeeklyFocus')
 export const loadChat = () => import('./pages/chat/Chat')
 export const loadSkills = () => import('./pages/skills/Skills')
 export const loadProjects = () => import('./pages/projects/Projects')
@@ -33,6 +34,7 @@ export const loadServiceDown = () => import('./pages/ServiceDown')
 export const primaryRouteLoaders: Record<string, () => Promise<unknown>> = {
   '/': loadWorkspace,
   '/workspace': loadWorkspace,
+  '/weekly': loadWeekly,
   '/chat': loadChat,
   '/skills': loadSkills,
   '/projects': loadProjects,

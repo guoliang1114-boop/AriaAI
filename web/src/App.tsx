@@ -9,6 +9,7 @@ import { Login } from './pages/Login'
 import {
   loadPreferenceOnboarding,
   loadWorkspace,
+  loadWeekly,
   loadChat,
   loadSkills,
   loadProjects,
@@ -44,6 +45,7 @@ const PreferenceOnboarding = lazy(() =>
   loadPreferenceOnboarding().then((module) => ({ default: module.PreferenceOnboarding })),
 )
 const Workspace = lazy(() => loadWorkspace().then((module) => ({ default: module.Workspace })))
+const WeeklyFocus = lazy(() => loadWeekly().then((module) => ({ default: module.WeeklyFocus })))
 const Chat = lazy(() => loadChat().then((module) => ({ default: module.Chat })))
 const Skills = lazy(() => loadSkills().then((module) => ({ default: module.Skills })))
 const SkillDetailPage = lazy(() => loadSkills().then((module) => ({ default: module.SkillDetailPage })))
@@ -277,6 +279,14 @@ function AppRoutes() {
           element={
             <LazyPage>
               <Workspace />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="weekly"
+          element={
+            <LazyPage>
+              <WeeklyFocus />
             </LazyPage>
           }
         />

@@ -33,6 +33,7 @@ import type { AxiosError } from "axios";
 
 import { api } from "../api/client";
 import { CxLogo, CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from "../components/codex";
+import { MyWeeklyFocusCard } from "./weekly/MyWeeklyFocusCard";
 import { PageTitle } from "../components/PageTitle";
 import { parseAppDateTime } from "../utils/timezone";
 import type {
@@ -809,6 +810,8 @@ export function Workspace() {
                     </button>
                   </div>
                 </form>
+
+                <MyWeeklyFocusCard />
               </div>
             </section>
 
