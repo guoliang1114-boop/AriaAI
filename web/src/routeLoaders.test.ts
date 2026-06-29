@@ -12,13 +12,14 @@ import {
 } from './routeLoaders'
 
 describe('routeLoaders', () => {
-  it('primaryRouteLoaders contains 10 primary routes', () => {
-    expect(Object.keys(primaryRouteLoaders)).toHaveLength(10)
+  it('primaryRouteLoaders contains 11 primary routes', () => {
+    expect(Object.keys(primaryRouteLoaders)).toHaveLength(11)
   })
 
   it('primaryRouteLoaders maps correct paths', () => {
     expect(primaryRouteLoaders).toHaveProperty('/')
     expect(primaryRouteLoaders).toHaveProperty('/workspace')
+    expect(primaryRouteLoaders).toHaveProperty('/weekly')
     expect(primaryRouteLoaders).toHaveProperty('/chat')
     expect(primaryRouteLoaders).toHaveProperty('/skills')
     expect(primaryRouteLoaders).toHaveProperty('/projects')
