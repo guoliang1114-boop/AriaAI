@@ -9,6 +9,7 @@ import {
   Building2,
   Users,
   BookOpen,
+  Target,
   LogOut,
   Settings,
   UserRound,
@@ -106,6 +107,7 @@ export function Layout() {
 
   const navItems = [
     { path: '/', label: isZh ? '工作台' : 'Workspace', icon: LayoutDashboard },
+    { path: '/weekly', label: isZh ? '本周重点' : 'Weekly', icon: Target },
     { path: '/chat', label: t('nav.chat'), icon: MessageSquare },
     { path: '/skills', label: t('nav.skills'), icon: Wrench },
     { path: '/projects', label: t('nav.projects'), icon: FolderKanban },

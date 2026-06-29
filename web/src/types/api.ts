@@ -607,6 +607,56 @@ export interface MyProjectTodo extends ProjectTodo {
   priority?: 'low' | 'medium' | 'high'
 }
 
+// Weekly focus items ("每周重点事项")
+export type WeeklyFocusStatus = 'in_progress' | 'done' | 'blocked'
+
+export interface WeeklyFocusItem {
+  id: number
+  week_start: string
+  owner_user_id: number
+  owner?: { id: number; display_name: string } | null
+  created_by_user_id?: number | null
+  created_by?: { id: number; display_name: string } | null
+  content: string
+  status: WeeklyFocusStatus
+  progress_note: string
+  project_id?: number | null
+  project_name?: string | null
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface WeeklyFocusPerson {
+  user: { id: number; display_name: string; is_admin: boolean }
+  items: WeeklyFocusItem[]
+  total_count: number
+  done_count: number
+}
+
+export interface WeeklyFocusBoard {
+  week_start: string
+  stats: { total_items: number; done: number; people: number }
+  people: WeeklyFocusPerson[]
+}
+
+export interface WeeklyFocusMyResponse {
+  week_start: string
+  items: WeeklyFocusItem[]
+}
+
+export interface WeeklyFocusCarryOverResponse {
+  from_week: string
+  to_week: string
+  created_count: number
+  items: WeeklyFocusItem[]
+}
+
+export interface UserSimple {
+  id: number
+  display_name: string
+}
+
 export interface ProjectMember {
   id: number
   project_id: number

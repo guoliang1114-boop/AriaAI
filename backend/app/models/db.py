@@ -179,6 +179,40 @@ class ProjectMember(SQLModel, table=True):
     user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[ProjectMember.user_id]"})
 
 
+class WeeklyFocusItem(SQLModel, table=True):
+    """Per-person weekly key focus item ("每周重点事项").
+
+    One row = one focus item for one person in one ISO week. ``week_start`` is
+    the Monday of that week (``YYYY-MM-DD``), computed in the app timezone, so
+    the team board and "my items" views simply filter by it. Lightweight
+    follow-up: a single ``status`` + an in-place one-line ``progress_note``
+    (no per-week history — that was the deliberately simpler option chosen).
+
+    ``owner_user_id`` is *whose* item it is; ``created_by_user_id`` records who
+    added it (the owner themselves, or an admin assigning it). ``project_id`` is
+    an optional link to a project — items can be standalone or attached.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    week_start: str = Field(index=True)            # Monday of the week, "YYYY-MM-DD"
+    owner_user_id: int = Field(foreign_key="user.id", index=True)
+    created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    content: str
+    status: str = Field(default="in_progress")     # in_progress | done | blocked
+    progress_note: str = ""
+    project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
+    sort_order: int = 0
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
+
+    owner: Optional["User"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[WeeklyFocusItem.owner_user_id]"}
+    )
+    created_by: Optional["User"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[WeeklyFocusItem.created_by_user_id]"}
+    )
+
+
 class ProjectFolder(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
