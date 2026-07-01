@@ -25,6 +25,7 @@ import {
 import {
   CxTodoDeleteDialog,
   CxTodoFormDialog,
+  promoteTodoToWeekly,
   toggleTodoDone,
 } from '../CxTodoActions'
 import { CxProgressUpdateDialog } from '../CxProgressUpdateActions'
@@ -60,6 +61,7 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
   const [todoCreating, setTodoCreating] = useState(false)
   const [todoDeleting, setTodoDeleting] = useState<ProjectTodo | null>(null)
   const [todoTogglingId, setTodoTogglingId] = useState<number | null>(null)
+  const [todoPromotingId, setTodoPromotingId] = useState<number | null>(null)
   const [progressCreating, setProgressCreating] = useState(false)
 
   const toggleTodo = async (t: ProjectTodo) => {
@@ -76,6 +78,23 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
       })
     } finally {
       setTodoTogglingId(null)
+    }
+  }
+
+  const promoteTodo = async (t: ProjectTodo) => {
+    if (todoPromotingId === t.id || t.weekly_focus_promoted) return
+    setTodoPromotingId(t.id)
+    try {
+      const res = await promoteTodoToWeekly(t)
+      toast.success({ title: res.created ? '已加入本周重点' : '已在本周重点中' })
+      await refetch()
+    } catch (err) {
+      toast.error({
+        title: '操作失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      })
+    } finally {
+      setTodoPromotingId(null)
     }
   }
 
@@ -270,7 +289,10 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
                     t={t}
                     last={i === openTodos.length - 1}
                     busy={todoTogglingId === t.id}
+                    promoted={!!t.weekly_focus_promoted}
+                    promoting={todoPromotingId === t.id}
                     onToggle={() => toggleTodo(t)}
+                    onPromote={() => promoteTodo(t)}
                     onEdit={() => setTodoEditing(t)}
                     onDelete={() => setTodoDeleting(t)}
                   />
@@ -469,12 +491,15 @@ interface TodoRowProps {
   t: ProjectTodo
   last: boolean
   busy: boolean
+  promoted?: boolean
+  promoting?: boolean
   onToggle: () => void
+  onPromote?: () => void
   onEdit: () => void
   onDelete: () => void
 }
 
-function TodoRow({ t, last, busy, onToggle, onEdit, onDelete }: TodoRowProps) {
+function TodoRow({ t, last, busy, promoted, promoting, onToggle, onPromote, onEdit, onDelete }: TodoRowProps) {
   // Stacked layout so long titles never collide with the meta row.
   // Row 1: checkbox + title (wraps freely)
   // Row 2: due chip · assignee chip · edit · delete   (small, neutral)
@@ -583,6 +608,25 @@ function TodoRow({ t, last, busy, onToggle, onEdit, onDelete }: TodoRowProps) {
           <span style={{ color: 'var(--ink-faint)' }}>未指派</span>
         )}
         <span style={{ flex: 1 }} />
+        {onPromote && (
+          <button
+            type="button"
+            onClick={onPromote}
+            disabled={promoted || promoting}
+            title={promoted ? '已加入本周重点' : '设为本周重点'}
+            style={{
+              padding: 4,
+              color: promoted ? 'var(--accent)' : 'var(--ink-mute)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: promoted ? 'default' : promoting ? 'wait' : 'pointer',
+              opacity: promoting ? 0.5 : 1,
+            }}
+          >
+            <CxIcon name="target" size={12} />
+          </button>
+        )}
         <button
           type="button"
           onClick={onEdit}
