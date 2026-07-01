@@ -95,6 +95,7 @@ def serialize_item(item: WeeklyFocusItem, project_names: Optional[dict[int, str]
         "progress_note": item.progress_note,
         "project_id": item.project_id,
         "project_name": project_name,
+        "source_todo_id": item.source_todo_id,
         "sort_order": item.sort_order,
         "created_at": item.created_at,
         "updated_at": item.updated_at,
@@ -114,6 +115,31 @@ def list_items(
         stmt = stmt.where(WeeklyFocusItem.owner_user_id == owner_user_id)
     stmt = stmt.order_by(WeeklyFocusItem.sort_order, WeeklyFocusItem.id)
     return session.exec(stmt).all()
+
+
+def find_by_source_todo(session: Session, week_start: str, todo_id: int) -> Optional[WeeklyFocusItem]:
+    """The weekly item this todo was promoted into for the given week, if any.
+    Promotion is idempotent on (source_todo_id, week_start)."""
+    return session.exec(
+        select(WeeklyFocusItem).where(
+            WeeklyFocusItem.week_start == week_start,
+            WeeklyFocusItem.source_todo_id == todo_id,
+        )
+    ).first()
+
+
+def promoted_todo_ids(session: Session, week_start: str, todo_ids: list[int]) -> set[int]:
+    """Which of the given todo ids already have a weekly focus item this week."""
+    ids = [tid for tid in todo_ids if tid is not None]
+    if not ids:
+        return set()
+    rows = session.exec(
+        select(WeeklyFocusItem.source_todo_id).where(
+            WeeklyFocusItem.week_start == week_start,
+            WeeklyFocusItem.source_todo_id.in_(ids),
+        )
+    ).all()
+    return {row for row in rows if row is not None}
 
 
 def build_board(session: Session, week_start: str) -> dict:
@@ -191,6 +217,7 @@ def create_item(
     project_id: Optional[int] = None,
     status: str = DEFAULT_STATUS,
     progress_note: str = "",
+    source_todo_id: Optional[int] = None,
 ) -> WeeklyFocusItem:
     content = (content or "").strip()
     if not content:
@@ -203,6 +230,7 @@ def create_item(
         status=status if status in VALID_STATUSES else DEFAULT_STATUS,
         progress_note=(progress_note or "").strip(),
         project_id=project_id,
+        source_todo_id=source_todo_id,
         sort_order=_next_sort_order(session, week_start, owner_user_id),
     )
     session.add(item)

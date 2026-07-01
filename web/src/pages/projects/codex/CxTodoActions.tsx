@@ -279,3 +279,11 @@ export async function toggleTodoDone(
     is_done: !todo.is_done,
   })
 }
+
+/** Promote a todo into this week's focus ("设为本周重点"). Idempotent per
+ * (todo, week) — a repeat call returns ``created: false``. */
+export async function promoteTodoToWeekly(
+  todo: ProjectTodo,
+): Promise<{ created: boolean }> {
+  return api.post<{ created: boolean }>(`/weekly/from-todo`, { todo_id: todo.id })
+}

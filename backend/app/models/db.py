@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Column, Text, UniqueConstraint
+from sqlalchemy import Column, Index, Text, UniqueConstraint
 from sqlmodel import SQLModel, Field, Relationship
 import json
 
@@ -193,6 +193,14 @@ class WeeklyFocusItem(SQLModel, table=True):
     an optional link to a project — items can be standalone or attached.
     """
 
+    # One focus item per (week, source todo) — makes "设为本周重点" idempotent at
+    # the DB layer even under concurrent promotes. Rows with NULL source_todo_id
+    # (normal, hand-added items) are unconstrained, since NULLs are distinct in a
+    # unique index on both SQLite and Postgres.
+    __table_args__ = (
+        Index("uq_weeklyfocusitem_week_source", "week_start", "source_todo_id", unique=True),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     week_start: str = Field(index=True)            # Monday of the week, "YYYY-MM-DD"
     owner_user_id: int = Field(foreign_key="user.id", index=True)
@@ -201,6 +209,11 @@ class WeeklyFocusItem(SQLModel, table=True):
     status: str = Field(default="in_progress")     # in_progress | done | blocked
     progress_note: str = ""
     project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
+    # Back-link when this item was promoted from a project todo ("设为本周重点").
+    # Used to keep promotion idempotent and to flag the source todo as promoted.
+    # No standalone index: the composite unique index below covers lookups
+    # (find-by-source and promoted-ids both filter week_start + source_todo_id).
+    source_todo_id: Optional[int] = Field(default=None, foreign_key="projecttodo.id")
     sort_order: int = 0
     created_at: datetime = Field(default_factory=utc_now_naive)
     updated_at: datetime = Field(default_factory=utc_now_naive)

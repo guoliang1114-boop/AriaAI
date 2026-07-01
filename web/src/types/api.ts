@@ -589,6 +589,8 @@ export interface ProjectTodo {
   assigned_user?: { id: number; display_name: string } | null
   created_at: string
   updated_at: string
+  /** True when this todo is already one of the current week's focus items. */
+  weekly_focus_promoted?: boolean
 }
 
 export interface ProjectProgressUpdate {
@@ -622,6 +624,7 @@ export interface WeeklyFocusItem {
   progress_note: string
   project_id?: number | null
   project_name?: string | null
+  source_todo_id?: number | null
   sort_order: number
   created_at: string
   updated_at: string
