@@ -8,7 +8,7 @@ from dataclasses import replace
 
 from sqlmodel import Session, select
 
-from app.config import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
+from app.config import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, MODEL_ALIASES
 from app.models.db import Conversation, Message, ProjectMember, Skill
 from app.models.db import Setting as _Setting
 from app.routers.chat_schemas import SendMessageRequest
@@ -637,7 +637,7 @@ def _resolve_requested_model(session: Session, req: SendMessageRequest) -> str:
         model_lower = user_model.lower()
         known_prefixes = ("claude-", "kimi-", "moonshot-", "deepseek-", "glm-", "mimo-")
         if any(model_lower.startswith(p) for p in known_prefixes):
-            selected_model = user_model
+            selected_model = MODEL_ALIASES.get(user_model, user_model)
     return selected_model
 
 

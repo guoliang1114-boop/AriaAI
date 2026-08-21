@@ -55,13 +55,6 @@ const MODEL_OPTIONS: ModelOption[] = [
     maxTokens: 32768,
     fixedParams: { temperature: 1, topP: 0.95, presencePenalty: 0, frequencyPenalty: 0 },
   },
-  {
-    id: 'kimi-k2.6',
-    label: 'Kimi K2.6',
-    provider: 'moonshot',
-    maxTokens: 32768,
-    fixedParams: { temperature: 1, topP: 0.95, presencePenalty: 0, frequencyPenalty: 0 },
-  },
   { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'deepseek', maxTokens: 32768 },
   { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek', maxTokens: 32768 },
   { id: 'glm-5.3', label: 'GLM-5.3', provider: 'bigmodel', maxTokens: 32768 },
@@ -95,7 +88,7 @@ const PROVIDERS: ProviderConfig[] = [
   {
     provider: 'moonshot',
     name: 'Moonshot 月之暗面',
-    subtitle: 'Kimi K3 · K2.6',
+    subtitle: 'Kimi K3 · 1M 上下文',
     initials: 'KM',
     statusEndpoint: '/settings/kimi-api-key-status',
     saveEndpoint: '/settings/kimi-api-key',
