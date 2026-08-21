@@ -40,7 +40,7 @@ async def test_provider_connection(provider: str, model: str | None = None) -> d
                     f"{KIMI_BASE_URL}/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
-                        "model": model if model and model.startswith(("moonshot-", "kimi-")) else "kimi-k2.6",
+                        "model": model if model and model.startswith(("moonshot-", "kimi-")) else "kimi-k3",
                         "messages": [{"role": "user", "content": "Hi"}],
                         "max_tokens": 10,
                         "temperature": 1.0,
@@ -72,7 +72,7 @@ async def test_provider_connection(provider: str, model: str | None = None) -> d
                     "https://open.bigmodel.cn/api/paas/v4/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
-                        "model": model if model and model.startswith(("glm-", "GLM-")) else "glm-4-plus",
+                        "model": model if model and model.startswith(("glm-", "GLM-")) else "glm-5.3",
                         "messages": [{"role": "user", "content": "Hi"}],
                         "max_tokens": 10,
                     },

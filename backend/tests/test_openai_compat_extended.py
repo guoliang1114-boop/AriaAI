@@ -2,7 +2,7 @@
 import unittest
 
 from app.services.openai_compat import (
-    _is_kimi_k2_model,
+    _is_kimi_k_model,
     _apply_moonshot_fixed_params,
     _is_mimo_model,
     _normalize_mimo_model,
@@ -14,13 +14,14 @@ from app.services.openai_compat import (
 
 class IsKimiK2ModelTestCase(unittest.TestCase):
     def test_kimi_k2_model(self):
-        self.assertTrue(_is_kimi_k2_model("kimi-k2.5"))
-        self.assertTrue(_is_kimi_k2_model("kimi-k2.6"))
+        self.assertTrue(_is_kimi_k_model("kimi-k2.5"))
+        self.assertTrue(_is_kimi_k_model("kimi-k2.6"))
+        self.assertTrue(_is_kimi_k_model("kimi-k3"))
 
     def test_non_k2_model(self):
-        self.assertFalse(_is_kimi_k2_model("moonshot-v1-8k"))
-        self.assertFalse(_is_kimi_k2_model("claude-sonnet-4-6"))
-        self.assertFalse(_is_kimi_k2_model(""))
+        self.assertFalse(_is_kimi_k_model("moonshot-v1-8k"))
+        self.assertFalse(_is_kimi_k_model("claude-sonnet-4-6"))
+        self.assertFalse(_is_kimi_k_model(""))
 
 
 class ApplyMoonshotFixedParamsTestCase(unittest.TestCase):

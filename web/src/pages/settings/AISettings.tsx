@@ -43,11 +43,18 @@ interface ProviderConfig {
   defaultModel: string
   link?: { href: string; label: string }
   defaultWarning?: boolean
+  hidden?: boolean
 }
 
+// Anthropic / MiMo providers are marked `hidden` below and offer no models here.
 const MODEL_OPTIONS: ModelOption[] = [
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.5', provider: 'anthropic', maxTokens: 8192 },
-  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku', provider: 'anthropic', maxTokens: 8192 },
+  {
+    id: 'kimi-k3',
+    label: 'Kimi K3',
+    provider: 'moonshot',
+    maxTokens: 32768,
+    fixedParams: { temperature: 1, topP: 0.95, presencePenalty: 0, frequencyPenalty: 0 },
+  },
   {
     id: 'kimi-k2.6',
     label: 'Kimi K2.6',
@@ -55,12 +62,12 @@ const MODEL_OPTIONS: ModelOption[] = [
     maxTokens: 32768,
     fixedParams: { temperature: 1, topP: 0.95, presencePenalty: 0, frequencyPenalty: 0 },
   },
-  { id: 'deepseek-v4-pro', label: 'DeepSeek V4', provider: 'deepseek', maxTokens: 32768 },
+  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'deepseek', maxTokens: 32768 },
   { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek', maxTokens: 32768 },
-  { id: 'glm-5.1', label: 'GLM-5.1', provider: 'bigmodel', maxTokens: 8192 },
-  { id: 'mimo-v2.5-flash', label: 'MiMo V2.5 Flash', provider: 'mimo', maxTokens: 8192 },
-  { id: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro', provider: 'mimo', maxTokens: 32000 },
+  { id: 'glm-5.3', label: 'GLM-5.3', provider: 'bigmodel', maxTokens: 32768 },
 ]
+
+const DEFAULT_MODEL_ID = 'kimi-k3'
 
 const PROVIDERS: ProviderConfig[] = [
   {
@@ -72,11 +79,12 @@ const PROVIDERS: ProviderConfig[] = [
     saveEndpoint: '/settings/api-key',
     placeholder: '粘贴 Anthropic API Key',
     defaultModel: 'claude-sonnet-4-6',
+    hidden: true,
   },
   {
     provider: 'deepseek',
     name: 'DeepSeek 深度求索',
-    subtitle: 'DeepSeek V4 · V4 Flash',
+    subtitle: 'DeepSeek V4 Pro · V4 Flash',
     initials: 'DS',
     statusEndpoint: '/settings/deepseek-api-key-status',
     saveEndpoint: '/settings/deepseek-api-key',
@@ -87,22 +95,22 @@ const PROVIDERS: ProviderConfig[] = [
   {
     provider: 'moonshot',
     name: 'Moonshot 月之暗面',
-    subtitle: 'Kimi K2.6 · 长上下文',
+    subtitle: 'Kimi K3 · K2.6',
     initials: 'KM',
     statusEndpoint: '/settings/kimi-api-key-status',
     saveEndpoint: '/settings/kimi-api-key',
     placeholder: '粘贴 Moonshot API Key',
-    defaultModel: 'kimi-k2.6',
+    defaultModel: 'kimi-k3',
   },
   {
     provider: 'bigmodel',
     name: '智谱 GLM',
-    subtitle: 'GLM-5.1',
+    subtitle: 'GLM-5.3',
     initials: 'GL',
     statusEndpoint: '/settings/bigmodel-api-key-status',
     saveEndpoint: '/settings/bigmodel-api-key',
     placeholder: '粘贴智谱 GLM API Key',
-    defaultModel: 'glm-5.1',
+    defaultModel: 'glm-5.3',
     link: { href: 'https://open.bigmodel.cn/usercenter/apikeys', label: '智谱控制台' },
     defaultWarning: true,
   },
@@ -114,7 +122,7 @@ const PROVIDERS: ProviderConfig[] = [
     statusEndpoint: '/settings/openai-api-key-status',
     saveEndpoint: '/settings/openai-api-key',
     placeholder: '粘贴 OpenAI API Key',
-    defaultModel: 'claude-sonnet-4-6',
+    defaultModel: DEFAULT_MODEL_ID,
     link: { href: 'https://platform.openai.com/api-keys', label: 'OpenAI 控制台' },
   },
   {
@@ -127,8 +135,11 @@ const PROVIDERS: ProviderConfig[] = [
     placeholder: '粘贴小米 MiMo API Key',
     defaultModel: 'mimo-v2.5-flash',
     link: { href: 'https://platform.xiaomimimo.com', label: 'MiMo 控制台' },
+    hidden: true,
   },
 ]
+
+const VISIBLE_PROVIDERS = PROVIDERS.filter((provider) => !provider.hidden)
 
 const PROVIDER_TO_SETTING: Partial<Record<ProviderKey, string>> = {
   anthropic: 'claude',
@@ -212,7 +223,7 @@ function inferProviderForModelId(modelId: string): ProviderKey {
   if (normalized.startsWith('deepseek-')) return 'deepseek'
   if (normalized.startsWith('glm-')) return 'bigmodel'
   if (normalized.startsWith('mimo-') || normalized.startsWith('xiaomi/mimo-')) return 'mimo'
-  return 'anthropic'
+  return 'moonshot'
 }
 
 function formatRelativeTime(timestamp: number | null, isZh: boolean): string {
@@ -350,11 +361,11 @@ export function AISettings() {
   const { t, i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
 
-  const [selectedModel, setSelectedModel] = useState('claude-sonnet-4-6')
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_ID)
   const [strategyModels, setStrategyModels] = useState({
-    default: 'claude-sonnet-4-6',
+    default: DEFAULT_MODEL_ID,
     fast: 'deepseek-v4-flash',
-    document: 'kimi-k2.6',
+    document: 'kimi-k3',
     lowCost: 'deepseek-v4-pro',
   })
   const [temperature, setTemperature] = useState(0.7)
@@ -390,7 +401,7 @@ export function AISettings() {
   const [successMessage, setSuccessMessage] = useState('')
 
   const connectedCount = useMemo(
-    () => Object.values(apiKeyStatus).filter(Boolean).length,
+    () => VISIBLE_PROVIDERS.filter((provider) => apiKeyStatus[provider.provider]).length,
     [apiKeyStatus],
   )
   const selectedModelData = getModel(selectedModel)
@@ -414,7 +425,7 @@ export function AISettings() {
       setInitialLoading(true)
       setError('')
       const settings = await api.get<Record<string, string>>('/settings/')
-      const nextModel = settings.selected_model || 'claude-sonnet-4-6'
+      const nextModel = settings.selected_model || DEFAULT_MODEL_ID
       const nextIntentRouterModel = settings.intent_router_model || 'deepseek-v4-pro'
       setSelectedModel(nextModel)
       setStrategyModels((current) => ({ ...current, default: nextModel, lowCost: nextIntentRouterModel }))
@@ -742,7 +753,7 @@ export function AISettings() {
           hint={isZh ? '填入 API Key 即自动测试一次' : 'Enter an API key to test once'}
         />
         <div className="grid gap-3 lg:grid-cols-2">
-          {PROVIDERS.map((provider) => {
+          {VISIBLE_PROVIDERS.map((provider) => {
             const expanded = expandedProvider === provider.provider
             const pending = providerKeys[provider.provider].trim().length > 0
             const status = getStatusCopy(provider, apiKeyStatus[provider.provider], pending, isZh)

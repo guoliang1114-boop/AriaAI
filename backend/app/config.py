@@ -62,9 +62,9 @@ DEFAULT_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", "claude")
 # Default models per provider
 DEFAULT_MODELS = {
     "claude": "claude-sonnet-4-6",
-    "kimi": "kimi-k2.6",
+    "kimi": "kimi-k3",
     "deepseek": "deepseek-v4-pro",
-    "bigmodel": "glm-5.2",
+    "bigmodel": "glm-5.3",
     "mimo": "mimo-v2.5-flash",
 }
 
@@ -74,8 +74,9 @@ MODEL_ALIASES = {
     "claude-sonnet-4": "claude-sonnet-4-6",
     "claude-haiku-4": "claude-haiku-4-5-20251001",
     "kimi-k2.6-code-preview": "kimi-k2.6",
-    "glm-5.1": "glm-5.2",
-    "glm-4-plus": "glm-5.2",
+    "glm-5.1": "glm-5.3",
+    "glm-5.2": "glm-5.3",
+    "glm-4-plus": "glm-5.3",
     "mimo-v2-flash": "mimo-v2.5-flash",
     "mimo-v2-pro": "mimo-v2.5-pro",
     "mimo-v2-omni": "mimo-v2.5-omni",

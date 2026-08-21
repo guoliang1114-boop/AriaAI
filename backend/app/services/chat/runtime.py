@@ -150,7 +150,9 @@ def _resolve_intent_router_model(session: Session, selected_model: str) -> tuple
 
 def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
     normalized = (model or "").lower()
-    if normalized.startswith(("kimi-k2.6", "kimi-k2.5")):
+    if normalized.startswith(("kimi-k3", "kimi-k2.6", "kimi-k2.5")):
+        return min(max_tokens, 32768)
+    if normalized.startswith(("glm-5", "deepseek-v4")):
         return min(max_tokens, 32768)
     if normalized.startswith("moonshot-v1-8k"):
         return min(max_tokens, 4096)
@@ -278,16 +280,16 @@ def _resolve_runtime_model_and_tokens(
     normalized = (selected_model or "").lower()
 
     if chat_mode == ChatMode.CROSS_PROJECT_PORTFOLIO:
-        if has_deepseek_api_key and normalized in {"kimi-k2.6", "deepseek-v4-pro"}:
+        if has_deepseek_api_key and normalized in {"kimi-k3", "kimi-k2.6", "deepseek-v4-pro"}:
             return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
         return selected_model, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
 
     if chat_mode == ChatMode.WORKSPACE_INVENTORY:
-        if has_deepseek_api_key and normalized in {"kimi-k2.6", "deepseek-v4-pro"}:
+        if has_deepseek_api_key and normalized in {"kimi-k3", "kimi-k2.6", "deepseek-v4-pro"}:
             return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
         return selected_model, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
 
-    if _is_standalone_fast_path(req, effective_skill_id, chat_mode) and normalized.startswith("kimi-k2.6"):
+    if _is_standalone_fast_path(req, effective_skill_id, chat_mode) and normalized.startswith(("kimi-k3", "kimi-k2.6")):
         return STANDALONE_FAST_PATH_MODEL, min(max_tokens, STANDALONE_FAST_PATH_MAX_TOKENS)
 
     if req.project_id is None and effective_skill_id is None:

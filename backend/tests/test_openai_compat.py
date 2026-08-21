@@ -12,16 +12,16 @@ from app.services import openai_compat as oai_module
 
 
 class IsKimiK2ModelTests(unittest.TestCase):
-    """Tests for _is_kimi_k2_model."""
+    """Tests for _is_kimi_k_model."""
 
     def test_true_for_kimi_k2_models(self):
-        self.assertTrue(oai_module._is_kimi_k2_model("kimi-k2.6"))
-        self.assertTrue(oai_module._is_kimi_k2_model("kimi-k2.0"))
+        self.assertTrue(oai_module._is_kimi_k_model("kimi-k2.6"))
+        self.assertTrue(oai_module._is_kimi_k_model("kimi-k2.0"))
 
     def test_false_for_other_models(self):
-        self.assertFalse(oai_module._is_kimi_k2_model("kimi-k1"))
-        self.assertFalse(oai_module._is_kimi_k2_model("moonshot-v1"))
-        self.assertFalse(oai_module._is_kimi_k2_model("gpt-4"))
+        self.assertFalse(oai_module._is_kimi_k_model("kimi-k1"))
+        self.assertFalse(oai_module._is_kimi_k_model("moonshot-v1"))
+        self.assertFalse(oai_module._is_kimi_k_model("gpt-4"))
 
 
 class ApplyMoonshotFixedParamsTests(unittest.TestCase):

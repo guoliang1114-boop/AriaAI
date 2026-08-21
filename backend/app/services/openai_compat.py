@@ -65,9 +65,9 @@ def _get_http_client() -> httpx.AsyncClient:
         client = httpx.AsyncClient(timeout=300.0)
         _http_clients[loop] = client
     return client
-DEFAULT_KIMI_MODEL = "kimi-k2.6"
+DEFAULT_KIMI_MODEL = "kimi-k3"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro"
-DEFAULT_BIGMODEL_MODEL = "glm-5.1"
+DEFAULT_BIGMODEL_MODEL = "glm-5.3"
 DEFAULT_MIMO_MODEL = "mimo-v2.5-flash"
 
 SETTING_KIMI_API_KEY = "kimi_api_key"
@@ -77,14 +77,14 @@ SETTING_MIMO_API_KEY = "mimo_api_key"
 SETTING_LLM_PROVIDER = "llm_provider"
 
 
-def _is_kimi_k2_model(model: str) -> bool:
-    return model.lower().startswith("kimi-k2.")
+def _is_kimi_k_model(model: str) -> bool:
+    return model.lower().startswith(("kimi-k2.", "kimi-k3"))
 
 
 def _apply_moonshot_fixed_params(model: str, temperature: float) -> tuple[float, float | None]:
-    """Moonshot K2 and V1 models publish recommended fixed sampling params."""
+    """Moonshot K2/K3 and V1 models publish recommended fixed sampling params."""
     model_lower = model.lower()
-    if _is_kimi_k2_model(model_lower):
+    if _is_kimi_k_model(model_lower):
         return 1.0, 0.95
     if model_lower.startswith("moonshot-"):
         return 0.6, 0.95
