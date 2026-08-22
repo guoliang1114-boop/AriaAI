@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
@@ -18,13 +18,18 @@ from app.routers.chat_models import router as models_router
 from app.routers.chat_plan import router as plan_router
 from app.routers.chat_actions import router as actions_router
 from app.routers.auth import get_current_user
-from app.routers.chat_security import require_chat_request_access
+from app.routers.chat_security import require_chat_request_access, require_conversation_access
 from app.routers.chat_schemas import SendMessageRequest
 from app.models.db import Conversation, Message, User
 from app.services.chat.sse import sse_event
 from app.services.chat_store import persist_assistant_message
 from app.services.chat_tools import _to_user_friendly_error
 from app.services.chat_streaming import prepare_chat_runtime_async, stream_chat_events
+from app.services.agent_harness.turn_interrupt import (
+    InterruptStatus,
+    get_active_turn,
+    interrupt_active_turn,
+)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -120,6 +125,36 @@ async def _prepare_error_stream(
             "assistant_message_id": assistant_message_id,
         }
     )
+
+
+@router.post("/runs/{run_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
+async def cancel_chat_run(
+    run_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel one active SSE turn after authorizing its conversation."""
+
+    active = get_active_turn(run_id)
+    if active is None:
+        raise HTTPException(status_code=404, detail="Active chat run not found")
+    require_conversation_access(
+        session,
+        active.conversation_id,
+        current_user,
+        require_write=True,
+    )
+    outcome = interrupt_active_turn(
+        run_id,
+        conversation_id=active.conversation_id,
+    )
+    if outcome.status is not InterruptStatus.ACCEPTED:
+        raise HTTPException(status_code=409, detail="Chat run is no longer active")
+    return {
+        "run_id": run_id,
+        "status": "cancellation_requested",
+        "conversation_id": active.conversation_id,
+    }
 
 
 @router.post("/send")

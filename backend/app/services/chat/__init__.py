@@ -28,6 +28,7 @@ Public API:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -51,6 +52,13 @@ from app.services.agent_harness.run_rollout import (
     build_in_memory_rollout_snapshot,
     checkpoint_chat_rollout,
     finalize_chat_rollout,
+)
+from app.services.agent_harness.turn_interrupt import (
+    cancellation_reason,
+    get_active_turn,
+    interrupted_reply,
+    register_active_turn,
+    unregister_active_turn,
 )
 
 logger = logging.getLogger(__name__)
@@ -98,6 +106,8 @@ def _finalize_rollout_safely(
     error_message: str = "",
     retryable: bool = False,
 ) -> None:
+    if getattr(state, "rollout_finalized", False):
+        return
     if not state.rollout_task_id or state.rollout_bind is None:
         return
     try:
@@ -111,6 +121,7 @@ def _finalize_rollout_safely(
             error_message=error_message,
             retryable=retryable,
         )
+        state.rollout_finalized = True
     except Exception as exc:
         logger.warning("[rollout] failed to finalize chat rollout: %s", exc)
         state.record_trace_event(
@@ -118,6 +129,130 @@ def _finalize_rollout_safely(
             stage=phase or "finalize",
             error=str(exc)[:500],
         )
+
+
+def _mark_active_step_cancelled(state: ChatSessionState, reason: str) -> None:
+    if not state.steps:
+        return
+    step = state.steps[-1]
+    if step.status not in {"running", ""}:
+        return
+    step.status = "cancelled"
+    step.error = reason[:500]
+    step.retryable = False
+    if state.rollout_task_id and state.rollout_bind is not None:
+        try:
+            checkpoint_chat_rollout(
+                state.rollout_bind,
+                state.rollout_task_id,
+                step,
+                state,
+            )
+        except Exception as exc:
+            logger.warning("[rollout] failed to checkpoint interrupted step: %s", exc)
+
+
+def _persist_interrupted_turn(
+    *,
+    runtime: ChatRuntime,
+    req: SendMessageRequest,
+    bind,
+    state: ChatSessionState,
+    reason: str,
+) -> None:
+    """Persist partial output and a terminal cancellation boundary.
+
+    This is deliberately synchronous: it also runs when Starlette closes the
+    async generator while its response task is being cancelled.
+    """
+
+    if state.assistant_message_id is not None:
+        _finalize_rollout_safely(
+            state,
+            status="waiting_confirmation" if state.confirmation_requested else "completed",
+            message_id=state.assistant_message_id,
+            phase="persisted_before_interrupt",
+        )
+        return
+
+    _mark_active_step_cancelled(state, reason)
+    partial_text = state.full_text
+    tool_execution_possible = bool(state.workflow_started or state.tool_call_events)
+    full_text = interrupted_reply(
+        partial_text,
+        tool_execution_possible=tool_execution_possible,
+        reason=reason,
+    )
+    state.full_text = full_text
+    state.stage_timings["total_stream_ms"] = round(
+        (time.perf_counter() - state.stream_started_at) * 1000
+    )
+    state.record_trace_event(
+        "turn_interrupted",
+        stage="stream",
+        reason=reason,
+        tool_execution_possible=tool_execution_possible,
+    )
+    metadata = {
+        "project_id": req.project_id,
+        "turn_interrupted": {
+            "reason": reason,
+            "phase": "stream",
+            "tool_execution_possible": tool_execution_possible,
+            "partial_text_chars": len(partial_text),
+        },
+        "stage_timings": dict(state.stage_timings or {}),
+        "tool_calls": _safe_list(state.tool_call_events),
+        "artifacts": _safe_list(state.artifacts),
+        "run_rollout": build_in_memory_rollout_snapshot(
+            state,
+            status="cancelled",
+            phase="stream",
+            error_message=reason,
+        ),
+    }
+    if getattr(runtime, "rag_sources", None):
+        metadata["references"] = runtime.rag_sources
+
+    try:
+        _, assistant_message_id = persist_assistant_message(
+            bind,
+            runtime.conv_id,
+            full_text,
+            req.content,
+            metadata,
+        )
+        state.assistant_message_id = assistant_message_id
+    except Exception as exc:
+        logger.error("[chat interrupt persist failed] %s", exc, exc_info=True)
+        _finalize_rollout_safely(
+            state,
+            status="cancelled",
+            phase="stream",
+            error_code="INTERRUPT_PERSISTENCE_ERROR",
+            error_message=str(exc),
+            retryable=False,
+        )
+        return
+
+    _finalize_rollout_safely(
+        state,
+        status="cancelled",
+        message_id=assistant_message_id,
+        phase="stream",
+        error_code="USER_INTERRUPTED" if reason == "user_interrupted" else "STREAM_CANCELLED",
+        error_message=reason,
+        retryable=False,
+    )
+    logger.info(
+        "[run cancelled] run_id=%s conv=%s reason=%s message_id=%s partial_chars=%s tool_execution_possible=%s",
+        state.run_id,
+        runtime.conv_id,
+        reason,
+        assistant_message_id,
+        len(partial_text),
+        tool_execution_possible,
+    )
 
 
 def _persist_phase_error_events(
@@ -257,10 +392,6 @@ async def stream_chat_events(
     The function signature is identical to the legacy monolithic
     ``chat_streaming.py`` API — routers and tests do not need to change.
     """
-    from app.services.chat.agent_loop import run_agent_loop
-    from app.services.chat.durable_task import run_durable_task
-    from app.services.chat.persist import run_persist
-
     stream_started_at = time.perf_counter()
     state = ChatSessionState(stage_timings=dict(runtime.prepare_metrics or {}))
     state.run_id = make_run_id()
@@ -284,6 +415,85 @@ async def stream_chat_events(
     # The local ``stream_started_at`` above is still used by the
     # durable-task early-exit path below.
     state.stream_started_at = stream_started_at
+
+    active_task = asyncio.current_task()
+    registered = False
+    try:
+        register_active_turn(
+            state.run_id,
+            runtime.conv_id,
+            task=active_task,
+        )
+        registered = True
+    except Exception as exc:
+        logger.error("[run registry] failed to register run_id=%s: %s", state.run_id, exc)
+        state.record_trace_event(
+            "active_turn_registration_failed",
+            stage="run_start",
+            error=str(exc)[:500],
+        )
+
+    completed = False
+    caught_reason = ""
+    try:
+        async for event in _stream_chat_events_impl(
+            runtime,
+            req,
+            bind,
+            state,
+            stream_started_at,
+        ):
+            yield event
+        completed = True
+    except asyncio.CancelledError as exc:
+        caught_reason = cancellation_reason(exc)
+        if caught_reason == "user_interrupted":
+            _persist_interrupted_turn(
+                runtime=runtime,
+                req=req,
+                bind=bind,
+                state=state,
+                reason=caught_reason,
+            )
+            completed = True
+            yield sse_event(
+                run_done(
+                    state.run_id,
+                    RunFinalStatus.CANCELLED,
+                    message_id=state.assistant_message_id,
+                )
+            )
+            return
+        raise
+    finally:
+        active_snapshot = get_active_turn(state.run_id) if registered else None
+        if not completed and not state.rollout_finalized:
+            reason = caught_reason or (
+                "user_interrupted"
+                if active_snapshot is not None and active_snapshot.interrupt_requested
+                else "stream_cancelled"
+            )
+            _persist_interrupted_turn(
+                runtime=runtime,
+                req=req,
+                bind=bind,
+                state=state,
+                reason=reason,
+            )
+        if registered:
+            unregister_active_turn(state.run_id, task=active_task)
+
+
+async def _stream_chat_events_impl(
+    runtime: ChatRuntime,
+    req: SendMessageRequest,
+    bind,
+    state: ChatSessionState,
+    stream_started_at: float,
+) -> AsyncIterator[str]:
+    from app.services.chat.agent_loop import run_agent_loop
+    from app.services.chat.durable_task import run_durable_task
+    from app.services.chat.persist import run_persist
 
     # V0.0.4 D.3: structured run-lifecycle log. Stays human-readable; easy to
     # grep / pipe into JSON later. Emitted at run start, persist success, and

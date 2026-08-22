@@ -22,6 +22,8 @@ with a Codex runtime. The adapted mechanisms currently cover:
   server-provided delay handling, and side-effect-aware replay suppression;
 - explicitly declared read-only parallel tool lanes, exclusive mutation
   barriers, bounded fan-out, and deterministic call-order result merging;
+- active-turn registration, authorized user interruption, durable partial
+  reply markers, cancelled-step checkpoints, and terminal cancellation events;
 - `SKILL.md` frontmatter parsing and conservative YAML scalar repair; and
 - ordered Skill-root discovery, immutable content snapshots, cache reuse,
   error-isolated merging, and unambiguous candidate selection.

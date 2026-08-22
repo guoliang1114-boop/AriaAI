@@ -37,6 +37,7 @@ import {
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { exportConversationFile } from '../../api/chatExport'
+import { requestChatRunCancellation } from '../../api/chatRuns'
 import { useToast } from '../../contexts/ToastContext'
 import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
@@ -1055,6 +1056,8 @@ export function Chat() {
   const scrollHeightBeforeLoadRef = useRef<number>(0)
   const isNearBottomRef = useRef(true)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const activeRunIdRef = useRef<string | null>(null)
+  const stopRequestedRef = useRef(false)
   // remember whether the current conversation was brand-new (so we refresh title after first reply)
   const isNewConvRef = useRef(false)
   // Store first message for auto-renaming
@@ -1495,7 +1498,25 @@ export function Chat() {
 
   // ── Stop generation ───────────────────────────────────────────────────────
   const handleStop = () => {
-    abortControllerRef.current?.abort()
+    const controller = abortControllerRef.current
+    if (!controller) return
+    stopRequestedRef.current = true
+    setLiveStatusText('正在停止并保存当前进度…')
+    const runId = activeRunIdRef.current
+    if (!runId) {
+      controller.abort()
+      return
+    }
+    void requestChatRunCancellation(runId)
+      .then((accepted) => {
+        if (!accepted) controller.abort()
+      })
+      .catch(() => controller.abort())
+    window.setTimeout(() => {
+      if (stopRequestedRef.current && abortControllerRef.current === controller) {
+        controller.abort()
+      }
+    }, 1500)
   }
 
   // ── Send message wrapper ──────────────────────────────────────────────────
@@ -1515,6 +1536,8 @@ export function Chat() {
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setErrorMsg(null)
+    activeRunIdRef.current = null
+    stopRequestedRef.current = false
     streamingContentRef.current = ''
     setStreamingContent('')
     setStreamArtifacts([])
@@ -1615,7 +1638,9 @@ export function Chat() {
       }
 
       const handleStreamEvent = async (data: any) => {
-        if ((data.type === 'text' || data.type === 'chunk') && data.content) {
+        if (data.type === 'run_started' && typeof data.run_id === 'string') {
+          activeRunIdRef.current = data.run_id
+        } else if ((data.type === 'text' || data.type === 'chunk') && data.content) {
           assistantContent += data.content
           streamingContentRef.current = assistantContent
           if (!updateTimerRef.current) {
@@ -1670,6 +1695,8 @@ export function Chat() {
         } else if (data.type === 'done') {
           streamDone = true
           completedNormally = true
+          activeRunIdRef.current = null
+          stopRequestedRef.current = false
           if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
           flushUpdate()
           // Message is now persisted in DB (backend saves before sending 'done').
@@ -1809,7 +1836,7 @@ export function Chat() {
       await processStreamBuffer(true)
 
       // Stream ended but no 'done' event (e.g. aborted)
-      if (!streamDone && assistantContent) {
+      if (!streamDone && (assistantContent || stopRequestedRef.current)) {
         if (skillRunActiveRef.current && currentConvId) {
           setToolStatus('流式连接已结束，正在同步后台保存的 Skill 结果...')
           const recovered = await recoverConversationMessages(currentConvId, 30)
@@ -1826,12 +1853,22 @@ export function Chat() {
         if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
         flushUpdate()
         await new Promise(r => setTimeout(r, 50))
+        const wasStopped = stopRequestedRef.current
+        const interruptionNote = wasStopped
+          ? '（本轮已停止，正在保存中断状态。）'
+          : '（连接中断，以上为已收到的部分内容。）'
         const partialMsg: Message = {
           id: Date.now() + 1,
           conversation_id: currentConvId!,
           role: 'assistant',
-          content: assistantContent + ' _(generation stopped)_',
-          metadata_json: '{}',
+          content: assistantContent
+            ? `${assistantContent}\n\n${interruptionNote}`
+            : interruptionNote,
+          metadata_json: JSON.stringify({
+            turn_interrupted: {
+              reason: wasStopped ? 'user_interrupted' : 'stream_cancelled',
+            },
+          }),
           created_at: new Date().toISOString(),
         }
         setMessages(prev => [...prev, partialMsg])
@@ -1844,8 +1881,27 @@ export function Chat() {
       setIsThinking(false)
     } catch (err: any) {
       if (err?.name === 'AbortError' || completedNormally) {
-        // normal stop — already handled above
-        // Keep sessionStorage in case user wants to resume
+        if (stopRequestedRef.current && !completedNormally) {
+          const partialContent = streamingContentRef.current.trim()
+          if (
+            currentConvIdForCleanup
+            && currentConvIdRef.current === String(currentConvIdForCleanup)
+          ) {
+            const partialMsg: Message = {
+              id: Date.now() + 1,
+              conversation_id: currentConvIdForCleanup,
+              role: 'assistant',
+              content: partialContent
+                ? `${partialContent}\n\n（本轮已停止，正在保存中断状态。）`
+                : '（本轮已停止，正在保存中断状态。）',
+              metadata_json: JSON.stringify({ turn_interrupted: { reason: 'user_interrupted' } }),
+              created_at: new Date().toISOString(),
+            }
+            setMessages(prev => [...prev, partialMsg])
+          }
+          sessionStorage.removeItem('pendingStreamingConvId')
+          streamingConvIdRef.current = null
+        }
       } else {
         console.error('Send failed:', err)
         if (skillRunActiveRef.current) {
@@ -1914,6 +1970,8 @@ export function Chat() {
       setSending(false)
       isSendingRef.current = false
       abortControllerRef.current = null
+      activeRunIdRef.current = null
+      stopRequestedRef.current = false
     }
   }
 

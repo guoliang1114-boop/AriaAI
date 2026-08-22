@@ -593,15 +593,21 @@ async def run_agent_loop(
 
         # ---------- one LLM turn (events stream out live as the model writes) ----------
         result = _StreamResult()
-        async for ev in _consume_stream(
-            runtime,
-            state,
-            messages,
-            step_index=step_index,
-            stream_label=f"step_{step_index}",
-            result=result,
-        ):
-            yield ev
+        try:
+            async for ev in _consume_stream(
+                runtime,
+                state,
+                messages,
+                step_index=step_index,
+                stream_label=f"step_{step_index}",
+                result=result,
+            ):
+                yield ev
+        finally:
+            # Keep the text visible so far available to the outer interruption
+            # boundary even when cancellation lands in the middle of a stream.
+            step.model_text = result.text
+            state.full_text = _append_text(accumulated_text, result.text)
         text = result.text
         tool_calls = result.tool_calls
         reasoning = result.reasoning
@@ -615,15 +621,19 @@ async def run_agent_loop(
                 {"role": "user", "content": _CONTINUATION_PROMPT},
             ]
             cont_result = _StreamResult()
-            async for ev in _consume_stream(
-                runtime,
-                state,
-                cont_messages,
-                step_index=step_index,
-                stream_label=f"step_{step_index}_continuation",
-                result=cont_result,
-            ):
-                yield ev
+            try:
+                async for ev in _consume_stream(
+                    runtime,
+                    state,
+                    cont_messages,
+                    step_index=step_index,
+                    stream_label=f"step_{step_index}_continuation",
+                    result=cont_result,
+                ):
+                    yield ev
+            finally:
+                step.model_text = text + cont_result.text
+                state.full_text = _append_text(accumulated_text, step.model_text)
             text += cont_result.text
             reasoning += cont_result.reasoning
             tool_calls.extend(cont_result.tool_calls)
@@ -657,6 +667,7 @@ async def run_agent_loop(
         step.truncated = truncated
         step.tool_calls = list(tool_calls)
         accumulated_text = _append_text(accumulated_text, text)
+        state.full_text = accumulated_text
 
         if not tool_calls:
             step.duration_ms = round((time.perf_counter() - step_started_at) * 1000)
@@ -799,6 +810,7 @@ async def run_agent_loop(
                 # Markdown writes also stream their content as user-visible text.
                 if outcome.markdown_inline_text:
                     accumulated_text = _append_text(accumulated_text, outcome.markdown_inline_text)
+                    state.full_text = accumulated_text
                     yield sse_event({"type": "text", "content": outcome.markdown_inline_text})
                     if state.run_id:
                         yield sse_event(

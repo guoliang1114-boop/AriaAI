@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { requestChatRunCancellation } from '../../../api/chatRuns'
 import { getApiBaseUrl } from '../../../config/api'
 import i18n from '../../../i18n'
 import type { GeneratedArtifact, Message } from '../../../types/api'
@@ -76,6 +77,7 @@ interface UseChatStreamReturn {
 
 interface StreamEvent {
   type: string
+  run_id?: string
   content?: string
   message?: string
   references?: Array<{ type: string; id: number; title: string }>
@@ -127,6 +129,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   const accumulatedRef = useRef('')
   const artifactsRef = useRef<GeneratedArtifact[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
+  const activeRunIdRef = useRef<string | null>(null)
   const stopRequestedRef = useRef(false)
 
   const reset = () => {
@@ -138,30 +141,55 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
 
   const stop = useCallback(() => {
     stopRequestedRef.current = true
-    abortControllerRef.current?.abort()
+    setStatusMessage('正在停止并保存当前进度…')
+    const controller = abortControllerRef.current
+    if (!controller) return
+    const runId = activeRunIdRef.current
+    if (!runId) {
+      controller.abort()
+      return
+    }
+    void requestChatRunCancellation(runId)
+      .then((accepted) => {
+        if (!accepted) controller.abort()
+      })
+      .catch(() => controller.abort())
+    window.setTimeout(() => {
+      if (stopRequestedRef.current && abortControllerRef.current === controller) {
+        controller.abort()
+      }
+    }, 1500)
   }, [])
 
   useEffect(() => {
     return () => {
       stopRequestedRef.current = true
+      const runId = activeRunIdRef.current
+      if (runId) void requestChatRunCancellation(runId).catch(() => false)
       abortControllerRef.current?.abort()
     }
   }, [])
 
   const finishStoppedStream = useCallback(() => {
     const partial = accumulatedRef.current
-    if (partial.trim() && conversationId != null) {
+    if (conversationId != null) {
       const assistantMsg: Message = {
         id: assistantDraftIdRef.current,
         conversation_id: conversationId,
         role: 'assistant',
-        content: `${partial}\n\n（已停止）`,
-        metadata_json: JSON.stringify({ stopped: true }),
+        content: partial.trim()
+          ? `${partial}\n\n（本轮已停止，正在保存中断状态。）`
+          : '（本轮已停止，正在保存中断状态。）',
+        metadata_json: JSON.stringify({
+          stopped: true,
+          turn_interrupted: { reason: 'user_interrupted' },
+        }),
         created_at: new Date().toISOString(),
       }
       onAssistantMessage(assistantMsg)
     }
     abortControllerRef.current = null
+    activeRunIdRef.current = null
     stopRequestedRef.current = false
     setStatus('idle')
     reset()
@@ -179,6 +207,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
 
       reset()
       stopRequestedRef.current = false
+      activeRunIdRef.current = null
       setStatus('sending')
       setStatusMessage('已收到，正在连接模型…')
 
@@ -248,7 +277,9 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       let streamErr: string | null = null
 
       const handleEvent = (ev: StreamEvent) => {
-        if ((ev.type === 'text' || ev.type === 'chunk') && ev.content) {
+        if (ev.type === 'run_started' && typeof ev.run_id === 'string') {
+          activeRunIdRef.current = ev.run_id
+        } else if ((ev.type === 'text' || ev.type === 'chunk') && ev.content) {
           accumulatedRef.current += ev.content
           setStreamingContent(accumulatedRef.current)
           setStatusMessage(null)
@@ -285,6 +316,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           }
         } else if (ev.type === 'done') {
           done = true
+          activeRunIdRef.current = null
           finalReferences = ev.references || []
           finalArtifacts = ev.artifacts && ev.artifacts.length > 0 ? ev.artifacts : artifactsRef.current
           finalToolCalls = ev.tool_calls || []
@@ -338,6 +370,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         setStatus('error')
         onError?.(streamErr)
         abortControllerRef.current = null
+        activeRunIdRef.current = null
         reset()
         return
       }
@@ -349,6 +382,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         setStatus('error')
         onError?.('AI 没有返回任何内容')
         abortControllerRef.current = null
+        activeRunIdRef.current = null
         reset()
         return
       }
@@ -369,6 +403,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       }
       onAssistantMessage(assistantMsg)
       abortControllerRef.current = null
+      activeRunIdRef.current = null
       stopRequestedRef.current = false
       setStatus('idle')
       reset()

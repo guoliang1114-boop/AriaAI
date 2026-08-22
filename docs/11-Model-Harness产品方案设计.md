@@ -491,6 +491,7 @@ Model Layer（外部推理服务）
 - 协调各 Harness 的执行顺序：Context → Routing → Model → Tool → Persistence → Event。
 - 处理异常中断和状态回滚。
 - 管理 run 级别的超时和取消。
+- 通过 `POST /chat/runs/{run_id}/cancel` 在复检 Conversation 写权限后取消活动 Turn；浏览器断流不是业务取消的唯一信号。
 
 设计原则：
 
@@ -522,7 +523,7 @@ Model Layer（外部推理服务）
 | 失败阶段 | 用户感知 | 恢复方式 | 数据一致性 |
 |---------|---------|---------|-----------|
 | `preparing` | "生成失败，请重试" | 用户重新发送消息，创建新 run | 无 side effect |
-| `generating` | 文本截断，显示"生成中断" | 前端保留已流式内容，用户可点击"继续生成" | 不保存不完整 message |
+| `generating` | 文本截断，显示"生成中断" | 保存部分回复和中断标记；新 Run 可基于历史继续 | 保存 `cancelled` message/step/run 边界，不盲目重放工具 |
 | `running_tool` | 展示工具失败原因 | 若工具支持幂等，自动重试 1 次；否则进入 `failed` | 已执行的写入操作不自动回滚 |
 | `persisting` | "保存结果失败" | 保留 trace，开发者手动修复 | 内部标记为 `persist_failed`，人工介入 |
 

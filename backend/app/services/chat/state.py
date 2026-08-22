@@ -23,6 +23,7 @@ class ChatSessionState:
     rollout_task_id: int | None = None
     rollout_bind: Any = field(default=None, repr=False)
     assistant_message_id: int | None = None
+    rollout_finalized: bool = False
 
     # ------------------------------------------------------------------
     # User-visible text (assembled by the agent loop)

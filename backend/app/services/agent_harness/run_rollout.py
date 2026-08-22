@@ -402,13 +402,19 @@ def checkpoint_chat_rollout(bind: Any, task_id: int, step: Any, state: Any) -> d
         record.status = "pending" if status == "waiting_confirmation" else status
         record.input_json = _json_dumps({"tool_calls": checkpoint["tool_calls"]})
         record.output_json = _json_dumps(checkpoint)
-        record.error_code = "STEP_FAILED" if status == "failed" else ""
+        record.error_code = (
+            "STEP_FAILED"
+            if status == "failed"
+            else "STEP_CANCELLED"
+            if status == "cancelled"
+            else ""
+        )
         record.error_message = str(checkpoint.get("error") or "")
         record.retryable = bool(checkpoint.get("retryable", False))
         record.retry_count = int(checkpoint.get("retry_count") or 0)
         record.updated_at = utc_now_naive()
         record.started_at = record.started_at or record.updated_at
-        if status in {"completed", "failed"}:
+        if status in {"completed", "failed", "cancelled"}:
             record.completed_at = record.updated_at
         task.current_step_key = key
         task.updated_at = record.updated_at

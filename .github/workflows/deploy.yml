@@ -158,6 +158,7 @@ jobs:
                 tests/test_structured_patch.py \
                 tests/test_tool_transcript.py \
                 tests/test_tool_parallelism.py \
+                tests/test_turn_interrupt.py \
                 tests/test_turn_retry.py \
                 tests/test_chat_actions.py
 

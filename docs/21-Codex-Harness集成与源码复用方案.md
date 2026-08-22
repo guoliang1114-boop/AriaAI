@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
 > 更新日期：2026-08-23
-> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I 已实施
+> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -41,7 +41,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 
 - <https://learn.chatgpt.com/docs/open-source>
 - <https://github.com/openai/codex>
-- <https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.2>（`apply_patch` 的结构化 diff 与应用结果反馈边界）
+- <https://developers.openai.com/api/docs/guides/latest-model>（Agent 编排的并发、重试、停止条件与副作用边界）
 - <https://learn.chatgpt.com/docs/build-skills>（Skill 包结构与渐进披露原则）
 - <https://learn.chatgpt.com/docs/agent-approvals-security>（技术权限边界与审批策略分层）
 - <https://developers.openai.com/api/docs/guides/function-calling>（工具输出通过 `call_id` 与具体调用配对）
@@ -79,7 +79,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 
 大型 Rust 子系统只有在 Python 重写成本明显高于收益、且 Aria 确实需要同类能力时才重新评估。目前没有这种必要。
 
-## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I 已吸收的源码机制
+## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J 已吸收的源码机制
 
 | Codex 上游机制 | 上游路径 | Aria 原生实现 | 接入位置 | 价值 |
 |---|---|---|---|---|
@@ -92,6 +92,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 | 工具转录规范化 | `core/src/context_manager/normalize.rs`、`history.rs` | `backend/app/services/agent_harness/tool_transcript.py` | `chat/agent_loop.py` 的每次 Provider 请求边界 | 补齐缺失结果、移除孤立结果、稳定修复调用 ID，并在执行前拒绝重复 ID，避免协议错误与重复副作用 |
 | 模型回合安全重试 | `core/src/responses_retry.rs`、`protocol/src/error.rs`、`codex-api/src/sse/responses.rs` | `backend/app/services/agent_harness/turn_retry.py` | `chat/agent_loop.py` + 各模型 Provider | 统一错误分类、服务端等待时间、有限退避和遥测；任何模型事件出现后关闭自动重放窗口 |
 | 只读工具并发车道与写入屏障 | `core/src/tools/parallel.rs`、`orchestrator.rs` | `backend/app/services/agent_harness/tool_scheduler.py` | `chat/agent_loop.py` + 项目文件读取工具 | 显式安全的连续读取可有界并发；写入、审批、未知工具始终作为顺序屏障，结果按模型调用顺序回填 |
+| 用户中断与终止边界 | `core/src/tasks/mod.rs`、`context/turn_aborted.rs`、`tests/suite/abort_tasks.rs` | `backend/app/services/agent_harness/turn_interrupt.py` | Chat SSE + Run Rollout + 两个聊天前端 | 停止按钮取消真实后端任务，保留部分回复并持久化 `cancelled` 终态；可能已执行的工具不会被盲目重放 |
 | Skill 前置信息解析 | `codex-rs/skills/src/parser.rs` | `backend/app/services/agent_harness/skill_package.py` | `routers/skills.py` | 校验 `SKILL.md`、修复有限 YAML 歧义、安全加载指定引用 |
 | Skill Root 快照与选择 | `codex-rs/skills/src/loading.rs`、`selection.rs`、`ext/skills/src/loader/` | `backend/app/services/agent_harness/skill_roots.py` | Skill 启动同步 + `skill_router.py` | 有序 Root、不可变内容指纹、增量缓存、坏包隔离和发布态候选选择 |
 
@@ -349,6 +350,21 @@ Phase 2I 吸收 Codex Tool Runtime 的并发能力声明和读写隔离原则，
 
 这不是照搬 Codex shell 并发执行器。Aria 不开放通用命令，并发资格由自己的工具规格和业务权限决定；默认是顺序执行，而不是从工具名猜测安全性。
 
+### 4.13 用户中断与可验证终止边界
+
+Phase 2J 吸收 Codex 活动 Turn 取消和对模型可见的中断标记，但把控制、鉴权和持久化全部放在 Aria 自己的运行时中：
+
+- 每个普通 Chat Run 在当前 Aria ASGI 进程中注册实际服务该 SSE 的 `asyncio.Task`，Run 完成后按任务身份安全注销；
+- 新增 `POST /chat/runs/{run_id}/cancel`，先按 Run 关联的 Conversation 复检当前用户写权限，再取消目标任务；
+- 主聊天页和项目聊天页都从 `run_started` 捕获 `run_id`，停止时先请求后端取消，浏览器断流只作为 1.5 秒兜底；
+- Agent Loop 在每个模型流和续写流的边界持续更新部分文本，因此中断发生在 delta 中间时也不会丢失已经展示的内容；
+- 用户取消会保存部分 Assistant Message，并追加“本轮已由用户停止”的模型可见标记；网络断开使用不同原因 `stream_cancelled`；
+- 已运行到工具阶段时，中断消息明确提示工具可能已经部分执行，后续操作必须先检查项目事实，不自动重放；
+- 当前运行中的 Step 写入 `cancelled / STEP_CANCELLED` checkpoint，Run Rollout 追加 `run_cancelled`，Product Run Event 以 `run_done(final_status=cancelled)` 收口；
+- 若取消抵达时 Assistant Message 已经成功持久化，则不创建重复消息，并保持原有完成/等待确认终态。
+
+这一实现不包含 Codex 的任务对象、协议、App Server 或进程。活动表只保存随机 Aria `run_id`、Conversation ID 和本进程 Task 引用；生产当前为单 Uvicorn 进程，与部署拓扑一致。未来若改为多 Worker，活动信号需升级为 Redis/PostgreSQL 通知或统一 Run Worker，而不是依赖请求负载均衡恰好命中同一进程。
+
 ## 5. 已撤回的错误方向
 
 下列通信型实现已从工作区移除：
@@ -465,6 +481,16 @@ Phase 2I 吸收 Codex Tool Runtime 的并发能力声明和读写隔离原则，
 - `codex-rs/core/tests/suite/tool_parallelism.rs`。
 
 已完成：建立只读工具的显式并发能力声明、权限二次校验、有界连续批次、写入/审批顺序屏障和完成顺序无关的确定性结果合并。目前仅项目通用文件与 Markdown 读取获得并发资格，并通过工作线程避免阻塞事件循环。未标记工具默认顺序，不新增通用 shell、Codex runtime 或数据库迁移。
+
+### Phase 2J：用户中断与可验证终止边界（已实施）
+
+参考候选：
+
+- `codex-rs/core/src/tasks/mod.rs`；
+- `codex-rs/core/src/context/turn_aborted.rs`；
+- `codex-rs/core/tests/suite/abort_tasks.rs`。
+
+已完成：停止生成从浏览器本地 `AbortController` 升级为经过 Conversation 写权限校验的 Aria Run 取消；模型流中的部分文本、中断原因、工具可能部分执行提示、Step cancelled checkpoint、Assistant Message 和 `run_cancelled` 终态形成同一持久化边界；两个聊天入口均已接通，并保留浏览器断流兜底。实现不调用 Codex、不新增数据库迁移，继续复用 Aria 的 Message 与 TaskRun/TaskStep/TaskEvent。
 
 ## 8. 许可证与升级流程
 
