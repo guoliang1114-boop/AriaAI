@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import random
 import weakref
 from collections.abc import AsyncIterator
 
@@ -25,6 +24,7 @@ from app.config import (
     MIMO_TOKEN_PLAN_BASE_URL as CONFIG_MIMO_TOKEN_PLAN_BASE_URL,
 )
 from app.database import engine
+from app.services.agent_harness.turn_retry import ModelProviderHTTPError
 from sqlmodel import Session
 from app.models.db import Setting
 
@@ -313,64 +313,29 @@ def _to_openai_tools(tools: list[dict]) -> list[dict]:
 # Streaming
 # =============================================================================
 
-async def _stream_with_retry(
+async def _stream_once(
     client: httpx.AsyncClient,
     headers: dict,
     payload: dict,
-    max_retries: int = 3,
 ) -> AsyncIterator[str]:
-    """Internal stream handler with retry logic for rate limiting."""
-    last_error = None
-    
-    for attempt in range(max_retries):
-        try:
-            async with client.stream(
-                "POST",
-                f"{KIMI_BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload,
-            ) as response:
-                if response.status_code == 429:
-                    # Rate limited - check if we should retry
-                    if attempt < max_retries - 1:
-                        wait_time = (2 ** attempt) + random.uniform(0, 1)  # exponential backoff
-                        logger.warning(f"[Kimi] Rate limited (429), retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    else:
-                        # Last attempt failed with 429
-                        body = await response.aread()
-                        error_msg = body.decode()[:300]
-                        raise Exception(
-                            "Kimi 服务当前繁忙，请稍后重试。"
-                            f"\n\n详细信息：API 限流 (HTTP 429)"
-                        )
-                
-                if response.status_code != 200:
-                    body = await response.aread()
-                    error_msg = body.decode()[:300]
-                    raise Exception(f"Kimi HTTP {response.status_code}: {error_msg}")
-                
-                # Stream successful - yield all chunks
-                async for line in response.aiter_lines():
-                    yield line
-                return  # Success, exit retry loop
-                
-        except Exception as e:
-            last_error = e
-            # Don't retry on client errors (4xx except 429) or if it's our custom error
-            if "Kimi 服务当前繁忙" in str(e):
-                raise  # Re-raise our user-friendly error
-            if attempt < max_retries - 1:
-                wait_time = (2 ** attempt) + random.uniform(0, 1)
-                logger.warning(f"[Kimi] Stream error, retrying in {wait_time:.1f}s: {e}")
-                await asyncio.sleep(wait_time)
-            else:
-                raise
-    
-    # Should not reach here, but just in case
-    if last_error:
-        raise last_error
+    """Open one Kimi stream; the Agent Loop owns all safe retries."""
+
+    async with client.stream(
+        "POST",
+        f"{KIMI_BASE_URL}/chat/completions",
+        headers=headers,
+        json=payload,
+    ) as response:
+        if response.status_code != 200:
+            body = await response.aread()
+            raise ModelProviderHTTPError(
+                "Kimi",
+                response.status_code,
+                body=body.decode(errors="replace")[:300],
+                headers=response.headers,
+            )
+        async for line in response.aiter_lines():
+            yield line
 
 
 async def stream_response(
@@ -442,7 +407,7 @@ async def stream_response(
     any_content_yielded = False
     
     try:
-        async for line in _stream_with_retry(client, headers, payload):
+        async for line in _stream_once(client, headers, payload):
             if not line.startswith("data: "):
                 continue
             payload_str = line[6:].strip()
@@ -669,55 +634,29 @@ def _ensure_deepseek_reasoning_content(messages: list[dict]) -> list[dict]:
 # DeepSeek Streaming
 # =============================================================================
 
-async def _stream_deepseek_with_retry(
+async def _stream_deepseek_once(
     client: httpx.AsyncClient,
     headers: dict,
     payload: dict,
-    max_retries: int = 3,
 ) -> AsyncIterator[str]:
-    """Internal stream handler with retry logic for DeepSeek rate limiting."""
-    last_error = None
+    """Open one DeepSeek stream; the Agent Loop owns all safe retries."""
 
-    for attempt in range(max_retries):
-        try:
-            async with client.stream(
-                "POST",
-                f"{DEEPSEEK_BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload,
-            ) as response:
-                if response.status_code == 429:
-                    if attempt < max_retries - 1:
-                        wait_time = (2 ** attempt) + random.uniform(0, 1)
-                        logger.warning(f"[DeepSeek] Rate limited (429), retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    body = await response.aread()
-                    error_msg = body.decode()[:300]
-                    raise Exception(f"DeepSeek service is busy. API rate limited (HTTP 429): {error_msg}")
-
-                if response.status_code != 200:
-                    body = await response.aread()
-                    error_msg = body.decode()[:300]
-                    raise Exception(f"DeepSeek HTTP {response.status_code}: {error_msg}")
-
-                async for line in response.aiter_lines():
-                    yield line
-                return
-
-        except Exception as e:
-            last_error = e
-            if "DeepSeek service is busy" in str(e):
-                raise
-            if attempt < max_retries - 1:
-                wait_time = (2 ** attempt) + random.uniform(0, 1)
-                logger.warning(f"[DeepSeek] Stream error, retrying in {wait_time:.1f}s: {e}")
-                await asyncio.sleep(wait_time)
-            else:
-                raise
-
-    if last_error:
-        raise last_error
+    async with client.stream(
+        "POST",
+        f"{DEEPSEEK_BASE_URL}/chat/completions",
+        headers=headers,
+        json=payload,
+    ) as response:
+        if response.status_code != 200:
+            body = await response.aread()
+            raise ModelProviderHTTPError(
+                "DeepSeek",
+                response.status_code,
+                body=body.decode(errors="replace")[:300],
+                headers=response.headers,
+            )
+        async for line in response.aiter_lines():
+            yield line
 
 
 async def stream_response_deepseek(
@@ -762,7 +701,7 @@ async def stream_response_deepseek(
     client = _get_http_client()
 
     try:
-        async for line in _stream_deepseek_with_retry(client, headers, payload):
+        async for line in _stream_deepseek_once(client, headers, payload):
             if not line.startswith("data: "):
                 continue
             payload_str = line[6:].strip()
@@ -921,56 +860,30 @@ async def complete_deepseek(
 # Xiaomi MiMo Streaming
 # =============================================================================
 
-async def _stream_mimo_with_retry(
+async def _stream_mimo_once(
     client: httpx.AsyncClient,
     base_url: str,
     headers: dict,
     payload: dict,
-    max_retries: int = 3,
 ) -> AsyncIterator[str]:
-    """Internal stream handler with retry logic for Xiaomi MiMo rate limiting."""
-    last_error = None
+    """Open one MiMo stream; the Agent Loop owns all safe retries."""
 
-    for attempt in range(max_retries):
-        try:
-            async with client.stream(
-                "POST",
-                f"{base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            ) as response:
-                if response.status_code == 429:
-                    if attempt < max_retries - 1:
-                        wait_time = (2 ** attempt) + random.uniform(0, 1)
-                        logger.warning(f"[MiMo] Rate limited (429), retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    body = await response.aread()
-                    error_msg = body.decode()[:300]
-                    raise Exception(f"MiMo service is busy. API rate limited (HTTP 429): {error_msg}")
-
-                if response.status_code != 200:
-                    body = await response.aread()
-                    error_msg = body.decode()[:300]
-                    raise Exception(f"MiMo HTTP {response.status_code}: {error_msg}")
-
-                async for line in response.aiter_lines():
-                    yield line
-                return
-
-        except Exception as e:
-            last_error = e
-            if "MiMo service is busy" in str(e):
-                raise
-            if attempt < max_retries - 1:
-                wait_time = (2 ** attempt) + random.uniform(0, 1)
-                logger.warning(f"[MiMo] Stream error, retrying in {wait_time:.1f}s: {e}")
-                await asyncio.sleep(wait_time)
-            else:
-                raise
-
-    if last_error:
-        raise last_error
+    async with client.stream(
+        "POST",
+        f"{base_url}/chat/completions",
+        headers=headers,
+        json=payload,
+    ) as response:
+        if response.status_code != 200:
+            body = await response.aread()
+            raise ModelProviderHTTPError(
+                "MiMo",
+                response.status_code,
+                body=body.decode(errors="replace")[:300],
+                headers=response.headers,
+            )
+        async for line in response.aiter_lines():
+            yield line
 
 
 async def stream_response_mimo(
@@ -1017,7 +930,7 @@ async def stream_response_mimo(
     client = _get_http_client()
 
     try:
-        async for line in _stream_mimo_with_retry(client, base_url, headers, payload):
+        async for line in _stream_mimo_once(client, base_url, headers, payload):
             if not line.startswith("data: "):
                 continue
             payload_str = line[6:].strip()
@@ -1175,59 +1088,29 @@ async def complete_mimo(
 # BigModel (Zhipu AI) Streaming
 # =============================================================================
 
-async def _stream_bigmodel_with_retry(
+async def _stream_bigmodel_once(
     client: httpx.AsyncClient,
     headers: dict,
     payload: dict,
-    max_retries: int = 3,
 ) -> AsyncIterator[str]:
-    """Internal stream handler with retry logic for rate limiting."""
-    last_error = None
-    
-    for attempt in range(max_retries):
-        try:
-            async with client.stream(
-                "POST",
-                f"{BIGMODEL_BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload,
-            ) as response:
-                if response.status_code == 429:
-                    if attempt < max_retries - 1:
-                        wait_time = (2 ** attempt) + random.uniform(0, 1)
-                        logger.warning(f"[BigModel] Rate limited (429), retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    else:
-                        body = await response.aread()
-                        error_msg = body.decode()[:300]
-                        raise Exception(
-                            "BigModel 服务当前繁忙，请稍后重试。"
-                            f"\n\n详细信息：API 限流 (HTTP 429)"
-                        )
-                
-                if response.status_code != 200:
-                    body = await response.aread()
-                    error_msg = body.decode()[:300]
-                    raise Exception(f"BigModel HTTP {response.status_code}: {error_msg}")
-                
-                async for line in response.aiter_lines():
-                    yield line
-                return
-                
-        except Exception as e:
-            last_error = e
-            if "BigModel 服务当前繁忙" in str(e):
-                raise
-            if attempt < max_retries - 1:
-                wait_time = (2 ** attempt) + random.uniform(0, 1)
-                logger.warning(f"[BigModel] Stream error, retrying in {wait_time:.1f}s: {e}")
-                await asyncio.sleep(wait_time)
-            else:
-                raise
-    
-    if last_error:
-        raise last_error
+    """Open one BigModel stream; the Agent Loop owns all safe retries."""
+
+    async with client.stream(
+        "POST",
+        f"{BIGMODEL_BASE_URL}/chat/completions",
+        headers=headers,
+        json=payload,
+    ) as response:
+        if response.status_code != 200:
+            body = await response.aread()
+            raise ModelProviderHTTPError(
+                "BigModel",
+                response.status_code,
+                body=body.decode(errors="replace")[:300],
+                headers=response.headers,
+            )
+        async for line in response.aiter_lines():
+            yield line
 
 
 async def stream_response_bigmodel(
@@ -1271,7 +1154,7 @@ async def stream_response_bigmodel(
     finish_reason = None
     
     try:
-        async for line in _stream_bigmodel_with_retry(client, headers, payload):
+        async for line in _stream_bigmodel_once(client, headers, payload):
             if not line.startswith("data: "):
                 continue
             payload_str = line[6:].strip()

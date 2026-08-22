@@ -29,6 +29,22 @@ cases:
         input:
           mode: replace
 
+  - id: rollback_markdown_version_requires_modify
+    content: "把刚才的 Markdown 文档回滚到版本 12。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: modify_existing_file
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: modify_project_space
+    expected_write_allowed: true
+    allow_tools:
+      - name: update_project_markdown_document
+        input:
+          mode: rollback
+          file_id: 41
+          version_id: 12
+          base_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
   - id: direct_project_memory_summary
     content: "请基于当前项目的结构化记忆，给我一个 5 条以内的项目概览摘要，覆盖当前阶段、关键进展、风险和下一步动作。"
     project_id: 27

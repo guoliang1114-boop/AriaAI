@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from app.services.chat.agent_step import AgentStep
 
@@ -19,6 +20,9 @@ class ChatSessionState:
     # AI Run identity (Product Run Event v1, see product_run_events.py)
     # ------------------------------------------------------------------
     run_id: str = ""
+    rollout_task_id: int | None = None
+    rollout_bind: Any = field(default=None, repr=False)
+    assistant_message_id: int | None = None
 
     # ------------------------------------------------------------------
     # User-visible text (assembled by the agent loop)

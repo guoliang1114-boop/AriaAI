@@ -25,10 +25,10 @@ AriaAI is an open experiment in this direction: an AI-native workspace with memo
 - **Project memory**: structured project context, progress, risks, open questions, delivery signals, and generated summaries.
 - **Client memory**: long-term client context across projects, including reusable lessons, preferences, and relationship signals.
 - **Agentic chat**: project-aware and workspace-aware chat with streaming output, tool calls, RAG context, and generated artifacts.
-- **Skill workflows**: reusable professional workflows for briefing, strategy, analysis, document generation, and consulting delivery.
+- **Skill workflows**: reusable professional workflows with ordered package roots, immutable content fingerprints, incremental refresh, and DB-published intent selection.
 - **Knowledge workflows**: document ingestion, retrieval, source-aware context, and future integration with project/client memory.
-- **Human-in-the-loop approvals**: server-side pending actions for high-risk write/delete/update operations.
-- **Run harness direction**: a design path toward auditable AI runs with steps, tools, artifacts, approvals, and memory updates.
+- **Human-in-the-loop approvals**: server-side pending actions with versioned, tamper-evident execution envelopes for high-risk write/delete/update operations.
+- **Native run harness**: per-turn tool-aware context budgeting, side-effect-aware model retry, ordered run checkpoints, explicit tool policy, fail-closed tool call/result normalization, and version-checked Markdown patches with reviewable diffs and rollback.
 
 ## Architecture
 
@@ -102,6 +102,7 @@ Recommended reading path:
 13. [Knowledge Base Development Plan](docs/14-V0.0.5知识库开发方案.md)
 14. [Agentic Workspace Upgrade Design](docs/18-Agentic%20Workspace升级功能设计说明书.md)
 15. [OSS Roadmap](docs/20-OSS-Roadmap.md)
+16. [Codex Source Absorption and Native Harness Plan](docs/21-Codex-Harness集成与源码复用方案.md)
 
 ## Project Status
 
@@ -130,6 +131,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution guide.
 ## Community and Security
 
 - [OSS Roadmap](docs/20-OSS-Roadmap.md)
+- [Third-party Notices](THIRD_PARTY_NOTICES.md)
 - [Security Policy](SECURITY.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Pull Request Template](.github/pull_request_template.md)

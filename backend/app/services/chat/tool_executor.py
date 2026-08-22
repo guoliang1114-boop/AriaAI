@@ -24,7 +24,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from fastapi import HTTPException
+
 from app.routers.chat_schemas import SendMessageRequest
+from app.services.agent_harness.output_buffer import serialize_tool_output
+from app.services.agent_harness.tool_policy import PolicyDecision, evaluate_tool_policy
 from app.services.chat.mode_registry import ActionPolicy
 from app.services.chat.pending_actions import tool_confirmation_token
 from app.services.chat.sse import await_with_heartbeat, sse_event
@@ -42,7 +46,6 @@ from app.services.chat_tools import (
     _summarize_tool_result,
     _tool_progress_payload,
 )
-from app.services.policy_guards import policy_allows_tool
 from app.tools import registry
 from app.tools.office_documents import (
     EDIT_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
@@ -51,7 +54,11 @@ from app.tools.office_documents import (
     READ_PROJECT_FILE_TOOL_NAME,
     WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
 )
-from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
+from app.tools.project_markdown import (
+    PROJECT_MARKDOWN_TOOL_NAME,
+    READ_MARKDOWN_TOOL_NAME,
+    prepare_project_markdown_action_input,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +72,19 @@ _PROJECT_FILE_TOOLS = frozenset(
     }
 )
 _PROJECT_SPACE_MANAGEMENT_TOOLS = frozenset({MANAGE_PROJECT_FILES_TOOL_NAME, MANAGE_PROJECT_FOLDERS_TOOL_NAME})
-_CONFIRMATION_POLICIES = {ActionPolicy.MODIFY_EXISTING_FILE, ActionPolicy.DESTRUCTIVE_ACTION}
 _MAX_TOOL_ATTEMPTS = 2
+_TRANSIENT_FAILURE_MARKERS = (
+    "429",
+    "rate limit",
+    "temporarily",
+    "timeout",
+    "timed out",
+    "connection reset",
+    "connection refused",
+    "service unavailable",
+    "overloaded",
+    "tool returned no result",
+)
 
 
 # ----------------------------------------------------------------------
@@ -107,6 +125,35 @@ def _should_retry_tool(runtime: ChatRuntime, tool_name: str) -> bool:
     return tool_name in _PROJECT_OFFICE_TOOLS
 
 
+def _is_safe_read_retry_tool(tool_name: str) -> bool:
+    normalized = (tool_name or "").lower()
+    return normalized in {
+        READ_MARKDOWN_TOOL_NAME,
+        READ_PROJECT_FILE_TOOL_NAME,
+    } or normalized.startswith(("read_", "list_", "search_", "get_"))
+
+
+def _is_transient_failure(result: dict | None) -> bool:
+    if not _result_failed(result):
+        return False
+    rendered = json.dumps(result or {}, ensure_ascii=False, default=str).lower()
+    return any(marker in rendered for marker in _TRANSIENT_FAILURE_MARKERS)
+
+
+def _result_has_persisted_artifact_evidence(result: dict | None) -> bool:
+    """Avoid replay when a failed response may already have produced a file."""
+
+    if not isinstance(result, dict):
+        return False
+    output = result.get("output") if isinstance(result.get("output"), dict) else result
+    return bool(
+        output.get("project_file_id")
+        or output.get("file_id")
+        or output.get("path")
+        or output.get("file_path")
+    )
+
+
 def _blocked_tool_output(*, block_reason: str, required_policy: ActionPolicy, current_policy: Any) -> dict:
     return {
         "ok": False,
@@ -132,12 +179,29 @@ def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tup
         repaired["action"] = "read" if (repaired.get("file_id") is not None or repaired.get("file_name")) else "list"
         changes.append(f"补齐 Markdown 读取动作：{repaired['action']}")
     if tool_name == PROJECT_MARKDOWN_TOOL_NAME and not repaired.get("mode"):
-        repaired["mode"] = "replace" if repaired.get("file_id") is not None else "create"
+        if repaired.get("patch"):
+            repaired["mode"] = "patch"
+        elif repaired.get("version_id") is not None:
+            repaired["mode"] = "rollback"
+        else:
+            repaired["mode"] = "replace" if repaired.get("file_id") is not None else "create"
         changes.append(f"补齐 Markdown 写入模式：{repaired['mode']}")
     allowed_keys = (
         {"project_id", "action", "file_id", "file_name", "max_chars"}
         if tool_name == READ_MARKDOWN_TOOL_NAME
-        else {"project_id", "mode", "file_id", "file_name", "content", "folder_id", "folder_name"}
+        else {
+            "project_id",
+            "mode",
+            "file_id",
+            "file_name",
+            "content",
+            "patch",
+            "base_sha256",
+            "version_id",
+            "summary",
+            "folder_id",
+            "folder_name",
+        }
     )
     dropped = sorted(k for k in repaired if k not in allowed_keys)
     for k in dropped:
@@ -149,6 +213,23 @@ def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tup
 
 def _confirmation_details(tool_name: str, tool_input: dict) -> list[str]:
     action = str(tool_input.get("action") or "").lower()
+    if tool_name == PROJECT_MARKDOWN_TOOL_NAME:
+        mode = str(tool_input.get("mode") or "").lower()
+        frozen = tool_input.get("_aria_patch_preflight")
+        if mode in {"patch", "rollback"} and isinstance(frozen, dict):
+            details = [
+                f"目标文档：{frozen.get('target_name') or tool_input.get('file_id')}",
+                f"基线版本：{str(frozen.get('base_sha256') or '')[:12]}",
+                f"确认后版本：{str(frozen.get('result_sha256') or '')[:12]}",
+                f"原子变更片段：{int(frozen.get('replacement_count') or 0)}",
+            ]
+            if mode == "rollback":
+                details.append(f"回滚目标版本 ID：{frozen.get('rollback_target_version_id')}")
+            preview = str(frozen.get("preview_diff") or "").strip()
+            if preview:
+                suffix = "\n（预览已截断）" if frozen.get("preview_truncated") else ""
+                details.append(f"Diff 预览：\n```diff\n{preview}\n```{suffix}")
+            return details
     if tool_name == MANAGE_PROJECT_FILES_TOOL_NAME and action == "delete":
         ids = list(tool_input.get("file_ids") or [])
         if tool_input.get("file_id") is not None:
@@ -184,8 +265,24 @@ def _confirmation_details(tool_name: str, tool_input: dict) -> list[str]:
     return []
 
 
-def _build_pending_action_payload(tool_name: str, tool_input: dict, details: list[str], token: str) -> dict | None:
+def _build_pending_action_payload(
+    tool_name: str,
+    tool_input: dict,
+    details: list[str],
+    token: str,
+    required_policy: ActionPolicy,
+) -> dict | None:
     action = str(tool_input.get("action") or "").lower()
+    risk_level = (
+        "destructive"
+        if required_policy is ActionPolicy.DESTRUCTIVE_ACTION
+        else "high"
+        if required_policy in {
+            ActionPolicy.MODIFY_EXISTING_FILE,
+            ActionPolicy.DURABLE_TASK,
+        }
+        else "medium"
+    )
     if tool_name == MANAGE_PROJECT_FILES_TOOL_NAME and action == "delete":
         file_ids = list(tool_input.get("file_ids") or [])
         if tool_input.get("file_id") is not None:
@@ -197,6 +294,7 @@ def _build_pending_action_payload(tool_name: str, tool_input: dict, details: lis
             "details": details,
             "tool_name": tool_name,
             "tool_input": tool_input,
+            "risk_level": risk_level,
             "confirmation_token": token,
         }
     if tool_name == MANAGE_PROJECT_FOLDERS_TOOL_NAME and action == "delete":
@@ -207,6 +305,7 @@ def _build_pending_action_payload(tool_name: str, tool_input: dict, details: lis
             "details": details,
             "tool_name": tool_name,
             "tool_input": tool_input,
+            "risk_level": risk_level,
             "confirmation_token": token,
         }
     if tool_name == MANAGE_PROJECT_FOLDERS_TOOL_NAME and action == "move_file":
@@ -217,16 +316,23 @@ def _build_pending_action_payload(tool_name: str, tool_input: dict, details: lis
             "details": details,
             "tool_name": tool_name,
             "tool_input": tool_input,
+            "risk_level": risk_level,
             "confirmation_token": token,
         }
     if tool_name == PROJECT_MARKDOWN_TOOL_NAME:
+        mode = str(tool_input.get("mode") or "").lower()
         return {
             "action_type": "modify_document",
-            "title": "确认修改文档",
-            "description": "即将修改项目 Markdown 文档内容。",
+            "title": "确认回滚文档" if mode == "rollback" else "确认修改文档",
+            "description": (
+                "即将按已预览的版本差异回滚项目 Markdown 文档；执行前会再次校验基线。"
+                if mode == "rollback"
+                else "即将按已预览的结构化 Diff 修改项目 Markdown 文档；执行前会再次校验基线。"
+            ),
             "details": details,
             "tool_name": tool_name,
             "tool_input": tool_input,
+            "risk_level": risk_level,
             "confirmation_token": token,
         }
     if tool_name == WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME:
@@ -237,6 +343,7 @@ def _build_pending_action_payload(tool_name: str, tool_input: dict, details: lis
             "details": details,
             "tool_name": tool_name,
             "tool_input": tool_input,
+            "risk_level": risk_level,
             "confirmation_token": token,
         }
     return {
@@ -246,6 +353,7 @@ def _build_pending_action_payload(tool_name: str, tool_input: dict, details: lis
         "details": details,
         "tool_name": tool_name,
         "tool_input": tool_input,
+        "risk_level": risk_level,
         "confirmation_token": token,
     }
 
@@ -336,11 +444,16 @@ def _handle_blocked(
     }
     state.tool_call_events.append(
         {
+            "tool_use_id": tool_id,
             "tool_name": tool_name,
+            "step_index": step_index,
             "status": "blocked",
             "message": "工具调用已被本轮 ActionPolicy 阻止。",
             "summary": block_reason,
             "required_policy": required_policy.value,
+            "attempt_count": 0,
+            "max_attempts": 0,
+            "retryable": False,
         }
     )
     state.record_trace_event(
@@ -367,6 +480,7 @@ def _handle_confirmation(
     state: ChatSessionState,
     tool_name: str,
     tool_input: dict,
+    required_policy: ActionPolicy,
     tool_id: str,
     step_index: int,
 ) -> ToolOutcome:
@@ -385,17 +499,28 @@ def _handle_confirmation(
         "current_policy": _action_policy_value(runtime.action_policy),
         "assistant_instruction": "Do not claim the operation is complete. Tell the user it is waiting for confirmation.",
     }
-    hitas = _build_pending_action_payload(tool_name, tool_input, details, token)
+    hitas = _build_pending_action_payload(
+        tool_name,
+        tool_input,
+        details,
+        token,
+        required_policy,
+    )
     if hitas:
         state.pending_tool_actions.append(hitas)
     state.tool_call_events.append(
         {
+            "tool_use_id": tool_id,
             "tool_name": tool_name,
+            "step_index": step_index,
             "status": "confirmation_required",
             "message": "该工具会修改或删除项目内容，已暂停等待用户确认。",
             "summary": confirmation_output["reason"],
             "confirmation_token": token,
             "details": details,
+            "attempt_count": 0,
+            "max_attempts": 0,
+            "retryable": False,
         }
     )
     state.pending_tool_confirmations.append(
@@ -415,6 +540,7 @@ def _handle_confirmation(
         tool_name=tool_name,
         confirmation_token=token,
         current_policy=_action_policy_value(runtime.action_policy),
+        required_policy=required_policy.value,
     )
 
     sse_result = {
@@ -434,6 +560,64 @@ def _handle_confirmation(
         },
         events=[sse_event({"type": "tool_result", "result": sse_result})],
         confirmation_required=True,
+    )
+
+
+def _handle_patch_preflight_failure(
+    *,
+    state: ChatSessionState,
+    tool_name: str,
+    tool_id: str,
+    step_index: int,
+    exc: HTTPException,
+) -> ToolOutcome:
+    detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail, ensure_ascii=False, default=str)
+    output = {
+        "ok": False,
+        "success": False,
+        "status": "conflict" if exc.status_code == 409 else "error",
+        "not_executed": True,
+        "error": detail,
+        "http_status": exc.status_code,
+        "assistant_instruction": (
+            "Do not claim the edit is complete. Read the latest document and create a new patch when this is a conflict."
+        ),
+    }
+    state.tool_call_events.append(
+        {
+            "tool_use_id": tool_id,
+            "tool_name": tool_name,
+            "step_index": step_index,
+            "status": output["status"],
+            "message": "结构化文档变更预检失败，未创建审批动作。",
+            "summary": detail,
+            "error": detail,
+            "attempt_count": 0,
+            "max_attempts": 0,
+            "retryable": exc.status_code == 409,
+        }
+    )
+    state.record_trace_event(
+        "structured_patch_preflight_failed",
+        stage=f"step_{step_index}",
+        tool_name=tool_name,
+        status_code=exc.status_code,
+        error=detail,
+    )
+    sse_result = {
+        "type": "tool_result",
+        "tool_name": tool_name,
+        "status": output["status"],
+        "summary": detail,
+        "output": output,
+    }
+    return ToolOutcome(
+        result_block={
+            "type": "tool_result",
+            "tool_use_id": tool_id,
+            "content": json.dumps(output, ensure_ascii=False),
+        },
+        events=[sse_event({"type": "tool_result", "result": sse_result})],
     )
 
 
@@ -463,6 +647,20 @@ async def execute_tool_with_policy(
     tool_input = tool_call.get("input") or {}
 
     if not tool_name or not isinstance(tool_input, dict):
+        state.tool_call_events.append(
+            {
+                "tool_use_id": tool_id,
+                "tool_name": tool_name,
+                "step_index": step_index,
+                "status": "error",
+                "message": "工具名称或参数格式无效，未执行。",
+                "summary": "Invalid tool name or input",
+                "error": "Invalid tool name or input",
+                "attempt_count": 0,
+                "max_attempts": 0,
+                "retryable": False,
+            }
+        )
         return ToolOutcome(
             result_block={
                 "type": "tool_result",
@@ -484,32 +682,56 @@ async def execute_tool_with_policy(
     )
 
     # ---- policy ----
-    allowed, block_reason, required_policy = policy_allows_tool(runtime.action_policy, tool_name, tool_input)
-    if not allowed:
+    evaluation = evaluate_tool_policy(runtime.action_policy, tool_name, tool_input)
+    if evaluation.decision is PolicyDecision.FORBIDDEN:
         logger.warning(
             "[agent_loop] blocked tool by action policy. tool=%s required=%s policy=%s reason=%s",
             tool_name,
-            required_policy.value,
+            evaluation.required_policy.value,
             runtime.action_policy,
-            block_reason,
+            evaluation.reason,
         )
         return _handle_blocked(
             state=state,
             tool_name=tool_name,
             tool_id=tool_id,
-            block_reason=block_reason,
-            required_policy=required_policy,
+            block_reason=evaluation.reason,
+            required_policy=evaluation.required_policy,
             current_policy=runtime.action_policy,
             step_index=step_index,
         )
 
+    # Patch preflight is read-only, but it still runs only after the Aria
+    # action policy authorizes planning this mutation.
+    if tool_name == PROJECT_MARKDOWN_TOOL_NAME:
+        try:
+            tool_input = prepare_project_markdown_action_input(tool_input)
+        except HTTPException as exc:
+            return _handle_patch_preflight_failure(
+                state=state,
+                tool_name=tool_name,
+                tool_id=tool_id,
+                step_index=step_index,
+                exc=exc,
+            )
+        except Exception:
+            logger.exception("[agent_loop] structured patch preflight failed unexpectedly")
+            return _handle_patch_preflight_failure(
+                state=state,
+                tool_name=tool_name,
+                tool_id=tool_id,
+                step_index=step_index,
+                exc=HTTPException(500, "Structured patch preflight failed; no approval action was created."),
+            )
+
     # ---- HITAS confirmation ----
-    if required_policy in _CONFIRMATION_POLICIES:
+    if evaluation.requires_confirmation:
         return _handle_confirmation(
             runtime=runtime,
             state=state,
             tool_name=tool_name,
             tool_input=tool_input,
+            required_policy=evaluation.required_policy,
             tool_id=tool_id,
             step_index=step_index,
         )
@@ -525,11 +747,15 @@ async def execute_tool_with_policy(
         sse_event({"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)})
     ]
 
-    # ---- Execute (with retry for office tools) ----
+    # ---- Execute (bounded retry for artifact tools and transient reads) ----
     started_at = time.perf_counter()
-    max_attempts = _MAX_TOOL_ATTEMPTS if _should_retry_tool(runtime, tool_name) else 1
+    retry_by_contract = _should_retry_tool(runtime, tool_name)
+    retry_safe_read = _is_safe_read_retry_tool(tool_name)
+    max_attempts = _MAX_TOOL_ATTEMPTS if retry_by_contract or retry_safe_read else 1
     result: dict | None = None
+    attempt_count = 0
     for attempt in range(1, max_attempts + 1):
+        attempt_count = attempt
         try:
             async for evt in await_with_heartbeat(
                 registry.execute(tool_name, tool_input),
@@ -554,7 +780,10 @@ async def execute_tool_with_policy(
         except Exception as exc:
             result = {"type": "tool_result", "tool_name": tool_name, "status": "error", "error": str(exc)}
 
-        if not _result_failed(result) or attempt >= max_attempts:
+        should_retry_failure = (
+            retry_by_contract and not _result_has_persisted_artifact_evidence(result)
+        ) or (retry_safe_read and _is_transient_failure(result))
+        if not _result_failed(result) or attempt >= max_attempts or not should_retry_failure:
             break
         state.record_trace_event(
             "tool_retry",
@@ -595,13 +824,25 @@ async def execute_tool_with_policy(
 
     # ---- Tool call audit event ----
     failed = _result_failed(result)
+    failure_retryable = bool(
+        failed
+        and (
+            (retry_by_contract and not _result_has_persisted_artifact_evidence(result))
+            or (retry_safe_read and _is_transient_failure(result))
+        )
+    )
     state.tool_call_events.append(
         {
+            "tool_use_id": tool_id,
             "tool_name": tool_name,
+            "step_index": step_index,
             "status": "error" if failed else "completed",
             "message": _tool_progress_payload(tool_name, tool_input).get("message", ""),
             "summary": _summarize_tool_result(result),
             "duration_ms": duration_ms,
+            "attempt_count": attempt_count,
+            "max_attempts": max_attempts,
+            "retryable": failure_retryable,
             **({"error": str(result.get("error"))} if result.get("error") else {}),
         }
     )
@@ -614,7 +855,7 @@ async def execute_tool_with_policy(
         result_block={
             "type": "tool_result",
             "tool_use_id": tool_id,
-            "content": json.dumps(output_payload, ensure_ascii=False),
+            "content": serialize_tool_output(output_payload),
         },
         events=events,
         markdown_inline_text=inline_text,

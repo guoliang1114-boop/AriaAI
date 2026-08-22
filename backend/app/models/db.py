@@ -415,6 +415,8 @@ class PendingToolAction(SQLModel, table=True):
     action_type: str = ""       # e.g. delete_files, modify_document
     risk_level: str = "medium"  # low | medium | high | destructive
     policy_at_creation: str = ""
+    # Versioned HITAS approval-envelope fingerprint. Legacy rows may contain
+    # the pre-v2 input-only SHA-256 during their short pending lifetime.
     tool_input_hash: str = ""
     approval_batch_id: str = Field(default="", index=True)
     sequence_index: int = 0

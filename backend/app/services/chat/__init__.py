@@ -46,12 +46,78 @@ from app.services.chat.product_run_events import (
     run_failed,
     run_started,
 )
+from app.services.agent_harness.run_rollout import (
+    begin_chat_rollout,
+    build_in_memory_rollout_snapshot,
+    checkpoint_chat_rollout,
+    finalize_chat_rollout,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _safe_list(value: Any) -> list:
     return value if isinstance(value, list) else []
+
+
+def _last_step_retryable(state: ChatSessionState) -> bool:
+    if not state.steps:
+        return False
+    step = state.steps[-1]
+    return bool(step.status == "failed" and step.retryable)
+
+
+def _mark_active_step_failed(state: ChatSessionState, exc: Exception) -> None:
+    if not state.steps:
+        return
+    step = state.steps[-1]
+    if step.status not in {"running", ""}:
+        return
+    step.status = "failed"
+    step.error = str(exc)[:500]
+    step.retryable = False
+    if state.rollout_task_id and state.rollout_bind is not None:
+        try:
+            checkpoint_chat_rollout(
+                state.rollout_bind,
+                state.rollout_task_id,
+                step,
+                state,
+            )
+        except Exception as checkpoint_exc:
+            logger.warning("[rollout] failed to checkpoint phase error: %s", checkpoint_exc)
+
+
+def _finalize_rollout_safely(
+    state: ChatSessionState,
+    *,
+    status: str,
+    message_id: int | None = None,
+    phase: str = "",
+    error_code: str = "",
+    error_message: str = "",
+    retryable: bool = False,
+) -> None:
+    if not state.rollout_task_id or state.rollout_bind is None:
+        return
+    try:
+        finalize_chat_rollout(
+            state.rollout_bind,
+            state.rollout_task_id,
+            status=status,
+            message_id=message_id,
+            phase=phase,
+            error_code=error_code,
+            error_message=error_message,
+            retryable=retryable,
+        )
+    except Exception as exc:
+        logger.warning("[rollout] failed to finalize chat rollout: %s", exc)
+        state.record_trace_event(
+            "rollout_finalize_failed",
+            stage=phase or "finalize",
+            error=str(exc)[:500],
+        )
 
 
 def _persist_phase_error_events(
@@ -64,6 +130,7 @@ def _persist_phase_error_events(
     exc: Exception,
 ) -> list[str]:
     """Persist phase failures so refresh/deep-link does not erase the failed turn."""
+    _mark_active_step_failed(state, exc)
     friendly = _to_user_friendly_error(str(exc))
     full_text = (
         f"这个对话步骤在 {phase} 阶段遇到问题，本轮没有完成。\n\n"
@@ -82,6 +149,12 @@ def _persist_phase_error_events(
         "stage_timings": dict(state.stage_timings or {}),
         "tool_calls": _safe_list(getattr(state, "tool_call_events", None)),
         "artifacts": _safe_list(getattr(state, "artifacts", None)),
+        "run_rollout": build_in_memory_rollout_snapshot(
+            state,
+            status="failed",
+            phase=phase,
+            error_message=str(exc),
+        ),
     }
     if runtime.rag_sources:
         metadata["references"] = runtime.rag_sources
@@ -96,6 +169,14 @@ def _persist_phase_error_events(
         )
     except Exception as persist_exc:
         logger.error("[chat phase error persist failed] %s", persist_exc, exc_info=True)
+        _finalize_rollout_safely(
+            state,
+            status="failed",
+            phase=phase,
+            error_code=ErrorCode.PERSISTENCE_ERROR,
+            error_message=str(persist_exc),
+            retryable=False,
+        )
         events: list[str] = []
         if state.run_id:
             events.append(
@@ -110,6 +191,17 @@ def _persist_phase_error_events(
             )
         events.append(sse_event({"type": "error", "message": friendly}))
         return events
+
+    state.assistant_message_id = assistant_message_id
+    _finalize_rollout_safely(
+        state,
+        status="failed",
+        message_id=assistant_message_id,
+        phase=phase,
+        error_code=ErrorCode.UNKNOWN,
+        error_message=str(exc),
+        retryable=_last_step_retryable(state),
+    )
 
     events_list: list[str] = []
     if state.run_id:
@@ -172,6 +264,21 @@ async def stream_chat_events(
     stream_started_at = time.perf_counter()
     state = ChatSessionState(stage_timings=dict(runtime.prepare_metrics or {}))
     state.run_id = make_run_id()
+    state.rollout_bind = bind
+    try:
+        state.rollout_task_id = begin_chat_rollout(
+            bind,
+            runtime,
+            req.content,
+            state.run_id,
+        )
+    except Exception as exc:
+        logger.warning("[rollout] failed to begin chat rollout: %s", exc)
+        state.record_trace_event(
+            "rollout_start_failed",
+            stage="run_start",
+            error=str(exc)[:500],
+        )
     # Stamp the stream start time so persist can compute total_stream_ms
     # against the actual stream start, not against persist's own start.
     # The local ``stream_started_at`` above is still used by the
@@ -297,6 +404,12 @@ async def stream_chat_events(
             }
         )
         yield sse_event(run_done(state.run_id, RunFinalStatus.COMPLETED))
+        _finalize_rollout_safely(
+            state,
+            status="completed",
+            message_id=state.assistant_message_id,
+            phase="durable_task",
+        )
         logger.info(
             "[run done] run_id=%s path=durable_task duration_ms=%s artifacts=%s tool_events=%s",
             state.run_id,
@@ -353,6 +466,12 @@ async def stream_chat_events(
         return
 
     # Successful end-of-run terminator (Product Run Event v1).
+    _finalize_rollout_safely(
+        state,
+        status="waiting_confirmation" if state.confirmation_requested else "completed",
+        message_id=state.assistant_message_id,
+        phase="persist",
+    )
     yield sse_event(run_done(state.run_id, RunFinalStatus.COMPLETED))
     logger.info(
         "[run done] run_id=%s path=agent_loop duration_ms=%s steps=%s artifacts=%s tool_events=%s",

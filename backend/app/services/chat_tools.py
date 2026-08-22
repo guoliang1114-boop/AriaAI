@@ -44,6 +44,18 @@ class ChatRuntime:
     artifact_contract: ArtifactContract | None = None
     working_memory: dict | None = None
     intent_prepared_async: bool = False
+    # Per-turn context budgeting. Production runtime construction always sets
+    # these values; zero keeps direct test/recovery constructors backward
+    # compatible without guessing a provider window.
+    context_window_tokens: int = 0
+    context_safety_margin_percent: int = 8
+    context_history_summary_tokens: int = 1_024
+    # One initial model request plus at most two safe retries. The Agent Loop
+    # retries only before receiving any model event; provider adapters must not
+    # replay streams internally because they cannot see Aria's commit barrier.
+    model_turn_max_attempts: int = 2
+    model_turn_retry_base_delay_ms: int = 500
+    model_turn_retry_max_delay_ms: int = 5_000
 
     def __post_init__(self) -> None:
         """Keep explicitly selected Skill runtimes executable on fallback paths.

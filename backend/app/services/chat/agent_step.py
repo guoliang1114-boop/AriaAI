@@ -22,6 +22,9 @@ class AgentStep:
     truncated: bool = False
     duration_ms: int = 0
     error: str = ""
+    status: str = "running"
+    retryable: bool = False
+    retry_count: int = 0
 
 
 def serialize_steps(steps: list[AgentStep]) -> list[dict]:
@@ -37,6 +40,9 @@ def serialize_steps(steps: list[AgentStep]) -> list[dict]:
             "had_reasoning": bool(step.reasoning),
             "had_text": bool(step.model_text.strip()),
             "error": step.error or None,
+            "status": step.status,
+            "retryable": step.retryable,
+            "retry_count": step.retry_count,
         }
         for step in steps
     ]
@@ -50,4 +56,7 @@ def build_agent_step_event(step: AgentStep) -> dict:
         "tool_names": [str(tc.get("name") or "") for tc in step.tool_calls],
         "duration_ms": step.duration_ms,
         "truncated": step.truncated,
+        "status": step.status,
+        "retryable": step.retryable,
+        "retry_count": step.retry_count,
     }

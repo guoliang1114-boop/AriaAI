@@ -5,11 +5,10 @@ This module is the **spec in code** for the events described in
 the enum-like field values, and a small builder function per event type that
 returns a JSON-serialisable ``dict`` with validated fields.
 
-The module is **not wired** yet — the Event Harness will start emitting these
-events alongside the existing internal ``tool_executing`` / ``tool_result`` /
-``agent_step`` / ``task_run`` events in a later step. Keeping the protocol in
-code (and under test) lets the backend and frontend teams target the same
-contract while the wiring lands.
+The protocol is wired into the current Aria chat harness and is the stable
+product-facing boundary for all agent runs. Provider- and tool-specific events
+must be normalized here instead of leaking internal execution shapes into the
+frontend.
 
 Design notes:
 

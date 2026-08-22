@@ -2,6 +2,7 @@ import asyncio
 import json
 from datetime import timedelta
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -12,6 +13,7 @@ from app.routers.chat import router as chat_router
 from app.routers import chat_actions
 from app.routers.chat_actions import ConfirmActionRequest
 from app.routers.auth import get_current_user
+from app.services.agent_harness.approval_envelope import approval_envelope_hash
 from app.services.chat.action_executor import execute_tool_by_name
 from app.services.chat.action_metrics import build_hitas_action_metrics
 from app.services.chat.action_reaper import STALE_EXECUTING_MESSAGE, reap_stale_executing_actions
@@ -387,6 +389,134 @@ def test_confirm_action_fails_closed_on_invalid_stored_tool_input(monkeypatch):
     assert action.status == "failed"
     assert action.error_message == "Stored tool input must be an object"
     assert calls == []
+
+
+def test_confirm_action_fails_closed_when_versioned_approval_input_was_modified(monkeypatch):
+    session = _session()
+    conversation = _conversation(session)
+    calls: list[tuple[str, dict]] = []
+    original_input = {"action": "delete", "file_ids": [1, 2]}
+
+    async def fake_execute(tool_name: str, tool_input: dict):
+        calls.append((tool_name, tool_input))
+        return {"success": True}
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    action = PendingToolAction(
+        conversation_id=conversation.id,
+        tool_name="manage_project_files",
+        tool_input_json=json.dumps(original_input),
+        action_type="delete_files",
+        risk_level="destructive",
+        policy_at_creation="destructive_action",
+        title="删除项目文件",
+        description="删除重复文件",
+    )
+    action.tool_input_hash = approval_envelope_hash(
+        tool_name=action.tool_name,
+        tool_input=original_input,
+        project_id=action.project_id,
+        action_type=action.action_type,
+        risk_level=action.risk_level,
+        policy_at_creation=action.policy_at_creation,
+        approval_batch_id=action.approval_batch_id,
+        sequence_index=action.sequence_index,
+    )
+    session.add(action)
+    session.commit()
+    session.refresh(action)
+    action.tool_input_json = json.dumps({"action": "delete", "file_ids": [999]})
+    session.add(action)
+    session.commit()
+
+    with pytest.raises(Exception) as exc_info:
+        asyncio.run(
+            chat_actions.confirm_action(
+                action.id,
+                ConfirmActionRequest(),
+                session,
+                _admin(session),
+            )
+        )
+
+    assert getattr(exc_info.value, "status_code", None) == 409
+    session.refresh(action)
+    assert action.status == "failed"
+    assert "Approval snapshot validation failed" in (action.error_message or "")
+    assert calls == []
+
+
+def test_confirm_batch_fails_before_claim_when_versioned_sequence_was_modified(monkeypatch):
+    session = _session()
+    conversation = _conversation(session)
+    batch_id = "hitas-bound-batch"
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_execute(tool_name: str, tool_input: dict):
+        calls.append((tool_name, tool_input))
+        return {"success": True}
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    actions: list[PendingToolAction] = []
+    for sequence_index, tool_input in enumerate(
+        (
+            {"action": "delete", "file_ids": [1]},
+            {"action": "delete", "file_ids": [2]},
+        )
+    ):
+        action = PendingToolAction(
+            conversation_id=conversation.id,
+            approval_batch_id=batch_id,
+            sequence_index=sequence_index,
+            tool_name="manage_project_files",
+            tool_input_json=json.dumps(tool_input),
+            action_type="delete_files",
+            risk_level="destructive",
+            policy_at_creation="destructive_action",
+            title=f"删除文件 {sequence_index}",
+        )
+        action.tool_input_hash = approval_envelope_hash(
+            tool_name=action.tool_name,
+            tool_input=tool_input,
+            project_id=action.project_id,
+            action_type=action.action_type,
+            risk_level=action.risk_level,
+            policy_at_creation=action.policy_at_creation,
+            approval_batch_id=action.approval_batch_id,
+            sequence_index=action.sequence_index,
+        )
+        actions.append(action)
+        session.add(action)
+    session.commit()
+    for action in actions:
+        session.refresh(action)
+
+    actions[1].sequence_index = 9
+    session.add(actions[1])
+    session.commit()
+
+    with pytest.raises(Exception) as exc_info:
+        asyncio.run(
+            chat_actions.confirm_action(
+                actions[0].id,
+                ConfirmActionRequest(),
+                session,
+                _admin(session),
+            )
+        )
+
+    assert getattr(exc_info.value, "status_code", None) == 409
+    assert calls == []
+    with Session(session.get_bind()) as check:
+        stored = check.exec(
+            select(PendingToolAction).where(
+                PendingToolAction.approval_batch_id == batch_id
+            )
+        ).all()
+        assert {item.sequence_index: item.status for item in stored} == {
+            0: "failed",
+            9: "failed",
+        }
 
 
 def test_non_project_member_cannot_confirm_action(monkeypatch):

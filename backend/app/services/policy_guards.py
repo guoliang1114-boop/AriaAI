@@ -175,6 +175,11 @@ MODIFY_TERMS = (
     "补充",
     "补齐",
     "覆盖",
+    "回滚",
+    "回退",
+    "还原",
+    "恢复版本",
+    "恢复到版本",
     "update",
     "modify",
     "edit",
@@ -183,6 +188,10 @@ MODIFY_TERMS = (
     "rewrite",
     "rename",
     "fix",
+    "rollback",
+    "roll back",
+    "revert",
+    "restore version",
 )
 
 WORKSPACE_SCOPE_TERMS = (

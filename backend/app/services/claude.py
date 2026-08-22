@@ -13,6 +13,7 @@ import httpx
 import anthropic
 from app.core.security import get_api_key
 from app.config import DEFAULT_MODELS, DEFAULT_MAX_TOKENS
+from app.services.agent_harness.turn_retry import ModelProviderHTTPError
 from app.services.cache import TTLCache
 
 DEFAULT_MODEL = DEFAULT_MODELS["claude"]
@@ -325,7 +326,12 @@ async def _stream_response_http(
         ) as response:
             if response.status_code != 200:
                 body = await response.aread()
-                raise Exception(f"HTTP {response.status_code}: {body.decode()[:200]}")
+                raise ModelProviderHTTPError(
+                    "Claude",
+                    response.status_code,
+                    body=body.decode(errors="replace")[:300],
+                    headers=response.headers,
+                )
             
             stop_reason = None
             any_content_yielded = False

@@ -11,6 +11,7 @@ from app.routers.auth import get_current_user, require_admin
 from app.routers.chat_schemas import TestConnectionRequest, TestModelRequest
 from app.routers.chat_security import require_conversation_access
 from app.services.chat.trace import get_latest_chat_trace
+from app.services.agent_harness.run_rollout import get_chat_rollout
 from app.services.chat_diagnostics import run_model_test, test_provider_connection
 
 router = APIRouter()
@@ -52,6 +53,22 @@ def get_conversation_trace(
     if not trace:
         raise HTTPException(status_code=404, detail="Chat trace not found")
     return trace
+
+
+@router.get("/conversations/{conversation_id}/rollout")
+def get_conversation_rollout(
+    conversation_id: int,
+    run_id: Optional[str] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Reconstruct a durable Aria run and return its safe recovery decision."""
+
+    require_conversation_access(session, conversation_id, current_user)
+    rollout = get_chat_rollout(session, conversation_id, run_id=run_id)
+    if not rollout:
+        raise HTTPException(status_code=404, detail="Chat rollout not found")
+    return rollout
 
 
 @router.get("/messages/{message_id}/trace")

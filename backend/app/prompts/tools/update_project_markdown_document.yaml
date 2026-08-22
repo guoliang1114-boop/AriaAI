@@ -1,6 +1,6 @@
 name: update_project_markdown_document
-purpose: Create, append to, or replace a Markdown document in the current project space.
-when_to_use: Use only when the user explicitly asks to create, save, export, append, replace, or modify Markdown content.
+purpose: Create, append to, replace, structurally patch, or roll back a Markdown document in the current project space.
+when_to_use: Use only when the user explicitly asks to create, save, export, append, replace, modify, or restore Markdown content. Prefer patch after a read for targeted changes.
 when_not_to_use: Do not use for analysis-only answers, summaries that were not requested as files, or speculative drafts that the user has not asked to save.
 ui_effect: Creates or updates a project-space artifact that should appear in chat and in the Space page.
 required_policy:
@@ -8,3 +8,5 @@ required_policy:
   create: write_artifact
   append: modify_existing_file
   replace: modify_existing_file
+  patch: modify_existing_file
+  rollback: modify_existing_file

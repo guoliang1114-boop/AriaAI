@@ -1,0 +1,122 @@
+cases:
+  - name: completed_text_and_tool_run
+    task_status: running
+    records:
+      - event_type: run_started
+        payload: {ordinal: 1, run_id: run_success}
+      - event_type: step_checkpoint
+        payload:
+          ordinal: 2
+          run_id: run_success
+          checkpoint:
+            step_index: 0
+            status: completed
+            retryable: false
+      - event_type: message_persisted
+        payload: {ordinal: 3, run_id: run_success, message_id: 91}
+      - event_type: run_completed
+        payload: {ordinal: 4, run_id: run_success}
+    expected:
+      status: completed
+      recovery_action: none
+      can_resume: false
+      can_retry: false
+      completed_steps: [0]
+
+  - name: exhausted_transient_step_can_retry
+    task_status: failed
+    records:
+      - event_type: run_started
+        payload: {ordinal: 1, run_id: run_retry}
+      - event_type: step_checkpoint
+        payload:
+          ordinal: 2
+          run_id: run_retry
+          checkpoint:
+            step_index: 0
+            status: completed
+            retryable: false
+      - event_type: step_checkpoint
+        payload:
+          ordinal: 3
+          run_id: run_retry
+          checkpoint:
+            step_index: 1
+            status: failed
+            retryable: true
+            retry_count: 1
+      - event_type: run_failed
+        payload: {ordinal: 4, run_id: run_retry, retryable: true}
+    expected:
+      status: failed
+      recovery_action: retry_step
+      can_resume: false
+      can_retry: true
+      retry_step: 1
+      completed_steps: [0]
+
+  - name: hitas_wait_is_not_a_retry
+    task_status: paused
+    records:
+      - event_type: run_started
+        payload: {ordinal: 1, run_id: run_hitas}
+      - event_type: step_checkpoint
+        payload:
+          ordinal: 2
+          run_id: run_hitas
+          checkpoint:
+            step_index: 0
+            status: waiting_confirmation
+            retryable: false
+      - event_type: run_waiting_confirmation
+        payload: {ordinal: 3, run_id: run_hitas}
+    expected:
+      status: waiting_confirmation
+      recovery_action: wait_for_confirmation
+      can_resume: false
+      can_retry: false
+      completed_steps: []
+
+  - name: interrupted_after_checkpoint_can_resume
+    task_status: running
+    records:
+      - event_type: run_started
+        payload: {ordinal: 1, run_id: run_interrupted}
+      - event_type: step_checkpoint
+        payload:
+          ordinal: 2
+          run_id: run_interrupted
+          checkpoint:
+            step_index: 0
+            status: completed
+            retryable: false
+    expected:
+      status: interrupted
+      recovery_action: resume_from_checkpoint
+      can_resume: true
+      can_retry: false
+      resume_from_step: 1
+      completed_steps: [0]
+
+  - name: ambiguous_write_failure_restarts_turn
+    task_status: failed
+    records:
+      - event_type: run_started
+        payload: {ordinal: 1, run_id: run_unsafe}
+      - event_type: step_checkpoint
+        payload:
+          ordinal: 2
+          run_id: run_unsafe
+          checkpoint:
+            step_index: 0
+            status: failed
+            retryable: false
+            error: outcome unknown after write
+      - event_type: run_failed
+        payload: {ordinal: 3, run_id: run_unsafe, retryable: false}
+    expected:
+      status: failed
+      recovery_action: restart_turn
+      can_resume: false
+      can_retry: false
+      completed_steps: []

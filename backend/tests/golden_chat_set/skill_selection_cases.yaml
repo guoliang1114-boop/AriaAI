@@ -1,0 +1,45 @@
+cases:
+  - id: meeting_minutes_intent
+    content: "请把这份客户会议记录整理成会议纪要和行动项。"
+    skills:
+      - id: 11
+        name: "会议纪要提取"
+        description: "Extract decisions, minutes, and action items from meetings."
+        category: "顾问基础能力"
+      - id: 12
+        name: "目标定义"
+        description: "Define SMART goals and OKRs."
+        category: "顾问基础能力"
+    expected_top_skill_id: 11
+    expected_min_score: 82
+    expected_tied: false
+
+  - id: proposal_deck_beats_generic_presentation
+    content: "准备一个用于客户方案沟通的 PPT。"
+    skills:
+      - id: 21
+        name: "consulting-proposal-advisor"
+        description: "Create client-ready proposals and PPT decks."
+        category: "consulting"
+      - id: 22
+        name: "presentation-builder"
+        description: "Create consulting presentations."
+        category: "consulting"
+    expected_top_skill_id: 21
+    expected_min_score: 94
+    expected_tied: false
+
+  - id: ambiguous_generic_deck_candidates
+    content: "帮我制作一个 PPT。"
+    skills:
+      - id: 31
+        name: "presentation-builder-a"
+        description: "PowerPoint generation skill."
+        category: "consulting"
+      - id: 32
+        name: "presentation-builder-b"
+        description: "PowerPoint generation skill."
+        category: "consulting"
+    expected_top_skill_id: 31
+    expected_min_score: 82
+    expected_tied: true

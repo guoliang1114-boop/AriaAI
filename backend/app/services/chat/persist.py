@@ -19,6 +19,11 @@ from sqlmodel import Session, select
 
 from app.routers.chat_schemas import SendMessageRequest
 from app.config import UPLOADS_DIR
+from app.services.agent_harness.approval_envelope import (
+    APPROVAL_ENVELOPE_PREFIX,
+    approval_envelope_hash,
+    legacy_tool_input_hash,
+)
 from app.services.artifact_intent import ArtifactContract
 from app.services.chat_tools import (
     ChatRuntime,
@@ -429,8 +434,7 @@ def _maybe_create_markdown_from_response(
 
 
 def _hash_tool_input(tool_input: dict) -> str:
-    normalized = json.dumps(tool_input or {}, ensure_ascii=False, sort_keys=True, default=str)
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return legacy_tool_input_hash(tool_input)
 
 
 def _approval_batch_id(runtime: ChatRuntime, action_payloads: list[dict]) -> str:
@@ -791,16 +795,33 @@ async def run_persist(
                 try:
                     tool_name = str(action_payload.get("tool_name") or "")
                     tool_input = action_payload.get("tool_input") if isinstance(action_payload.get("tool_input"), dict) else {}
-                    tool_input_hash = _hash_tool_input(tool_input)
                     tool_input_json = json.dumps(tool_input, ensure_ascii=False, default=str)
+                    action_type = str(action_payload.get("action_type") or "")
+                    risk_level = str(action_payload.get("risk_level") or _risk_level_for_action(action_payload))
+                    policy_at_creation = str(
+                        getattr(runtime.action_policy, "value", runtime.action_policy) or ""
+                    )
+                    action_batch_id = str(action_payload.get("approval_batch_id") or batch_id)
+                    legacy_hash = _hash_tool_input(tool_input)
+                    envelope_hash = approval_envelope_hash(
+                        tool_name=tool_name,
+                        tool_input=tool_input,
+                        project_id=runtime.project_id,
+                        action_type=action_type,
+                        risk_level=risk_level,
+                        policy_at_creation=policy_at_creation,
+                        approval_batch_id=action_batch_id,
+                        sequence_index=sequence_index,
+                    )
                     existing = session.exec(
                         select(PendingToolAction)
                         .where(PendingToolAction.conversation_id == runtime.conv_id)
                         .where(PendingToolAction.tool_name == tool_name)
                         .where(
                             or_(
-                                PendingToolAction.tool_input_hash == tool_input_hash,
-                                (PendingToolAction.tool_input_hash == "") & (PendingToolAction.tool_input_json == tool_input_json),
+                                PendingToolAction.tool_input_hash == envelope_hash,
+                                PendingToolAction.tool_input_hash == legacy_hash,
+                                PendingToolAction.tool_input_json == tool_input_json,
                             )
                         )
                         .where(PendingToolAction.status == "pending")
@@ -813,11 +834,25 @@ async def run_persist(
                         session.commit()
                         existing = None
                     if existing:
-                        if not existing.tool_input_hash:
-                            existing.tool_input_hash = tool_input_hash
-                        if not existing.approval_batch_id:
-                            existing.approval_batch_id = batch_id
-                        existing.sequence_index = sequence_index
+                        # Never mutate fields already bound by a v2 approval.
+                        # Legacy pending rows are upgraded only while the same
+                        # proposal is being published again for user review.
+                        if not existing.tool_input_hash.startswith(APPROVAL_ENVELOPE_PREFIX):
+                            existing.action_type = action_type
+                            existing.risk_level = risk_level
+                            existing.policy_at_creation = policy_at_creation
+                            existing.approval_batch_id = action_batch_id
+                            existing.sequence_index = sequence_index
+                            existing.tool_input_hash = approval_envelope_hash(
+                                tool_name=existing.tool_name,
+                                tool_input=tool_input,
+                                project_id=existing.project_id,
+                                action_type=existing.action_type,
+                                risk_level=existing.risk_level,
+                                policy_at_creation=existing.policy_at_creation,
+                                approval_batch_id=existing.approval_batch_id,
+                                sequence_index=existing.sequence_index,
+                            )
                         session.add(existing)
                         session.commit()
                         if existing.id and existing.id not in seen_pending_ids:
@@ -834,11 +869,11 @@ async def run_persist(
                         project_id=runtime.project_id,
                         tool_name=tool_name,
                         tool_input_json=tool_input_json,
-                        action_type=action_payload.get("action_type", ""),
-                        risk_level=action_payload.get("risk_level") or _risk_level_for_action(action_payload),
-                        policy_at_creation=str(getattr(runtime.action_policy, "value", runtime.action_policy) or ""),
-                        tool_input_hash=tool_input_hash,
-                        approval_batch_id=str(action_payload.get("approval_batch_id") or batch_id),
+                        action_type=action_type,
+                        risk_level=risk_level,
+                        policy_at_creation=policy_at_creation,
+                        tool_input_hash=envelope_hash,
+                        approval_batch_id=action_batch_id,
                         sequence_index=sequence_index,
                         title=action_payload.get("title", "待确认的操作"),
                         description=action_payload.get("description", ""),
@@ -947,6 +982,17 @@ async def run_persist(
     if activity_timeline is not None:
         metadata["activity_timeline"] = activity_timeline
 
+    # Durable Phase 2B snapshot. Raw tool arguments/results stay out of this
+    # record; hashes and bounded summaries are enough for replay and recovery.
+    from app.services.agent_harness.run_rollout import build_in_memory_rollout_snapshot
+
+    if state.run_id:
+        metadata["run_rollout"] = build_in_memory_rollout_snapshot(
+            state,
+            status="waiting_confirmation" if state.confirmation_requested else "completed",
+            phase="persist",
+        )
+
     # V0.0.4 A4: surface the routing decision so the frontend can show a small
     # badge ("按对话大纲生成 PPT" vs "自动生成项目 PPT" etc.) without re-running
     # any heuristic on its side.
@@ -1009,6 +1055,7 @@ async def run_persist(
             logger.warning("[persist] failed to attach pending tool actions to assistant message: %s", exc)
     state.full_text = full_text
     state.need_title = need_title
+    state.assistant_message_id = assistant_message_id
 
     try:
         persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)

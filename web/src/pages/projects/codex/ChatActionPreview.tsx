@@ -25,8 +25,12 @@ function batchKey(batch: PendingActionBatch): string {
 
 /** Backend ``details`` are mostly "键：值" strings — split so they render
  * in the key/value preview grid; fall back to a full-width row. */
-function splitDetail(detail: string): { k: string; v: string } | { full: string } {
-  const m = /^(.+?)[：:]\s*(.+)$/.exec(detail.trim())
+function splitDetail(detail: string): { k: string; v: string } | { full: string } | { diff: string; truncated: boolean } {
+  const diffMatch = /^Diff (?:预览|Preview)[：:]\s*```diff\s*\n?([\s\S]*?)\n?```(?:\s*\n（预览已截断）)?$/i.exec(detail.trim())
+  if (diffMatch) {
+    return { diff: diffMatch[1], truncated: detail.includes('预览已截断') }
+  }
+  const m = /^(.+?)[：:]\s*(.+)$/s.exec(detail.trim())
   if (m && m[1].length <= 10) return { k: m[1], v: m[2] }
   return { full: detail }
 }
@@ -204,6 +208,33 @@ function ActionBody({ action, index }: { action: PendingToolAction; index?: numb
         >
           {action.details.map((detail, di) => {
             const parsed = splitDetail(detail)
+            if ('diff' in parsed) {
+              return (
+                <div key={di} style={{ gridColumn: '1 / -1', minWidth: 0 }}>
+                  <div style={{ color: 'var(--ink-mute)', fontSize: 12, marginBottom: 7 }}>
+                    Diff 预览{parsed.truncated ? '（已截断）' : ''}
+                  </div>
+                  <pre
+                    style={{
+                      margin: 0,
+                      maxHeight: 300,
+                      overflow: 'auto',
+                      padding: '10px 12px',
+                      borderRadius: 'var(--r-sm)',
+                      background: 'var(--bg-elev)',
+                      border: '1px solid var(--line-soft)',
+                      color: 'var(--ink)',
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                      fontSize: 11.5,
+                      lineHeight: 1.55,
+                      whiteSpace: 'pre',
+                    }}
+                  >
+                    {parsed.diff}
+                  </pre>
+                </div>
+              )
+            }
             if ('full' in parsed) {
               return (
                 <div key={di} style={{ gridColumn: '1 / -1', color: 'var(--ink)', lineHeight: 1.5 }}>

@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import Project, ProjectFile, ProjectFolder
+from app.services.agent_harness.structured_patch import atomic_write_text, locked_text_path
 from app.services.project_file_versions import (
     create_project_file_version_snapshot,
     ensure_initial_project_file_version,
@@ -67,15 +68,14 @@ def write_project_markdown_file(
     if not full_path.is_file():
         raise FileNotFoundError(full_path)
 
-    next_content = content
-    if append:
-        existing = full_path.read_text(encoding="utf-8", errors="replace")
-        if existing and not existing.endswith("\n"):
-            existing = f"{existing}\n"
-        next_content = f"{existing}{content.lstrip() if existing else content}"
-
-    full_path.write_text(next_content, encoding="utf-8")
-    return full_path.stat().st_size
+    with locked_text_path(full_path):
+        next_content = content
+        if append:
+            existing = full_path.read_text(encoding="utf-8", errors="replace")
+            if existing and not existing.endswith("\n"):
+                existing = f"{existing}\n"
+            next_content = f"{existing}{content.lstrip() if existing else content}"
+        return atomic_write_text(full_path, next_content)
 
 
 def sanitize_markdown_filename(name: str) -> str:

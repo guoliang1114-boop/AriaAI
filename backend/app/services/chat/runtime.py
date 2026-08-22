@@ -8,10 +8,24 @@ from dataclasses import replace
 
 from sqlmodel import Session, select
 
-from app.config import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, MODEL_ALIASES
+from app.config import (
+    CONTEXT_HISTORY_SUMMARY_TOKENS,
+    CONTEXT_WINDOW_SAFETY_MARGIN_PERCENT,
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    MODEL_ALIASES,
+    MODEL_TURN_MAX_ATTEMPTS,
+    MODEL_TURN_RETRY_BASE_DELAY_MS,
+    MODEL_TURN_RETRY_MAX_DELAY_MS,
+)
 from app.models.db import Conversation, Message, ProjectMember, Skill
 from app.models.db import Setting as _Setting
 from app.routers.chat_schemas import SendMessageRequest
+from app.services.agent_harness.context_budget import (
+    apply_context_budget,
+    resolve_model_context_window,
+)
 from app.services.chat_store import (
     build_message_metadata,
     get_recent_message_history,
@@ -489,6 +503,7 @@ def _build_intent_frame(
         "skill_decision": skill_decision.reason,
         "skill_decision_source": skill_decision.source,
         "skill_decision_confidence": round(skill_decision.confidence, 3),
+        "skill_candidate_count": skill_decision.candidate_count,
         "effective_skill_id": int(effective_skill.id or 0) if effective_skill else 0,
         "effective_skill_name": effective_skill.name if effective_skill else "",
         "response_contract": _response_contract_for_intent(intent_decision, skill_decision),
@@ -675,6 +690,10 @@ def prepare_chat_runtime(
     prepare_metrics["skill_decision"] = skill_decision.reason
     prepare_metrics["skill_decision_source"] = skill_decision.source
     prepare_metrics["skill_decision_confidence"] = round(skill_decision.confidence, 3)
+    prepare_metrics["skill_catalog_fingerprint"] = skill_decision.catalog_fingerprint
+    prepare_metrics["skill_candidate_count"] = skill_decision.candidate_count
+    if skill_decision.top_candidates:
+        prepare_metrics["skill_top_candidates"] = list(skill_decision.top_candidates)
     prepare_metrics["effective_skill_id"] = effective_skill_id or ""
     prepare_metrics["effective_skill_name"] = effective_skill.name if effective_skill else ""
     prepare_metrics["chat_mode"] = intent_decision.chat_mode.value
@@ -747,6 +766,7 @@ def prepare_chat_runtime(
     api_messages = [_api_message_from_history(msg) for msg in history_for_model if _should_include_history_message(msg)]
     tool_history_context = _format_recent_tool_history_context(history_for_model)
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
+    prepare_metrics["history_message_count_loaded"] = len(api_messages)
     prepare_metrics["history_message_count"] = len(api_messages)
     prepare_metrics["working_memory"] = working_memory.to_dict()
     prepare_metrics["tool_history_context_injected"] = bool(tool_history_context)
@@ -864,6 +884,55 @@ def prepare_chat_runtime(
         system = f"{system.rstrip()}\n\n{user_memory_section}\n"
         prepare_metrics["user_memory_injected"] = True
         prepare_metrics["user_memory_chars"] = len(user_memory_section)
+
+    # Aria-native context budgeting. This is intentionally provider-neutral and
+    # performs no remote compaction call: system context, tool schemas, history,
+    # output reserve, and a safety margin share one deterministic budget.
+    runtime_max_tokens = _cap_max_tokens_for_model(runtime_model, runtime_max_tokens)
+    configured_context_window = (
+        get_int_setting(
+            session,
+            "context_window_tokens",
+            DEFAULT_CONTEXT_WINDOW_TOKENS,
+        )
+        or DEFAULT_CONTEXT_WINDOW_TOKENS
+    )
+    context_window_tokens = resolve_model_context_window(
+        runtime_model,
+        default_tokens=configured_context_window,
+    )
+    context_safety_percent = (
+        get_int_setting(
+            session,
+            "context_window_safety_margin_percent",
+            CONTEXT_WINDOW_SAFETY_MARGIN_PERCENT,
+        )
+        or CONTEXT_WINDOW_SAFETY_MARGIN_PERCENT
+    )
+    history_summary_tokens = (
+        get_int_setting(
+            session,
+            "context_history_summary_tokens",
+            CONTEXT_HISTORY_SUMMARY_TOKENS,
+        )
+        or CONTEXT_HISTORY_SUMMARY_TOKENS
+    )
+    budgeted_context = apply_context_budget(
+        system=system,
+        messages=api_messages,
+        tools=runtime_tools,
+        context_window_tokens=context_window_tokens,
+        max_output_tokens=runtime_max_tokens,
+        safety_margin_percent=context_safety_percent,
+        history_summary_tokens=history_summary_tokens,
+    )
+    system = budgeted_context.system
+    api_messages = budgeted_context.messages
+    prepare_metrics["context_budget"] = budgeted_context.report.to_dict()
+    prepare_metrics["context_compacted"] = budgeted_context.report.compacted
+    prepare_metrics["context_window_tokens"] = budgeted_context.report.context_window_tokens
+    prepare_metrics["history_message_count"] = len(api_messages)
+    prepare_metrics["history_summarized_message_count"] = budgeted_context.report.summarized_messages
     prepare_metrics["intent_frame"] = intent_frame
     prepare_metrics["consulting_frame"] = {
         "job_type": consulting_frame.job_type,
@@ -892,7 +961,7 @@ def prepare_chat_runtime(
         api_messages=api_messages,
         rag_sources=chat_ctx.rag_sources,
         tools=runtime_tools,
-        max_tokens=_cap_max_tokens_for_model(runtime_model, runtime_max_tokens),
+        max_tokens=runtime_max_tokens,
         temperature=temperature,
         skill_name=effective_skill.name if effective_skill else "",
         prepare_metrics=prepare_metrics,
@@ -906,6 +975,12 @@ def prepare_chat_runtime(
         artifact_contract=intent_decision.artifact_contract,
         working_memory=working_memory.to_dict(),
         intent_prepared_async=intent_prepared_async,
+        context_window_tokens=context_window_tokens,
+        context_safety_margin_percent=context_safety_percent,
+        context_history_summary_tokens=history_summary_tokens,
+        model_turn_max_attempts=MODEL_TURN_MAX_ATTEMPTS,
+        model_turn_retry_base_delay_ms=MODEL_TURN_RETRY_BASE_DELAY_MS,
+        model_turn_retry_max_delay_ms=MODEL_TURN_RETRY_MAX_DELAY_MS,
     )
 
 

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,6 +13,10 @@ from app.database import get_session
 from app.models.db import Conversation, Message, PendingToolAction, User
 from app.routers.auth import get_current_user, require_admin
 from app.routers.chat_security import require_conversation_access
+from app.services.agent_harness.approval_envelope import (
+    ApprovalEnvelopeError,
+    verify_approval_envelope,
+)
 from app.services.chat.action_background import schedule_background_job, should_execute_in_background
 from app.services.chat.action_executor import execute_tool_by_name
 from app.services.chat.action_metrics import build_hitas_action_metrics
@@ -190,14 +193,12 @@ async def confirm_action(
     try:
         tool_input = _load_tool_input(action)
         _validate_tool_input_scope(action, tool_input)
+        _validate_approval_snapshot(action, tool_input)
     except HTTPException as exc:
         action.status = "failed"
         action.error_message = str(exc.detail)
         session.commit()
         raise
-    if not action.tool_input_hash:
-        action.tool_input_hash = _hash_tool_input(tool_input)
-        session.add(action)
 
     claim = session.execute(
         update(PendingToolAction)
@@ -343,6 +344,11 @@ def _format_action_result_message(action: PendingToolAction, result: dict[str, A
         pieces = [f"已执行：{title}。"]
         if result.get("trash") and result.get("deleted_count") is not None:
             pieces.append(f"已移入回收站 {result.get('deleted_count')} 个文件，可从项目文件回收站恢复。")
+        direct_message = result.get("message") or result.get("summary")
+        if isinstance(direct_message, str) and direct_message.strip():
+            pieces.append(direct_message.strip())
+        if result.get("rollback_available") and result.get("rollback_version_id") is not None:
+            pieces.append(f"可回滚版本 ID：{result.get('rollback_version_id')}。回滚仍需再次确认。")
         output = result.get("output") or result.get("result")
         if isinstance(output, dict):
             message = output.get("message") or output.get("summary")
@@ -367,6 +373,9 @@ def _result_summary(result: dict[str, Any]) -> str:
     if result.get("success"):
         if result.get("trash") and result.get("deleted_count") is not None:
             return f"已移入回收站 {result.get('deleted_count')} 个文件。"
+        direct_message = result.get("message") or result.get("summary")
+        if isinstance(direct_message, str) and direct_message.strip():
+            return direct_message.strip()
         output = result.get("output") or result.get("result")
         if isinstance(output, dict):
             return str(output.get("message") or output.get("summary") or "已完成")
@@ -437,11 +446,6 @@ def _load_tool_input(action: PendingToolAction) -> dict[str, Any]:
     return loaded
 
 
-def _hash_tool_input(tool_input: dict[str, Any]) -> str:
-    normalized = json.dumps(tool_input or {}, ensure_ascii=False, sort_keys=True, default=str)
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-
-
 def _validate_tool_input_scope(action: PendingToolAction, tool_input: dict[str, Any]) -> None:
     if action.project_id is None:
         return
@@ -452,6 +456,32 @@ def _validate_tool_input_scope(action: PendingToolAction, tool_input: dict[str, 
         raise HTTPException(status_code=400, detail="Stored tool input is missing project scope") from exc
     if input_project_id != action.project_id:
         raise HTTPException(status_code=403, detail="Stored tool input project scope mismatch")
+
+
+def _validate_approval_snapshot(
+    action: PendingToolAction,
+    tool_input: dict[str, Any],
+) -> None:
+    try:
+        verify_approval_envelope(
+            stored_fingerprint=action.tool_input_hash,
+            tool_name=action.tool_name,
+            tool_input=tool_input,
+            project_id=action.project_id,
+            action_type=action.action_type,
+            risk_level=action.risk_level,
+            policy_at_creation=action.policy_at_creation,
+            approval_batch_id=action.approval_batch_id,
+            sequence_index=action.sequence_index,
+        )
+    except ApprovalEnvelopeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Approval snapshot validation failed ({exc.code}); "
+                "regenerate the action preview before confirming."
+            ),
+        ) from exc
 
 
 def _existing_action_response(action: PendingToolAction) -> ConfirmActionResponse:
@@ -547,15 +577,17 @@ async def _confirm_batch(
         try:
             tool_input = _load_tool_input(action)
             _validate_tool_input_scope(action, tool_input)
+            _validate_approval_snapshot(action, tool_input)
         except HTTPException as exc:
-            action.status = "failed"
-            action.error_message = str(exc.detail)
-            session.add(action)
+            batch_error = (
+                f"Approval batch validation failed before execution: {exc.detail}"
+            )
+            for pending_action in pending_actions:
+                pending_action.status = "failed"
+                pending_action.error_message = batch_error
+                session.add(pending_action)
             session.commit()
             raise
-        if not action.tool_input_hash:
-            action.tool_input_hash = _hash_tool_input(tool_input)
-            session.add(action)
         execution_specs.append(
             {
                 "id": action.id,

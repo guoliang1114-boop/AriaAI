@@ -23,6 +23,7 @@
 6. 服务器完成以下动作
    - 激活后端虚拟环境
    - `pip install -r requirements.txt`
+   - 使用独立 `ariaai_test` 数据库运行后端聚焦回归
    - `python3 scripts/ensure_db.py`
    - `alembic upgrade head`
    - `pm2 reload ariaai-backend --update-env`
@@ -105,6 +106,8 @@ alembic upgrade head
 
 注意：迁移失败应视为部署失败，而不是可以忽略的警告。
 
+自动部署还会从服务器生产连接中复用 PostgreSQL 主机与凭据，仅把数据库名改为 `ariaai_test`，随后同时覆盖测试进程的 `DATABASE_URL` 与 `TEST_DATABASE_URL`。测试启动前会查询 `current_database()`；不是精确的 `ariaai_test` 时立即拒绝执行。测试通过后才允许生产迁移和 PM2 重启，因此测试不会清理或写入生产数据库。
+
 ## 7. 一次发布实际上做了什么
 
 当你执行：
@@ -126,10 +129,11 @@ git push origin main
 1. 上传最新前端构建产物和后端代码
 2. 激活 `.venv`
 3. 安装依赖
-4. 执行数据库修复和迁移
-5. reload PM2
-6. 覆盖前端站点目录
-7. reload Nginx
+4. 在独立 `ariaai_test` PostgreSQL 数据库运行后端聚焦回归
+5. 执行数据库修复和迁移
+6. reload PM2
+7. 覆盖前端站点目录
+8. reload Nginx
 
 ## 8. 发布后最小检查
 

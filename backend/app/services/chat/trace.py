@@ -108,6 +108,7 @@ def build_chat_trace_payload(runtime: ChatRuntime, state: ChatSessionState) -> d
             "tool_access_policy": _enum_value(runtime.tool_access_policy),
             "prepare_metrics": runtime.prepare_metrics or {},
             "intent_trace": runtime.intent_trace or {},
+            "rollout_task_id": state.rollout_task_id,
         },
     }
 

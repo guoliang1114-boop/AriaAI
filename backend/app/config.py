@@ -95,6 +95,27 @@ MODEL_ALIASES = {
 DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "8192"))
 DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
 DEFAULT_TOP_P = float(os.getenv("DEFAULT_TOP_P", "1.0"))
+DEFAULT_CONTEXT_WINDOW_TOKENS = int(os.getenv("DEFAULT_CONTEXT_WINDOW_TOKENS", "32768"))
+CONTEXT_WINDOW_SAFETY_MARGIN_PERCENT = int(
+    os.getenv("CONTEXT_WINDOW_SAFETY_MARGIN_PERCENT", "8")
+)
+CONTEXT_HISTORY_SUMMARY_TOKENS = int(os.getenv("CONTEXT_HISTORY_SUMMARY_TOKENS", "1024"))
+# Model-turn retries are owned by the Agent Loop, not individual provider
+# adapters. The hard clamp in ``turn_retry`` limits this to three total
+# attempts even if an environment value is accidentally set much higher.
+MODEL_TURN_MAX_ATTEMPTS = int(os.getenv("MODEL_TURN_MAX_ATTEMPTS", "2"))
+MODEL_TURN_RETRY_BASE_DELAY_MS = int(os.getenv("MODEL_TURN_RETRY_BASE_DELAY_MS", "500"))
+MODEL_TURN_RETRY_MAX_DELAY_MS = int(os.getenv("MODEL_TURN_RETRY_MAX_DELAY_MS", "5000"))
+
+# Optional absolute Skill roots, ordered from highest to lowest priority.
+# The repository's bundled ``skills/`` directory is always appended as the
+# lowest-priority fallback; only successfully parsed packages are publishable.
+SKILL_ROOTS_RAW = os.getenv("ARIA_SKILL_ROOTS", "")
+SKILL_ROOT_PATHS = tuple(
+    Path(value.strip()).expanduser()
+    for value in SKILL_ROOTS_RAW.split(",")
+    if value.strip()
+)
 
 # =============================================================================
 # RAG / Embedding Configuration

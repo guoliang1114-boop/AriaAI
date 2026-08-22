@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -11,7 +12,14 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
+from app.config import SKILL_ROOT_PATHS
 from app.models.db import Skill
+from app.services.agent_harness.skill_roots import (
+    FileBackedSkillPrompt,
+    LoadedSkillCatalog,
+    SkillRootLoader,
+    SkillRootSpec,
+)
 from app.services.consulting_capabilities import CONSULTING_CAPABILITIES, ConsultingCapability
 from app.tools import file_generators as _file_generators  # noqa: F401 - register file generation tools
 from app.tools import office_documents as _office_documents  # noqa: F401 - register office document tools
@@ -82,6 +90,11 @@ MINDMAP_SKILL_NAME = "思维导图生成"
 MINDMAP_PROMPT_MARKER = "Mind Map Diagram Generator"
 OBSOLETE_BUILTIN_SKILL_NAMES = {"顾问品牌演示文稿", "顾问品牌H5演示"}
 SKILLS_DIR = Path(__file__).resolve().parents[3] / "skills"
+logger = logging.getLogger(__name__)
+
+_skill_root_loader = SkillRootLoader()
+_skill_root_catalog: LoadedSkillCatalog | None = None
+_last_skill_root_sync: dict[str, Any] = {}
 
 _skills_cache = TTLCache()
 _SKILLS_TTL = 300.0  # 5 minutes — skills change very rarely
@@ -100,40 +113,58 @@ router = APIRouter(
 )
 
 
-def _strip_skill_frontmatter(text: str) -> str:
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) == 3:
-            return parts[2].lstrip()
-    return text
+def _configured_skill_root_specs() -> tuple[SkillRootSpec, ...]:
+    roots = [
+        SkillRootSpec(path=path, priority=index, source=f"configured:{index}")
+        for index, path in enumerate(SKILL_ROOT_PATHS)
+    ]
+    roots.append(
+        SkillRootSpec(path=SKILLS_DIR, priority=10_000, source="aria-bundled")
+    )
+    return tuple(roots)
 
 
-def _load_skill_package_prompt(package_name: str, reference_files: list[str] | None = None) -> str:
-    """Load a file-backed Skill package into the DB-backed platform prompt."""
-    skill_dir = SKILLS_DIR / package_name
-    skill_path = skill_dir / "SKILL.md"
-    if not skill_path.is_file():
-        return ""
+def _refresh_skill_root_catalog() -> LoadedSkillCatalog:
+    global _skill_root_catalog
+    _skill_root_catalog = _skill_root_loader.load(_configured_skill_root_specs())
+    return _skill_root_catalog
 
-    parts = [_strip_skill_frontmatter(skill_path.read_text(encoding="utf-8")).strip()]
-    for reference_name in reference_files or []:
-        reference_path = skill_dir / reference_name
-        if not reference_path.is_file():
-            reference_path = skill_dir / "references" / reference_name
-        if reference_path.is_file():
-            parts.append(
-                f"## Bundled Reference: {reference_name}\n\n"
-                f"{reference_path.read_text(encoding='utf-8').strip()}"
-            )
-    return "\n\n---\n\n".join(part for part in parts if part)
+
+def _current_skill_root_catalog() -> LoadedSkillCatalog:
+    return _skill_root_catalog or _refresh_skill_root_catalog()
+
+
+def _load_skill_package_prompt(
+    package_name: str,
+    reference_files: list[str] | None = None,
+) -> FileBackedSkillPrompt:
+    """Load one frozen file-backed prompt; invalid siblings remain isolated."""
+    return _current_skill_root_catalog().prompt(package_name, reference_files or ())
+
+
+def _refresh_file_backed_skill_def(
+    skill_def: dict[str, Any],
+    catalog: LoadedSkillCatalog,
+) -> tuple[dict[str, Any] | None, str]:
+    prompt = skill_def.get("system_prompt")
+    if not isinstance(prompt, FileBackedSkillPrompt):
+        return dict(skill_def), ""
+    refreshed_prompt = catalog.prompt(prompt.package_key, prompt.reference_files)
+    if refreshed_prompt.load_error:
+        return None, refreshed_prompt.load_error
+    refreshed = dict(skill_def)
+    refreshed["system_prompt"] = refreshed_prompt
+    return refreshed, ""
 
 
 def _builtin_skill_hash(skill_def: dict[str, Any]) -> str:
+    prompt = skill_def.get("system_prompt", "")
     payload = {
         "name": skill_def.get("name", ""),
         "category": skill_def.get("category", ""),
         "description": skill_def.get("description", ""),
-        "system_prompt": skill_def.get("system_prompt", ""),
+        "system_prompt": prompt,
+        "source_fingerprint": getattr(prompt, "source_fingerprint", ""),
         "user_template": skill_def.get("user_template", ""),
         "estimated_time": skill_def.get("estimated_time", ""),
         "max_tokens": skill_def.get("max_tokens", 0),
@@ -294,6 +325,19 @@ def _skill_to_summary(skill: Skill) -> SkillSummary:
     )
 
 
+def _public_skill_root_issue_message(issue) -> str:
+    message = str(issue.message or "")
+    replacements = sorted(
+        {str(issue.path or ""), str(issue.root or "")},
+        key=len,
+        reverse=True,
+    )
+    for sensitive in replacements:
+        if sensitive:
+            message = message.replace(sensitive, "<skill-root>")
+    return message
+
+
 @router.get("")
 def list_skills(category: Optional[str] = None, session: Session = Depends(get_session)):
     cache_key = f"list:{category or ''}"
@@ -375,6 +419,44 @@ def list_skill_summaries_paginated(
         offset=offset,
         categories=[SkillCategoryCount(id=key, count=count) for key, count in sorted(counts.items())],
     )
+
+
+@router.get("/meta/root-snapshot")
+def get_skill_root_snapshot():
+    """Return safe diagnostics for the current Aria-native Skill root snapshot."""
+    catalog = _refresh_skill_root_catalog()
+    return {
+        "fingerprint": catalog.fingerprint,
+        "package_count": len(catalog.packages),
+        "root_count": len(catalog.roots),
+        "cache_hits": catalog.cache_hits,
+        "refreshed_roots": catalog.refreshed_roots,
+        "roots": [
+            {
+                "source": root.source,
+                "priority": root.priority,
+                "package_count": len(root.packages),
+                "content_fingerprint": root.content_fingerprint,
+                "error_count": sum(1 for issue in root.issues if issue.severity == "error"),
+                "warning_count": sum(1 for issue in root.issues if issue.severity == "warning"),
+            }
+            for root in catalog.roots
+        ],
+        "issues": [
+            {
+                "source": next(
+                    (root.source for root in catalog.roots if root.root == issue.root),
+                    "unknown",
+                ),
+                "path": Path(issue.path).name,
+                "code": issue.code,
+                "message": _public_skill_root_issue_message(issue),
+                "severity": issue.severity,
+            }
+            for issue in catalog.issues
+        ],
+        "last_publish_sync": dict(_last_skill_root_sync),
+    }
 
 
 @router.get("/{skill_id}")
@@ -2561,6 +2643,7 @@ CONSULTING_CAPABILITY_SKILLS = _build_consulting_capability_skill_defs()
 
 def ensure_builtin_pro_skills(session: Session) -> int:
     """Create missing built-in pro skills without overwriting user edits."""
+    global _last_skill_root_sync
     from app.tools import registry as _registry
 
     def build_tool_defs(tool_names: list[str]) -> list[dict[str, Any]]:
@@ -2610,6 +2693,37 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         MINDMAP_SKILL_NAME: VISUAL_MARKDOWN_TOOL_NAMES,
     }
 
+    catalog = _refresh_skill_root_catalog()
+    prepared_skill_defs: list[dict[str, Any]] = []
+    skipped_packages: list[dict[str, str]] = []
+    for raw_skill_def in [*GSTACK_PRO_SKILLS, *CONSULTING_CAPABILITY_SKILLS]:
+        refreshed_skill_def, load_error = _refresh_file_backed_skill_def(
+            raw_skill_def,
+            catalog,
+        )
+        if refreshed_skill_def is None:
+            skipped = {
+                "skill_name": str(raw_skill_def.get("name") or ""),
+                "error": load_error,
+            }
+            skipped_packages.append(skipped)
+            logger.warning(
+                "Skipping invalid file-backed Skill during publish sync: skill=%s error=%s",
+                skipped["skill_name"],
+                load_error,
+            )
+            continue
+        prepared_skill_defs.append(refreshed_skill_def)
+
+    _last_skill_root_sync = {
+        "catalog_fingerprint": catalog.fingerprint,
+        "package_count": len(catalog.packages),
+        "cache_hits": catalog.cache_hits,
+        "refreshed_roots": catalog.refreshed_roots,
+        "skipped_count": len(skipped_packages),
+        "skipped": skipped_packages[:20],
+    }
+
     existing = {skill.name: skill for skill in session.exec(select(Skill)).all()}
     changed = 0
     for obsolete_name in OBSOLETE_BUILTIN_SKILL_NAMES:
@@ -2617,7 +2731,7 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         if obsolete_skill is not None:
             session.delete(obsolete_skill)
             changed += 1
-    for skill_def in [*GSTACK_PRO_SKILLS, *CONSULTING_CAPABILITY_SKILLS]:
+    for skill_def in prepared_skill_defs:
         builtin_key = skill_def.get("builtin_key") or skill_def["name"]
         builtin_hash = _builtin_skill_hash(skill_def)
         existing_skill = existing.get(skill_def["name"])
@@ -2702,6 +2816,7 @@ def ensure_builtin_pro_skills(session: Session) -> int:
     if changed:
         session.commit()
         _bust_skills()
+    _last_skill_root_sync["changed"] = changed
     return changed
 
 

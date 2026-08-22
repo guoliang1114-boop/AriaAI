@@ -1,0 +1,61 @@
+cases:
+  - name: targeted_heading_update
+    file_name: 项目风险.md
+    base: |
+      # 项目风险
+
+      ## 决策链
+
+      - 当前评级：高
+      - 负责人：项目经理
+    patch: |
+      *** Begin Patch
+      *** Update File: 项目风险.md
+      @@ ## 决策链
+      -- 当前评级：高
+      +- 当前评级：中
+      *** End Patch
+    expected_contains: "- 当前评级：中"
+    expected_replacements: 1
+
+  - name: append_at_eof
+    file_name: 下一步.md
+    base: |
+      # 下一步
+
+      - 确认访谈名单
+    patch: |
+      *** Begin Patch
+      *** Update File: 下一步.md
+      @@
+      +- 确认周会节奏
+      *** End of File
+      *** End Patch
+    expected_contains: "- 确认周会节奏"
+    expected_replacements: 1
+
+  - name: reject_ambiguous_context
+    file_name: 重复.md
+    base: |
+      # A
+      - 状态：待定
+      # B
+      - 状态：待定
+    patch: |
+      *** Begin Patch
+      *** Update File: 重复.md
+      @@
+      -- 状态：待定
+      +- 状态：完成
+      *** End Patch
+    expected_error: ambiguous_context
+
+  - name: reject_delete_operation
+    file_name: 保留.md
+    base: |
+      # 必须保留
+    patch: |
+      *** Begin Patch
+      *** Delete File: 保留.md
+      *** End Patch
+    expected_error: update_only

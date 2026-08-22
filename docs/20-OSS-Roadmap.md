@@ -1,6 +1,6 @@
 # AriaAI OSS Roadmap
 
-> Updated: 2026-05-31  
+> Updated: 2026-08-23
 > Status: Public roadmap for open-source contributors and maintainers.
 
 AriaAI is an open-source agentic workspace for professional knowledge work. The roadmap below highlights work that strengthens AriaAI as a reusable reference implementation for AI-native workspaces: memory, skills, knowledge workflows, human approval, and auditable runs.
@@ -13,6 +13,22 @@ Goal: make AI work durable, traceable, and understandable.
 - Separate product-facing run events from internal trace events.
 - Keep ordinary chat quiet while making long-running work transparent.
 - Improve failure recovery for streaming, tool calls, and artifact saves.
+- Keep Aria's Agent Loop native and provider-neutral; selectively absorb proven
+  open-source harness mechanisms without introducing a second runtime.
+- Budget system context, tool schemas, history, reasoning, output reserve, and
+  safety margin before every model turn; preserve call/result batches as atomic
+  structured units and compact only when the selected model window requires it.
+- Persist ordinary chat runs as ordered Aria checkpoints, reconstruct them
+  deterministically after interruption, and retry only when side effects are known safe.
+- Apply targeted Markdown changes through a single-artifact structured patch:
+  freeze the diff before approval, verify the exact base hash again at execution,
+  atomically replace the file, and preserve a rollback version.
+- Normalize tool call/result transcripts at every provider boundary: repair
+  stable IDs, insert fail-closed interrupted outputs, remove orphans, and reject
+  duplicate call IDs before a business tool can execute twice.
+- Retry transient model-turn failures only before the first provider event;
+  honor bounded server delays, classify quota/auth/request errors as terminal,
+  and never replay partial text, reasoning, or a tool plan.
 
 ## 2. Memory System
 
@@ -40,6 +56,11 @@ Goal: turn skills from prompts into delivery-oriented workflows.
 - Add golden cases for important skills.
 - Add examples for authoring and testing skills.
 - Align Skill metadata with open agent skill conventions where useful.
+- Validate file-backed Skill metadata and load only explicitly selected bundled
+  references into each Aria execution context.
+- Discover ordered Skill roots into immutable content-fingerprinted snapshots,
+  refresh only changed roots, isolate malformed packages, and keep the
+  database-published Skill catalog authoritative for intent selection.
 
 ## 5. Human-in-the-Loop Approval
 
@@ -48,7 +69,14 @@ Goal: keep AI actions powerful but reviewable.
 - Continue server-side pending action persistence for write/delete/update operations.
 - Improve approval UI and audit trail.
 - Add rollback or recovery paths for high-impact changes.
+- Render frozen Markdown diffs inside the approval card and reject stale or
+  ambiguous changes without writing.
 - Add security checks for tool actions that touch project, client, memory, or files.
+- Use an explicit `allow / prompt / forbidden` decision before every tool call;
+  `prompt` must always enter AriaAI's durable HITAS approval flow.
+- Bind each new HITAS preview to a versioned hash of its tool, frozen input,
+  project scope, risk, creation policy, and batch order; revalidate the exact
+  envelope before atomically claiming execution.
 
 ## 6. OSS Quality
 

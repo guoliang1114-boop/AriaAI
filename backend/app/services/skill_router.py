@@ -8,6 +8,8 @@ while questions and low-confidence matches stay in normal chat.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 
@@ -27,6 +29,8 @@ class SkillActivationDecision:
     candidate_skill_id: int | None = None
     candidate_skill_name: str = ""
     top_candidates: tuple[dict, ...] = field(default_factory=tuple)
+    catalog_fingerprint: str = ""
+    candidate_count: int = 0
 
 
 def decide_skill_activation(content: str, skill: Skill | None, *, force_skill: bool = False) -> SkillActivationDecision:
@@ -185,6 +189,65 @@ def skill_auto_match_score(content: str, skill: Skill) -> tuple[int, str]:
     return best_score, best_reason
 
 
+def published_skill_catalog_fingerprint(skills: list[Skill]) -> str:
+    """Fingerprint only DB-published selection metadata, never local root state."""
+    payload = [
+        {
+            "id": skill.id,
+            "name": skill.name or "",
+            "description": skill.description or "",
+            "category": skill.category or "",
+            "builtin_key": skill.builtin_key or "",
+            "builtin_hash": skill.builtin_hash or "",
+        }
+        for skill in sorted(
+            skills,
+            key=lambda item: (
+                _normalize_for_skill_match(item.name),
+                int(item.id or 0),
+            ),
+        )
+    ]
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def rank_published_skill_candidates(
+    content: str,
+    skills: list[Skill],
+    *,
+    limit: int = 3,
+) -> tuple[tuple[dict, ...], str]:
+    """Rank intent candidates deterministically from Aria's published DB rows."""
+    scored: list[tuple[int, str, Skill]] = []
+    for skill in skills:
+        score, reason = skill_auto_match_score(content, skill)
+        if score > 0:
+            scored.append((score, reason, skill))
+    scored.sort(
+        key=lambda item: (
+            -item[0],
+            _normalize_for_skill_match(item[2].name),
+            int(item[2].id or 0),
+        )
+    )
+    rankings = tuple(
+        {
+            "skill_id": skill.id,
+            "skill_name": skill.name,
+            "score": score,
+            "reason": reason,
+        }
+        for score, reason, skill in scored[: max(1, limit)]
+    )
+    return rankings, published_skill_catalog_fingerprint(skills)
+
+
 def auto_select_skill(session: Session, req: SendMessageRequest) -> tuple[Skill | None, SkillActivationDecision]:
     """Infer a Skill for project chat when the request is a high-confidence workflow."""
     if req.skill_id or req.force_skill or not req.project_id:
@@ -193,33 +256,58 @@ def auto_select_skill(session: Session, req: SendMessageRequest) -> tuple[Skill 
     if not text:
         return None, SkillActivationDecision(False, "empty_message", 0.0, source="auto")
 
-    candidates = session.exec(select(Skill)).all()
+    candidates = list(session.exec(select(Skill)).all())
+    catalog_fingerprint = published_skill_catalog_fingerprint(candidates)
     normalized_text = _normalize_for_skill_match(text)
     looks_like_question = normalized_text.endswith(("?", "？")) or normalized_text.startswith(
         ("为什么", "如何", "怎么", "是否", "是不是", "能不能", "可不可以", "what", "why", "how")
     )
     exact_name_match = any(_normalize_for_skill_match(skill.name) in normalized_text for skill in candidates if skill.name)
     if looks_like_question and not exact_name_match:
-        return None, SkillActivationDecision(False, "auto_skill_skipped_question", 0.0, source="auto")
+        return None, SkillActivationDecision(
+            False,
+            "auto_skill_skipped_question",
+            0.0,
+            source="auto",
+            catalog_fingerprint=catalog_fingerprint,
+            candidate_count=len(candidates),
+        )
 
-    scored: list[tuple[int, str, Skill]] = []
-    for skill in candidates:
-        score, reason = skill_auto_match_score(text, skill)
-        if score > 0:
-            scored.append((score, reason, skill))
-    scored.sort(key=lambda item: item[0], reverse=True)
-    top_candidates = tuple(
-        {
-            "skill_id": skill.id,
-            "skill_name": skill.name,
-            "score": score,
-            "reason": reason,
-        }
-        for score, reason, skill in scored[:3]
+    top_candidates, catalog_fingerprint = rank_published_skill_candidates(
+        text,
+        candidates,
+        limit=3,
     )
+    candidate_by_id = {skill.id: skill for skill in candidates}
 
-    if scored:
-        best_score, best_reason, best_skill = scored[0]
+    if top_candidates:
+        best = top_candidates[0]
+        best_score = int(best["score"])
+        best_reason = str(best["reason"])
+        best_skill = candidate_by_id.get(best["skill_id"])
+        if best_skill is None:
+            return None, SkillActivationDecision(
+                False,
+                "auto_skill_candidate_disappeared",
+                0.0,
+                source="auto",
+                top_candidates=top_candidates,
+                catalog_fingerprint=catalog_fingerprint,
+                candidate_count=len(candidates),
+            )
+        tied_top = [candidate for candidate in top_candidates if candidate["score"] == best_score]
+        if best_score >= 82 and len(tied_top) > 1:
+            return None, SkillActivationDecision(
+                False,
+                "auto_skill_ambiguous_match",
+                best_score / 100,
+                source="auto",
+                candidate_skill_id=best_skill.id,
+                candidate_skill_name=best_skill.name,
+                top_candidates=top_candidates,
+                catalog_fingerprint=catalog_fingerprint,
+                candidate_count=len(candidates),
+            )
         if best_score >= 82:
             return best_skill, SkillActivationDecision(
                 True,
@@ -229,6 +317,8 @@ def auto_select_skill(session: Session, req: SendMessageRequest) -> tuple[Skill 
                 candidate_skill_id=best_skill.id,
                 candidate_skill_name=best_skill.name,
                 top_candidates=top_candidates,
+                catalog_fingerprint=catalog_fingerprint,
+                candidate_count=len(candidates),
             )
         return None, SkillActivationDecision(
             False,
@@ -238,6 +328,15 @@ def auto_select_skill(session: Session, req: SendMessageRequest) -> tuple[Skill 
             candidate_skill_id=best_skill.id,
             candidate_skill_name=best_skill.name,
             top_candidates=top_candidates,
+            catalog_fingerprint=catalog_fingerprint,
+            candidate_count=len(candidates),
         )
 
-    return None, SkillActivationDecision(False, "auto_skill_no_match", 0.0, source="auto")
+    return None, SkillActivationDecision(
+        False,
+        "auto_skill_no_match",
+        0.0,
+        source="auto",
+        catalog_fingerprint=catalog_fingerprint,
+        candidate_count=len(candidates),
+    )

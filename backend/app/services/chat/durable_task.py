@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import json
-import hashlib
 import time
 from collections.abc import AsyncIterator
 from datetime import timedelta
@@ -18,6 +17,10 @@ from sqlmodel import Session, select
 from app.config import UPLOADS_DIR
 from app.models.db import PendingToolAction, ProjectFile
 from app.routers.chat_schemas import SendMessageRequest
+from app.services.agent_harness.approval_envelope import (
+    APPROVAL_ENVELOPE_PREFIX,
+    approval_envelope_hash,
+)
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.chat.pending_actions import tool_confirmation_token
 from app.services.chat_tools import ChatRuntime
@@ -128,11 +131,6 @@ def _p0_approval_batch_id(conversation_id: int, confirmation_token: str) -> str:
     return f"hitas-{conversation_id}-{confirmation_token.split(':')[-1]}"
 
 
-def _hash_tool_input(tool_input: dict) -> str:
-    normalized = json.dumps(tool_input or {}, ensure_ascii=False, sort_keys=True, default=str)
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-
-
 def _persist_markdown_continuation_action(
     bind,
     *,
@@ -172,6 +170,10 @@ def _persist_markdown_continuation_action(
 
     with Session(bind) as session:
         tool_input_json = json.dumps(tool_input, ensure_ascii=False, default=str)
+        policy_at_creation = str(
+            getattr(runtime.action_policy, "value", runtime.action_policy) or ""
+        )
+        approval_batch_id = _p0_approval_batch_id(runtime.conv_id, confirmation_token)
         existing = session.exec(
             select(PendingToolAction)
             .where(PendingToolAction.conversation_id == runtime.conv_id)
@@ -181,6 +183,23 @@ def _persist_markdown_continuation_action(
             .order_by(PendingToolAction.created_at.desc(), PendingToolAction.id.desc())
         ).first()
         if existing:
+            if not existing.tool_input_hash.startswith(APPROVAL_ENVELOPE_PREFIX):
+                existing.action_type = "modify_document"
+                existing.risk_level = "high"
+                existing.policy_at_creation = policy_at_creation
+                existing.approval_batch_id = approval_batch_id
+                existing.tool_input_hash = approval_envelope_hash(
+                    tool_name=existing.tool_name,
+                    tool_input=tool_input,
+                    project_id=existing.project_id,
+                    action_type=existing.action_type,
+                    risk_level=existing.risk_level,
+                    policy_at_creation=existing.policy_at_creation,
+                    approval_batch_id=existing.approval_batch_id,
+                    sequence_index=existing.sequence_index,
+                )
+                session.add(existing)
+                session.commit()
             return existing.id, pending_confirmation, action_payload
 
         action = PendingToolAction(
@@ -191,9 +210,18 @@ def _persist_markdown_continuation_action(
             tool_input_json=tool_input_json,
             action_type="modify_document",
             risk_level="high",
-            policy_at_creation=str(getattr(runtime.action_policy, "value", runtime.action_policy) or ""),
-            tool_input_hash=_hash_tool_input(tool_input),
-            approval_batch_id=_p0_approval_batch_id(runtime.conv_id, confirmation_token),
+            policy_at_creation=policy_at_creation,
+            tool_input_hash=approval_envelope_hash(
+                tool_name=PROJECT_MARKDOWN_TOOL_NAME,
+                tool_input=tool_input,
+                project_id=req.project_id,
+                action_type="modify_document",
+                risk_level="high",
+                policy_at_creation=policy_at_creation,
+                approval_batch_id=approval_batch_id,
+                sequence_index=0,
+            ),
+            approval_batch_id=approval_batch_id,
             sequence_index=0,
             title="确认修改 Markdown 文档",
             description="即将用 AI 生成的新版内容覆盖当前项目 Markdown 文件。",
@@ -285,6 +313,7 @@ async def _handle_markdown_artifact_continuation(
             state.full_text = full_text
             yield sse_event({"type": "text", "content": full_text})
             _, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
+            state.assistant_message_id = assistant_message_id
             yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
             return
 
@@ -357,6 +386,7 @@ async def _handle_markdown_artifact_continuation(
         need_title, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
         _attach_pending_action_message(bind, action_id, assistant_message_id)
         state.need_title = need_title
+        state.assistant_message_id = assistant_message_id
         try:
             persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
         except Exception as exc:
@@ -534,6 +564,7 @@ async def run_durable_task(
                 metadata,
             )
             state.need_title = need_title
+            state.assistant_message_id = assistant_message_id
             try:
                 persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
             except Exception as exc:
@@ -631,6 +662,7 @@ async def run_durable_task(
                     yield v1_evt
                 yield sse_event({"type": "text", "content": full_text})
                 state.durable_task_completed = True
+                state.confirmation_requested = True
                 state.full_text = full_text
                 state.stage_timings.update(metadata["stage_timings"])
                 state.record_trace_event(
@@ -646,6 +678,7 @@ async def run_durable_task(
                     metadata,
                 )
                 state.need_title = need_title
+                state.assistant_message_id = assistant_message_id
                 try:
                     persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
                 except Exception as exc:
@@ -759,6 +792,7 @@ async def run_durable_task(
 
         need_title, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
         state.need_title = need_title
+        state.assistant_message_id = assistant_message_id
         try:
             persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
         except Exception as exc:
