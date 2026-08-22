@@ -18,6 +18,7 @@ from app.config import (
     MODEL_TURN_MAX_ATTEMPTS,
     MODEL_TURN_RETRY_BASE_DELAY_MS,
     MODEL_TURN_RETRY_MAX_DELAY_MS,
+    TOOL_PARALLEL_MAX_CONCURRENCY,
 )
 from app.models.db import Conversation, Message, ProjectMember, Skill
 from app.models.db import Setting as _Setting
@@ -981,6 +982,7 @@ def prepare_chat_runtime(
         model_turn_max_attempts=MODEL_TURN_MAX_ATTEMPTS,
         model_turn_retry_base_delay_ms=MODEL_TURN_RETRY_BASE_DELAY_MS,
         model_turn_retry_max_delay_ms=MODEL_TURN_RETRY_MAX_DELAY_MS,
+        tool_parallel_max_concurrency=TOOL_PARALLEL_MAX_CONCURRENCY,
     )
 
 

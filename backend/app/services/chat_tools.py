@@ -56,6 +56,9 @@ class ChatRuntime:
     model_turn_max_attempts: int = 2
     model_turn_retry_base_delay_ms: int = 500
     model_turn_retry_max_delay_ms: int = 5_000
+    # Consecutive tools explicitly declared parallel-safe may share a batch.
+    # Mutating, approval-gated, unknown, and unmarked tools remain serial.
+    tool_parallel_max_concurrency: int = 4
 
     def __post_init__(self) -> None:
         """Keep explicitly selected Skill runtimes executable on fallback paths.

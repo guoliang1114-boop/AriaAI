@@ -20,6 +20,8 @@ with a Codex runtime. The adapted mechanisms currently cover:
   insertion, and stable prompt-only call-ID repair;
 - bounded model-stream retry state, semantic retry/error classification,
   server-provided delay handling, and side-effect-aware replay suppression;
+- explicitly declared read-only parallel tool lanes, exclusive mutation
+  barriers, bounded fan-out, and deterministic call-order result merging;
 - `SKILL.md` frontmatter parsing and conservative YAML scalar repair; and
 - ordered Skill-root discovery, immutable content snapshots, cache reuse,
   error-isolated merging, and unambiguous candidate selection.

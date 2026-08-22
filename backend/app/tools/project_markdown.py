@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 
 from fastapi import HTTPException
@@ -532,40 +533,7 @@ READ_MARKDOWN_TOOL_NAME = "read_project_markdown_document"
 _READ_MAX_CHARS = 12000
 
 
-@registry.register(
-    name=READ_MARKDOWN_TOOL_NAME,
-    description=tool_description(
-        READ_MARKDOWN_TOOL_NAME,
-        "List or read Markdown documents in the current project. "
-        "Call with action='list' to see all available MD files (returns id, name, folder, summary). "
-        "Call with action='read' and a file_id or file_name to read the full content of a specific file. "
-        "Use this for read-only file questions or before an explicitly requested edit."
-    ),
-    input_schema={
-        "type": "object",
-        "properties": {
-            "action": {
-                "type": "string",
-                "enum": ["list", "read"],
-                "description": "list returns the file index; read returns the content of a specific file.",
-            },
-            "file_id": {
-                "type": "integer",
-                "description": "File id to read. Prefer this when the id is known.",
-            },
-            "file_name": {
-                "type": "string",
-                "description": "File name to read, e.g. project-summary.md. Used when file_id is unknown.",
-            },
-            "max_chars": {
-                "type": "integer",
-                "description": "Maximum characters returned for read. Default 12000.",
-            },
-        },
-        "required": [],
-    },
-)
-async def read_project_markdown_document(
+def _read_project_markdown_document_sync(
     *,
     project_id: int,
     action: Literal["list", "read"] | None = None,
@@ -641,3 +609,56 @@ async def read_project_markdown_document(
             "snapshot_in_sync": bool(latest_version and latest_version.content_hash == current_hash),
             "content": content,
         }
+
+
+@registry.register(
+    name=READ_MARKDOWN_TOOL_NAME,
+    description=tool_description(
+        READ_MARKDOWN_TOOL_NAME,
+        "List or read Markdown documents in the current project. "
+        "Call with action='list' to see all available MD files (returns id, name, folder, summary). "
+        "Call with action='read' and a file_id or file_name to read the full content of a specific file. "
+        "Use this for read-only file questions or before an explicitly requested edit."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["list", "read"],
+                "description": "list returns the file index; read returns the content of a specific file.",
+            },
+            "file_id": {
+                "type": "integer",
+                "description": "File id to read. Prefer this when the id is known.",
+            },
+            "file_name": {
+                "type": "string",
+                "description": "File name to read, e.g. project-summary.md. Used when file_id is unknown.",
+            },
+            "max_chars": {
+                "type": "integer",
+                "description": "Maximum characters returned for read. Default 12000.",
+            },
+        },
+        "required": [],
+    },
+)
+async def read_project_markdown_document(
+    *,
+    project_id: int,
+    action: Literal["list", "read"] | None = None,
+    file_id: int | None = None,
+    file_name: str | None = None,
+    max_chars: int = _READ_MAX_CHARS,
+) -> dict:
+    """Read Markdown off the event loop for safe parallel tool batches."""
+
+    return await asyncio.to_thread(
+        _read_project_markdown_document_sync,
+        project_id=project_id,
+        action=action,
+        file_id=file_id,
+        file_name=file_name,
+        max_chars=max_chars,
+    )

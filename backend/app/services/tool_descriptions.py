@@ -47,3 +47,21 @@ def tool_required_policy(tool_name: str, operation: str = "default") -> str | No
     key = (operation or "default").strip().lower()
     value = policies.get(key) or policies.get("default")
     return str(value).strip() if value else None
+
+
+def tool_supports_parallel(tool_name: str, operation: str = "default") -> bool:
+    """Return an explicit parallel-safety declaration for one operation.
+
+    Missing or malformed metadata is deliberately serial. A mapping allows a
+    mixed read/write tool to opt in only its read-only operations.
+    """
+
+    spec = load_tool_spec(tool_name)
+    configured = spec.get("parallel_safe") if spec else None
+    if isinstance(configured, bool):
+        return configured
+    if not isinstance(configured, dict):
+        return False
+    key = (operation or "default").strip().lower()
+    value = configured.get(key, configured.get("default", False))
+    return value is True

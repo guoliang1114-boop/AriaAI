@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
 > 更新日期：2026-08-23
-> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H 已实施
+> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -79,7 +79,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 
 大型 Rust 子系统只有在 Python 重写成本明显高于收益、且 Aria 确实需要同类能力时才重新评估。目前没有这种必要。
 
-## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H 已吸收的源码机制
+## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I 已吸收的源码机制
 
 | Codex 上游机制 | 上游路径 | Aria 原生实现 | 接入位置 | 价值 |
 |---|---|---|---|---|
@@ -91,6 +91,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 | 审批执行信封 | `core/src/tools/sandboxing.rs`、`approvals.rs`、`runtimes/apply_patch.rs` | `backend/app/services/agent_harness/approval_envelope.py` | HITAS 持久化 + 普通/批量确认 | 将用户看到的动作与最终执行动作做版本化完整绑定，篡改或策略漂移时拒绝执行 |
 | 工具转录规范化 | `core/src/context_manager/normalize.rs`、`history.rs` | `backend/app/services/agent_harness/tool_transcript.py` | `chat/agent_loop.py` 的每次 Provider 请求边界 | 补齐缺失结果、移除孤立结果、稳定修复调用 ID，并在执行前拒绝重复 ID，避免协议错误与重复副作用 |
 | 模型回合安全重试 | `core/src/responses_retry.rs`、`protocol/src/error.rs`、`codex-api/src/sse/responses.rs` | `backend/app/services/agent_harness/turn_retry.py` | `chat/agent_loop.py` + 各模型 Provider | 统一错误分类、服务端等待时间、有限退避和遥测；任何模型事件出现后关闭自动重放窗口 |
+| 只读工具并发车道与写入屏障 | `core/src/tools/parallel.rs`、`orchestrator.rs` | `backend/app/services/agent_harness/tool_scheduler.py` | `chat/agent_loop.py` + 项目文件读取工具 | 显式安全的连续读取可有界并发；写入、审批、未知工具始终作为顺序屏障，结果按模型调用顺序回填 |
 | Skill 前置信息解析 | `codex-rs/skills/src/parser.rs` | `backend/app/services/agent_harness/skill_package.py` | `routers/skills.py` | 校验 `SKILL.md`、修复有限 YAML 歧义、安全加载指定引用 |
 | Skill Root 快照与选择 | `codex-rs/skills/src/loading.rs`、`selection.rs`、`ext/skills/src/loader/` | `backend/app/services/agent_harness/skill_roots.py` | Skill 启动同步 + `skill_router.py` | 有序 Root、不可变内容指纹、增量缓存、坏包隔离和发布态候选选择 |
 
@@ -334,6 +335,20 @@ Phase 2H 把模型流重试从 Kimi、DeepSeek、MiMo、GLM 的适配器内部�
 
 Codex 上游允许对 retryable sampling stream 进行有界重连，并保留服务端提供的等待时间。Aria 吸收错误分类、等待策略与遥测字段，但采用更保守的业务副作用模型：Codex 的通用回合重连不直接照搬，Aria 只在没有任何上层可见或可执行状态时重放。整个过程仍直接调用 Aria 已配置的 Claude、Kimi、DeepSeek、GLM 或 MiMo Provider，不启动或连接 Codex。
 
+### 4.12 只读工具并发车道与写入屏障
+
+Phase 2I 吸收 Codex Tool Runtime 的并发能力声明和读写隔离原则，但改造为更适合 Aria 业务工具的确定性连续批次：
+
+- 工具必须同时满足当前 `ActionPolicy` 允许、必需权限为 `read_only_tool`、YAML 显式声明 `parallel_safe` 三个条件才能并发；
+- 默认最多四路，环境可调，代码硬上限为八路；
+- 只并发连续的安全读调用，任何写入、需要 HITAS 的动作、未知工具或无效调用都是不可跨越的顺序屏障；
+- 每个并发调用使用独立 `ChatSessionState` 累加器，完成后按模型原始调用顺序合并审计事件、Artifact 和结果；
+- Provider 看到的 `tool_result` 顺序始终与 `tool_use` 顺序一致，不受实际完成先后影响；
+- 项目通用文件与 Markdown 读取移到工作线程，避免同步解析和 PostgreSQL 读取阻塞 Agent Loop 事件循环；
+- `tool_execution_planned` 与 `tool_execution_batch_completed` 只记录车道、批大小、上限和时长，不保存工具参数或文件内容。
+
+这不是照搬 Codex shell 并发执行器。Aria 不开放通用命令，并发资格由自己的工具规格和业务权限决定；默认是顺序执行，而不是从工具名猜测安全性。
+
 ## 5. 已撤回的错误方向
 
 下列通信型实现已从工作区移除：
@@ -440,6 +455,16 @@ Codex 上游允许对 retryable sampling stream 进行有界重连，并保留�
 - `codex-rs/codex-client/src/retry.rs`。
 
 已完成：把模型流重试从各 Provider 上移到 Aria Agent Loop，统一临时 HTTP/网络错误、配额/认证/请求错误与 `Retry-After` 分类；采用总次数硬上限和确定性退避；首个模型事件前允许恢复，任何文本、推理或工具计划出现后永久关闭本回合自动重放。四个 OpenAI-compatible Provider 不再内部随机重试，Claude HTTP 路径保留结构化状态与响应头，所有重试和抑制决策进入 Aria internal trace。实现不运行、不导入、不连接 Codex，也不新增数据库迁移。
+
+### Phase 2I：只读工具并发车道与写入屏障（已实施）
+
+参考候选：
+
+- `codex-rs/core/src/tools/parallel.rs`；
+- `codex-rs/core/src/tools/orchestrator.rs`；
+- `codex-rs/core/tests/suite/tool_parallelism.rs`。
+
+已完成：建立只读工具的显式并发能力声明、权限二次校验、有界连续批次、写入/审批顺序屏障和完成顺序无关的确定性结果合并。目前仅项目通用文件与 Markdown 读取获得并发资格，并通过工作线程避免阻塞事件循环。未标记工具默认顺序，不新增通用 shell、Codex runtime 或数据库迁移。
 
 ## 8. 许可证与升级流程
 

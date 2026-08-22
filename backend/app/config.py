@@ -106,6 +106,10 @@ CONTEXT_HISTORY_SUMMARY_TOKENS = int(os.getenv("CONTEXT_HISTORY_SUMMARY_TOKENS",
 MODEL_TURN_MAX_ATTEMPTS = int(os.getenv("MODEL_TURN_MAX_ATTEMPTS", "2"))
 MODEL_TURN_RETRY_BASE_DELAY_MS = int(os.getenv("MODEL_TURN_RETRY_BASE_DELAY_MS", "500"))
 MODEL_TURN_RETRY_MAX_DELAY_MS = int(os.getenv("MODEL_TURN_RETRY_MAX_DELAY_MS", "5000"))
+# Only explicitly declared read-only tools may share a parallel execution
+# batch. The harness clamps this again so an accidental environment value
+# cannot create unbounded fan-out.
+TOOL_PARALLEL_MAX_CONCURRENCY = int(os.getenv("TOOL_PARALLEL_MAX_CONCURRENCY", "4"))
 
 # Optional absolute Skill roots, ordered from highest to lowest priority.
 # The repository's bundled ``skills/`` directory is always appended as the

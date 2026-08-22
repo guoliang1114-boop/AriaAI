@@ -30,6 +30,7 @@ from typing import Any
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.agent_harness.context_budget import apply_context_budget
 from app.services.agent_harness.run_rollout import checkpoint_chat_rollout
+from app.services.agent_harness.tool_scheduler import plan_tool_execution
 from app.services.agent_harness.turn_retry import decide_turn_retry, normalize_max_attempts
 from app.services.agent_harness.tool_transcript import (
     normalize_planned_tool_calls,
@@ -519,6 +520,35 @@ def _checkpoint_step(state: ChatSessionState, step: AgentStep) -> None:
         )
 
 
+_PARALLEL_TOOL_STATE_LIST_FIELDS = (
+    "tool_call_events",
+    "pending_tool_confirmations",
+    "pending_tool_actions",
+    "trace_events",
+    "artifacts",
+    "pending_markdown_saves",
+)
+
+
+def _fork_parallel_tool_state(parent: ChatSessionState) -> ChatSessionState:
+    """Create an isolated accumulator for one parallel-safe read call."""
+
+    return ChatSessionState(
+        run_id=parent.run_id,
+        assistant_message_id=parent.assistant_message_id,
+        stream_started_at=parent.stream_started_at,
+    )
+
+
+def _merge_parallel_tool_state(parent: ChatSessionState, child: ChatSessionState) -> None:
+    """Merge one completed read call in original model-call order."""
+
+    for field_name in _PARALLEL_TOOL_STATE_LIST_FIELDS:
+        getattr(parent, field_name).extend(getattr(child, field_name))
+    parent.confirmation_requested = parent.confirmation_requested or child.confirmation_requested
+    parent.durable_task_completed = parent.durable_task_completed or child.durable_task_completed
+
+
 # ----------------------------------------------------------------------
 # Public entry point
 # ----------------------------------------------------------------------
@@ -655,87 +685,135 @@ async def run_agent_loop(
         messages.append(_build_assistant_message(text, tool_calls, reasoning))
 
         tool_result_blocks: list[dict] = []
-        for tc_index, tool_call in enumerate(tool_calls):
-            # Product Run Event v1: emit a single tool_progress(running) right
-            # before the real tool execution. Legacy tool_executing inside
-            # outcome.events still fires afterwards.
-            if state.run_id:
-                yield sse_event(
-                    _tool_progress_event(
-                        state.run_id,
-                        step_index + 1,
-                        title=str(tool_call.get("name") or "工具"),
-                        status=ToolProgressStatus.RUNNING,
-                    )
-                )
-            outcome = await execute_tool_with_policy(
-                runtime,
-                state,
-                tool_call,
-                req=req,
-                step_text=text,
-                step_truncated=truncated,
-                step_index=step_index,
-            )
-            for ev in outcome.events:
-                yield ev
+        execution_plan = plan_tool_execution(
+            tool_calls,
+            action_policy=runtime.action_policy,
+            max_parallel=getattr(runtime, "tool_parallel_max_concurrency", 4),
+        )
+        state.record_trace_event(
+            "tool_execution_planned",
+            stage=f"step_{step_index}",
+            **execution_plan.to_trace_dict(),
+        )
+        confirmation_index: int | None = None
 
-            # Product Run Event v1: pair each tool with its terminal state.
-            # confirmation_required is its own event; otherwise emit
-            # tool_progress(completed|failed) to close the running pair from
-            # the [TOOL_START] marker.
-            if state.run_id:
-                tool_name_v1 = str(tool_call.get("name") or "") or "工具"
-                if outcome.confirmation_required:
-                    pending = (
-                        state.pending_tool_confirmations[-1]
-                        if state.pending_tool_confirmations
-                        else {}
-                    )
-                    action_text = str(pending.get("tool_name") or tool_name_v1)
-                    impact_text = (
-                        str(pending.get("summary") or "")
-                        or "该动作会修改或删除项目内容，需要用户确认才能继续。"
-                    )
-                    params_snapshot = (
-                        pending.get("tool_input")
-                        if isinstance(pending.get("tool_input"), dict)
-                        else None
-                    )
-                    yield sse_event(
-                        _confirmation_required_event(
-                            state.run_id,
-                            action=action_text,
-                            impact=impact_text,
-                            params_snapshot=params_snapshot,
-                        )
-                    )
-                else:
+        for batch_number, batch in enumerate(execution_plan.batches, start=1):
+            batch_started_at = time.perf_counter()
+            indexed_calls = [(index, tool_calls[index]) for index in batch.indexes]
+
+            # Emit every running event before a parallel batch begins. Terminal
+            # events and model-visible results are still replayed in call order.
+            for _, tool_call in indexed_calls:
+                if state.run_id:
                     yield sse_event(
                         _tool_progress_event(
                             state.run_id,
                             step_index + 1,
-                            title=tool_name_v1,
-                            status=_classify_tool_outcome_status(outcome),
+                            title=str(tool_call.get("name") or "工具"),
+                            status=ToolProgressStatus.RUNNING,
                         )
                     )
 
-            # Markdown tools also stream their content as user-visible text.
-            if outcome.markdown_inline_text:
-                accumulated_text = _append_text(accumulated_text, outcome.markdown_inline_text)
-                yield sse_event({"type": "text", "content": outcome.markdown_inline_text})
-                if state.run_id:
-                    yield sse_event(
-                        _text_delta_event(state.run_id, outcome.markdown_inline_text)
+            if batch.parallel:
+                child_states = [_fork_parallel_tool_state(state) for _ in indexed_calls]
+                outcomes = await asyncio.gather(
+                    *(
+                        execute_tool_with_policy(
+                            runtime,
+                            child_state,
+                            tool_call,
+                            req=req,
+                            step_text=text,
+                            step_truncated=truncated,
+                            step_index=step_index,
+                        )
+                        for child_state, (_, tool_call) in zip(child_states, indexed_calls)
                     )
+                )
+                for child_state in child_states:
+                    _merge_parallel_tool_state(state, child_state)
+            else:
+                _, tool_call = indexed_calls[0]
+                outcomes = [
+                    await execute_tool_with_policy(
+                        runtime,
+                        state,
+                        tool_call,
+                        req=req,
+                        step_text=text,
+                        step_truncated=truncated,
+                        step_index=step_index,
+                    )
+                ]
 
-            tool_result_blocks.append(outcome.result_block)
+            state.record_trace_event(
+                "tool_execution_batch_completed",
+                stage=f"step_{step_index}",
+                batch_number=batch_number,
+                lane=batch.lane.value,
+                tool_count=len(indexed_calls),
+                duration_ms=round((time.perf_counter() - batch_started_at) * 1000),
+            )
 
-            if outcome.confirmation_required:
-                # Synthesize tool_results for the remaining un-executed calls so
-                # the message list stays well-formed even if we were to feed it
-                # back to the LLM later (and so audit consumers see them).
-                for remaining in tool_calls[tc_index + 1 :]:
+            for (tc_index, tool_call), outcome in zip(indexed_calls, outcomes):
+                for ev in outcome.events:
+                    yield ev
+
+                # Product Run Event v1: pair each tool with its terminal state.
+                if state.run_id:
+                    tool_name_v1 = str(tool_call.get("name") or "") or "工具"
+                    if outcome.confirmation_required:
+                        pending = (
+                            state.pending_tool_confirmations[-1]
+                            if state.pending_tool_confirmations
+                            else {}
+                        )
+                        action_text = str(pending.get("tool_name") or tool_name_v1)
+                        impact_text = (
+                            str(pending.get("summary") or "")
+                            or "该动作会修改或删除项目内容，需要用户确认才能继续。"
+                        )
+                        params_snapshot = (
+                            pending.get("tool_input")
+                            if isinstance(pending.get("tool_input"), dict)
+                            else None
+                        )
+                        yield sse_event(
+                            _confirmation_required_event(
+                                state.run_id,
+                                action=action_text,
+                                impact=impact_text,
+                                params_snapshot=params_snapshot,
+                            )
+                        )
+                    else:
+                        yield sse_event(
+                            _tool_progress_event(
+                                state.run_id,
+                                step_index + 1,
+                                title=tool_name_v1,
+                                status=_classify_tool_outcome_status(outcome),
+                            )
+                        )
+
+                # Markdown writes also stream their content as user-visible text.
+                if outcome.markdown_inline_text:
+                    accumulated_text = _append_text(accumulated_text, outcome.markdown_inline_text)
+                    yield sse_event({"type": "text", "content": outcome.markdown_inline_text})
+                    if state.run_id:
+                        yield sse_event(
+                            _text_delta_event(state.run_id, outcome.markdown_inline_text)
+                        )
+
+                tool_result_blocks.append(outcome.result_block)
+                if outcome.confirmation_required:
+                    confirmation_index = tc_index
+                    break
+
+            if confirmation_index is not None:
+                # Preserve transcript pairing for all calls behind the HITAS
+                # barrier without executing them.
+                for remaining in tool_calls[confirmation_index + 1 :]:
                     tool_result_blocks.append(_skipped_pending_result_block(remaining))
                 break
 
@@ -753,7 +831,7 @@ async def run_agent_loop(
             for event in step_events
             if str(event.get("status") or "") in {"error", "failed", "blocked"}
         ]
-        if outcome.confirmation_required:
+        if confirmation_index is not None:
             step.status = "waiting_confirmation"
         elif failed_events:
             step.status = "failed"

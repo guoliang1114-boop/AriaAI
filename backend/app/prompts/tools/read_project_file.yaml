@@ -3,6 +3,7 @@ purpose: List or read files in the current project space, including PDF, DOCX, P
 when_to_use: Use action=list to discover files; use action=read to extract text from a specific existing file for analysis.
 when_not_to_use: Do not use this to create, move, delete, or modify files. Do not read arbitrary files outside the current project.
 ui_effect: Reading may be shown as project-file inspection progress in chat.
+parallel_safe: true
 required_policy:
   default: read_only_tool
   list: read_only_tool

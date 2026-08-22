@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import shutil
 import uuid
 from pathlib import Path
@@ -417,6 +418,46 @@ async def manage_project_files(
         }
 
 
+def _read_project_file_sync(
+    *,
+    project_id: int,
+    action: Literal["list", "read"],
+    file_id: int | None = None,
+    file_name: str | None = None,
+    file_types: list[str] | None = None,
+    max_chars: int = _READ_MAX_CHARS,
+) -> dict:
+    if not project_id:
+        raise HTTPException(400, "Project id is required")
+
+    with Session(engine) as session:
+        if action == "list":
+            return _list_files(session, project_id, file_types)
+
+        project_file = _find_project_file(session, project_id, file_id, file_name)
+        file_type = project_file.file_type.lower().lstrip(".")
+        if file_type not in _READABLE_TYPES:
+            raise HTTPException(400, f"Unsupported readable file type: {project_file.file_type}")
+
+        content = extract_text_from_file(
+            _file_path(project_file),
+            file_type,
+            max_chars=max(1000, min(max_chars or _READ_MAX_CHARS, 60000)),
+            empty_placeholder="[No text extracted]",
+            unsupported_placeholder="[Unsupported file type]",
+            error_prefix="Extract failed: ",
+        )
+        return {
+            "ok": True,
+            "id": project_file.id,
+            "name": project_file.name,
+            "file_type": project_file.file_type,
+            "size_bytes": project_file.size_bytes,
+            "truncated": content.endswith("\n…[truncated]"),
+            "content": content,
+        }
+
+
 @registry.register(
     name=READ_PROJECT_FILE_TOOL_NAME,
     description=tool_description(
@@ -462,35 +503,17 @@ async def read_project_file(
     file_types: list[str] | None = None,
     max_chars: int = _READ_MAX_CHARS,
 ) -> dict:
-    if not project_id:
-        raise HTTPException(400, "Project id is required")
+    """Read project files off the event loop for safe parallel batches."""
 
-    with Session(engine) as session:
-        if action == "list":
-            return _list_files(session, project_id, file_types)
-
-        project_file = _find_project_file(session, project_id, file_id, file_name)
-        file_type = project_file.file_type.lower().lstrip(".")
-        if file_type not in _READABLE_TYPES:
-            raise HTTPException(400, f"Unsupported readable file type: {project_file.file_type}")
-
-        content = extract_text_from_file(
-            _file_path(project_file),
-            file_type,
-            max_chars=max(1000, min(max_chars or _READ_MAX_CHARS, 60000)),
-            empty_placeholder="[No text extracted]",
-            unsupported_placeholder="[Unsupported file type]",
-            error_prefix="Extract failed: ",
-        )
-        return {
-            "ok": True,
-            "id": project_file.id,
-            "name": project_file.name,
-            "file_type": project_file.file_type,
-            "size_bytes": project_file.size_bytes,
-            "truncated": content.endswith("\n…[truncated]"),
-            "content": content,
-        }
+    return await asyncio.to_thread(
+        _read_project_file_sync,
+        project_id=project_id,
+        action=action,
+        file_id=file_id,
+        file_name=file_name,
+        file_types=file_types,
+        max_chars=max_chars,
+    )
 
 
 def _content_preview(file_type: str, *, title: str, content: str, sections: list[dict] | None, sheets: list[dict] | None) -> str:
