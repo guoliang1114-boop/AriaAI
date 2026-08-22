@@ -45,6 +45,7 @@ export type RunErrorCode =
   | "PERSISTENCE_ERROR"
   | "POLICY_REJECTED"
   | "CONTEXT_PREPARATION_FAILED"
+  | "TURN_BUDGET_EXCEEDED"
   | "UNKNOWN"
   | string; // tolerate forward-compatible codes
 

@@ -9,6 +9,9 @@ from dataclasses import replace
 from sqlmodel import Session, select
 
 from app.config import (
+    AGENT_TURN_MAX_STEPS,
+    AGENT_TURN_MAX_TOOL_CALLS,
+    AGENT_TURN_TIMEOUT_SECONDS,
     CONTEXT_HISTORY_SUMMARY_TOKENS,
     CONTEXT_WINDOW_SAFETY_MARGIN_PERCENT,
     DEFAULT_CONTEXT_WINDOW_TOKENS,
@@ -983,6 +986,9 @@ def prepare_chat_runtime(
         model_turn_retry_base_delay_ms=MODEL_TURN_RETRY_BASE_DELAY_MS,
         model_turn_retry_max_delay_ms=MODEL_TURN_RETRY_MAX_DELAY_MS,
         tool_parallel_max_concurrency=TOOL_PARALLEL_MAX_CONCURRENCY,
+        agent_turn_max_steps=AGENT_TURN_MAX_STEPS,
+        agent_turn_max_tool_calls=AGENT_TURN_MAX_TOOL_CALLS,
+        agent_turn_timeout_seconds=AGENT_TURN_TIMEOUT_SECONDS,
     )
 
 

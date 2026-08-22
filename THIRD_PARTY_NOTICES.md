@@ -24,6 +24,8 @@ with a Codex runtime. The adapted mechanisms currently cover:
   barriers, bounded fan-out, and deterministic call-order result merging;
 - active-turn registration, authorized user interruption, durable partial
   reply markers, cancelled-step checkpoints, and terminal cancellation events;
+- monotonic per-turn execution accounting, atomic planned-tool reservations,
+  shared model/tool deadlines, and durable budget-exhaustion boundaries;
 - `SKILL.md` frontmatter parsing and conservative YAML scalar repair; and
 - ordered Skill-root discovery, immutable content snapshots, cache reuse,
   error-isolated merging, and unambiguous candidate selection.

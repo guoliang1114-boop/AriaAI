@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
 > 更新日期：2026-08-23
-> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J 已实施
+> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -79,7 +79,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 
 大型 Rust 子系统只有在 Python 重写成本明显高于收益、且 Aria 确实需要同类能力时才重新评估。目前没有这种必要。
 
-## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J 已吸收的源码机制
+## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K 已吸收的源码机制
 
 | Codex 上游机制 | 上游路径 | Aria 原生实现 | 接入位置 | 价值 |
 |---|---|---|---|---|
@@ -93,6 +93,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 | 模型回合安全重试 | `core/src/responses_retry.rs`、`protocol/src/error.rs`、`codex-api/src/sse/responses.rs` | `backend/app/services/agent_harness/turn_retry.py` | `chat/agent_loop.py` + 各模型 Provider | 统一错误分类、服务端等待时间、有限退避和遥测；任何模型事件出现后关闭自动重放窗口 |
 | 只读工具并发车道与写入屏障 | `core/src/tools/parallel.rs`、`orchestrator.rs` | `backend/app/services/agent_harness/tool_scheduler.py` | `chat/agent_loop.py` + 项目文件读取工具 | 显式安全的连续读取可有界并发；写入、审批、未知工具始终作为顺序屏障，结果按模型调用顺序回填 |
 | 用户中断与终止边界 | `core/src/tasks/mod.rs`、`context/turn_aborted.rs`、`tests/suite/abort_tasks.rs` | `backend/app/services/agent_harness/turn_interrupt.py` | Chat SSE + Run Rollout + 两个聊天前端 | 停止按钮取消真实后端任务，保留部分回复并持久化 `cancelled` 终态；可能已执行的工具不会被盲目重放 |
+| 单轮执行预算与停止边界 | `ext/goal/src/accounting.rs`、`ext/goal/src/runtime.rs`、`core/src/tools/orchestrator.rs` | `backend/app/services/agent_harness/turn_budget.py` | Agent Loop + Model Stream + Tool Batch + Persist + Run Rollout | 用单调时钟统一限制步骤、计划工具总数和总耗时；超限保存部分结果并以不可重试失败终态收口 |
 | Skill 前置信息解析 | `codex-rs/skills/src/parser.rs` | `backend/app/services/agent_harness/skill_package.py` | `routers/skills.py` | 校验 `SKILL.md`、修复有限 YAML 歧义、安全加载指定引用 |
 | Skill Root 快照与选择 | `codex-rs/skills/src/loading.rs`、`selection.rs`、`ext/skills/src/loader/` | `backend/app/services/agent_harness/skill_roots.py` | Skill 启动同步 + `skill_router.py` | 有序 Root、不可变内容指纹、增量缓存、坏包隔离和发布态候选选择 |
 
@@ -365,6 +366,20 @@ Phase 2J 吸收 Codex 活动 Turn 取消和对模型可见的中断标记，但�
 
 这一实现不包含 Codex 的任务对象、协议、App Server 或进程。活动表只保存随机 Aria `run_id`、Conversation ID 和本进程 Task 引用；生产当前为单 Uvicorn 进程，与部署拓扑一致。未来若改为多 Worker，活动信号需升级为 Redis/PostgreSQL 通知或统一 Run Worker，而不是依赖请求负载均衡恰好命中同一进程。
 
+### 4.14 单轮执行预算与统一停止边界
+
+Phase 2K 吸收 Codex 目标运行时的单调用量记账与 Tool Orchestrator 集中边界，并按 Aria 的多 Provider、结构化业务工具和持久化 Run 模型重写：
+
+- 每个普通 Chat Run 创建一份 `TurnBudgetLedger`，统一记录已开始 Step、模型规划的工具调用总数和单调墙钟耗时；
+- 默认限制为 8 步、24 次计划工具调用和 600 秒，总配置再由代码硬限制在 1–16 步、1–64 次、30–1800 秒；
+- 工具调用按规范化后的完整批次原子预留；若新批次会越界，该批次一个也不执行；
+- 同一总截止时间覆盖模型流、模型安全重试等待、串行工具与并行工具批次，而不是给每次请求重新计时；
+- 超限产生稳定的 `TURN_BUDGET_EXCEEDED` Product Run Event，当前 Step 标记 `failed / retryable=false`，部分文本和预算快照写入 Assistant Message 与 Run Rollout；
+- 截止时间落在工具执行期间时，用户会看到“工具可能已部分执行”的事实提示；取消协程后不自动重放，需先核对项目实际状态；
+- 进入预算失败后，Persist 只保存已有文本、Artifact、审批和审计记录，不再启动缺失 PPT 补生成、Markdown 兜底写入或后台标题模型调用。
+
+这不是 Codex Goal Runtime 的移植。Aria 没有引入 Goal、Token Budget 服务或 Codex Tool Runtime；当前执行预算只作用于一次普通聊天 Agent Loop，长任务继续由 Durable Task Orchestrator 的步骤级生命周期管理。
+
 ## 5. 已撤回的错误方向
 
 下列通信型实现已从工作区移除：
@@ -491,6 +506,16 @@ Phase 2J 吸收 Codex 活动 Turn 取消和对模型可见的中断标记，但�
 - `codex-rs/core/tests/suite/abort_tasks.rs`。
 
 已完成：停止生成从浏览器本地 `AbortController` 升级为经过 Conversation 写权限校验的 Aria Run 取消；模型流中的部分文本、中断原因、工具可能部分执行提示、Step cancelled checkpoint、Assistant Message 和 `run_cancelled` 终态形成同一持久化边界；两个聊天入口均已接通，并保留浏览器断流兜底。实现不调用 Codex、不新增数据库迁移，继续复用 Aria 的 Message 与 TaskRun/TaskStep/TaskEvent。
+
+### Phase 2K：单轮执行预算与停止边界（已实施）
+
+参考候选：
+
+- `codex-rs/ext/goal/src/accounting.rs`；
+- `codex-rs/ext/goal/src/runtime.rs`；
+- `codex-rs/core/src/tools/orchestrator.rs`。
+
+已完成：为普通聊天建立共享的 Step、计划工具调用和墙钟预算；模型流、重试等待和工具批次共用一个截止时间；超限时原子停止新工具、保存部分输出和预算证据、标记不可重试失败，并阻止 Persist 启动新的补偿性模型或写入工作。配置可通过 `AGENT_TURN_MAX_STEPS`、`AGENT_TURN_MAX_TOOL_CALLS`、`AGENT_TURN_TIMEOUT_SECONDS` 调整并受代码硬上限保护。不运行、不导入、不连接 Codex，不新增数据库迁移。
 
 ## 8. 许可证与升级流程
 

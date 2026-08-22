@@ -59,6 +59,11 @@ class ChatRuntime:
     # Consecutive tools explicitly declared parallel-safe may share a batch.
     # Mutating, approval-gated, unknown, and unmarked tools remain serial.
     tool_parallel_max_concurrency: int = 4
+    # Shared per-turn stopping limits. These include every Agent Loop step,
+    # every model-planned tool call, safe retry waits, and tool execution time.
+    agent_turn_max_steps: int = 8
+    agent_turn_max_tool_calls: int = 24
+    agent_turn_timeout_seconds: float = 600.0
 
     def __post_init__(self) -> None:
         """Keep explicitly selected Skill runtimes executable on fallback paths.

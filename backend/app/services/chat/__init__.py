@@ -675,6 +675,31 @@ async def _stream_chat_events_impl(
             yield event
         return
 
+    if state.budget_exhausted:
+        budget_message = str(
+            state.budget_exhaustion.get("message")
+            or "本轮达到执行预算上限，已安全停止。"
+        )
+        _finalize_rollout_safely(
+            state,
+            status="failed",
+            message_id=state.assistant_message_id,
+            phase="turn_budget",
+            error_code=ErrorCode.TURN_BUDGET_EXCEEDED,
+            error_message=budget_message,
+            retryable=False,
+        )
+        logger.info(
+            "[run stopped] run_id=%s phase=turn_budget kind=%s duration_ms=%s steps=%s tool_calls=%s",
+            state.run_id,
+            state.budget_exhaustion.get("kind"),
+            state.stage_timings.get("total_stream_ms")
+            or round((time.perf_counter() - stream_started_at) * 1000),
+            len(state.steps or []),
+            len(state.tool_call_events or []),
+        )
+        return
+
     # Successful end-of-run terminator (Product Run Event v1).
     _finalize_rollout_safely(
         state,

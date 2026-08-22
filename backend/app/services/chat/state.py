@@ -24,6 +24,9 @@ class ChatSessionState:
     rollout_bind: Any = field(default=None, repr=False)
     assistant_message_id: int | None = None
     rollout_finalized: bool = False
+    turn_budget: Any = field(default=None, repr=False)
+    budget_exhausted: bool = False
+    budget_exhaustion: dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # User-visible text (assembled by the agent loop)

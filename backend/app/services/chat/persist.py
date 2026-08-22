@@ -570,7 +570,12 @@ async def run_persist(
     save_started_at = time.perf_counter()
 
     artifact_contract = _runtime_artifact_contract(runtime)
-    if artifact_contract and (artifact_contract.output_kind or "").lower() == "pptx" and not _delivery_satisfied(state, artifact_contract):
+    if (
+        not state.budget_exhausted
+        and artifact_contract
+        and (artifact_contract.output_kind or "").lower() == "pptx"
+        and not _delivery_satisfied(state, artifact_contract)
+    ):
         yield sse_event({"type": "status", "stage": "tools", "message": "正在补齐 PPT 生成参数并尝试生成交付文件..."})
         generated = await _maybe_generate_missing_ppt_artifact(runtime, req, state, full_text, artifact_contract)
         if generated:
@@ -640,14 +645,16 @@ async def run_persist(
             )
             logger.warning("[persist] empty response detected, using fallback message")
 
-    fallback_markdown = _maybe_create_markdown_from_response(
-        runtime=runtime,
-        req=req,
-        bind=bind,
-        state=state,
-        full_text=full_text,
-        artifact_contract=artifact_contract,
-    )
+    fallback_markdown = None
+    if not state.budget_exhausted:
+        fallback_markdown = _maybe_create_markdown_from_response(
+            runtime=runtime,
+            req=req,
+            bind=bind,
+            state=state,
+            full_text=full_text,
+            artifact_contract=artifact_contract,
+        )
     if fallback_markdown:
         state.pending_markdown_saves.append(
             {
@@ -700,7 +707,8 @@ async def run_persist(
         )
         yield sse_event({"type": "text", "content": f"\n\n{failure_message}"})
 
-    _ensure_project_cleanup_confirmation(runtime, req, bind, state)
+    if not state.budget_exhausted:
+        _ensure_project_cleanup_confirmation(runtime, req, bind, state)
     if state.confirmation_requested and state.pending_tool_confirmations:
         confirmation_notice = _confirmation_notice(state)
         if confirmation_notice not in full_text:
@@ -937,6 +945,13 @@ async def run_persist(
 
     # Build metadata
     metadata: dict = {}
+    if state.turn_budget is not None:
+        turn_budget_snapshot = state.turn_budget.snapshot()
+        metadata["turn_budget"] = (
+            dict(state.budget_exhaustion)
+            if state.budget_exhausted
+            else {"status": "within_budget", "budget": turn_budget_snapshot}
+        )
     if runtime.rag_sources:
         metadata["references"] = runtime.rag_sources
     if state.tool_call_events:
@@ -989,8 +1004,19 @@ async def run_persist(
     if state.run_id:
         metadata["run_rollout"] = build_in_memory_rollout_snapshot(
             state,
-            status="waiting_confirmation" if state.confirmation_requested else "completed",
-            phase="persist",
+            status=(
+                "failed"
+                if state.budget_exhausted
+                else "waiting_confirmation"
+                if state.confirmation_requested
+                else "completed"
+            ),
+            phase="turn_budget" if state.budget_exhausted else "persist",
+            error_message=(
+                str(state.budget_exhaustion.get("message") or "")
+                if state.budget_exhausted
+                else ""
+            ),
         )
 
     # V0.0.4 A4: surface the routing decision so the frontend can show a small
@@ -1079,7 +1105,7 @@ async def run_persist(
     # stream settles. The conversation keeps the stand-in truncation
     # title set by ``persist_assistant_message`` until the background
     # task upgrades it and invalidates the conversation-list cache.
-    if need_title and full_text:
+    if not state.budget_exhausted and need_title and full_text:
         try:
             schedule_title_generation(
                 conv_id=runtime.conv_id,

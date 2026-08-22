@@ -3,7 +3,7 @@
 Replaces the P1 → P2 → P3 cascade with a single ``while`` loop that mirrors
 how Claude Code and similar agents drive a tool-using LLM:
 
-    repeat up to MAX_AGENT_STEPS times:
+    repeat within the configured per-turn budget:
         text, tool_calls = stream one LLM turn
         if no tool_calls: break
         for each tool_call: execute via tool_executor → tool_result
@@ -31,6 +31,14 @@ from app.routers.chat_schemas import SendMessageRequest
 from app.services.agent_harness.context_budget import apply_context_budget
 from app.services.agent_harness.run_rollout import checkpoint_chat_rollout
 from app.services.agent_harness.tool_scheduler import plan_tool_execution
+from app.services.agent_harness.turn_budget import (
+    BudgetKind,
+    TurnBudgetExceeded,
+    TurnBudgetLedger,
+    await_with_turn_deadline,
+    iter_with_turn_deadline,
+    normalize_turn_budget_limits,
+)
 from app.services.agent_harness.turn_retry import decide_turn_retry, normalize_max_attempts
 from app.services.agent_harness.tool_transcript import (
     normalize_planned_tool_calls,
@@ -42,6 +50,8 @@ from app.services.chat.product_run_events import (
     StepCompletedStatus,
     ToolProgressStatus,
     confirmation_required as _confirmation_required_event,
+    ErrorCode,
+    run_failed as _run_failed_event,
     step_completed as _step_completed_event,
     step_started as _step_started_event,
     text_delta as _text_delta_event,
@@ -60,7 +70,6 @@ from app.services.chat_tools import (
 
 logger = logging.getLogger(__name__)
 
-MAX_AGENT_STEPS = 8
 _CONTINUATION_PROMPT = (
     "请从上一条回复被截断的位置继续，补齐后续内容和关键论证。"
     "不要重复已经写过的内容，不要调用工具。"
@@ -119,16 +128,29 @@ async def _iter_model_stream_with_safe_retry(
                 max_tokens=runtime.max_tokens,
                 temperature=runtime.temperature,
             )
-            async for item in iter_with_heartbeat(
+            stream = iter_with_heartbeat(
                 source,
                 stage="thinking",
                 # Same text as the initial frontend state to avoid flicker.
                 message="Aria 正在思考...",
-            ):
+            )
+            budget = state.turn_budget
+            if isinstance(budget, TurnBudgetLedger):
+                stream = iter_with_turn_deadline(
+                    stream,
+                    budget,
+                    phase=stream_label,
+                )
+            async for item in stream:
                 if not isinstance(item, dict):
                     response_committed = True
                 yield item
             return
+        except TurnBudgetExceeded:
+            # A shared turn deadline is terminal. Replaying the model stream
+            # would violate the same deadline and could duplicate committed
+            # text/tool plans.
+            raise
         except Exception as exc:
             decision = decide_turn_retry(
                 exc,
@@ -194,7 +216,15 @@ async def _iter_model_stream_with_safe_retry(
                 "max_retries": max_attempts - 1,
                 "delay_ms": decision.delay_ms,
             }
-            await asyncio.sleep(decision.delay_ms / 1_000)
+            retry_wait = asyncio.sleep(decision.delay_ms / 1_000)
+            if isinstance(state.turn_budget, TurnBudgetLedger):
+                await await_with_turn_deadline(
+                    retry_wait,
+                    state.turn_budget,
+                    phase=f"{stream_label}_retry_wait",
+                )
+            else:
+                await retry_wait
 
 
 async def _consume_stream(
@@ -554,12 +584,13 @@ def _merge_parallel_tool_state(parent: ChatSessionState, child: ChatSessionState
 # ----------------------------------------------------------------------
 
 
-async def run_agent_loop(
+async def _run_agent_loop_impl(
     runtime: ChatRuntime,
     req: SendMessageRequest,
     state: ChatSessionState,
+    budget: TurnBudgetLedger,
 ) -> AsyncIterator[str]:
-    """Drive the LLM through up to ``MAX_AGENT_STEPS`` tool turns.
+    """Drive the LLM through the configured number of bounded tool turns.
 
     On exit the following ``state`` fields are populated for the persist step:
 
@@ -579,7 +610,8 @@ async def run_agent_loop(
     workflow_announced = False
     loop_started_at = time.perf_counter()
 
-    for step_index in range(MAX_AGENT_STEPS):
+    for step_index in range(budget.limits.max_steps):
+        budget.start_step(phase=f"step_{step_index}")
         step = AgentStep(index=step_index)
         state.steps.append(step)
         step_started_at = time.perf_counter()
@@ -685,6 +717,14 @@ async def run_agent_loop(
                 )
             break
 
+        # Reserve the complete normalized batch before executing its first
+        # call. This makes the limit atomic: an oversized plan performs none
+        # of the newly planned calls.
+        budget.reserve_tool_calls(
+            len(tool_calls),
+            phase=f"step_{step_index}_tools",
+        )
+
         # ---------- mark workflow started once we know tools will run ----------
         # No canned "判断执行方式 / 准备参数" plan steps: the real tool executions
         # streamed below are the visible progress, matching the persisted view.
@@ -727,33 +767,43 @@ async def run_agent_loop(
 
             if batch.parallel:
                 child_states = [_fork_parallel_tool_state(state) for _ in indexed_calls]
-                outcomes = await asyncio.gather(
-                    *(
-                        execute_tool_with_policy(
-                            runtime,
-                            child_state,
-                            tool_call,
-                            req=req,
-                            step_text=text,
-                            step_truncated=truncated,
-                            step_index=step_index,
+                outcomes = await await_with_turn_deadline(
+                    asyncio.gather(
+                        *(
+                            execute_tool_with_policy(
+                                runtime,
+                                child_state,
+                                tool_call,
+                                req=req,
+                                step_text=text,
+                                step_truncated=truncated,
+                                step_index=step_index,
+                            )
+                            for child_state, (_, tool_call) in zip(child_states, indexed_calls)
                         )
-                        for child_state, (_, tool_call) in zip(child_states, indexed_calls)
-                    )
+                    ),
+                    budget,
+                    phase=f"step_{step_index}_tool_batch_{batch_number}",
+                    tool_execution_possible=True,
                 )
                 for child_state in child_states:
                     _merge_parallel_tool_state(state, child_state)
             else:
                 _, tool_call = indexed_calls[0]
                 outcomes = [
-                    await execute_tool_with_policy(
-                        runtime,
-                        state,
-                        tool_call,
-                        req=req,
-                        step_text=text,
-                        step_truncated=truncated,
-                        step_index=step_index,
+                    await await_with_turn_deadline(
+                        execute_tool_with_policy(
+                            runtime,
+                            state,
+                            tool_call,
+                            req=req,
+                            step_text=text,
+                            step_truncated=truncated,
+                            step_index=step_index,
+                        ),
+                        budget,
+                        phase=f"step_{step_index}_tool_batch_{batch_number}",
+                        tool_execution_possible=True,
                     )
                 ]
 
@@ -887,22 +937,110 @@ async def run_agent_loop(
         if state.confirmation_requested:
             break
     else:
-        # Loop hit MAX_AGENT_STEPS without breaking — record and exit gracefully.
-        state.record_trace_event(
-            "agent_loop_max_steps",
-            stage="agent_loop",
-            max_steps=MAX_AGENT_STEPS,
-        )
-        yield sse_event(
-            {
-                "type": "status",
-                "stage": "agent_loop",
-                "message": f"已达到 {MAX_AGENT_STEPS} 步工具循环上限，正在整理已生成的内容。",
-            }
-        )
+        raise budget.step_limit_exceeded(phase="agent_loop")
 
     state.full_text = accumulated_text
     state.stage_timings["agent_loop_ms"] = round((time.perf_counter() - loop_started_at) * 1000)
     yield sse_event(
         {"type": "timing", "key": "agent_loop_ms", "duration_ms": state.stage_timings["agent_loop_ms"]}
     )
+
+
+def _budget_exhaustion_notice(exc: TurnBudgetExceeded) -> str:
+    if exc.kind is BudgetKind.STEP_LIMIT:
+        return (
+            f"本轮已达到 {int(exc.limit)} 步执行上限，已停止继续规划。"
+            "已有内容和执行记录已保存，你可以发起新一轮继续。"
+        )
+    if exc.kind is BudgetKind.TOOL_CALL_LIMIT:
+        return (
+            f"本轮计划的工具调用超过 {int(exc.limit)} 次安全上限，"
+            "超出部分未执行。已有内容和执行记录已保存。"
+        )
+    message = (
+        f"本轮已达到 {float(exc.limit):g} 秒最长执行时间，已停止继续运行。"
+        "已有内容和执行记录已保存。"
+    )
+    if exc.tool_execution_possible:
+        message += "停止时工具可能已部分执行，请先核对实际结果再重试。"
+    return message
+
+
+async def run_agent_loop(
+    runtime: ChatRuntime,
+    req: SendMessageRequest,
+    state: ChatSessionState,
+) -> AsyncIterator[str]:
+    """Run one Agent Loop behind a shared, persisted execution budget."""
+
+    limits = normalize_turn_budget_limits(
+        max_steps=getattr(runtime, "agent_turn_max_steps", 8),
+        max_tool_calls=getattr(runtime, "agent_turn_max_tool_calls", 24),
+        max_elapsed_seconds=getattr(runtime, "agent_turn_timeout_seconds", 600.0),
+    )
+    budget = TurnBudgetLedger(limits)
+    state.turn_budget = budget
+    loop_started_at = time.perf_counter()
+    state.record_trace_event(
+        "turn_budget_started",
+        stage="agent_loop",
+        **budget.snapshot(),
+    )
+
+    try:
+        async for event in _run_agent_loop_impl(runtime, req, state, budget):
+            yield event
+    except TurnBudgetExceeded as exc:
+        notice = _budget_exhaustion_notice(exc)
+        state.budget_exhausted = True
+        state.budget_exhaustion = {
+            **exc.to_dict(),
+            "message": notice,
+            "budget": budget.snapshot(),
+        }
+        state.record_trace_event(
+            "turn_budget_exhausted",
+            **state.budget_exhaustion,
+        )
+
+        if state.steps and state.steps[-1].status == "running":
+            step = state.steps[-1]
+            step.status = "failed"
+            step.error = str(exc)[:500]
+            step.retryable = False
+            _checkpoint_step(state, step)
+            yield sse_event(build_agent_step_event(step))
+            if state.run_id:
+                yield sse_event(
+                    _step_completed_event(
+                        state.run_id,
+                        step.index + 1,
+                        StepCompletedStatus.FAILED,
+                        step.duration_ms,
+                        truncated=step.truncated,
+                    )
+                )
+
+        state.full_text = _append_text(state.full_text, notice)
+        state.stage_timings["agent_loop_ms"] = round(
+            (time.perf_counter() - loop_started_at) * 1000
+        )
+        yield sse_event({"type": "text", "content": notice})
+        if state.run_id:
+            yield sse_event(_text_delta_event(state.run_id, notice))
+            yield sse_event(
+                _run_failed_event(
+                    state.run_id,
+                    ErrorCode.TURN_BUDGET_EXCEEDED,
+                    notice,
+                    retryable=False,
+                    fallback_content=state.full_text,
+                )
+            )
+        yield sse_event(
+            {
+                "type": "timing",
+                "key": "agent_loop_ms",
+                "duration_ms": state.stage_timings["agent_loop_ms"],
+            }
+        )

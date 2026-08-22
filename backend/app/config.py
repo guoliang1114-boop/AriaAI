@@ -110,6 +110,12 @@ MODEL_TURN_RETRY_MAX_DELAY_MS = int(os.getenv("MODEL_TURN_RETRY_MAX_DELAY_MS", "
 # batch. The harness clamps this again so an accidental environment value
 # cannot create unbounded fan-out.
 TOOL_PARALLEL_MAX_CONCURRENCY = int(os.getenv("TOOL_PARALLEL_MAX_CONCURRENCY", "4"))
+# One chat turn has a shared execution budget across model requests, safe
+# retries, and tool batches. ``turn_budget`` applies hard clamps again so an
+# accidental environment override cannot create an unbounded agent loop.
+AGENT_TURN_MAX_STEPS = int(os.getenv("AGENT_TURN_MAX_STEPS", "8"))
+AGENT_TURN_MAX_TOOL_CALLS = int(os.getenv("AGENT_TURN_MAX_TOOL_CALLS", "24"))
+AGENT_TURN_TIMEOUT_SECONDS = float(os.getenv("AGENT_TURN_TIMEOUT_SECONDS", "600"))
 
 # Optional absolute Skill roots, ordered from highest to lowest priority.
 # The repository's bundled ``skills/`` directory is always appended as the
