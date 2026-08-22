@@ -106,7 +106,7 @@ alembic upgrade head
 
 注意：迁移失败应视为部署失败，而不是可以忽略的警告。
 
-自动部署还会从服务器生产连接中复用 PostgreSQL 主机与凭据，仅把数据库名改为 `ariaai_test`，随后同时覆盖测试进程的 `DATABASE_URL` 与 `TEST_DATABASE_URL`。测试启动前会查询 `current_database()`；不是精确的 `ariaai_test` 时立即拒绝执行。测试通过后才允许生产迁移和 PM2 重启，因此测试不会清理或写入生产数据库。
+自动部署会直接连接服务器现有 PostgreSQL 数据库，用 `current_database()`、`current_schema()` 与 `current_user` 完成只读连通性校验。部署前的聚焦测试只包含纯单元测试及使用隔离 SQLite 的用例，不会把建表、删表或清理数据的测试夹具指向生产库。测试通过后才执行受治理的生产迁移与 PM2 重启。
 
 ## 7. 一次发布实际上做了什么
 
