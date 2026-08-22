@@ -124,6 +124,8 @@ jobs:
             # Install backend dependencies in case requirements changed.
             "$PYTHON" -m pip install --retries 5 --timeout 60 -r requirements.txt || \
             "$PYTHON" -m pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
+            "$PYTHON" -m pip install --retries 5 --timeout 60 -r requirements-test.txt || \
+            "$PYTHON" -m pip install --no-cache-dir --retries 5 --timeout 60 -r requirements-test.txt
 
             # Verify the configured server database without mutating application
             # data. Database-mutating integration tests are intentionally not run

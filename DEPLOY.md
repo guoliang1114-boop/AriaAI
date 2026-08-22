@@ -106,7 +106,7 @@ alembic upgrade head
 
 注意：迁移失败应视为部署失败，而不是可以忽略的警告。
 
-自动部署会直接连接服务器现有 PostgreSQL 数据库，用 `current_database()`、`current_schema()` 与 `current_user` 完成只读连通性校验。部署前的聚焦测试只包含纯单元测试及使用隔离 SQLite 的用例，不会把建表、删表或清理数据的测试夹具指向生产库。测试通过后才执行受治理的生产迁移与 PM2 重启。
+自动部署会安装 `requirements-test.txt` 中单独锁定的测试依赖，并直接连接服务器现有 PostgreSQL 数据库，用 `current_database()`、`current_schema()` 与 `current_user` 完成只读连通性校验。部署前的聚焦测试只包含纯单元测试及使用隔离 SQLite 的用例，不会把建表、删表或清理数据的测试夹具指向生产库。测试通过后才执行受治理的生产迁移与 PM2 重启。
 
 ## 7. 一次发布实际上做了什么
 
