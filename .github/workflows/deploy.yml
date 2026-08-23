@@ -154,6 +154,7 @@ jobs:
                 tests/test_agent_harness_native.py \
                 tests/test_activity_timeline_persist.py \
                 tests/test_approval_envelope.py \
+                tests/test_database_extended.py \
                 tests/test_product_run_events.py \
                 tests/test_run_evaluation.py \
                 tests/test_run_rollout.py \

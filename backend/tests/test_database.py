@@ -11,7 +11,9 @@ on the worker id (stable, reused across the worker's lifetime); otherwise a
 unique per-process schema is created and dropped again at interpreter exit.
 Within a process all engines share that one schema, so tests that create several
 engines still see the same data; per-test isolation continues to come from the
-drop_all_tables() + create_all() calls in each TestCase's setUp.
+drop_all_tables() + create_all() calls in each TestCase's setUp. PostgreSQL test
+connections deliberately exclude ``public`` from ``search_path`` and destructive
+helpers fail closed unless the active schema has the ``ariaai_test_`` prefix.
 """
 from __future__ import annotations
 
@@ -27,6 +29,7 @@ DEFAULT_TEST_DATABASE_URL = "postgresql://postgres:password@localhost:5432/ariaa
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
 
 _PROCESS_SCHEMA: str | None = None
+_SAFE_TEST_SCHEMA_PATTERN = re.compile(r"ariaai_test_[A-Za-z0-9_]+\Z")
 
 
 def _xdist_schema_name() -> str | None:
@@ -83,13 +86,47 @@ def create_test_engine():
     with bootstrap_engine.begin() as conn:
         conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
     bootstrap_engine.dispose()
-    return create_engine(TEST_DATABASE_URL, connect_args={"options": f"-csearch_path={schema_name},public"})
+    return create_engine(
+        TEST_DATABASE_URL,
+        connect_args={"options": f"-csearch_path={schema_name}"},
+    )
+
+
+def _require_isolated_postgres_schema(engine) -> str:
+    """Return the active test schema or refuse destructive test cleanup."""
+
+    with engine.connect() as connection:
+        schema_name, search_path = connection.execute(
+            text("SELECT current_schema(), current_setting('search_path')")
+        ).one()
+    schema_name = str(schema_name or "")
+    search_path_parts = {
+        part.strip().strip('"') for part in str(search_path or "").split(",")
+    }
+    if not _SAFE_TEST_SCHEMA_PATTERN.fullmatch(schema_name):
+        raise RuntimeError(
+            "Refusing destructive test cleanup outside an ariaai_test_* schema: "
+            f"current_schema={schema_name!r}"
+        )
+    if "public" in search_path_parts:
+        raise RuntimeError(
+            "Refusing destructive test cleanup while public is in search_path: "
+            f"search_path={search_path!r}"
+        )
+    return schema_name
 
 
 def drop_all_tables(engine) -> None:
-    """Drop all tables in the current database for test isolation."""
+    """Drop test-schema tables while refusing access to PostgreSQL ``public``."""
+
     inspector = inspect(engine)
-    table_names = inspector.get_table_names()
+    schema_name = None
+    if engine.dialect.name == "postgresql":
+        schema_name = _require_isolated_postgres_schema(engine)
+    table_names = inspector.get_table_names(schema=schema_name)
     with engine.begin() as conn:
         for table in reversed(table_names):
-            conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE'))
+            qualified_table = (
+                f'"{schema_name}"."{table}"' if schema_name else f'"{table}"'
+            )
+            conn.execute(text(f"DROP TABLE IF EXISTS {qualified_table} CASCADE"))

@@ -139,6 +139,15 @@ class AlembicMigrationGraphTestCase(unittest.TestCase):
 
 
 class TestDatabaseUtilityIsolationTestCase(unittest.TestCase):
+    def test_safe_schema_pattern_rejects_public(self):
+        from tests import test_database as test_database_module
+
+        pattern = test_database_module._SAFE_TEST_SCHEMA_PATTERN
+        self.assertIsNotNone(pattern.fullmatch("ariaai_test_prod_123_1"))
+        self.assertIsNone(pattern.fullmatch("public"))
+        self.assertIsNone(pattern.fullmatch("ariaai_test_safe,public"))
+        self.assertIsNone(pattern.fullmatch('ariaai_test_safe"; DROP SCHEMA public'))
+
     def test_xdist_worker_uses_dedicated_postgres_schema(self):
         from tests import test_database as test_database_module
 

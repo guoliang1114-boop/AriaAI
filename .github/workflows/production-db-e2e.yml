@@ -259,6 +259,8 @@ jobs:
                                 "ORDER BY version_num"
                             )
                         ).scalars()
+                    ) if "alembic_version" in tables else (
+                        "__missing_alembic_version__",
                     )
                 return database_name, database_user, tables, revisions
 
