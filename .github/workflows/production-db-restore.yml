@@ -1,0 +1,165 @@
+name: Restore Production Database Backup
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_path:
+        description: Absolute server path to a verified AriaAI custom-format backup
+        required: true
+        type: string
+      expected_sha256:
+        description: Expected SHA-256 of the backup
+        required: true
+        type: string
+
+concurrency:
+  group: production-database-maintenance
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Verify and restore production PostgreSQL
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          command_timeout: 15m
+          script: |
+            set -eu
+
+            PROJECT_DIR="/www/wwwroot/AriaAI"
+            BACKEND_DIR="$PROJECT_DIR/backend"
+            BACKUP_PATH="${{ inputs.backup_path }}"
+            EXPECTED_SHA256="${{ inputs.expected_sha256 }}"
+            export BACKUP_PATH EXPECTED_SHA256
+
+            case "$BACKUP_PATH" in
+              /www/backups/ariaai/ariaai_pre_e2e_*.dump) ;;
+              *)
+                echo "Refusing backup path outside the AriaAI backup directory." >&2
+                exit 2
+                ;;
+            esac
+            case "$EXPECTED_SHA256" in
+              *[!0-9a-fA-F]*|'')
+                echo "Invalid expected SHA-256." >&2
+                exit 2
+                ;;
+            esac
+            if [ "${#EXPECTED_SHA256}" -ne 64 ]; then
+              echo "Invalid expected SHA-256 length." >&2
+              exit 2
+            fi
+
+            cd "$BACKEND_DIR"
+            PYTHON=".venv/bin/python3"
+            if [ ! -x "$PYTHON" ]; then
+              PYTHON=".venv/bin/python"
+            fi
+            if [ ! -x "$PYTHON" ]; then
+              echo "No Python interpreter found in backend virtual environment." >&2
+              exit 127
+            fi
+
+            # Stop application writers before replacing database objects.
+            pm2 stop ariaai-backend
+
+            "$PYTHON" - <<'PY'
+            import hashlib
+            import os
+            import subprocess
+            from pathlib import Path
+
+            from sqlalchemy.engine import make_url
+
+            from app.config import DATABASE_URL
+
+            backup_path = Path(os.environ["BACKUP_PATH"])
+            expected_sha256 = os.environ["EXPECTED_SHA256"].lower()
+            if not backup_path.is_file() or backup_path.stat().st_size <= 0:
+                raise SystemExit(f"Backup is missing or empty: {backup_path}")
+
+            digest_builder = hashlib.sha256()
+            with backup_path.open("rb") as backup_file:
+                for chunk in iter(lambda: backup_file.read(1024 * 1024), b""):
+                    digest_builder.update(chunk)
+            actual_sha256 = digest_builder.hexdigest()
+            if actual_sha256 != expected_sha256:
+                raise SystemExit(
+                    "Backup SHA-256 mismatch: "
+                    f"expected={expected_sha256}, actual={actual_sha256}"
+                )
+
+            pg_restore = Path("/www/server/pgsql/bin/pg_restore")
+            if not pg_restore.is_file():
+                raise SystemExit(f"PostgreSQL 18 pg_restore not found: {pg_restore}")
+            subprocess.run(
+                [str(pg_restore), "--list", str(backup_path)],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+
+            database_url = make_url(DATABASE_URL)
+            restore_env = os.environ.copy()
+            if database_url.password:
+                restore_env["PGPASSWORD"] = database_url.password
+            connection_args = []
+            if database_url.host:
+                connection_args.extend(["--host", database_url.host])
+            if database_url.port:
+                connection_args.extend(["--port", str(database_url.port)])
+            if database_url.username:
+                connection_args.extend(["--username", database_url.username])
+            if database_url.database:
+                connection_args.extend(["--dbname", database_url.database])
+
+            print(
+                "Verified backup before restore: "
+                f"path={backup_path}, bytes={backup_path.stat().st_size}, "
+                f"sha256={actual_sha256}"
+            )
+            subprocess.run(
+                [
+                    str(pg_restore),
+                    *connection_args,
+                    "--clean",
+                    "--if-exists",
+                    "--no-owner",
+                    "--no-acl",
+                    "--exit-on-error",
+                    str(backup_path),
+                ],
+                env=restore_env,
+                check=True,
+            )
+            print("Production database restore command completed.")
+            PY
+
+            "$PYTHON" scripts/migration_governance.py check
+            pm2 restart ariaai-backend --update-env
+            pm2 save
+
+            backend_ready=0
+            for attempt in $(seq 1 20); do
+              if curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null; then
+                backend_ready=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$backend_ready" != "1" ]; then
+              echo "Backend health check failed after database restore." >&2
+              pm2 describe ariaai-backend || true
+              exit 1
+            fi
+
+            echo "Production database restore verified successfully."
