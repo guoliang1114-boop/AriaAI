@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlmodel import Session, select
 
-from app.models.db import ClientRecord, Project, ProjectMember, User
+from app.models.db import ClientRecord, KnowledgeDocument, Project, ProjectMember, User
 from app.models.knowledge import KnowledgeChunk, KnowledgeSource, KnowledgeV1Document
 
 
@@ -42,6 +42,32 @@ def has_client_access(user_id: int, client_id: int | None, session: Session) -> 
     return member is not None
 
 
+def accessible_project_ids(user: User, session: Session) -> list[int]:
+    if user.is_admin:
+        return list(session.exec(select(Project.id)).all())
+    return list(
+        session.exec(
+            select(ProjectMember.project_id).where(ProjectMember.user_id == user.id)
+        ).all()
+    )
+
+
+def can_access_legacy_document(
+    user: User,
+    document: KnowledgeDocument,
+    session: Session,
+) -> bool:
+    """Apply the v0.0.5 scope boundary to the legacy knowledge model."""
+
+    if user.is_admin:
+        return True
+    if document.project_id is not None:
+        return has_project_access(user.id, document.project_id, session)
+    if document.client_id is not None:
+        return has_client_access(user.id, document.client_id, session)
+    return bool(user.is_active)
+
+
 def can_access_source(user: User, source: KnowledgeSource, session: Session) -> bool:
     if user.is_admin:
         return True
@@ -72,4 +98,3 @@ def filter_chunks_by_permission(
         if can_access_source(user, source, session):
             allowed.append(chunk)
     return allowed
-

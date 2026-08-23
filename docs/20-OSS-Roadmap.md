@@ -57,8 +57,13 @@ Goal: turn documents and team knowledge into workflow context, not only search r
 - Recovery baseline delivered on 2026-08-23: persistent ingestion jobs,
   idempotent enqueueing, leases and stale-worker reclamation, bounded semantic
   retry, resumable checkpoints, scheduled recovery, safe status APIs, and
-  phase-aware frontend retry visibility. The next open item is controlled
-  migration of legacy knowledge documents into the source-scoped v0.0.5 model.
+  phase-aware frontend retry visibility.
+- Migration baseline delivered on 2026-08-24: admin-only inventory preview,
+  content-bound plan fingerprints, non-destructive source/file copying,
+  restart-safe per-document mapping, duplicate-content reuse, stale-plan
+  rejection, permission closure for legacy management APIs, and duplicate-free
+  frontend cutover. The next open item is making source-scoped v0.0.5 retrieval
+  the primary chat RAG path before retiring the legacy vector reader.
 
 ## 4. Skill Workflows
 

@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import Column, String, Text, UniqueConstraint
+from sqlalchemy import Column, Index, String, Text, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 from app.services.time_utils import utc_now_naive
@@ -22,6 +22,16 @@ except Exception:  # pragma: no cover - keeps local/test envs importable.
 class KnowledgeSource(SQLModel, table=True):
     __tablename__ = "knowledge_source"
 
+    __table_args__ = (
+        Index(
+            "uq_knowledge_source_external_key",
+            "external_key",
+            unique=True,
+            postgresql_where=text("external_key <> ''"),
+            sqlite_where=text("external_key <> ''"),
+        ),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(sa_column=Column(String(255), nullable=False))
     source_type: str = Field(sa_column=Column(String(50), nullable=False))
@@ -33,6 +43,7 @@ class KnowledgeSource(SQLModel, table=True):
     exclude_patterns: str = Field(default=".obsidian/**,node_modules/**")
     tags: str = Field(default="")
     config_json: str = Field(default="{}")
+    external_key: str = Field(default="", sa_column=Column(String(255), nullable=False))
     status: str = Field(default="active", sa_column=Column(String(50)))
     created_at: datetime = Field(default_factory=utc_now_naive)
     updated_at: datetime = Field(default_factory=utc_now_naive)
@@ -202,3 +213,43 @@ class KnowledgeJob(SQLModel, table=True):
     next_attempt_at: Optional[datetime] = None
     lease_expires_at: Optional[datetime] = None
     last_heartbeat_at: Optional[datetime] = None
+
+
+class KnowledgeLegacyMigration(SQLModel, table=True):
+    """Non-destructive mapping from a legacy document to the v0.0.5 model."""
+
+    __tablename__ = "knowledge_legacy_migration"
+    __table_args__ = (
+        UniqueConstraint(
+            "legacy_document_id",
+            name="uq_knowledge_legacy_migration_legacy_document",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    legacy_document_id: int = Field(nullable=False, index=True)
+    document_id: Optional[int] = Field(
+        default=None,
+        foreign_key="knowledge_document.id",
+        index=True,
+    )
+    source_id: Optional[int] = Field(
+        default=None,
+        foreign_key="knowledge_source.id",
+        index=True,
+    )
+    job_id: Optional[int] = Field(
+        default=None,
+        foreign_key="knowledge_job.id",
+        index=True,
+    )
+    status: str = Field(default="pending", sa_column=Column(String(50), nullable=False, index=True))
+    scope_type: str = Field(default="workspace", sa_column=Column(String(50), nullable=False))
+    scope_id: Optional[int] = Field(default=None, index=True)
+    content_hash: str = Field(default="", sa_column=Column(String(64), nullable=False))
+    created_document: bool = Field(default=False)
+    error_code: str = Field(default="", sa_column=Column(String(100), nullable=False))
+    error_message: str = Field(default="", sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
+    completed_at: Optional[datetime] = None

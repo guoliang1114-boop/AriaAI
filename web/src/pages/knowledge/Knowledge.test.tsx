@@ -26,6 +26,7 @@ const v005Doc = ({
   size = 102400,
   status = 'indexed',
   latest_job,
+  legacy_document_id,
 }: {
   category?: string
   file_type: string
@@ -35,6 +36,7 @@ const v005Doc = ({
   size?: number
   status?: string
   latest_job?: Record<string, unknown>
+  legacy_document_id?: number
 }) => ({
   id,
   source_id: source.id,
@@ -51,6 +53,7 @@ const v005Doc = ({
   created_at: '2025-01-01',
   updated_at: '2025-01-02',
   latest_job,
+  legacy_document_id,
 })
 
 vi.mock('../../api/client', () => ({
@@ -245,6 +248,63 @@ describe('Knowledge', () => {
     fireEvent.click(screen.getByRole('button', { name: '重新处理' }))
     await waitFor(() => {
       expect(mockPost).toHaveBeenCalledWith('/knowledge/jobs/42/retry')
+    })
+  })
+
+  it('hides the legacy duplicate after a source-scoped migration succeeds', async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/knowledge/sources') return Promise.resolve([source])
+      if (url === '/knowledge/sources/10/documents') return Promise.resolve([
+        v005Doc({
+          id: 9,
+          name: 'migrated.pdf',
+          file_type: 'pdf',
+          path: '/docs/migrated.pdf',
+          legacy_document_id: 77,
+        }),
+      ])
+      if (url === '/knowledge/documents') return Promise.resolve([{
+        id: 77,
+        name: 'migrated.pdf',
+        file_type: 'pdf',
+        path: 'knowledge/legacy/migrated.pdf',
+        category: 'general',
+        vector_status: 'synced',
+        uploaded_at: '2025-01-01',
+      }])
+      return Promise.resolve([])
+    })
+    render(<Knowledge />)
+    const table = await screen.findByRole('region', { name: '知识库文档' })
+    expect(within(table).getAllByText('migrated.pdf')).toHaveLength(1)
+  })
+
+  it('shows the admin migration preview and starts a fingerprinted batch', async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/knowledge/sources') return Promise.resolve([])
+      if (url === '/knowledge/migrations/legacy/preview') {
+        return Promise.resolve({
+          version: 'legacy-knowledge-v1',
+          plan_hash: 'a'.repeat(64),
+          total: 5,
+          ready: 3,
+          migrated: 1,
+          blocked: 1,
+          active_job: null,
+        })
+      }
+      return Promise.resolve([])
+    })
+    mockPost.mockResolvedValue({ job_id: 88, status: 'queued', checkpoint: { phase: 'queued' } })
+    render(<Knowledge />)
+    fireEvent.click(await screen.findByRole('button', { name: '管理' }))
+    expect(await screen.findByLabelText('历史知识升级')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '升级下一批（3）' }))
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/knowledge/migrations/legacy', {
+        plan_hash: 'a'.repeat(64),
+        batch_size: 3,
+      })
     })
   })
 })

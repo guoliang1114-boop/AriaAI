@@ -48,6 +48,9 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - semantic failure categories and bounded exponential retry adapted into
   lease-based, checkpointed knowledge-ingestion jobs with deterministic
   idempotency and without persisting raw document text or local paths;
+- verify-before-write plan fingerprints and restart-safe item checkpoints
+  adapted into non-destructive legacy knowledge migration with durable mapping
+  records and content-digest drift detection;
 - `SKILL.md` frontmatter parsing and conservative YAML scalar repair; and
 - ordered Skill-root discovery, immutable content snapshots, cache reuse,
   error-isolated merging, and unambiguous candidate selection.

@@ -66,6 +66,8 @@ interface KnowledgeViewDocument extends LegacyKnowledgeDocument {
   document_id?: number
   chunk_count?: number
   latest_job?: KnowledgeJobResponseV005 | null
+  legacy_document_id?: number | null
+  legacy_document_ids?: number[]
 }
 
 interface KnowledgeSourceV005 {
@@ -105,6 +107,8 @@ interface KnowledgeDocumentV005 {
   updated_at?: string
   job_id?: number | null
   latest_job?: KnowledgeJobResponseV005 | null
+  legacy_document_id?: number | null
+  legacy_document_ids?: number[]
 }
 
 interface KnowledgeSearchChunkV005 {
@@ -146,7 +150,22 @@ interface KnowledgeJobResponseV005 {
     document_phase?: string
     completed_document_count?: number
     current_document_id?: number | null
+    current_legacy_document_id?: number | null
+    migrated_document_count?: number
+    skipped_document_count?: number
+    failed_document_count?: number
   }
+}
+
+interface LegacyMigrationPreview {
+  version: string
+  plan_hash: string
+  total: number
+  ready: number
+  migrated: number
+  blocked: number
+  has_more?: boolean
+  active_job?: KnowledgeJobResponseV005 | null
 }
 
 interface KnowledgeLoadResult {
@@ -312,6 +331,8 @@ function mapV005Document(doc: KnowledgeDocumentV005, source?: KnowledgeSourceV00
     error_message: doc.error_message,
     chunk_count: doc.chunk_count,
     latest_job: doc.latest_job,
+    legacy_document_id: doc.legacy_document_id ?? null,
+    legacy_document_ids: doc.legacy_document_ids || [],
   }
 }
 
@@ -514,6 +535,20 @@ function isHttpStatus(error: unknown, status: number) {
   return isRecord(error) && isRecord(error.response) && error.response.status === status
 }
 
+function isActiveKnowledgeJob(job?: KnowledgeJobResponseV005 | null) {
+  return ['queued', 'running', 'retrying'].includes((job?.status || '').toLowerCase())
+}
+
+async function fetchLegacyMigrationPreview(): Promise<LegacyMigrationPreview | null> {
+  try {
+    const response = await api.get<LegacyMigrationPreview>('/knowledge/migrations/legacy/preview')
+    return response && typeof response.plan_hash === 'string' ? response : null
+  } catch (error) {
+    if (isHttpStatus(error, 403) || isHttpStatus(error, 404)) return null
+    throw error
+  }
+}
+
 async function fetchKnowledgeLegacy({
   category,
   fileType,
@@ -582,8 +617,19 @@ async function fetchKnowledgeV005({
     ),
     api.get<unknown>('/knowledge/documents').catch(() => []),
   ])
-  const legacyDocuments = normalizeArrayResponse<LegacyKnowledgeDocument>(rawLegacyDocuments).map(mapLegacyDocument)
-  const allDocuments = [...sourceDocuments.flat(), ...legacyDocuments]
+  const v005Documents = sourceDocuments.flat()
+  const migratedLegacyIds = new Set(
+    v005Documents
+      .flatMap((document) => [
+        ...(document.legacy_document_ids || []),
+        document.legacy_document_id,
+      ])
+      .filter((documentId): documentId is number => typeof documentId === 'number'),
+  )
+  const legacyDocuments = normalizeArrayResponse<LegacyKnowledgeDocument>(rawLegacyDocuments)
+    .filter((document) => !migratedLegacyIds.has(document.id))
+    .map(mapLegacyDocument)
+  const allDocuments = [...v005Documents, ...legacyDocuments]
   const queryText = query.trim()
   let visibleDocuments = filterDocuments(allDocuments, {
     category,
@@ -674,6 +720,8 @@ export function Knowledge() {
   const [deleting, setDeleting] = useState(false)
   const [reindexingId, setReindexingId] = useState<number | null>(null)
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<number[]>([])
+  const [legacyMigration, setLegacyMigration] = useState<LegacyMigrationPreview | null>(null)
+  const [startingMigration, setStartingMigration] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchData = async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -742,6 +790,28 @@ export function Knowledge() {
   useEffect(() => {
     setDocumentPage(1)
   }, [searchQuery, selectedCategory, selectedFileType, selectedStatus])
+
+  const refreshLegacyMigration = async () => {
+    try {
+      setLegacyMigration(await fetchLegacyMigrationPreview())
+    } catch (migrationError) {
+      console.warn('Failed to load legacy knowledge migration preview:', migrationError)
+    }
+  }
+
+  useEffect(() => {
+    if (viewMode !== 'manage') return
+    void refreshLegacyMigration()
+  }, [viewMode])
+
+  useEffect(() => {
+    if (!isActiveKnowledgeJob(legacyMigration?.active_job)) return undefined
+    const timer = window.setInterval(() => {
+      void refreshLegacyMigration()
+      void fetchData({ silent: true })
+    }, 4000)
+    return () => window.clearInterval(timer)
+  }, [legacyMigration?.active_job?.job_id, legacyMigration?.active_job?.status])
 
   const categories = useMemo(() => {
     const present = new Set(categoryCounts.map((item) => normalizeCategory(item.category)))
@@ -823,6 +893,30 @@ export function Knowledge() {
       toast.error({ title: isZh ? '同步失败' : 'Sync failed' })
     } finally {
       setRefreshing(false)
+    }
+  }
+
+  const startLegacyMigration = async () => {
+    if (!legacyMigration || legacyMigration.ready <= 0 || startingMigration) return
+    setStartingMigration(true)
+    try {
+      const job = await api.post<KnowledgeJobResponseV005>('/knowledge/migrations/legacy', {
+        plan_hash: legacyMigration.plan_hash,
+        batch_size: Math.min(100, legacyMigration.ready),
+      })
+      setLegacyMigration((current) => (current ? { ...current, active_job: job } : current))
+      toast.success({
+        title: isZh ? '历史知识升级已开始' : 'Legacy knowledge migration started',
+        description: isZh ? '旧记录和原始文件会继续保留。' : 'Legacy records and original files remain intact.',
+      })
+      await refreshLegacyMigration()
+      await fetchData({ silent: true })
+    } catch (migrationError) {
+      console.error('Failed to start legacy knowledge migration:', migrationError)
+      toast.error({ title: isZh ? '历史知识升级启动失败' : 'Could not start legacy migration' })
+      await refreshLegacyMigration()
+    } finally {
+      setStartingMigration(false)
     }
   }
 
@@ -948,6 +1042,15 @@ export function Knowledge() {
         }}
       >
         <KnowledgeTopTabs active={viewMode} isZh={isZh} onChange={setViewMode} />
+
+        {viewMode === 'manage' && legacyMigration ? (
+          <LegacyMigrationBanner
+            isZh={isZh}
+            migration={legacyMigration}
+            onStart={() => void startLegacyMigration()}
+            starting={startingMigration}
+          />
+        ) : null}
 
         {viewMode === 'find' ? (
           <KnowledgeFindView
@@ -1136,6 +1239,71 @@ function KnowledgeTopTabs({
         )
       })}
     </div>
+  )
+}
+
+function LegacyMigrationBanner({
+  isZh,
+  migration,
+  onStart,
+  starting,
+}: {
+  isZh: boolean
+  migration: LegacyMigrationPreview
+  onStart: () => void
+  starting: boolean
+}) {
+  const active = isActiveKnowledgeJob(migration.active_job)
+  const migratedInJob = migration.active_job?.checkpoint?.migrated_document_count || 0
+  const blockedInJob = migration.active_job?.checkpoint?.failed_document_count || 0
+  const complete = migration.total > 0 && migration.ready === 0 && migration.blocked === 0
+
+  return (
+    <section
+      className="mx-5 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3"
+      style={{
+        borderColor: 'var(--color-codex-line)',
+        background: 'var(--color-codex-surface)',
+      }}
+      aria-label={isZh ? '历史知识升级' : 'Legacy knowledge migration'}
+    >
+      <div className="flex min-w-0 items-start gap-3">
+        <div
+          className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-lg"
+          style={{ background: 'var(--color-codex-accent-soft)', color: 'var(--color-codex-accent)' }}
+        >
+          {active ? <Loader2 size={15} className="animate-spin" /> : <Layers size={15} />}
+        </div>
+        <div className="min-w-0">
+          <div className="font-medium" style={{ color: 'var(--color-codex-ink)' }}>
+            {isZh ? '历史知识升级' : 'Legacy knowledge migration'}
+          </div>
+          <div className="mt-0.5 text-xs" style={{ color: 'var(--color-codex-ink-muted)' }}>
+            {active
+              ? (isZh
+                ? `正在升级，已完成 ${migratedInJob} 份，需处理 ${blockedInJob} 份。`
+                : `Migration running: ${migratedInJob} completed, ${blockedInJob} need attention.`)
+              : complete
+                ? (isZh ? `历史文档已全部进入新知识体系，共 ${migration.migrated} 份。` : `All ${migration.migrated} legacy documents are on the source-scoped model.`)
+                : (isZh
+                  ? `${migration.ready} 份可升级，${migration.migrated} 份已完成，${migration.blocked} 份需先处理。旧记录和原文件不会删除。`
+                  : `${migration.ready} ready, ${migration.migrated} migrated, ${migration.blocked} need attention. Legacy records and files are preserved.`)}
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        className="inline-flex h-8 items-center gap-2 rounded-lg px-3 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50"
+        style={{ background: 'var(--color-codex-accent)', color: 'white' }}
+        disabled={active || starting || migration.ready <= 0}
+        onClick={onStart}
+      >
+        {active || starting ? <Loader2 size={13} className="animate-spin" /> : <ArrowRight size={13} />}
+        {active
+          ? (isZh ? '升级中' : 'Migrating')
+          : (isZh ? `升级下一批（${Math.min(100, migration.ready)}）` : `Migrate next batch (${Math.min(100, migration.ready)})`)}
+      </button>
+    </section>
   )
 }
 

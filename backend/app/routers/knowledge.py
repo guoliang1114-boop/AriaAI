@@ -9,16 +9,17 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, BackgroundTasks, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field as PydanticField
 from sqlmodel import Session, select, func
 
 from app.config import UPLOADS_DIR
 from app.database import get_session, engine
-from app.models.db import KnowledgeDocument, DocumentChunk, Project, User
+from app.models.db import ClientRecord, KnowledgeDocument, DocumentChunk, Project, User
 from app.models.knowledge import (
     KnowledgeChunk,
     KnowledgeDocumentEvent,
     KnowledgeJob,
+    KnowledgeLegacyMigration,
     KnowledgeSource,
     KnowledgeTemplateExtraction,
     KnowledgeV1Document,
@@ -39,7 +40,20 @@ from app.services.knowledge_ingestion import (
     parse_json_object,
     sha256_bytes,
 )
-from app.services.knowledge_permissions import can_access_source
+from app.services.knowledge_migration import (
+    LEGACY_MIGRATION_VERSION,
+    MAX_LEGACY_MIGRATION_BATCH,
+    LegacyMigrationFailure,
+    build_legacy_migration_preview,
+    migration_preview_to_dict,
+)
+from app.services.knowledge_permissions import (
+    accessible_project_ids,
+    can_access_legacy_document,
+    can_access_source,
+    has_client_access,
+    has_project_access,
+)
 from app.services.knowledge_retrieval import search_knowledge
 from app.services.knowledge_templates import seed_builtin_templates, template_to_dict
 from app.services.storage import StorageService
@@ -95,7 +109,7 @@ class KnowledgeSourceCreate(BaseModel):
     exclude_patterns: str = ".obsidian/**,node_modules/**"
     tags: str = ""
     root_path: str = ""
-    config: dict[str, Any] = {}
+    config: dict[str, Any] = PydanticField(default_factory=dict)
 
 
 class KnowledgeSearchRequest(BaseModel):
@@ -110,6 +124,11 @@ class KnowledgeSearchRequest(BaseModel):
     top_k: int = 8
 
 
+class LegacyMigrationExecute(BaseModel):
+    plan_hash: str = PydanticField(min_length=64, max_length=64)
+    batch_size: int = PydanticField(default=100, ge=1, le=MAX_LEGACY_MIGRATION_BATCH)
+
+
 def _source_to_dict(source: KnowledgeSource) -> dict[str, Any]:
     return {
         "id": source.id,
@@ -122,6 +141,7 @@ def _source_to_dict(source: KnowledgeSource) -> dict[str, Any]:
         "include_patterns": source.include_patterns,
         "exclude_patterns": source.exclude_patterns,
         "tags": source.tags,
+        "managed": bool(source.external_key),
         "status": source.status,
         "created_at": source.created_at.isoformat(),
         "updated_at": source.updated_at.isoformat(),
@@ -143,6 +163,14 @@ def _document_to_dict(
     job: KnowledgeJob | None = None,
 ) -> dict[str, Any]:
     latest_job = job or _latest_document_job(session, int(document.id))
+    legacy_mappings = session.exec(
+        select(KnowledgeLegacyMigration).where(
+            KnowledgeLegacyMigration.document_id == document.id,
+            KnowledgeLegacyMigration.status == "completed",
+        )
+        .order_by(KnowledgeLegacyMigration.legacy_document_id.asc())
+    ).all()
+    legacy_document_ids = [mapping.legacy_document_id for mapping in legacy_mappings]
     payload = {
         "id": document.id,
         "source_id": document.source_id,
@@ -164,6 +192,8 @@ def _document_to_dict(
         "updated_at": document.updated_at.isoformat(),
         "job_id": latest_job.id if latest_job else None,
         "latest_job": knowledge_job_to_dict(latest_job) if latest_job else None,
+        "legacy_document_id": legacy_document_ids[0] if legacy_document_ids else None,
+        "legacy_document_ids": legacy_document_ids,
     }
     return payload
 
@@ -203,6 +233,8 @@ def _require_job_access(
     current_user: User,
     job: KnowledgeJob,
 ) -> None:
+    if current_user.is_admin and job.job_type == "migrate_legacy_knowledge":
+        return
     source = session.get(KnowledgeSource, job.source_id) if job.source_id else None
     if not source and job.document_id:
         document = session.get(KnowledgeV1Document, job.document_id)
@@ -446,6 +478,13 @@ def delete_source_document(
     if active_job:
         raise HTTPException(409, "Knowledge document still has an active ingestion job")
 
+    migration_rows = session.exec(
+        select(KnowledgeLegacyMigration).where(
+            KnowledgeLegacyMigration.document_id == document.id
+        )
+    ).all()
+    for migration_row in migration_rows:
+        session.delete(migration_row)
     for model in (KnowledgeChunk, KnowledgeTemplateExtraction, KnowledgeDocumentEvent, KnowledgeJob):
         rows = session.exec(select(model).where(model.document_id == document.id)).all()
         for row in rows:
@@ -612,18 +651,94 @@ def search_knowledge_v005(
     )
 
 
+@router.get("/migrations/legacy/preview")
+def preview_legacy_knowledge_migration(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin),
+):
+    try:
+        preview = build_legacy_migration_preview(session, uploads_root=UPLOADS_DIR)
+    except LegacyMigrationFailure as exc:
+        raise HTTPException(409, str(exc)) from exc
+    active_job = session.exec(
+        select(KnowledgeJob)
+        .where(
+            KnowledgeJob.job_type == "migrate_legacy_knowledge",
+            KnowledgeJob.status.in_(ACTIVE_JOB_STATUSES),
+        )
+        .order_by(KnowledgeJob.created_at.asc(), KnowledgeJob.id.asc())
+    ).first()
+    return {
+        **migration_preview_to_dict(preview),
+        "active_job": knowledge_job_to_dict(active_job) if active_job else None,
+        "requested_by_user_id": current_user.id,
+    }
+
+
+@router.post("/migrations/legacy", status_code=202)
+def execute_legacy_knowledge_migration(
+    body: LegacyMigrationExecute,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin),
+):
+    try:
+        preview = build_legacy_migration_preview(session, uploads_root=UPLOADS_DIR)
+    except LegacyMigrationFailure as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if body.plan_hash != preview["plan_hash"]:
+        raise HTTPException(
+            409,
+            "Legacy knowledge changed after preview. Refresh the migration plan before executing.",
+        )
+    active_job = session.exec(
+        select(KnowledgeJob)
+        .where(
+            KnowledgeJob.job_type == "migrate_legacy_knowledge",
+            KnowledgeJob.status.in_(ACTIVE_JOB_STATUSES),
+        )
+        .order_by(KnowledgeJob.created_at.asc(), KnowledgeJob.id.asc())
+    ).first()
+    if active_job:
+        raise HTTPException(409, "A legacy knowledge migration is already running")
+    plans = list(preview["ready_plans"][: body.batch_size])
+    if not plans:
+        raise HTTPException(409, "No migration-ready legacy documents remain")
+    job = enqueue_knowledge_job(
+        session,
+        job_type="migrate_legacy_knowledge",
+        requested_by_user_id=current_user.id,
+        payload={
+            "migration_version": LEGACY_MIGRATION_VERSION,
+            "plan_hash": preview["plan_hash"],
+            "planned_documents": plans,
+        },
+    )
+    background_tasks.add_task(process_knowledge_job_by_id, int(job.id), session.get_bind())
+    return {
+        **knowledge_job_to_dict(job),
+        "planned_document_count": len(plans),
+        "remaining_ready_count": max(0, int(preview["ready"]) - len(plans)),
+    }
+
+
 @router.get("/documents")
 def list_documents(
     project_id: Optional[int] = None,
     client_id: Optional[int] = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     stmt = select(KnowledgeDocument).order_by(KnowledgeDocument.uploaded_at.desc())
     if project_id is not None:
         stmt = stmt.where(KnowledgeDocument.project_id == project_id)
     elif client_id is not None:
         stmt = stmt.where(KnowledgeDocument.client_id == client_id)
-    return session.exec(stmt).all()
+    return [
+        document
+        for document in session.exec(stmt).all()
+        if can_access_legacy_document(current_user, document, session)
+    ]
 
 
 @router.get("/documents/list", response_model=KnowledgeDocumentListResponse)
@@ -637,69 +752,67 @@ def list_documents_paginated(
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    scope_filters = _knowledge_scope_filters(project_id, client_id)
-    search_filter = _knowledge_search_filter(search)
-    file_type_values = _knowledge_file_type_values(file_type) if file_type and file_type != "all" else []
-
-    stmt = select(KnowledgeDocument)
-    count_stmt = select(func.count(KnowledgeDocument.id))
-    for condition in scope_filters:
+    stmt = select(KnowledgeDocument).order_by(
+        KnowledgeDocument.uploaded_at.desc(),
+        KnowledgeDocument.id.desc(),
+    )
+    for condition in _knowledge_scope_filters(project_id, client_id):
         stmt = stmt.where(condition)
-        count_stmt = count_stmt.where(condition)
-    if search_filter is not None:
-        stmt = stmt.where(search_filter)
-        count_stmt = count_stmt.where(search_filter)
-    if category and category != "all":
-        stmt = stmt.where(KnowledgeDocument.category == category)
-        count_stmt = count_stmt.where(KnowledgeDocument.category == category)
-    if file_type_values:
-        stmt = stmt.where(KnowledgeDocument.file_type.in_(file_type_values))
-        count_stmt = count_stmt.where(KnowledgeDocument.file_type.in_(file_type_values))
-    if status and status != "all":
-        stmt = stmt.where(KnowledgeDocument.vector_status == status)
-        count_stmt = count_stmt.where(KnowledgeDocument.vector_status == status)
+    accessible = [
+        document
+        for document in session.exec(stmt).all()
+        if can_access_legacy_document(current_user, document, session)
+    ]
+    file_type_values = set(
+        _knowledge_file_type_values(file_type)
+        if file_type and file_type != "all"
+        else []
+    )
+    keyword = search.strip().lower()
 
-    total = session.exec(count_stmt).one()
-    items = session.exec(
-        stmt.order_by(KnowledgeDocument.uploaded_at.desc(), KnowledgeDocument.id.desc())
-        .offset(offset)
-        .limit(limit)
-    ).all()
+    def matches(document: KnowledgeDocument) -> bool:
+        if keyword and not any(
+            keyword in str(value or "").lower()
+            for value in (
+                document.name,
+                document.file_type,
+                document.category,
+                document.path,
+            )
+        ):
+            return False
+        if category and category != "all" and document.category != category:
+            return False
+        if file_type_values and document.file_type.lower() not in file_type_values:
+            return False
+        if status and status != "all" and document.vector_status != status:
+            return False
+        return True
 
-    category_stmt = (
-        select(KnowledgeDocument.category, func.count(KnowledgeDocument.id))
-        .group_by(KnowledgeDocument.category)
-        .order_by(func.count(KnowledgeDocument.id).desc())
-    )
-    status_stmt = (
-        select(KnowledgeDocument.vector_status, func.count(KnowledgeDocument.id))
-        .group_by(KnowledgeDocument.vector_status)
-    )
-    file_type_stmt = (
-        select(KnowledgeDocument.file_type, func.count(KnowledgeDocument.id))
-        .group_by(KnowledgeDocument.file_type)
-    )
-    indexed_stmt = select(func.count(KnowledgeDocument.id)).where(KnowledgeDocument.vector_status == "synced")
-    recent_stmt = select(KnowledgeDocument).order_by(KnowledgeDocument.uploaded_at.desc(), KnowledgeDocument.id.desc()).limit(5)
-    for condition in scope_filters:
-        category_stmt = category_stmt.where(condition)
-        status_stmt = status_stmt.where(condition)
-        file_type_stmt = file_type_stmt.where(condition)
-        indexed_stmt = indexed_stmt.where(condition)
-        recent_stmt = recent_stmt.where(condition)
+    filtered = [document for document in accessible if matches(document)]
+    total = len(filtered)
+    items = filtered[offset : offset + limit]
+
+    def counts_for(attribute: str, fallback: str):
+        counts: dict[str, int] = {}
+        for document in accessible:
+            key = str(getattr(document, attribute) or fallback)
+            counts[key] = counts.get(key, 0) + 1
+        return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
 
     categories = [
-        KnowledgeCategoryCount(category=(row[0] or "uncategorized"), count=row[1])
-        for row in session.exec(category_stmt).all()
+        KnowledgeCategoryCount(category=value, count=count)
+        for value, count in counts_for("category", "uncategorized")
     ]
     status_counts = [
-        KnowledgeStatusCount(status=(row[0] or "pending"), count=row[1])
-        for row in session.exec(status_stmt).all()
+        KnowledgeStatusCount(status=value, count=count)
+        for value, count in counts_for("vector_status", "pending")
     ]
     file_type_counts = [
-        KnowledgeFileTypeCount(file_type=(row[0] or "other"), count=row[1])
-        for row in session.exec(file_type_stmt).all()
+        KnowledgeFileTypeCount(file_type=value, count=count)
+        for value, count in counts_for("file_type", "other")
     ]
     return KnowledgeDocumentListResponse(
         items=items,
@@ -709,8 +822,8 @@ def list_documents_paginated(
         categories=categories,
         status_counts=status_counts,
         file_type_counts=file_type_counts,
-        recent=session.exec(recent_stmt).all(),
-        indexed_count=session.exec(indexed_stmt).one(),
+        recent=accessible[:5],
+        indexed_count=sum(1 for document in accessible if document.vector_status == "synced"),
         total_size=0,
     )
 
@@ -731,6 +844,7 @@ async def upload_document(
     project_id_query: Optional[int] = Query(None, alias="project_id"),
     client_id_query: Optional[int] = Query(None, alias="client_id"),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     category = category_form or category_query
     project_id = project_id_form if project_id_form is not None else project_id_query
@@ -740,6 +854,14 @@ async def upload_document(
         project = session.get(Project, project_id)
         if not project:
             raise HTTPException(404, "Project not found")
+        if not current_user.is_admin and not has_project_access(current_user.id, project_id, session):
+            raise HTTPException(403, "Project knowledge access denied")
+    if client_id is not None:
+        client = session.get(ClientRecord, client_id)
+        if not client:
+            raise HTTPException(404, "Client not found")
+        if not current_user.is_admin and not has_client_access(current_user.id, client_id, session):
+            raise HTTPException(403, "Client knowledge access denied")
 
     suffix = Path(file.filename or "file").suffix.lower()
     dest_name = f"{uuid.uuid4().hex}{suffix}"
@@ -796,10 +918,13 @@ def reindex_document(
     doc_id: int,
     background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     doc = session.get(KnowledgeDocument, doc_id)
     if not doc:
         raise HTTPException(404, "Document not found")
+    if not can_access_legacy_document(current_user, doc, session):
+        raise HTTPException(403, "Knowledge document access denied")
 
     full_path = UPLOADS_DIR / doc.path
     if not full_path.is_file():
@@ -817,10 +942,16 @@ def reindex_document(
 
 
 @router.delete("/documents/{doc_id}")
-def delete_document(doc_id: int, session: Session = Depends(get_session)):
+def delete_document(
+    doc_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     doc = session.get(KnowledgeDocument, doc_id)
     if not doc:
         raise HTTPException(404, "Document not found")
+    if not can_access_legacy_document(current_user, doc, session):
+        raise HTTPException(403, "Knowledge document access denied")
     for c in session.exec(select(DocumentChunk).where(DocumentChunk.document_id == doc_id)).all():
         session.delete(c)
     full_path = UPLOADS_DIR / doc.path
@@ -832,10 +963,26 @@ def delete_document(doc_id: int, session: Session = Depends(get_session)):
 
 
 @router.get("/stats")
-def get_stats(session: Session = Depends(get_session)):
-    doc_count = session.exec(select(func.count(KnowledgeDocument.id))).one()
-    chunk_count = session.exec(select(func.count(DocumentChunk.id))).one()
-    return {"document_count": doc_count, "total_vectors": chunk_count}
+def get_stats(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    documents = [
+        document
+        for document in session.exec(select(KnowledgeDocument)).all()
+        if can_access_legacy_document(current_user, document, session)
+    ]
+    document_ids = [int(document.id) for document in documents]
+    chunk_count = (
+        session.exec(
+            select(func.count(DocumentChunk.id)).where(
+                DocumentChunk.document_id.in_(document_ids)
+            )
+        ).one()
+        if document_ids
+        else 0
+    )
+    return {"document_count": len(documents), "total_vectors": chunk_count}
 
 
 @router.post("/query")
@@ -845,6 +992,14 @@ def query_knowledge(
     project_id: Optional[int] = None,
     client_id: Optional[int] = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    result = rag.retrieve(query, session, doc_ids, project_id=project_id, client_id=client_id)
+    result = rag.retrieve(
+        query,
+        session,
+        doc_ids,
+        project_id=project_id,
+        client_id=client_id,
+        accessible_project_ids=accessible_project_ids(current_user, session),
+    )
     return {"context": result}

@@ -36,6 +36,10 @@ from app.services.knowledge_ingestion import (
     record_document_event,
     scan_source_files,
 )
+from app.services.knowledge_migration import (
+    LegacyMigrationFailure,
+    migrate_legacy_documents,
+)
 from app.services.time_utils import utc_now_naive
 
 REDIS_QUEUE_NAME = os.getenv("KNOWLEDGE_QUEUE_NAME", "aria:knowledge:jobs")
@@ -85,9 +89,13 @@ def _bounded_checkpoint(value: dict[str, Any]) -> dict[str, Any]:
         "document_id",
         "source_id",
         "current_document_id",
+        "current_legacy_document_id",
         "chunk_count",
         "token_count",
         "completed_document_count",
+        "migrated_document_count",
+        "skipped_document_count",
+        "failed_document_count",
         "manual_retry_count",
     ):
         if isinstance(value.get(key), int):
@@ -102,6 +110,19 @@ def _bounded_checkpoint(value: dict[str, Any]) -> dict[str, Any]:
             )
         )
         checkpoint["completed_document_count"] = len(checkpoint["completed_document_ids"])
+    for source_key, target_key in (
+        ("completed_legacy_document_ids", "completed_legacy_document_ids"),
+        ("failed_legacy_document_ids", "failed_legacy_document_ids"),
+    ):
+        raw_ids = value.get(source_key)
+        if isinstance(raw_ids, list):
+            checkpoint[target_key] = list(
+                dict.fromkeys(
+                    int(item)
+                    for item in raw_ids[:MAX_CHECKPOINT_DOCUMENT_IDS]
+                    if isinstance(item, int) and item >= 0
+                )
+            )
     return checkpoint
 
 
@@ -112,6 +133,10 @@ def knowledge_job_checkpoint_reference(job: KnowledgeJob) -> dict[str, Any]:
         "document_phase": str(checkpoint.get("document_phase") or ""),
         "completed_document_count": int(checkpoint.get("completed_document_count") or 0),
         "current_document_id": checkpoint.get("current_document_id"),
+        "current_legacy_document_id": checkpoint.get("current_legacy_document_id"),
+        "migrated_document_count": int(checkpoint.get("migrated_document_count") or 0),
+        "skipped_document_count": int(checkpoint.get("skipped_document_count") or 0),
+        "failed_document_count": int(checkpoint.get("failed_document_count") or 0),
     }
 
 
@@ -193,7 +218,11 @@ def _find_active_target_job(
             KnowledgeJob.document_id.is_(None),
         )
     else:
-        return None
+        stmt = stmt.where(
+            KnowledgeJob.job_type == job_type,
+            KnowledgeJob.document_id.is_(None),
+            KnowledgeJob.source_id.is_(None),
+        )
     return session.exec(
         stmt.order_by(KnowledgeJob.created_at.asc(), KnowledgeJob.id.asc())
     ).first()
@@ -313,6 +342,8 @@ def _retry_delay_seconds(attempt: int) -> int:
 
 def classify_knowledge_job_failure(exc: BaseException) -> tuple[str, bool, str]:
     if isinstance(exc, KnowledgeJobFailure):
+        return exc.code, exc.retryable, str(exc)[:MAX_JOB_ERROR_CHARS]
+    if isinstance(exc, LegacyMigrationFailure):
         return exc.code, exc.retryable, str(exc)[:MAX_JOB_ERROR_CHARS]
     if isinstance(exc, FileNotFoundError):
         return "source_file_missing", False, "The source file is no longer available."
@@ -514,6 +545,56 @@ def _process_source_sync(
     session.commit()
 
 
+def _process_legacy_migration(
+    session: Session,
+    job: KnowledgeJob,
+    payload: dict[str, Any],
+) -> None:
+    raw_plans = payload.get("planned_documents")
+    if not isinstance(raw_plans, list) or not raw_plans:
+        raise KnowledgeJobFailure(
+            "migration_plan_required",
+            "A non-empty legacy migration plan is required.",
+            retryable=False,
+        )
+    planned_documents = [item for item in raw_plans if isinstance(item, dict)]
+    if len(planned_documents) != len(raw_plans):
+        raise KnowledgeJobFailure(
+            "migration_plan_invalid",
+            "The legacy migration plan contains invalid entries.",
+            retryable=False,
+        )
+
+    def checkpoint(phase: str, facts: dict[str, Any]) -> None:
+        _save_checkpoint(session, job, phase, **facts)
+
+    result = migrate_legacy_documents(
+        session,
+        job_id=int(job.id),
+        requested_by_user_id=job.requested_by_user_id,
+        planned_documents=planned_documents,
+        checkpoint=checkpoint,
+    )
+    job.payload_json = json.dumps(
+        {
+            "migration_version": payload.get("migration_version"),
+            "plan_hash": payload.get("plan_hash"),
+            "planned_document_count": len(planned_documents),
+            **{
+                key: result.get(key)
+                for key in (
+                    "migrated_document_count",
+                    "skipped_document_count",
+                    "failed_document_count",
+                )
+            },
+        },
+        ensure_ascii=False,
+    )
+    session.add(job)
+    session.commit()
+
+
 def process_knowledge_job(session: Session, job_id: int) -> KnowledgeJob | None:
     job = _claim_knowledge_job(session, job_id)
     if not job or job.status != "running":
@@ -530,6 +611,8 @@ def process_knowledge_job(session: Session, job_id: int) -> KnowledgeJob | None:
             _process_document_job(session, job, payload)
         elif job.job_type == "sync_source":
             _process_source_sync(session, job, payload)
+        elif job.job_type == "migrate_legacy_knowledge":
+            _process_legacy_migration(session, job, payload)
         else:
             raise KnowledgeJobFailure(
                 "unsupported_job_type",

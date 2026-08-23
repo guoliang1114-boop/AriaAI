@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
-> 更新日期：2026-08-23
-> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q + Phase 2R 已实施
+> 更新日期：2026-08-24
+> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q + Phase 2R + Phase 2S 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -81,7 +81,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 
 大型 Rust 子系统只有在 Python 重写成本明显高于收益、且 Aria 确实需要同类能力时才重新评估。目前没有这种必要。
 
-## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q + Phase 2R 已吸收的源码机制
+## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q + Phase 2R + Phase 2S 已吸收的源码机制
 
 | Codex 上游机制 | 上游路径 | Aria 原生实现 | 接入位置 | 价值 |
 |---|---|---|---|---|
@@ -102,6 +102,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 | 运行输出 Item 与生命周期事实 | `protocol/src/models.rs`、`analytics/src/facts.rs` | `backend/app/services/agent_harness/run_output_record.py` | Tool Executor + Artifact Persist + Evaluation + Rollout + Memory Candidate + 前端 Store | 将模型正文、交付物和记忆候选拆成不同结果边界；Artifact 只有在文件、项目证据与内容哈希验证后才成为 persisted，候选则单独进入人工裁决生命周期 |
 | 知识证据 Item 与引用闭环 | `protocol/src/models.rs`、`protocol/src/items.rs` | `backend/app/services/agent_harness/knowledge_evidence.py` | RAG + Context Builder + Persist + Evaluation + Trace + 两个聊天前端 | 检索片段获得稳定 Evidence ID 与 `K*` 引用键；原文只进入本轮 Prompt，持久化仅保留来源元数据和 SHA-256，回答只展示实际引用且有效的来源 |
 | 语义失败分类与有界退避 | `protocol/src/error.rs`、`core/src/util.rs` | `backend/app/jobs/knowledge_jobs.py` | Knowledge Job + Ingestion + Scheduler + API + 知识库前端 | 按短暂/永久错误决定自动恢复，通过幂等键、lease、checkpoint 和有界尝试保证重启后可继续且不重复索引 |
+| 验证后应用与持久映射 | `apply-patch/src/file_update.rs`、`rollout/src/recorder.rs` | `backend/app/services/knowledge_migration.py` | Legacy Knowledge + Migration Job + Source/Document + 管理前端 | 预检数据库和文件事实并冻结 plan fingerprint；执行时检测漂移、逐项 checkpoint、保留旧记录并把重复内容映射到同一新文档 |
 | Skill 前置信息解析 | `codex-rs/skills/src/parser.rs` | `backend/app/services/agent_harness/skill_package.py` | `routers/skills.py` | 校验 `SKILL.md`、修复有限 YAML 歧义、安全加载指定引用 |
 | Skill Root 快照与选择 | `codex-rs/skills/src/loading.rs`、`selection.rs`、`ext/skills/src/loader/` | `backend/app/services/agent_harness/skill_roots.py` | Skill 启动同步 + `skill_router.py` | 有序 Root、不可变内容指纹、增量缓存、坏包隔离和发布态候选选择 |
 
@@ -456,6 +457,20 @@ Phase 2R 从 Codex 的语义错误分类和指数退避边界中吸收“只有�
 
 本阶段使用加法迁移 `027_v1_27`扩展现有 `knowledge_job`；生产验收仍在完整备份后使用隔离 schema，结束后比对 `public` 表与 revision 签名。Aria 不运行、不导入、不连接 Codex，也没有新增第二个队列或数据库。
 
+### 4.20 历史知识的验证后迁移与权限收口
+
+Phase 2S 把 Codex apply-patch 的“先冻结基线、写入前重新验证”和 Rollout 的“逐项 checkpoint、重启后按事实恢复”改写为 Aria 原生知识迁移：
+
+- 管理员预检旧 `KnowledgeDocument` 的业务 scope、文件类型、文件存在性、大小和 SHA-256，API 只返回安全清单，不返回 storage path 或内容；
+- plan fingerprint 绑定全部待迁移事实，预检后文件或数据库记录发生变化时拒绝按旧计划继续执行；
+- 迁移任务使用 Phase 2R 的 lease、重试和 checkpoint，每批最多 500 份，产品入口默认每批 100 份；
+- 原文件复制到新的 source-scoped storage key，旧文件、旧记录和旧 chunk 均不删除，因此旧版本代码仍可回退；
+- 同一 scope 下相同 content hash 复用一个新文档，多条旧记录通过 `knowledge_legacy_migration` 映射表保持独立审计身份；
+- 项目文档、客户文档和 workspace 文档分别进入对应 scope；旧列表、上传、删除、重建、统计与 query API 同时补齐成员权限检查；
+- 迁移成功后前端显示新文档并隐藏其旧副本；管理员能看到 ready / migrated / blocked 和活动任务状态，普通用户没有迁移控制入口。
+
+本阶段使用加法迁移 `028_v1_28` 新增映射表和 source external key；不自动迁移、不删除生产数据，只有管理员提交与当前预检一致的 fingerprint 才会启动。Aria 不运行、不导入、不连接 Codex。
+
 ## 5. 已撤回的错误方向
 
 下列通信型实现已从工作区移除：
@@ -659,6 +674,15 @@ Phase 2R 从 Codex 的语义错误分类和指数退避边界中吸收“只有�
 - `codex-rs/core/src/util.rs`。
 
 已完成：把知识文档导入、重建和 source sync 收口为 Aria 原生持久任务，通过幂等键、租约、心跳、过期回收、阶段 checkpoint、语义失败分类与有界退避实现可恢复执行；补齐 source/document/job/event/template/search API 和前端状态可见性。原始 payload、checkpoint、文档内容与本地路径不进入 API 状态。迁移由 `027_v1_27` 管理；实现不运行、不导入、不连接 Codex。
+
+### Phase 2S：历史知识受控迁移（已实施）
+
+参考候选：
+
+- `codex-rs/apply-patch/src/file_update.rs`；
+- `codex-rs/rollout/src/recorder.rs`。
+
+已完成：新增管理员预检与 fingerprint 确认、持久迁移任务、逐文档映射审计、无损文件复制、内容去重、漂移拒绝和前端批次状态；旧管理 API 统一应用项目/客户成员边界。迁移成功后页面只显示 source-scoped 文档，旧记录和原文件仍保留供回退。数据库变更由 `028_v1_28` 管理；实现不运行、不导入、不连接 Codex。
 
 ## 8. 许可证与升级流程
 
