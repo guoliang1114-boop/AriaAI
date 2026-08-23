@@ -874,13 +874,13 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 目标：降低扩展新工具、新 Skill、新交付物的成本。
 
-当前进展（2026-08-23）：前两批已经落地。第一批统一 `ToolExecutionRecord v1`（版本、调用 ID、status、outcome、终态、摘要、错误、重试与耗时），Rollout、Evaluation、Persist 和前端 Store 共用该契约；原始工具输入/输出不进入长期台账，超限时保留最近记录并显式报告省略数。第二批统一 `ToolCapabilityManifest v1`：17 个现有工具的权限、副作用、并行、重试、项目作用域、结果类型、展示名和 Product Run Event 进入一个注册事实源，未知工具失败关闭，Artifact Ready 事件保留来源工具。后续继续推进 context builder，以及 artifact / memory candidate 保存流程。
+当前进展（2026-08-23）：前三批已经落地。第一批统一 `ToolExecutionRecord v1`（版本、调用 ID、status、outcome、终态、摘要、错误、重试与耗时），Rollout、Evaluation、Persist 和前端 Store 共用该契约；原始工具输入/输出不进入长期台账，超限时保留最近记录并显式报告省略数。第二批统一 `ToolCapabilityManifest v1`：17 个现有工具的权限、副作用、并行、重试、项目作用域、结果类型、展示名和 Product Run Event 进入一个注册事实源，未知工具失败关闭，Artifact Ready 事件保留来源工具。第三批统一 `Context Assembly Manifest v1`：Skill、项目/客户、RAG、工作记忆、工具历史、意图与 Turn Contract、用户偏好、会话历史和工具目录拥有稳定来源身份，最终 Provider 请求与预算清单绑定，Trace、Rollout、Evaluation 共享同一份无原文 Manifest。后续继续推进 artifact / memory candidate 保存流程。
 
 范围：
 
 - 工具注册表标准化。（首批已完成）
 - 工具结果 schema 标准化。（首批已完成）
-- context builder 输出 schema 标准化。
+- context builder 输出 schema 标准化。（第三批已完成）
 - artifact 和 memory candidate 保存流程标准化。
 - tool result 到 product event 的映射标准化。（Artifact / Tool Progress 首批已完成）
 

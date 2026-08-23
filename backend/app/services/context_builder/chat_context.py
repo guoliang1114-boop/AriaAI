@@ -4,6 +4,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from app.models.db import ClientRecord, Project
+from app.services.context_builder.assembly import ContextSourceInput
 from app.services.context_builder.memory_formatters import _format_client_memory_for_prompt
 from app.services.context_builder.project_context import build_project_context
 from app.services.context_builder.rag_context import build_rag_context
@@ -29,6 +30,7 @@ class ChatContext:
         rag_sources: Optional[list] = None,
         tools: Optional[list] = None,
         max_tokens: int = 4096,
+        context_sources: Optional[list[ContextSourceInput]] = None,
     ):
         self.skill_prompt = skill_prompt
         self.project_context = project_context
@@ -36,6 +38,7 @@ class ChatContext:
         self.rag_sources = rag_sources or []
         self.tools = tools
         self.max_tokens = max_tokens
+        self.context_sources = tuple(context_sources or ())
 
 
 def build_chat_context(
@@ -140,4 +143,31 @@ def build_chat_context(
         rag_sources=rag_data["sources"],
         tools=_merge_project_chat_tools(skill_ctx.tools, project_id),
         max_tokens=skill_ctx.max_tokens or default_max_tokens,
+        context_sources=[
+            ContextSourceInput(
+                source_id="skill_instructions",
+                kind="instructions",
+                trust="workspace",
+                content=skill_ctx.skill_prompt or "",
+                metadata={"skill_selected": bool(skill_id)},
+            ),
+            ContextSourceInput(
+                source_id="workspace_context",
+                kind="workspace",
+                trust="workspace",
+                content=project_context or "",
+                metadata={
+                    "context_mode": normalized_context_mode or "auto",
+                    "knowledge_scope": normalized_scope,
+                    "project_scoped": bool(project_id),
+                },
+            ),
+            ContextSourceInput(
+                source_id="retrieved_knowledge",
+                kind="retrieval",
+                trust="retrieved",
+                content=rag_data["text"] or "",
+                metadata={"reference_count": len(rag_data["sources"] or [])},
+            ),
+        ],
     )

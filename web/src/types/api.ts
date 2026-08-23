@@ -937,7 +937,11 @@ export interface GeneratedArtifact {
 
 export interface ChatTracePromptLayer {
   name: string
+  kind?: string
+  trust?: string
   chars?: number
+  estimated_tokens?: number
+  content_sha256?: string
   present?: boolean
   message_count?: number
   tool_count?: number

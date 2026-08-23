@@ -19,6 +19,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from app.services.context_builder.assembly import (
+    context_manifest_reference,
+    validate_context_assembly_manifest,
+)
 from app.services.agent_harness.tool_execution_record import (
     tool_event_is_completed,
     tool_event_is_failure,
@@ -179,7 +183,8 @@ def evaluate_run_completion(
     never calls a model, so the verdict is stable across providers and retries.
     """
 
-    del runtime  # Reserved for future contract-specific deterministic checks.
+    context_manifest = getattr(runtime, "context_manifest", None)
+    context_manifest_ref = context_manifest_reference(context_manifest)
     tool_events = [
         event
         for event in list(getattr(state, "tool_call_events", None) or [])
@@ -204,6 +209,31 @@ def evaluate_run_completion(
 
     findings: list[EvaluationFinding] = []
     checks: dict[str, str] = {}
+
+    if context_manifest:
+        manifest_valid, manifest_reason = validate_context_assembly_manifest(
+            context_manifest
+        )
+        if manifest_valid:
+            checks["context_assembly"] = (
+                "passed_compacted"
+                if context_manifest_ref["compacted"]
+                else "passed"
+            )
+        else:
+            checks["context_assembly"] = "failed"
+            findings.append(
+                _finding(
+                    "CONTEXT_ASSEMBLY_INVALID",
+                    FindingSeverity.ERROR,
+                    "模型上下文清单未通过完整性或预算校验。",
+                    validation_reason=manifest_reason,
+                )
+            )
+    else:
+        # Direct unit/recovery constructors predate the production manifest.
+        # They remain usable, but production runtimes always populate it.
+        checks["context_assembly"] = "not_available"
 
     if bool(getattr(state, "budget_exhausted", False)):
         checks["turn_budget"] = "failed"
@@ -386,6 +416,7 @@ def evaluate_run_completion(
             "STEP_INCOMPLETE": "Agent Step 未正常结束，本轮已按失败状态保存。",
             "OUTPUT_TRUNCATED": "模型输出仍不完整，本轮已按失败状态保存。",
             "EMPTY_MODEL_OUTPUT": "模型未生成可用正文，本轮已按失败状态保存。",
+            "CONTEXT_ASSEMBLY_INVALID": "模型上下文清单校验失败，本轮未达到可验证完成状态。",
         }
         summary = summary_by_code.get(
             primary_code,
@@ -409,6 +440,7 @@ def evaluate_run_completion(
         "pending_confirmation_count": len(
             list(getattr(state, "pending_tool_confirmations", None) or [])
         ),
+        "context_manifest": context_manifest_ref,
     }
     return RunCompletionEvaluation(
         verdict=verdict,

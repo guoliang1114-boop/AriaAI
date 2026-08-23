@@ -393,7 +393,10 @@ async def stream_chat_events(
     ``chat_streaming.py`` API — routers and tests do not need to change.
     """
     stream_started_at = time.perf_counter()
-    state = ChatSessionState(stage_timings=dict(runtime.prepare_metrics or {}))
+    state = ChatSessionState(
+        stage_timings=dict(runtime.prepare_metrics or {}),
+        context_manifest=dict(getattr(runtime, "context_manifest", None) or {}),
+    )
     state.run_id = make_run_id()
     state.rollout_bind = bind
     try:

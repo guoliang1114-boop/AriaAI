@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
 > 更新日期：2026-08-23
-> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N 已实施
+> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -50,6 +50,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 - <https://developers.openai.com/api/docs/guides/error-codes>（临时限流、服务端错误与配额错误的恢复边界）
 - <https://developers.openai.com/api/docs/guides/rate-limits>（限流退避与 `Retry-After`）
 - <https://developers.openai.com/api/docs/guides/streaming-responses>（流式增量输出形成不可盲目重放的提交边界）
+- <https://developers.openai.com/api/docs/guides/conversation-state>（多轮状态需要显式保留，输入、输出与推理共同占用上下文窗口）
 
 本轮审计基线：
 
@@ -79,7 +80,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 
 大型 Rust 子系统只有在 Python 重写成本明显高于收益、且 Aria 确实需要同类能力时才重新评估。目前没有这种必要。
 
-## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N 已吸收的源码机制
+## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O 已吸收的源码机制
 
 | Codex 上游机制 | 上游路径 | Aria 原生实现 | 接入位置 | 价值 |
 |---|---|---|---|---|
@@ -96,6 +97,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 | 单轮执行预算与停止边界 | `ext/goal/src/accounting.rs`、`ext/goal/src/runtime.rs`、`core/src/tools/orchestrator.rs` | `backend/app/services/agent_harness/turn_budget.py` | Agent Loop + Model Stream + Tool Batch + Persist + Run Rollout | 用单调时钟统一限制步骤、计划工具总数和总耗时；超限保存部分结果并以不可重试失败终态收口 |
 | 有界完成证据与结构化裁决 | `core/src/context/guardian_review_evidence.rs`、`prompts/templates/review/rubric.md`、`protocol/src/review_format.rs` | `backend/app/services/agent_harness/run_evaluation.py` | Persist + Run Rollout + Product Run Event | 以工具、交付物、策略、审批、预算和输出完整性事实裁决终态，阻止失败 Run 被误报为 completed |
 | 工具执行台账与结果契约 | `core/src/tools/executed_tool_calls.rs`、`protocol/src/models/executed_tool_calls.rs` | `backend/app/services/agent_harness/tool_execution_record.py` | Tool Executor + Agent Loop + Durable Task + Persist + Rollout + Evaluation + 前端 Store | 用 `tool_use_id` 合并调用生命周期，统一 outcome，移除原始输入/输出，并按 256 条/32 KiB 预算优先保留最近证据和显式省略计数 |
+| 上下文组装清单与请求绑定 | `core/src/context/world_state/mod.rs`、`core/src/context_manager/history.rs` | `backend/app/services/context_builder/assembly.py` | Context Builder + Runtime + Agent Loop + Trace + Rollout + Evaluation | 用稳定来源 ID、信任层级、有界元数据和域分离 SHA-256 记录每一层上下文，并把 Manifest 绑定到实际 Provider 首次请求；不持久化 Prompt、历史、RAG 或工具 Schema 原文 |
 | Skill 前置信息解析 | `codex-rs/skills/src/parser.rs` | `backend/app/services/agent_harness/skill_package.py` | `routers/skills.py` | 校验 `SKILL.md`、修复有限 YAML 歧义、安全加载指定引用 |
 | Skill Root 快照与选择 | `codex-rs/skills/src/loading.rs`、`selection.rs`、`ext/skills/src/loader/` | `backend/app/services/agent_harness/skill_roots.py` | Skill 启动同步 + `skill_router.py` | 有序 Root、不可变内容指纹、增量缓存、坏包隔离和发布态候选选择 |
 
@@ -395,6 +397,19 @@ Phase 2L 吸收 Codex Guardian Review 的有界证据、结构化 Finding 和显
 
 裁决器完全确定性运行，不调用评审模型，不使用 OpenAI Evals API，也不引入 Codex Reviewer、协议或进程。它只审阅 Aria 已经产生的有界状态，因此不同模型 Provider、重试次数和部署环境会得到相同终态。
 
+### 4.16 Context Assembly Manifest 与 Provider 请求绑定
+
+Phase 2O 将此前分散在 Context Builder 与 Runtime 的 Skill、项目/客户上下文、RAG、工作记忆、近期工具历史、意图契约、Turn Contract、能力框架、用户偏好、会话历史和工具目录收敛为 `Context Assembly Manifest v1`：
+
+- 每一层拥有稳定 `source_id`、类别、信任层级、顺序、字符数、近似 token 数和域分离 SHA-256；重复 ID、未知类别、未知信任层级或超过 24 个业务来源会失败关闭；
+- Manifest 只保存有界元数据、计数、预算结果和指纹，不保存客户事实原文、历史消息、RAG 片段、用户偏好原文或工具 Schema；
+- Context Builder 返回自己的三类来源，Runtime 补全本轮策略与运行来源；工具转录规范化和 Context Budget 完成后，再从同一对象产生最终 `system / messages / tools` 与 Manifest；
+- Agent Loop 在首个 Provider 请求之前重新计算三部分请求指纹，任何组装后篡改或漂移都会在调用模型前拒绝；后续工具回合继续使用既有每回合预算 Trace；
+- Chat Trace 的 Prompt Layer、Run Rollout 的 `run_started`、Assistant Message 内的 Rollout Snapshot 与完成裁决共享同一份 Manifest；完成裁决将完整性或预算校验失败判为 `CONTEXT_ASSEMBLY_INVALID`；
+- 正常请求和压缩请求都可验证 `estimated_total_after <= context_window - safety_margin`，同时保留是否压缩 system/history 的显式摘要。
+
+这一实现借鉴 Codex World State 的稳定 section identity、重复拒绝、compact snapshot 与 model-visible fingerprint，但没有引入 Codex 的 World State 类型、Response Item、Thread、协议或运行时。Aria 仍直接调用自己的 Claude、Kimi、DeepSeek、GLM 与 MiMo Provider。
+
 ## 5. 已撤回的错误方向
 
 下列通信型实现已从工作区移除：
@@ -562,6 +577,15 @@ Phase 2L 吸收 Codex Guardian Review 的有界证据、结构化 Finding 和显
 - `codex-rs/core/src/tools/tool_dispatch_trace.rs`。
 
 已完成：为现有 17 个 Aria 工具建立 `ToolCapabilityManifest v1`，统一声明 display name、项目作用域、操作级 ActionPolicy、副作用、只读并行、重试模式、结果类型和 Product Run Event；注册时校验名称与 JSON object schema、绑定 schema SHA-256 并拒绝重复名称，未分类工具默认按 `destructive_action + serial + never retry` 失败关闭。Policy Guard、Tool Scheduler、Agent Executor、Persist 真值门、工具审计和前端产品事件标题均改为读取同一事实源；Artifact 在提取时携带 `source_tool/product_event`，持久化后的 `artifact_ready` 可追溯到来源工具。该批同时补齐 `manage_pdf` 的项目作用域注入，并关闭 Office 编辑、PDF 写操作与文档翻译误落入只读默认策略的缺口。实现不调用 Codex，不新增数据库迁移。
+
+### Phase 2O：上下文组装清单与请求绑定（已实施）
+
+参考候选：
+
+- `codex-rs/core/src/context/world_state/mod.rs`；
+- `codex-rs/core/src/context_manager/history.rs`。
+
+已完成：新增 `Context Assembly Manifest v1`，把 Context Builder 与 Runtime 的业务来源、最终 Provider 输入、预算结果和压缩状态绑定到一个有界、无原文、可校验的清单；首个模型请求前再次核对 system/messages/tools 指纹，Trace、Run Rollout 和完成裁决消费同一清单。来源最多 24 个，Manifest 仅含安全元数据与 SHA-256，失败时在调用模型或报告完成之前关闭。实现不调用 Codex、不新增数据库迁移。
 
 ## 8. 许可证与升级流程
 

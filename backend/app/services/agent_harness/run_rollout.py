@@ -20,6 +20,7 @@ from typing import Any, Iterable
 from sqlmodel import Session, select
 
 from app.models.db import Message, TaskEvent, TaskRun, TaskStep
+from app.services.context_builder.assembly import validate_context_assembly_manifest
 from app.services.agent_harness.tool_execution_record import (
     tool_event_is_failure,
     tool_event_is_omission_marker,
@@ -55,6 +56,15 @@ def _sha256(value: Any) -> str:
 
 def _enum_value(value: Any) -> str:
     return str(getattr(value, "value", value) or "")
+
+
+def _safe_context_manifest(value: Any) -> dict[str, Any]:
+    valid, _ = validate_context_assembly_manifest(value)
+    if not valid:
+        return {}
+    # JSON round-trip both deep-copies the manifest and enforces the same
+    # serializable representation used by TaskRun/TaskEvent persistence.
+    return json.loads(_json_dumps(value))
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -237,6 +247,7 @@ def reconstruct_rollout(
     run_id = ""
     steps: dict[int, dict[str, Any]] = {}
     terminal_event = ""
+    context_manifest: dict[str, Any] = {}
     status = "running" if task_status in {"pending", "running"} else task_status
     message_id: int | str | None = None
     valid_records = 0
@@ -251,7 +262,9 @@ def reconstruct_rollout(
             continue
         event_type = str(record.get("event_type") or "")
         valid_records += 1
-        if event_type == "step_checkpoint":
+        if event_type == "run_started":
+            context_manifest = _safe_context_manifest(payload.get("context_manifest"))
+        elif event_type == "step_checkpoint":
             checkpoint = payload.get("checkpoint")
             if isinstance(checkpoint, dict):
                 try:
@@ -282,6 +295,7 @@ def reconstruct_rollout(
         "status": status,
         "terminal_event": terminal_event or None,
         "message_id": message_id,
+        "context_manifest": context_manifest,
         "last_ordinal": int(ordered[-1]["payload"]["ordinal"]) if ordered else 0,
         "steps": ordered_steps,
         "recovery": _recovery_plan(status, ordered_steps),
@@ -342,6 +356,9 @@ def begin_chat_rollout(bind: Any, runtime: Any, request_content: str, run_id: st
             .order_by(Message.created_at.desc(), Message.id.desc())
             .limit(1)
         ).first()
+        context_manifest = _safe_context_manifest(
+            getattr(runtime, "context_manifest", None)
+        )
         task = TaskRun(
             project_id=None,  # hidden from project task lists; project id stays in the event payload
             conversation_id=int(runtime.conv_id),
@@ -359,6 +376,7 @@ def begin_chat_rollout(bind: Any, runtime: Any, request_content: str, run_id: st
                     "model": str(getattr(runtime, "selected_model", "") or ""),
                     "chat_mode": _enum_value(getattr(runtime, "chat_mode", "")),
                     "action_policy": _enum_value(getattr(runtime, "action_policy", "")),
+                    "context_manifest": context_manifest,
                 }
             ),
             created_at=now,
@@ -378,6 +396,7 @@ def begin_chat_rollout(bind: Any, runtime: Any, request_content: str, run_id: st
                 "model": str(getattr(runtime, "selected_model", "") or ""),
                 "chat_mode": _enum_value(getattr(runtime, "chat_mode", "")),
                 "action_policy": _enum_value(getattr(runtime, "action_policy", "")),
+                "context_manifest": context_manifest,
             },
         )
         session.commit()
@@ -551,7 +570,13 @@ def build_in_memory_rollout_snapshot(
     records: list[dict[str, Any]] = [
         {
             "event_type": "run_started",
-            "payload": {"ordinal": 1, "run_id": run_id},
+            "payload": {
+                "ordinal": 1,
+                "run_id": run_id,
+                "context_manifest": _safe_context_manifest(
+                    getattr(state, "context_manifest", None)
+                ),
+            },
         }
     ]
     for step in list(getattr(state, "steps", None) or []):

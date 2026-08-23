@@ -15,6 +15,10 @@ from typing import Any
 from sqlmodel import Session, select
 
 from app.models.db import ChatTrace
+from app.services.context_builder.assembly import (
+    context_manifest_reference,
+    validate_context_assembly_manifest,
+)
 from app.services.agent_harness.tool_execution_record import (
     tool_event_is_failure,
     tool_event_is_omission_marker,
@@ -42,6 +46,22 @@ def _enum_value(value: Any) -> str:
 
 
 def _build_prompt_layers(runtime: ChatRuntime) -> list[dict]:
+    manifest = getattr(runtime, "context_manifest", None)
+    manifest_valid, _ = validate_context_assembly_manifest(manifest)
+    if manifest_valid:
+        return [
+            {
+                "name": str(source.get("source_id") or ""),
+                "kind": str(source.get("kind") or ""),
+                "trust": str(source.get("trust") or ""),
+                "chars": int(source.get("chars") or 0),
+                "estimated_tokens": int(source.get("estimated_tokens") or 0),
+                "present": bool(source.get("included", False)),
+                "content_sha256": str(source.get("content_sha256") or ""),
+            }
+            for source in manifest.get("sources", [])
+            if isinstance(source, dict)
+        ]
     return [
         {
             "name": "system",
@@ -92,6 +112,7 @@ def _build_fallback_events(state: ChatSessionState) -> list[dict]:
 def build_chat_trace_payload(runtime: ChatRuntime, state: ChatSessionState) -> dict:
     """Build a JSON-safe trace payload for tests and diagnostics."""
 
+    context_manifest = getattr(runtime, "context_manifest", None)
     return {
         "trace_id": uuid.uuid4().hex,
         "conversation_id": runtime.conv_id,
@@ -115,6 +136,8 @@ def build_chat_trace_payload(runtime: ChatRuntime, state: ChatSessionState) -> d
             "prepare_metrics": runtime.prepare_metrics or {},
             "intent_trace": runtime.intent_trace or {},
             "rollout_task_id": state.rollout_task_id,
+            "context_manifest": context_manifest or {},
+            "context_manifest_ref": context_manifest_reference(context_manifest),
         },
     }
 

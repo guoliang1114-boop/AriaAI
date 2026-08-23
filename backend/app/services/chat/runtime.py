@@ -27,9 +27,9 @@ from app.models.db import Conversation, Message, ProjectMember, Skill
 from app.models.db import Setting as _Setting
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.agent_harness.context_budget import (
-    apply_context_budget,
     resolve_model_context_window,
 )
+from app.services.agent_harness.tool_transcript import normalize_tool_transcript
 from app.services.chat_store import (
     build_message_metadata,
     get_recent_message_history,
@@ -38,7 +38,10 @@ from app.services.chat_store import (
 )
 from app.services.conversation_state import get_conversation_state_payload
 from app.services.context_builder import (
+    ContextSourceInput,
+    assemble_context,
     build_chat_context,
+    context_manifest_reference,
 )
 from app.services.provider_selector import (
     _load_provider_module,
@@ -841,6 +844,7 @@ def prepare_chat_runtime(
         chat_ctx.project_context,
         chat_mode=intent_decision.chat_mode,
     )
+    provider_system_contract = system
     working_memory_prompt = format_working_memory_for_prompt(working_memory)
     if working_memory_prompt:
         system = f"{system.rstrip()}\n\n{working_memory_prompt}\n"
@@ -921,22 +925,109 @@ def prepare_chat_runtime(
         )
         or CONTEXT_HISTORY_SUMMARY_TOKENS
     )
-    budgeted_context = apply_context_budget(
+    context_sources = list(getattr(chat_ctx, "context_sources", ()) or ())
+    context_sources.extend(
+        [
+            ContextSourceInput(
+                source_id="provider_system_contract",
+                kind="instructions",
+                trust="platform",
+                content=provider_system_contract or "",
+                metadata={"provider": provider, "model": runtime_model},
+            ),
+            ContextSourceInput(
+                source_id="working_memory",
+                kind="memory",
+                trust="workspace",
+                content=working_memory_prompt or "",
+            ),
+            ContextSourceInput(
+                source_id="recent_tool_history",
+                kind="execution_state",
+                trust="workspace",
+                content=tool_history_context or "",
+            ),
+            ContextSourceInput(
+                source_id="intent_contract",
+                kind="policy",
+                trust="platform",
+                content=json.dumps(
+                    {
+                        "intent_frame": intent_frame,
+                        "consulting_frame": {
+                            "job_type": consulting_frame.job_type,
+                            "client_moment": consulting_frame.client_moment,
+                            "memory_focus": list(consulting_frame.memory_focus),
+                            "response_shape": list(consulting_frame.response_shape),
+                            "agent_protocol": list(consulting_frame.agent_protocol),
+                            "confidence": round(consulting_frame.confidence, 3),
+                            "reason": consulting_frame.reason,
+                        },
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            ),
+            ContextSourceInput(
+                source_id="turn_contract",
+                kind="policy",
+                trust="platform",
+                content=json.dumps(
+                    turn_contract.to_dict(),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            ),
+            ContextSourceInput(
+                source_id="tool_capability_frame",
+                kind="policy",
+                trust="platform",
+                content=json.dumps(
+                    {
+                        "action_policy": intent_decision.action_policy.value,
+                        "tool_access_policy": intent_decision.tool_access_policy.value,
+                        "tool_names": [
+                            str(tool.get("name") or tool.get("function", {}).get("name") or "")
+                            for tool in (runtime_tools or [])
+                            if isinstance(tool, dict)
+                        ],
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            ),
+            ContextSourceInput(
+                source_id="user_preferences",
+                kind="preferences",
+                trust="user",
+                content=user_memory_section or "",
+            ),
+        ]
+    )
+    initial_transcript = normalize_tool_transcript(api_messages)
+    api_messages = initial_transcript.messages
+    if initial_transcript.changed:
+        prepare_metrics["context_transcript_normalized"] = initial_transcript.metrics()
+
+    context_assembly = assemble_context(
         system=system,
         messages=api_messages,
         tools=runtime_tools,
+        sources=context_sources,
         context_window_tokens=context_window_tokens,
         max_output_tokens=runtime_max_tokens,
         safety_margin_percent=context_safety_percent,
         history_summary_tokens=history_summary_tokens,
     )
-    system = budgeted_context.system
-    api_messages = budgeted_context.messages
-    prepare_metrics["context_budget"] = budgeted_context.report.to_dict()
-    prepare_metrics["context_compacted"] = budgeted_context.report.compacted
-    prepare_metrics["context_window_tokens"] = budgeted_context.report.context_window_tokens
+    system = context_assembly.system
+    api_messages = context_assembly.messages
+    runtime_tools = context_assembly.tools
+    prepare_metrics["context_budget"] = context_assembly.budget_report.to_dict()
+    prepare_metrics["context_compacted"] = context_assembly.budget_report.compacted
+    prepare_metrics["context_window_tokens"] = context_assembly.budget_report.context_window_tokens
+    prepare_metrics["context_manifest"] = context_manifest_reference(context_assembly.manifest)
     prepare_metrics["history_message_count"] = len(api_messages)
-    prepare_metrics["history_summarized_message_count"] = budgeted_context.report.summarized_messages
+    prepare_metrics["history_summarized_message_count"] = context_assembly.budget_report.summarized_messages
     prepare_metrics["intent_frame"] = intent_frame
     prepare_metrics["consulting_frame"] = {
         "job_type": consulting_frame.job_type,
@@ -978,6 +1069,7 @@ def prepare_chat_runtime(
         intent_task_route=intent_decision.task_route,
         artifact_contract=intent_decision.artifact_contract,
         working_memory=working_memory.to_dict(),
+        context_manifest=context_assembly.manifest,
         intent_prepared_async=intent_prepared_async,
         context_window_tokens=context_window_tokens,
         context_safety_margin_percent=context_safety_percent,

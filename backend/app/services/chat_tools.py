@@ -35,6 +35,9 @@ class ChatRuntime:
     intent_task_route: object | None = None
     artifact_contract: ArtifactContract | None = None
     working_memory: dict | None = None
+    # Privacy-safe Context Assembly Manifest v1. It fingerprints the exact
+    # initial provider request without retaining raw prompt or retrieved text.
+    context_manifest: dict | None = None
     intent_prepared_async: bool = False
     # Per-turn context budgeting. Production runtime construction always sets
     # these values; zero keeps direct test/recovery constructors backward

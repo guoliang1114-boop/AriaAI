@@ -29,6 +29,7 @@ from typing import Any
 
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.agent_harness.context_budget import apply_context_budget
+from app.services.context_builder.assembly import validate_context_assembly_request
 from app.services.agent_harness.run_rollout import checkpoint_chat_rollout
 from app.services.agent_harness.tool_scheduler import plan_tool_execution
 from app.services.agent_harness.turn_budget import (
@@ -314,6 +315,25 @@ async def _consume_stream(
                 stream_label,
                 [issue.code for issue in post_budget_transcript.issues],
             )
+
+    # The manifest is bound to the exact initial provider request after both
+    # transcript normalization and budgeting. Later steps intentionally append
+    # tool call/results and receive their own turn_context_budget trace.
+    context_manifest = getattr(runtime, "context_manifest", None)
+    if context_manifest and step_index == 0 and stream_label == "step_0":
+        context_valid, context_reason = validate_context_assembly_request(
+            context_manifest,
+            system=request_system,
+            messages=request_messages,
+            tools=runtime.tools,
+        )
+        if not context_valid:
+            state.record_trace_event(
+                "context_assembly_request_rejected",
+                stage="before_model_request",
+                reason=context_reason,
+            )
+            raise RuntimeError(f"context assembly request rejected: {context_reason}")
 
     async for item in _iter_model_stream_with_safe_retry(
         runtime,
