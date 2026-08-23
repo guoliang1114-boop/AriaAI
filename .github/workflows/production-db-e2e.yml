@@ -1,0 +1,213 @@
+name: Production Database E2E
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: production-database-e2e
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  database-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Backup and test production PostgreSQL
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          script: |
+            set -eu
+
+            PROJECT_DIR="/www/wwwroot/AriaAI"
+            BACKEND_DIR="$PROJECT_DIR/backend"
+            BACKUP_DIR="/www/backups/ariaai"
+            RUN_TAG="${{ github.run_id }}_${{ github.run_attempt }}"
+            DB_TEST_WORKER="prod_${RUN_TAG}"
+            TEST_SCHEMA="ariaai_test_${DB_TEST_WORKER}"
+
+            cd "$BACKEND_DIR"
+            PYTHON=".venv/bin/python3"
+            if [ ! -x "$PYTHON" ]; then
+              PYTHON=".venv/bin/python"
+            fi
+            if [ ! -x "$PYTHON" ]; then
+              echo "No Python interpreter found in backend virtual environment." >&2
+              exit 127
+            fi
+
+            mkdir -p "$BACKUP_DIR"
+            chmod 700 "$BACKUP_DIR"
+            BACKUP_PATH="$BACKUP_DIR/ariaai_pre_e2e_$(date -u +%Y%m%dT%H%M%SZ)_${RUN_TAG}.dump"
+            export BACKUP_PATH DB_TEST_WORKER TEST_SCHEMA
+
+            # Create a full custom-format backup before any test schema exists.
+            # DATABASE_URL is loaded inside Python so credentials never enter the
+            # workflow command output or a temporary shell file.
+            "$PYTHON" - <<'PY'
+            import hashlib
+            import os
+            import subprocess
+            from pathlib import Path
+
+            from app.config import DATABASE_URL
+
+            backup_path = Path(os.environ["BACKUP_PATH"])
+            subprocess.run(
+                [
+                    "pg_dump",
+                    "--format=custom",
+                    "--no-owner",
+                    "--no-acl",
+                    "--file",
+                    str(backup_path),
+                    DATABASE_URL,
+                ],
+                check=True,
+            )
+            subprocess.run(
+                ["pg_restore", "--list", str(backup_path)],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            os.chmod(backup_path, 0o600)
+            digest_builder = hashlib.sha256()
+            with backup_path.open("rb") as backup_file:
+                for chunk in iter(lambda: backup_file.read(1024 * 1024), b""):
+                    digest_builder.update(chunk)
+            digest = digest_builder.hexdigest()
+            print(
+                "Production backup verified: "
+                f"path={backup_path}, bytes={backup_path.stat().st_size}, "
+                f"sha256={digest}"
+            )
+            PY
+
+            # Run PostgreSQL-backed chat tests inside one uniquely named schema.
+            # The wrapper always removes that exact schema, including when pytest
+            # fails, and verifies that the public schema signature did not change.
+            "$PYTHON" - <<'PY'
+            import os
+            import re
+            import subprocess
+            import sys
+
+            from sqlalchemy import create_engine, text
+            from sqlalchemy.engine import make_url
+
+            from app.config import DATABASE_URL
+
+            worker = os.environ["DB_TEST_WORKER"]
+            test_schema = os.environ["TEST_SCHEMA"]
+            expected_schema = f"ariaai_test_{worker}"
+            if test_schema != expected_schema or not re.fullmatch(
+                r"ariaai_test_[A-Za-z0-9_]+", test_schema
+            ):
+                raise SystemExit(f"Unsafe test schema name: {test_schema!r}")
+
+            engine = create_engine(DATABASE_URL)
+
+            def public_signature():
+                with engine.connect() as connection:
+                    database_name, database_user = connection.execute(
+                        text("SELECT current_database(), current_user")
+                    ).one()
+                    tables = tuple(
+                        connection.execute(
+                            text(
+                                "SELECT table_name FROM information_schema.tables "
+                                "WHERE table_schema = 'public' ORDER BY table_name"
+                            )
+                        ).scalars()
+                    )
+                    revisions = tuple(
+                        connection.execute(
+                            text(
+                                "SELECT version_num FROM public.alembic_version "
+                                "ORDER BY version_num"
+                            )
+                        ).scalars()
+                    )
+                return database_name, database_user, tables, revisions
+
+            before = public_signature()
+            print(
+                "Production database preflight: "
+                f"database={before[0]}, user={before[1]}, "
+                f"public_tables={len(before[2])}, revisions={list(before[3])}, "
+                f"test_schema={test_schema}"
+            )
+
+            # Create the isolated schema before importing the application in the
+            # pytest process. Its global DATABASE_URL is restricted to only that
+            # schema, so even code paths that do not accept an injected test
+            # engine cannot fall through to public application tables.
+            result = None
+            try:
+                with engine.begin() as connection:
+                    connection.execute(text(f'CREATE SCHEMA "{test_schema}"'))
+                base_url = make_url(DATABASE_URL)
+                isolated_url = base_url.set(
+                    query={
+                        **dict(base_url.query),
+                        "options": f"-csearch_path={test_schema}",
+                    }
+                )
+
+                env = os.environ.copy()
+                env["TEST_DATABASE_URL"] = DATABASE_URL
+                env["DATABASE_URL"] = isolated_url.render_as_string(
+                    hide_password=False
+                )
+                env["PYTEST_XDIST_WORKER"] = worker
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "pytest",
+                        "-q",
+                        "tests/test_chat_end_to_end.py",
+                        "tests/test_chat_streaming.py",
+                    ],
+                    env=env,
+                    check=False,
+                )
+            finally:
+                with engine.begin() as connection:
+                    connection.execute(
+                        text(f'DROP SCHEMA IF EXISTS "{test_schema}" CASCADE')
+                    )
+
+            after = public_signature()
+            with engine.connect() as connection:
+                schema_remaining = connection.execute(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM information_schema.schemata "
+                        "WHERE schema_name = :schema_name)"
+                    ),
+                    {"schema_name": test_schema},
+                ).scalar_one()
+            engine.dispose()
+
+            if before != after:
+                raise SystemExit("Public schema signature changed during isolated E2E tests")
+            if schema_remaining:
+                raise SystemExit(f"Test schema cleanup failed: {test_schema}")
+            print(
+                "Production database postflight passed: "
+                f"public_tables={len(after[2])}, revisions={list(after[3])}, "
+                "test_schema_removed=true"
+            )
+            if result is None or result.returncode != 0:
+                raise SystemExit(result.returncode if result is not None else 1)
+            PY
+
+            curl -fsS --max-time 10 http://127.0.0.1:8000/health >/dev/null
+            echo "Production database E2E completed successfully."
