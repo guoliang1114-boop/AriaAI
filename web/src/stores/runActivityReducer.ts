@@ -11,6 +11,7 @@ import type {
   ProductRunEvent,
   RunDisplayMode,
   RunFinalStatus,
+  RunSkillSource,
   ToolProgressStatus,
 } from "../types/productRunEvent";
 
@@ -74,7 +75,7 @@ export interface ActivityStatus {
 export interface RunActivityTimeline {
   run_id: string;
   display_mode?: RunDisplayMode;
-  skill?: { name: string; id?: string };
+  skill?: { name: string; id?: string; source?: RunSkillSource };
   steps: ActivityStep[];
   artifacts: ActivityArtifact[];
   memory_candidates: ActivityMemoryCandidate[];

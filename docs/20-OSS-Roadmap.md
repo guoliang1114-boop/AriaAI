@@ -1,6 +1,6 @@
 # AriaAI OSS Roadmap
 
-> Updated: 2026-08-23
+> Updated: 2026-08-24
 > Status: Public roadmap for open-source contributors and maintainers.
 
 AriaAI is an open-source agentic workspace for professional knowledge work. The roadmap below highlights work that strengthens AriaAI as a reusable reference implementation for AI-native workspaces: memory, skills, knowledge workflows, human approval, and auditable runs.
@@ -78,6 +78,9 @@ Goal: turn skills from prompts into delivery-oriented workflows.
 - Discover ordered Skill roots into immutable content-fingerprinted snapshots,
   refresh only changed roots, isolate malformed packages, and keep the
   database-published Skill catalog authoritative for intent selection.
+- Treat a conversation Skill as per-turn continuity metadata rather than a
+  permanent prompt owner: continue only for related follow-ups, release it on
+  topic changes, and show the actual Skill plus activation source in the run UI.
 
 ## 5. Human-in-the-Loop Approval
 

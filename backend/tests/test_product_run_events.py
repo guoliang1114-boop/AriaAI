@@ -53,10 +53,10 @@ class RunStartedTest(unittest.TestCase):
         event = run_started(
             rid,
             display_mode=DisplayMode.SKILL,
-            skill={"name": "数字化战略", "id": "digital-strategy"},
+            skill={"name": "数字化战略", "id": "digital-strategy", "source": "auto"},
         )
         self.assertEqual(event["display_mode"], "skill")
-        self.assertEqual(event["skill"], {"name": "数字化战略", "id": "digital-strategy"})
+        self.assertEqual(event["skill"], {"name": "数字化战略", "id": "digital-strategy", "source": "auto"})
 
     def test_invalid_display_mode_rejected(self):
         with self.assertRaises(ValueError):
@@ -65,6 +65,10 @@ class RunStartedTest(unittest.TestCase):
     def test_skill_without_name_rejected(self):
         with self.assertRaises(ValueError):
             run_started(make_run_id(), skill={"id": "x"})
+
+    def test_invalid_skill_source_rejected(self):
+        with self.assertRaises(ValueError):
+            run_started(make_run_id(), skill={"name": "Skill", "source": "guessed"})
 
     def test_invalid_run_id_rejected(self):
         with self.assertRaises(ValueError):

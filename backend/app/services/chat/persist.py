@@ -1102,11 +1102,28 @@ async def run_persist(
         metadata["project_id"] = req.project_id
     if runtime.skill_name:
         prepare_metrics = getattr(runtime, "prepare_metrics", {}) if isinstance(getattr(runtime, "prepare_metrics", {}), dict) else {}
-        metadata["skill_id"] = req.skill_id or prepare_metrics.get("effective_skill_id")
-        metadata["skill_progress"] = _build_completed_skill_progress(
+        metadata["skill_id"] = (
+            req.skill_id
+            or getattr(runtime, "skill_id", None)
+            or prepare_metrics.get("effective_skill_id")
+        )
+        metadata["skill_name"] = runtime.skill_name
+        skill_activation_source = str(getattr(runtime, "skill_activation_source", "") or "").strip()
+        if skill_activation_source:
+            metadata["skill_activation_source"] = skill_activation_source
+        skill_progress = _build_completed_skill_progress(
             [event for event in state.tool_call_events if not tool_event_is_omission_marker(event)],
             full_text,
         )
+        receipt_prefix = {
+            "auto": "已自动匹配 Skill",
+            "conversation": "已沿用相关 Skill",
+        }.get(skill_activation_source, "已启用 Skill")
+        skill_progress[0]["logs"] = [
+            f"{receipt_prefix}：{runtime.skill_name}",
+            *skill_progress[0]["logs"],
+        ]
+        metadata["skill_progress"] = skill_progress
     if any(step.truncated for step in state.steps):
         metadata["truncated"] = True
 

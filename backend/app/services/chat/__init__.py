@@ -544,6 +544,8 @@ async def _stream_chat_events_impl(
         _run_started_skill = {"name": runtime.skill_name or ""}
         if getattr(runtime, "skill_id", None):
             _run_started_skill["id"] = str(runtime.skill_id)
+        if getattr(runtime, "skill_activation_source", ""):
+            _run_started_skill["source"] = runtime.skill_activation_source
         if not _run_started_skill["name"]:
             _run_started_skill = None  # name is required by the builder
     yield sse_event(run_started(state.run_id, skill=_run_started_skill))

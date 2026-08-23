@@ -159,6 +159,9 @@ def _build_skill(runtime: Any) -> dict | None:
             skill_id = prepare_metrics.get("effective_skill_id")
     if skill_id:
         payload["id"] = str(skill_id)
+    activation_source = str(getattr(runtime, "skill_activation_source", "") or "").strip()
+    if activation_source:
+        payload["source"] = activation_source
     return payload
 
 

@@ -692,11 +692,26 @@ class ProductRunEventV1BoundaryTests(ChatEndToEndBase):
 
     async def test_run_started_carries_skill_identity_when_set(self) -> None:
         self.runtime.skill_name = "digital-strategy"
+        self.runtime.skill_id = 42
+        self.runtime.skill_activation_source = "auto"
         self.set_llm_stream([["ok"]])
 
         events = await self.drain()
         started = _events_of_type(events, "run_started")[0]
-        self.assertEqual(started.get("skill", {}).get("name"), "digital-strategy")
+        self.assertEqual(
+            started.get("skill"),
+            {"name": "digital-strategy", "id": "42", "source": "auto"},
+        )
+
+        assistant = [m for m in self.assistant_messages() if m.role == "assistant"]
+        metadata = json.loads(assistant[0].metadata_json or "{}")
+        self.assertEqual(metadata.get("skill_id"), 42)
+        self.assertEqual(metadata.get("skill_name"), "digital-strategy")
+        self.assertEqual(metadata.get("skill_activation_source"), "auto")
+        self.assertEqual(
+            metadata.get("activity_timeline", {}).get("skill"),
+            {"name": "digital-strategy", "id": "42", "source": "auto"},
+        )
 
     async def test_no_skill_means_no_skill_field_on_run_started(self) -> None:
         self.runtime.skill_name = ""

@@ -46,6 +46,7 @@ import { CxSkeleton, CxStatus, CxTopProgress } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skill } from '../../types/api'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../utils/knowledgeEvidence'
+import { describeRunSkill, normalizeRunSkill, type ActiveRunSkill } from '../../utils/chatRunSkill'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
 import { formatDateOnly, formatDatePartsKey, formatTimeOnly, parseAppDateTime } from '../../utils/timezone'
 
@@ -278,7 +279,6 @@ function completeChatLoadingSteps(steps: ChatProgressStep[]): ChatProgressStep[]
 
 function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
   if (Array.isArray(meta?.skill_progress) && meta.skill_progress.length > 0) return meta.skill_progress
-  return []
   if (meta?.stage_timings && !meta?.skill_id) return []
   const toolCalls = Array.isArray(meta?.tool_calls) ? meta.tool_calls : []
   const artifacts = Array.isArray(meta?.artifacts) ? meta.artifacts : []
@@ -1053,6 +1053,7 @@ export function Chat() {
   const liveStageTimingsRef = useRef<StageTimingEntry[]>([])
   const isStreamingRef = useRef(false)
   const skillRunActiveRef = useRef(false)
+  const activeRunSkillRef = useRef<ActiveRunSkill | null>(null)
   const skillArmedRef = useRef(!!skillId)
   const scrollHeightBeforeLoadRef = useRef<number>(0)
   const isNearBottomRef = useRef(true)
@@ -1538,6 +1539,9 @@ export function Chat() {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setErrorMsg(null)
     activeRunIdRef.current = null
+    activeRunSkillRef.current = skillForThisMessage
+      ? { id: skillForThisMessage, name: selectedSkillData?.name || 'Skill', source: 'explicit' }
+      : null
     stopRequestedRef.current = false
     streamingContentRef.current = ''
     setStreamingContent('')
@@ -1641,6 +1645,22 @@ export function Chat() {
       const handleStreamEvent = async (data: any) => {
         if (data.type === 'run_started' && typeof data.run_id === 'string') {
           activeRunIdRef.current = data.run_id
+          const runSkill = normalizeRunSkill(data.skill)
+          if (runSkill) {
+            activeRunSkillRef.current = runSkill
+            activateSkillProgress()
+            const receipt = describeRunSkill(runSkill)
+            setLiveStatusText(receipt)
+            setToolStatus(receipt)
+            const nextSteps = advanceProgressSteps(
+              createProgressSteps(),
+              0,
+              `${receipt}，正在准备项目与会话上下文...`,
+              receipt,
+            )
+            progressStepsRef.current = nextSteps
+            setProgressSteps(nextSteps)
+          }
         } else if ((data.type === 'text' || data.type === 'chunk') && data.content) {
           assistantContent += data.content
           streamingContentRef.current = assistantContent
@@ -1716,9 +1736,11 @@ export function Chat() {
             ? data.artifacts
             : collectedArtifacts
           const finalToolCalls = data.tool_calls || []
+          const resolvedRunSkill = activeRunSkillRef.current
           const hasSkillProgress = (
             skillRunActiveRef.current
             || !!skillForThisMessage
+            || !!resolvedRunSkill
             || (Array.isArray(data.skill_progress) && data.skill_progress.length > 0)
           )
           const completedProgressSteps = hasSkillProgress ? completeProgressSteps(progressStepsRef.current) : []
@@ -1732,7 +1754,8 @@ export function Chat() {
               knowledge_evidence: data.knowledge_evidence,
               tool_calls: finalToolCalls,
               artifacts: finalArtifacts,
-              skill_id: skillForThisMessage || undefined,
+              skill_id: resolvedRunSkill?.id || skillForThisMessage || undefined,
+              skill_name: resolvedRunSkill?.name || undefined,
               skill_progress: hasSkillProgress ? (data.skill_progress || completedProgressSteps) : undefined,
               stage_timings: data.stage_timings || Object.fromEntries(liveStageTimingsRef.current.map(item => [item.key, item.durationMs])),
             }),
@@ -1973,6 +1996,7 @@ export function Chat() {
       isSendingRef.current = false
       abortControllerRef.current = null
       activeRunIdRef.current = null
+      activeRunSkillRef.current = null
       stopRequestedRef.current = false
     }
   }

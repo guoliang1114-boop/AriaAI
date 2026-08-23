@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from app.services.skill_router import (
+    decide_conversation_skill_activation,
     decide_skill_activation,
     is_proposal_presentation_request,
     skill_auto_match_score,
@@ -24,6 +25,51 @@ def test_selected_skill_does_not_run_for_question_only_turn():
 
     assert decision.apply is False
     assert decision.reason == "selected_skill_not_armed"
+
+
+def test_conversation_skill_continues_only_for_related_follow_up():
+    skill = SimpleNamespace(
+        id=7,
+        name="会议纪要提取",
+        description="Extract decisions, minutes, and action items from meetings.",
+        category="顾问基础能力",
+    )
+
+    decision = decide_conversation_skill_activation("继续按刚才的格式补充行动项", skill)
+
+    assert decision.apply is True
+    assert decision.reason.startswith("conversation_skill_")
+    assert decision.clear_conversation_skill is False
+
+
+def test_conversation_skill_is_released_for_unrelated_turn():
+    skill = SimpleNamespace(
+        id=7,
+        name="会议纪要提取",
+        description="Extract decisions, minutes, and action items from meetings.",
+        category="顾问基础能力",
+    )
+
+    decision = decide_conversation_skill_activation("这个项目目前最大的交付风险是什么？", skill)
+
+    assert decision.apply is False
+    assert decision.reason == "conversation_skill_not_relevant"
+    assert decision.clear_conversation_skill is True
+
+
+def test_conversation_skill_honors_explicit_release():
+    skill = SimpleNamespace(
+        id=7,
+        name="会议纪要提取",
+        description="Extract meeting minutes.",
+        category="顾问基础能力",
+    )
+
+    decision = decide_conversation_skill_activation("不用这个技能，回到普通对话", skill)
+
+    assert decision.apply is False
+    assert decision.reason == "conversation_skill_released_by_user"
+    assert decision.clear_conversation_skill is True
 
 
 def test_presentation_builder_matches_client_deck_language():

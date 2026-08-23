@@ -38,10 +38,11 @@ def _state(
     )
 
 
-def _runtime(*, skill_name="", skill_id=None, prepare_metrics=None):
+def _runtime(*, skill_name="", skill_id=None, skill_activation_source="", prepare_metrics=None):
     return SimpleNamespace(
         skill_name=skill_name,
         skill_id=skill_id,
+        skill_activation_source=skill_activation_source,
         prepare_metrics=prepare_metrics or {},
     )
 
@@ -164,10 +165,17 @@ class BuildActivityTimelineTest(unittest.TestCase):
     def test_skill_block_present_when_runtime_has_skill_name(self):
         timeline = build_activity_timeline(
             _state(),
-            _runtime(skill_name="数字化战略", prepare_metrics={"effective_skill_id": "digital-strategy"}),
+            _runtime(
+                skill_name="数字化战略",
+                skill_activation_source="auto",
+                prepare_metrics={"effective_skill_id": "digital-strategy"},
+            ),
         )
         assert timeline is not None
-        self.assertEqual(timeline["skill"], {"name": "数字化战略", "id": "digital-strategy"})
+        self.assertEqual(
+            timeline["skill"],
+            {"name": "数字化战略", "id": "digital-strategy", "source": "auto"},
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -3903,8 +3903,58 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 )
 
         self.assertEqual(runtime.skill_name, "会议纪要提取")
-        self.assertEqual(runtime.prepare_metrics["skill_decision"], "sticky_conversation_skill")
+        self.assertEqual(runtime.skill_id, skill_id)
+        self.assertEqual(runtime.prepare_metrics["skill_decision"], "conversation_skill_continuation")
         self.assertEqual(mocked_context.call_args.kwargs["skill_id"], skill_id)
+
+    def test_prepare_chat_runtime_releases_unrelated_conversation_skill(self):
+        with Session(self.engine) as session:
+            project = Project(id=1, name="Project", client="Client")
+            skill = Skill(
+                name="会议纪要提取",
+                category="顾问基础能力",
+                description="整理会议纪要、决策和行动项",
+                system_prompt="meeting skill",
+            )
+            session.add(project)
+            session.add(skill)
+            session.commit()
+            session.refresh(skill)
+            conv = Conversation(project_id=1, skill_id=skill.id, title="Skill Chat")
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+            conv_id = conv.id
+
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: f"system:{skill_prompt}"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        project_id=1,
+                        content="这个项目目前最大的交付风险是什么？",
+                    ),
+                )
+                session.refresh(conv)
+
+            self.assertIsNone(conv.skill_id)
+
+        self.assertFalse(runtime.skill_name)
+        self.assertIsNone(runtime.skill_id)
+        self.assertEqual(runtime.prepare_metrics["skill_decision"], "conversation_skill_not_relevant")
+        self.assertEqual(mocked_context.call_args.kwargs["skill_id"], None)
 
     def test_prepare_chat_runtime_injects_structured_tool_history_context(self):
         conv_id = self._create_conversation()

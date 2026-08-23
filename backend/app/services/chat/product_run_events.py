@@ -75,6 +75,8 @@ _DISPLAY_MODES = frozenset(
     }
 )
 
+_SKILL_SOURCES = frozenset({"explicit", "auto", "conversation"})
+
 
 class ToolProgressStatus:
     PENDING = "pending"
@@ -241,6 +243,8 @@ def run_started(
         event["skill"] = {"name": name}
         if skill.get("id"):
             event["skill"]["id"] = str(skill["id"])
+        if skill.get("source"):
+            event["skill"]["source"] = _require_in(str(skill["source"]), _SKILL_SOURCES, "skill.source")
     return event
 
 

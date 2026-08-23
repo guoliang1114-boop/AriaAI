@@ -65,6 +65,7 @@ from app.services.policy_guards import filter_tools_for_access
 from app.services.skill_router import (
     SkillActivationDecision,
     auto_select_skill,
+    decide_conversation_skill_activation,
     decide_skill_activation,
     is_proposal_presentation_request,
 )
@@ -342,20 +343,16 @@ def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple
     skill = session.get(Skill, req.skill_id) if req.skill_id else None
     auto_skill: Skill | None = None
     auto_decision: SkillActivationDecision | None = None
+    conversation_decision: SkillActivationDecision | None = None
     if skill is None and req.conversation_id:
         conv = session.get(Conversation, req.conversation_id)
         if conv and conv.skill_id:
             sticky_skill = session.get(Skill, conv.skill_id)
             if sticky_skill:
-                skill = sticky_skill
-                auto_decision = SkillActivationDecision(
-                    True,
-                    "sticky_conversation_skill",
-                    0.88,
-                    source="conversation",
-                    candidate_skill_id=sticky_skill.id,
-                    candidate_skill_name=sticky_skill.name,
-                )
+                conversation_decision = decide_conversation_skill_activation(req.content, sticky_skill)
+                if conversation_decision.apply:
+                    skill = sticky_skill
+                    auto_decision = conversation_decision
     if skill is None:
         task_route = rule_based_project_task_route(req.content) if req.project_id else None
         office_output_kind = str(getattr(task_route, "output_kind", "") or "").lower() if task_route else ""
@@ -373,8 +370,18 @@ def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple
                 source="task_router",
             )
         else:
-            auto_skill, auto_decision = auto_select_skill(session, req)
-            skill = auto_skill
+            user_released_skill = bool(
+                conversation_decision
+                and conversation_decision.reason == "conversation_skill_released_by_user"
+            )
+            if user_released_skill:
+                auto_decision = conversation_decision
+            else:
+                auto_skill, inferred_decision = auto_select_skill(session, req)
+                skill = auto_skill
+                auto_decision = inferred_decision if inferred_decision.apply else (conversation_decision or inferred_decision)
+    if conversation_decision is not None and skill is None and not (auto_decision and auto_decision.apply):
+        auto_decision = conversation_decision
     skill_decision = auto_decision or decide_skill_activation(req.content, skill, force_skill=req.force_skill)
     effective_skill_id = req.skill_id if skill and skill_decision.apply else None
     if effective_skill_id is None and skill and skill_decision.apply:
@@ -740,8 +747,14 @@ def prepare_chat_runtime(
         )
     else:
         conv = None
-    if conv is not None and effective_skill_id and not conv.skill_id:
+    conversation_skill_changed = False
+    if conv is not None and skill_decision.clear_conversation_skill and conv.skill_id and not effective_skill_id:
+        conv.skill_id = None
+        conversation_skill_changed = True
+    elif conv is not None and effective_skill_id and conv.skill_id != effective_skill_id:
         conv.skill_id = effective_skill_id
+        conversation_skill_changed = True
+    if conversation_skill_changed:
         session.add(conv)
         session.commit()
         session.refresh(conv)
@@ -1063,7 +1076,10 @@ def prepare_chat_runtime(
         tools=runtime_tools,
         max_tokens=runtime_max_tokens,
         temperature=temperature,
+        skill_id=effective_skill_id,
         skill_name=effective_skill.name if effective_skill else "",
+        skill_activation_source=skill_decision.source,
+        skill_activation_reason=skill_decision.reason,
         prepare_metrics=prepare_metrics,
         chat_mode=intent_decision.chat_mode,
         action_policy=intent_decision.action_policy,

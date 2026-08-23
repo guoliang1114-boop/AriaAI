@@ -5,6 +5,13 @@ stable, inspectable first pass for selecting an AriaAI Skill before the model is
 called.  The important product behavior is that Skills are no longer only a UI
 toggle; high-confidence user intent can arm a matching Skill automatically,
 while questions and low-confidence matches stay in normal chat.
+
+The conversation-Skill lifecycle is an Aria Python adaptation of the per-turn
+selection boundary in OpenAI Codex ``codex-rs/skills/src/mentions.rs``,
+``codex-rs/skills/src/selection.rs``, and
+``codex-rs/core/src/session/turn.rs`` at upstream commit
+``83d1fe0e67b1323f71febc2925817732b449f1d9``. It has been modified for Aria's
+database-published Skill catalog and does not import or communicate with Codex.
 """
 from __future__ import annotations
 
@@ -31,6 +38,7 @@ class SkillActivationDecision:
     top_candidates: tuple[dict, ...] = field(default_factory=tuple)
     catalog_fingerprint: str = ""
     candidate_count: int = 0
+    clear_conversation_skill: bool = False
 
 
 def decide_skill_activation(content: str, skill: Skill | None, *, force_skill: bool = False) -> SkillActivationDecision:
@@ -88,6 +96,145 @@ def decide_skill_activation(content: str, skill: Skill | None, *, force_skill: b
         0.8,
         candidate_skill_id=skill_id,
         candidate_skill_name=skill_name,
+    )
+
+
+_CONVERSATION_SKILL_RELEASE_TERMS = (
+    "不用这个skill",
+    "不要用这个skill",
+    "不用该skill",
+    "不要用该skill",
+    "不用这个技能",
+    "不要用这个技能",
+    "退出skill",
+    "退出技能",
+    "关闭skill",
+    "关闭技能",
+    "普通对话",
+    "withouttheskill",
+    "stopusingtheskill",
+    "disabletheskill",
+)
+
+_CONVERSATION_SKILL_NEW_TOPIC_TERMS = (
+    "换个话题",
+    "换一个话题",
+    "另一个问题",
+    "另外一个问题",
+    "顺便问一下",
+    "无关的问题",
+    "newtopic",
+    "anotherquestion",
+    "unrelatedquestion",
+)
+
+_CONVERSATION_SKILL_CONTINUATION_TERMS = (
+    "继续",
+    "接着",
+    "沿用",
+    "按刚才",
+    "按照刚才",
+    "基于刚才",
+    "在刚才基础上",
+    "补充",
+    "完善",
+    "再加",
+    "再补",
+    "继续处理",
+    "continue",
+    "keepgoing",
+    "sameformat",
+    "followup",
+    "reviseit",
+    "updateit",
+)
+
+
+def decide_conversation_skill_activation(content: str, skill: Skill | None) -> SkillActivationDecision:
+    """Decide whether a conversation-associated Skill belongs on this turn.
+
+    A persisted ``Conversation.skill_id`` is continuity metadata, not permanent
+    authorization to inject that Skill into every later prompt.  The Skill is
+    reused only for an explicit/current mention, a clearly relevant workflow,
+    or continuation language.  Topic changes and unrelated turns release it so
+    later messages cannot silently inherit stale instructions.
+
+    Adapted from the per-turn selection boundary in OpenAI Codex
+    ``codex-rs/skills/src/selection.rs`` and
+    ``codex-rs/core/src/session/turn.rs`` (pinned upstream commit documented in
+    ``THIRD_PARTY_NOTICES.md``).  Aria keeps its own database-backed catalog and
+    deterministic router; no Codex runtime or protocol is used.
+    """
+    if not skill:
+        return SkillActivationDecision(False, "no_conversation_skill", 0.0, source="conversation")
+
+    skill_id = getattr(skill, "id", None)
+    skill_name = getattr(skill, "name", "") or ""
+    normalized_text = _normalize_for_skill_match(content)
+    base = {
+        "source": "conversation",
+        "candidate_skill_id": skill_id,
+        "candidate_skill_name": skill_name,
+    }
+    if not normalized_text:
+        return SkillActivationDecision(
+            False,
+            "conversation_skill_empty_turn",
+            0.0,
+            clear_conversation_skill=True,
+            **base,
+        )
+
+    if any(term in normalized_text for term in _CONVERSATION_SKILL_RELEASE_TERMS):
+        return SkillActivationDecision(
+            False,
+            "conversation_skill_released_by_user",
+            1.0,
+            clear_conversation_skill=True,
+            **base,
+        )
+
+    if any(term in normalized_text for term in _CONVERSATION_SKILL_NEW_TOPIC_TERMS):
+        return SkillActivationDecision(
+            False,
+            "conversation_skill_new_topic",
+            0.98,
+            clear_conversation_skill=True,
+            **base,
+        )
+
+    normalized_name = _normalize_for_skill_match(skill_name)
+    if normalized_name and normalized_name in normalized_text:
+        return SkillActivationDecision(
+            True,
+            "conversation_skill_explicit_mention",
+            0.98,
+            **base,
+        )
+
+    if any(term in normalized_text for term in _CONVERSATION_SKILL_CONTINUATION_TERMS):
+        return SkillActivationDecision(
+            True,
+            "conversation_skill_continuation",
+            0.9,
+            **base,
+        )
+
+    score, reason = skill_auto_match_score(content, skill)
+    if score >= 82:
+        return SkillActivationDecision(
+            True,
+            f"conversation_skill_relevant:{reason}",
+            score / 100,
+            **base,
+        )
+
+    return SkillActivationDecision(
+        False,
+        "conversation_skill_not_relevant",
+        0.9,
+        clear_conversation_skill=True,
+        **base,
     )
 
 

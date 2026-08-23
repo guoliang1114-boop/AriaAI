@@ -21,7 +21,10 @@ class ChatRuntime:
     max_tokens: int
     temperature: float
     project_id: int | None = None
+    skill_id: int | None = None
     skill_name: str = ""
+    skill_activation_source: str = ""
+    skill_activation_reason: str = ""
     prepare_metrics: dict | None = None
     chat_mode: str = "standalone_qa"
     # Default to the strictest policy. Real runtime always overrides via

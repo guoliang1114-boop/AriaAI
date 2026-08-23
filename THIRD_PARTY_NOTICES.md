@@ -54,6 +54,9 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - `SKILL.md` frontmatter parsing and conservative YAML scalar repair; and
 - ordered Skill-root discovery, immutable content snapshots, cache reuse,
   error-isolated merging, and unambiguous candidate selection.
+- per-turn Skill mention/selection boundaries adapted into relevant-follow-up
+  continuation, stale conversation-Skill release, and user-visible activation
+  provenance.
 
 Latest upstream audit baseline: commit `83d1fe0e67b1323f71febc2925817732b449f1d9`
 (2026-08-23). The specific upstream source path and Aria modification notice

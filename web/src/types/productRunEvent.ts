@@ -32,6 +32,8 @@ export type RunDisplayMode =
   | "confirmation"
   | "debug";
 
+export type RunSkillSource = "explicit" | "auto" | "conversation";
+
 export type ToolProgressStatus = "pending" | "running" | "completed" | "failed";
 
 export type StepCompletedStatus = "completed" | "failed";
@@ -56,7 +58,7 @@ export interface RunStartedEvent {
   run_id: string;
   timestamp: string;
   display_mode?: RunDisplayMode;
-  skill?: { name: string; id?: string };
+  skill?: { name: string; id?: string; source?: RunSkillSource };
 }
 
 export interface StatusEvent {
