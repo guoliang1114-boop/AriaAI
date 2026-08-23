@@ -44,6 +44,7 @@ class EventType:
     TASK_UPDATE = "task_update"
     CONFIRMATION_REQUIRED = "confirmation_required"
     ARTIFACT_READY = "artifact_ready"
+    MEMORY_CANDIDATE_READY = "memory_candidate_ready"
     MESSAGE_PERSISTED = "message_persisted"
     RUN_DONE = "run_done"
     RUN_FAILED = "run_failed"
@@ -433,6 +434,8 @@ def artifact_ready(
     download_url: str | None = None,
     preview_url: str | None = None,
     source_tool: str | None = None,
+    output_id: str | None = None,
+    content_sha256: str | None = None,
 ) -> dict:
     event: dict[str, Any] = {
         "type": EventType.ARTIFACT_READY,
@@ -450,6 +453,45 @@ def artifact_ready(
             if len(normalized_source) > 120:
                 raise ValueError("artifact_ready.source_tool must be at most 120 characters")
             event["source_tool"] = normalized_source
+    if output_id is not None:
+        normalized_output_id = str(output_id).strip()
+        if normalized_output_id:
+            if len(normalized_output_id) > 96:
+                raise ValueError("artifact_ready.output_id must be at most 96 characters")
+            event["output_id"] = normalized_output_id
+    if content_sha256 is not None:
+        normalized_digest = str(content_sha256).strip().lower()
+        if len(normalized_digest) != 64 or any(char not in "0123456789abcdef" for char in normalized_digest):
+            raise ValueError("artifact_ready.content_sha256 must be a SHA-256 digest")
+        event["content_sha256"] = normalized_digest
+    return event
+
+
+def memory_candidate_ready(
+    run_id: str,
+    candidate_id: str | int,
+    scope: str,
+    candidate_type: str,
+    *,
+    content_sha256: str | None = None,
+) -> dict:
+    normalized_scope = _require_in(scope, frozenset({"user", "project", "client"}), "scope")
+    normalized_type = str(candidate_type or "").strip()
+    if not normalized_type or len(normalized_type) > 48:
+        raise ValueError("memory_candidate_ready.candidate_type is invalid")
+    event: dict[str, Any] = {
+        "type": EventType.MEMORY_CANDIDATE_READY,
+        "run_id": _require_run_id(run_id),
+        "candidate_id": str(candidate_id),
+        "scope": normalized_scope,
+        "candidate_type": normalized_type,
+        "status": "pending_review",
+    }
+    if content_sha256 is not None:
+        normalized_digest = str(content_sha256).strip().lower()
+        if len(normalized_digest) != 64 or any(char not in "0123456789abcdef" for char in normalized_digest):
+            raise ValueError("memory_candidate_ready.content_sha256 must be a SHA-256 digest")
+        event["content_sha256"] = normalized_digest
     return event
 
 

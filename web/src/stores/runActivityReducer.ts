@@ -37,6 +37,16 @@ export interface ActivityArtifact {
   download_url?: string;
   preview_url?: string;
   source_tool?: string;
+  output_id?: string;
+  content_sha256?: string;
+}
+
+export interface ActivityMemoryCandidate {
+  id: string;
+  scope: "user" | "project" | "client";
+  candidate_type: string;
+  status: "pending_review" | "accepted" | "rejected" | "failed";
+  content_sha256?: string;
 }
 
 export interface ActivityTaskState {
@@ -67,6 +77,7 @@ export interface RunActivityTimeline {
   skill?: { name: string; id?: string };
   steps: ActivityStep[];
   artifacts: ActivityArtifact[];
+  memory_candidates: ActivityMemoryCandidate[];
   task?: ActivityTaskState;
   confirmation?: ActivityConfirmation;
   /** Latest ``status`` event payload. Cleared by ``run_done`` / ``run_failed``. */
@@ -79,7 +90,7 @@ export interface RunActivityTimeline {
 }
 
 export function emptyTimeline(run_id = ""): RunActivityTimeline {
-  return { run_id, steps: [], artifacts: [], text: "" };
+  return { run_id, steps: [], artifacts: [], memory_candidates: [], text: "" };
 }
 
 function upsertStep(steps: ActivityStep[], index: number, patch: Partial<ActivityStep>): ActivityStep[] {
@@ -215,13 +226,34 @@ export function reduceRunActivity(
       return {
         ...current,
         artifacts: [
-          ...current.artifacts,
+          ...current.artifacts.filter(
+            (item) =>
+              item.id !== event.artifact_id &&
+              (!event.output_id || item.output_id !== event.output_id),
+          ),
           {
             id: event.artifact_id,
             type: event.artifact_type,
             download_url: event.download_url,
             preview_url: event.preview_url,
             source_tool: event.source_tool,
+            output_id: event.output_id,
+            content_sha256: event.content_sha256,
+          },
+        ],
+      };
+
+    case "memory_candidate_ready":
+      return {
+        ...current,
+        memory_candidates: [
+          ...current.memory_candidates.filter((item) => item.id !== event.candidate_id),
+          {
+            id: event.candidate_id,
+            scope: event.scope,
+            candidate_type: event.candidate_type,
+            status: event.status,
+            content_sha256: event.content_sha256,
           },
         ],
       };

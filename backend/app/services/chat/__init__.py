@@ -120,6 +120,7 @@ def _finalize_rollout_safely(
             error_code=error_code,
             error_message=error_message,
             retryable=retryable,
+            run_outputs=state.run_outputs,
         )
         state.rollout_finalized = True
     except Exception as exc:

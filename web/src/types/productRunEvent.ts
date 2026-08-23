@@ -19,6 +19,7 @@ export type ProductRunEventType =
   | "task_update"
   | "confirmation_required"
   | "artifact_ready"
+  | "memory_candidate_ready"
   | "message_persisted"
   | "run_done"
   | "run_failed";
@@ -135,6 +136,18 @@ export interface ArtifactReadyEvent {
   download_url?: string;
   preview_url?: string;
   source_tool?: string;
+  output_id?: string;
+  content_sha256?: string;
+}
+
+export interface MemoryCandidateReadyEvent {
+  type: "memory_candidate_ready";
+  run_id: string;
+  candidate_id: string;
+  scope: "user" | "project" | "client";
+  candidate_type: string;
+  status: "pending_review";
+  content_sha256?: string;
 }
 
 export interface MessagePersistedEvent {
@@ -172,6 +185,7 @@ export type ProductRunEvent =
   | TaskUpdateEvent
   | ConfirmationRequiredEvent
   | ArtifactReadyEvent
+  | MemoryCandidateReadyEvent
   | MessagePersistedEvent
   | RunDoneEvent
   | RunFailedEvent;
@@ -197,6 +211,7 @@ const PRODUCT_RUN_EVENT_TYPES = new Set<string>([
   "task_update",
   "confirmation_required",
   "artifact_ready",
+  "memory_candidate_ready",
   "message_persisted",
   "run_done",
   "run_failed",

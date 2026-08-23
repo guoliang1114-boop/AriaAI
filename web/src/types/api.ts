@@ -933,6 +933,73 @@ export interface GeneratedArtifact {
   size_bytes?: number
   description?: string
   created_at?: string
+  output_id?: string
+  run_id?: string
+  source_tool?: string
+  content_sha256?: string
+  output_record_version?: number
+  persistence_status?: "persisted" | "failed" | string
+}
+
+export interface MemoryCandidate {
+  schema_version: number
+  id: number
+  scope: "user" | "project" | "client"
+  candidate_type: string
+  content: string
+  content_sha256: string
+  source_type: string
+  source_id: string
+  source_run_id: string
+  source_refs: Array<{ source_type: string; source_id: string; label?: string }>
+  project_id?: number | null
+  client_id?: number | null
+  confidence: number
+  status: "pending" | "accepted" | "rejected" | "archived"
+  created_by: "user" | "ai" | "system" | string
+  target_slot: string
+  applied_memory_version?: number | null
+  resolved_by_user_id?: number | null
+  decision_note: string
+  created_at?: string | null
+  resolved_at?: string | null
+}
+
+export interface MemoryCandidateListResponse {
+  items: MemoryCandidate[]
+  count: number
+}
+
+export interface MemoryCandidateCreateResponse {
+  candidate: MemoryCandidate
+  created: boolean
+  product_event?: Record<string, unknown> | null
+}
+
+export interface RunOutputRecord {
+  schema_version: number
+  output_id: string
+  run_id: string
+  kind: 'artifact' | 'memory_candidate'
+  status: 'produced' | 'persisted' | 'pending_review' | 'accepted' | 'rejected' | 'failed'
+  source?: Record<string, string>
+  artifact?: {
+    name: string
+    file_type: string
+    path_sha256: string
+    generated_file_id?: number
+    project_file_id?: number
+    size_bytes?: number
+    content_sha256?: string
+  }
+  memory_candidate?: {
+    candidate_id: number
+    scope: 'user' | 'project' | 'client'
+    candidate_type: string
+    content_sha256: string
+    applied_memory_version?: number | null
+  }
+  failure?: { code: string; message: string }
 }
 
 export interface ChatTracePromptLayer {
@@ -1033,6 +1100,14 @@ export interface MessageMetadata {
   references?: Reference[]
   tool_calls?: ToolCallEvent[]
   artifacts?: GeneratedArtifact[]
+  run_outputs?: RunOutputRecord[]
+  memory_candidates?: Array<{
+    candidate_id: number
+    scope: 'user' | 'project' | 'client'
+    candidate_type: string
+    status: 'pending' | 'accepted' | 'rejected' | 'archived'
+    content_sha256: string
+  }>
   task_run?: TaskRun
   task_run_id?: number
   task_type?: string

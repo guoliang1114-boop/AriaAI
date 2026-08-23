@@ -147,6 +147,50 @@ describe("reduceRunActivity", () => {
     });
   });
 
+  it("captures source-linked memory candidates separately from artifacts", () => {
+    const t = fold([
+      { type: "run_started", run_id: "r", timestamp: "" },
+      {
+        type: "memory_candidate_ready",
+        run_id: "r",
+        candidate_id: "18",
+        scope: "project",
+        candidate_type: "project_risk",
+        status: "pending_review",
+        content_sha256: "b".repeat(64),
+      },
+    ]);
+    expect(t.memory_candidates).toEqual([
+      {
+        id: "18",
+        scope: "project",
+        candidate_type: "project_risk",
+        status: "pending_review",
+        content_sha256: "b".repeat(64),
+      },
+    ]);
+    expect(t.artifacts).toEqual([]);
+  });
+
+  it("upserts repeated artifact lifecycle events instead of duplicating cards", () => {
+    const digest = "a".repeat(64);
+    const event: ProductRunEvent = {
+      type: "artifact_ready",
+      run_id: "r",
+      artifact_id: "57",
+      artifact_type: "pptx",
+      output_id: "out_artifact_57",
+      content_sha256: digest,
+    };
+    const t = fold([
+      { type: "run_started", run_id: "r", timestamp: "" },
+      event,
+      event,
+    ]);
+    expect(t.artifacts).toHaveLength(1);
+    expect(t.artifacts[0].output_id).toBe("out_artifact_57");
+  });
+
   it("run_failed sets final_status=failed and error payload", () => {
     const t = fold([
       { type: "run_started", run_id: "r", timestamp: "" },

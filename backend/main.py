@@ -13,7 +13,7 @@ from app.config import (
     JWT_EXPIRATION_HOURS, SCHEDULER_ENABLED, SETTINGS_CACHE_TTL, validate_jwt_secret
 )
 from app.database import create_db, get_database_health, get_database_migration_governance, migrate_db, engine
-from app.routers import chat, projects, projects_memory, projects_files, projects_briefing, projects_tasks, knowledge, settings, skills, schedules, templates, clients, clients_memory, clients_stakeholders, contacts, artifacts, messages, memory_operations, user_memory, weekly
+from app.routers import chat, projects, projects_memory, projects_files, projects_briefing, projects_tasks, knowledge, settings, skills, schedules, templates, clients, clients_memory, clients_stakeholders, contacts, artifacts, messages, memory_candidates, memory_operations, user_memory, weekly
 from app.routers import auth as auth_router
 from app.routers.auth import seed_admin_user
 from app.services import scheduler
@@ -271,6 +271,7 @@ app.include_router(contacts.router, prefix="/contacts")
 app.include_router(artifacts.router)
 app.include_router(messages.router)
 app.include_router(memory_operations.router)
+app.include_router(memory_candidates.router)
 app.include_router(user_memory.router)
 app.include_router(weekly.router)
 

@@ -14,6 +14,7 @@ def _extract_artifact(
     *,
     tool_name: str | None = None,
     tool_input: dict | None = None,
+    tool_use_id: str | None = None,
 ) -> dict | None:
     source = result
     if not (result.get("file_path") or result.get("path")) and isinstance(result.get("output"), dict):
@@ -44,6 +45,8 @@ def _extract_artifact(
         capability = resolve_tool_capability(tool_name, tool_input)
         artifact["source_tool"] = tool_name
         artifact["product_event"] = capability.product_event.value
+    if tool_use_id:
+        artifact["tool_use_id"] = str(tool_use_id)
     return artifact
 
 

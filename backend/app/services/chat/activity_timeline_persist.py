@@ -118,7 +118,32 @@ def _build_artifacts(state_artifacts: Any) -> list[dict]:
         v1_kind = _ARTIFACT_TYPE_V1_MAP.get(raw_kind)
         if not v1_kind:
             continue
-        out.append({"id": str(artifact_id), "type": v1_kind})
+        payload = {"id": str(artifact_id), "type": v1_kind}
+        for key in ("source_tool", "output_id", "content_sha256"):
+            value = str(art.get(key) or "").strip()
+            if value:
+                payload[key] = value
+        out.append(payload)
+    return out
+
+
+def _build_memory_candidates(run_outputs: Any) -> list[dict]:
+    out: list[dict[str, Any]] = []
+    for record in run_outputs or []:
+        if not isinstance(record, dict) or record.get("kind") != "memory_candidate":
+            continue
+        candidate = record.get("memory_candidate")
+        if not isinstance(candidate, dict) or not candidate.get("candidate_id"):
+            continue
+        out.append(
+            {
+                "id": str(candidate["candidate_id"]),
+                "scope": str(candidate.get("scope") or ""),
+                "candidate_type": str(candidate.get("candidate_type") or ""),
+                "status": str(record.get("status") or "pending_review"),
+                "content_sha256": str(candidate.get("content_sha256") or ""),
+            }
+        )
     return out
 
 
@@ -146,6 +171,7 @@ def build_activity_timeline(state: Any, runtime: Any, *, full_text: str = "") ->
     tool_events = list(getattr(state, "tool_call_events", None) or [])
     steps = [_build_step(step, tool_events) for step in getattr(state, "steps", None) or []]
     artifacts = _build_artifacts(getattr(state, "artifacts", None))
+    memory_candidates = _build_memory_candidates(getattr(state, "run_outputs", None))
     evaluation = getattr(state, "run_evaluation", None)
     evaluation_verdict = (
         str(evaluation.get("verdict") or "") if isinstance(evaluation, dict) else ""
@@ -163,6 +189,7 @@ def build_activity_timeline(state: Any, runtime: Any, *, full_text: str = "") ->
         "run_id": run_id,
         "steps": steps,
         "artifacts": artifacts,
+        "memory_candidates": memory_candidates,
         "final_status": final_status,
         "text": full_text or str(getattr(state, "full_text", "") or ""),
     }

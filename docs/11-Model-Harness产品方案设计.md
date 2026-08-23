@@ -575,7 +575,8 @@ Model Layer（外部推理服务）
 | `tool_progress` | 可展示工具进度 | `run_id`, `step_index`, `title`, `status` | `detail`, `progress` | `status` 枚举：`pending`, `running`, `completed`, `failed`；归属于当前步骤 |
 | `task_update` | 长任务进度更新 | `run_id`, `task_id`, `status` | `progress_pct`, `current_step`, `total_steps`, `step_title` | `progress_pct` 为 0–100 整数；在 `task` mode 下作为时间线步骤渲染 |
 | `confirmation_required` | 需要用户确认 | `run_id`, `action`, `impact` | `params_snapshot`, `deadline` | `action` 必须人类可读，`params_snapshot` 用于确认后冻结执行 |
-| `artifact_ready` | 交付物可用 | `run_id`, `artifact_id`, `artifact_type` | `download_url`, `preview_url`, `source_tool` | `artifact_type` 枚举：`pptx`, `docx`, `xlsx`, `pdf`, `markdown`；`source_tool` 来自 Tool Capability Manifest 映射 |
+| `artifact_ready` | 已验证交付物可用 | `run_id`, `artifact_id`, `artifact_type` | `download_url`, `preview_url`, `source_tool`, `output_id`, `content_sha256` | 只允许真实持久化后发送；`artifact_type` 枚举：`pptx`, `docx`, `xlsx`, `pdf`, `markdown` |
+| `memory_candidate_ready` | 来源关联候选进入审核 | `run_id`, `candidate_id`, `scope`, `candidate_type`, `status` | `content_sha256` | `status` 首次固定为 `pending_review`；事件和 Run Output 不包含候选正文 |
 | `message_persisted` | assistant message 已保存 | `run_id`, `message_id` | `parent_run_id` | 用于 streaming 气泡替换为持久化消息 |
 | `run_done` | run 完成 | `run_id`, `final_status` | `message_id`, `artifact_ids` | `final_status` 必须与 run status 一致 |
 | `run_failed` | run 失败 | `run_id`, `error_code`, `error_message` | `retryable`, `fallback_content` | `error_message` 面向用户，禁止暴露内部堆栈 |
@@ -640,6 +641,7 @@ Event Harness 在 Phase 1 负责把现有内部事件映射为 Product Run Event
 | `task_run` 更新 | `task_update` |
 | HITAS pending action | `confirmation_required` |
 | artifact 持久化 | `artifact_ready` |
+| memory candidate 持久化 | `memory_candidate_ready` |
 | persist 完成 | `message_persisted` → `run_done` |
 | 异常 | `run_failed` |
 
@@ -717,7 +719,8 @@ interface ActivityTimeline {
 | `step_completed` | 把对应 step 状态置 completed/error，写入 `duration_ms` |
 | `task_update` | 在 `task` mode 下：把 TaskRun 的 step 同步进 `steps`（按 `task.steps`） |
 | `confirmation_required` | 当前 step 末尾追加一个 `confirmation_required` 状态的 item |
-| `artifact_ready` | push 到 `timeline.artifacts` |
+| `artifact_ready` | 按 `output_id/artifact_id` upsert 到 `timeline.artifacts` |
+| `memory_candidate_ready` | 按 `candidate_id` upsert 到 `timeline.memory_candidates` |
 
 #### 9.5.3 组件结构
 
@@ -874,14 +877,14 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 目标：降低扩展新工具、新 Skill、新交付物的成本。
 
-当前进展（2026-08-23）：前三批已经落地。第一批统一 `ToolExecutionRecord v1`（版本、调用 ID、status、outcome、终态、摘要、错误、重试与耗时），Rollout、Evaluation、Persist 和前端 Store 共用该契约；原始工具输入/输出不进入长期台账，超限时保留最近记录并显式报告省略数。第二批统一 `ToolCapabilityManifest v1`：17 个现有工具的权限、副作用、并行、重试、项目作用域、结果类型、展示名和 Product Run Event 进入一个注册事实源，未知工具失败关闭，Artifact Ready 事件保留来源工具。第三批统一 `Context Assembly Manifest v1`：Skill、项目/客户、RAG、工作记忆、工具历史、意图与 Turn Contract、用户偏好、会话历史和工具目录拥有稳定来源身份，最终 Provider 请求与预算清单绑定，Trace、Rollout、Evaluation 共享同一份无原文 Manifest。后续继续推进 artifact / memory candidate 保存流程。
+当前进展（2026-08-23）：前四批已经落地。第一批统一 `ToolExecutionRecord v1`（版本、调用 ID、status、outcome、终态、摘要、错误、重试与耗时），Rollout、Evaluation、Persist 和前端 Store 共用该契约；原始工具输入/输出不进入长期台账，超限时保留最近记录并显式报告省略数。第二批统一 `ToolCapabilityManifest v1`：17 个现有工具的权限、副作用、并行、重试、项目作用域、结果类型、展示名和 Product Run Event 进入一个注册事实源，未知工具失败关闭，Artifact Ready 事件保留来源工具。第三批统一 `Context Assembly Manifest v1`：Skill、项目/客户、RAG、工作记忆、工具历史、意图与 Turn Contract、用户偏好、会话历史和工具目录拥有稳定来源身份，最终 Provider 请求与预算清单绑定，Trace、Rollout、Evaluation 共享同一份无原文 Manifest。第四批统一 `RunOutputRecord v1`：Artifact 必须在 `UPLOADS_DIR` 内真实存在并通过项目文件证据、实际字节数与 SHA-256 校验后，才可进入 `GeneratedFile`、`artifact_ready` 和完成裁决；Memory Candidate 使用独立表、来源消息/Run、权限边界和 `pending → accepted/rejected` 裁决，接受后保留为重建不可覆盖的正式记忆锚点。
 
 范围：
 
 - 工具注册表标准化。（首批已完成）
 - 工具结果 schema 标准化。（首批已完成）
 - context builder 输出 schema 标准化。（第三批已完成）
-- artifact 和 memory candidate 保存流程标准化。
+- artifact 和 memory candidate 保存流程标准化。（第四批已完成）
 - tool result 到 product event 的映射标准化。（Artifact / Tool Progress 首批已完成）
 
 预期收益：

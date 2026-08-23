@@ -11,6 +11,10 @@ from app.services.agent_harness.run_evaluation import (
     CompletionVerdict,
     evaluate_run_completion,
 )
+from app.services.agent_harness.run_output_record import (
+    build_artifact_output_record,
+    mark_run_output_failed,
+)
 from app.services.chat.agent_step import AgentStep
 from app.services.chat.mode_registry import ActionPolicy
 from app.services.chat.persist import run_persist
@@ -198,6 +202,36 @@ def test_empty_model_text_is_allowed_when_tool_or_artifact_proves_completion() -
     assert evaluation.checks["output_completeness"] == "passed"
 
 
+def test_failed_artifact_output_prevents_completion_claim() -> None:
+    produced = build_artifact_output_record(
+        {"name": "deck.pptx", "file_type": "pptx", "path": "generated/deck.pptx"},
+        run_id="run_output_failed",
+        source_tool="generate_ppt_from_skill",
+        tool_use_id="call-1",
+    )
+    state = ChatSessionState(
+        run_outputs=[
+            mark_run_output_failed(
+                produced,
+                "ARTIFACT_FILE_MISSING",
+                "File not found",
+            )
+        ],
+        tool_call_events=[_tool_event("generate_ppt_from_skill", "completed")],
+    )
+
+    evaluation = evaluate_run_completion(
+        _runtime(),
+        state,
+        full_text="The deck is ready to download.",
+    )
+
+    assert evaluation.verdict is CompletionVerdict.FAILED
+    assert evaluation.primary_finding_code == "OUTPUT_PERSISTENCE_FAILED"
+    assert evaluation.checks["output_persistence"] == "failed"
+    assert evaluation.evidence["artifact_count"] == 0
+
+
 def test_confirmation_is_pending_not_failed() -> None:
     state = ChatSessionState(
         confirmation_requested=True,
@@ -372,6 +406,7 @@ async def test_orchestrator_emits_failed_terminal_event_for_evaluation_failure()
         "error_code": "RUN_EVALUATION_FAILED",
         "error_message": "completion evidence failed",
         "retryable": False,
+        "run_outputs": [],
     }
 
 
@@ -453,4 +488,5 @@ async def test_orchestrator_preserves_waiting_confirmation_terminal_status() -> 
         "error_code": "",
         "error_message": "",
         "retryable": False,
+        "run_outputs": [],
     }

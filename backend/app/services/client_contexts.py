@@ -48,6 +48,7 @@ def _default_client_memory(client: ClientRecord) -> dict[str, Any]:
         "key_contacts": [],
         "structured_stakeholders": [],
         "lessons_learned": [],
+        "relationship_signals": [],
         "project_history": [],
         "sensitive_topics": [],
         "memory_version": client.client_memory_version,
@@ -55,6 +56,7 @@ def _default_client_memory(client: ClientRecord) -> dict[str, Any]:
         "stale": client.client_memory_stale,
         "rebuild_log": [],
         "source_project_ids": [],
+        "_accepted_memory_candidates": {},
     }
 
 
@@ -74,6 +76,40 @@ def get_client_memory_payload(client: ClientRecord) -> dict[str, Any]:
         "last_updated_at": client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else "",
         "stale": client.client_memory_stale,
     }
+
+
+def _merge_accepted_memory_candidates(
+    memory: dict[str, Any],
+    existing: dict[str, Any],
+) -> dict[str, Any]:
+    existing_candidates = existing.get("_accepted_memory_candidates")
+    existing_candidates = (
+        dict(existing_candidates) if isinstance(existing_candidates, dict) else {}
+    )
+    incoming_candidates = memory.get("_accepted_memory_candidates")
+    incoming_candidates = (
+        dict(incoming_candidates) if isinstance(incoming_candidates, dict) else {}
+    )
+    accepted_candidates: dict[str, list[str]] = {}
+    for slot_name in {*existing_candidates, *incoming_candidates}:
+        combined: list[str] = []
+        for source in (existing_candidates.get(slot_name), incoming_candidates.get(slot_name)):
+            if isinstance(source, list):
+                combined.extend(str(item).strip() for item in source if str(item).strip())
+        accepted_candidates[str(slot_name)] = list(dict.fromkeys(combined))[-50:]
+
+    for slot_name, items in accepted_candidates.items():
+        if slot_name not in {"decision_patterns", "lessons_learned", "relationship_signals"}:
+            continue
+        current = memory.get(slot_name)
+        current = (
+            [str(item).strip() for item in current if str(item).strip()]
+            if isinstance(current, list)
+            else []
+        )
+        memory[slot_name] = list(dict.fromkeys([*current, *items]))[-50:]
+    memory["_accepted_memory_candidates"] = accepted_candidates
+    return memory
 
 
 def mark_client_memory_stale(session: Session, client_id: int, trigger: str = "data_changed") -> None:
@@ -158,8 +194,8 @@ def build_client_memory_prompt(client_data: str) -> str:
         "You are building long-term client memory for a consulting team. "
         "Use only the client and project evidence below. Do not invent missing facts. "
         "Return valid JSON only with these exact keys: "
-        "client_profile, decision_patterns, key_contacts, structured_stakeholders, lessons_learned, project_history, sensitive_topics. "
-        "Rules: decision_patterns, lessons_learned, sensitive_topics must be arrays of strings. "
+        "client_profile, decision_patterns, key_contacts, structured_stakeholders, lessons_learned, relationship_signals, project_history, sensitive_topics. "
+        "Rules: decision_patterns, lessons_learned, relationship_signals, sensitive_topics must be arrays of strings. "
         "key_contacts must be an array of objects with keys name, role, note. "
         "structured_stakeholders must be an array of objects with keys name, role, influence_type, relationship_status, concerns, communication_preference, note. "
         "project_history must be an array of objects with keys project_name, status, outcome, key_factor. "
@@ -177,7 +213,7 @@ def build_client_memory_promote_prompt(
         "You are updating client-level consulting memory using one project's structured memory. "
         "Preserve useful long-term client knowledge. Do not copy temporary delivery noise. "
         "Return valid JSON only with these exact keys: "
-        "client_profile, decision_patterns, key_contacts, structured_stakeholders, lessons_learned, project_history, sensitive_topics.\n\n"
+        "client_profile, decision_patterns, key_contacts, structured_stakeholders, lessons_learned, relationship_signals, project_history, sensitive_topics.\n\n"
         f"Current client memory JSON:\n{json.dumps(current_memory, ensure_ascii=False)}\n\n"
         f"Project to absorb: {project_name}\n"
         f"Project memory JSON:\n{json.dumps(project_memory, ensure_ascii=False)}"
@@ -210,13 +246,21 @@ def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
         **_default_client_memory(client),
         **parsed,
     }
-    for key in ("decision_patterns", "lessons_learned", "project_history", "sensitive_topics", "key_contacts"):
+    for key in (
+        "decision_patterns",
+        "lessons_learned",
+        "relationship_signals",
+        "project_history",
+        "sensitive_topics",
+        "key_contacts",
+    ):
         value = memory.get(key)
         memory[key] = value if isinstance(value, list) else []
     memory["rebuild_log"] = existing.get("rebuild_log", []) if isinstance(existing.get("rebuild_log"), list) else []
     memory["source_project_ids"] = (
         existing.get("source_project_ids", []) if isinstance(existing.get("source_project_ids"), list) else []
     )
+    _merge_accepted_memory_candidates(memory, existing)
     structured_stakeholders = existing.get("structured_stakeholders", [])
     parsed_stakeholders = memory.get("structured_stakeholders", [])
     memory["structured_stakeholders"] = (
@@ -237,9 +281,16 @@ def save_client_memory(
     trigger: str = "manual",
     source_project_ids: list[int] | None = None,
 ) -> dict[str, Any]:
-    client = session.get(ClientRecord, client_id)
+    client = session.exec(
+        select(ClientRecord).where(ClientRecord.id == client_id).with_for_update()
+    ).first()
     if not client:
         raise HTTPException(404, "Client not found")
+
+    memory = _merge_accepted_memory_candidates(
+        dict(memory),
+        get_client_memory_payload(client),
+    )
 
     client.client_memory_version = int(client.client_memory_version or 0) + 1
     client.client_memory_updated_at = utc_now_naive()
@@ -432,6 +483,7 @@ def build_client_memory_summary_payload(memory: dict[str, Any], summary_type: st
         "key_contacts": _trim_contacts(memory.get("key_contacts", [])),
         "structured_stakeholders": _trim_stakeholders(memory.get("structured_stakeholders", [])),
         "lessons_learned": _trim_list(memory.get("lessons_learned", [])),
+        "relationship_signals": _trim_list(memory.get("relationship_signals", [])),
         "project_history": _trim_project_history(memory.get("project_history", [])),
         "sensitive_topics": _trim_list(memory.get("sensitive_topics", [])),
     }
@@ -448,6 +500,7 @@ def build_client_memory_summary_payload(memory: dict[str, Any], summary_type: st
             "client_profile": base["client_profile"],
             "lessons_learned": base["lessons_learned"],
             "project_history": base["project_history"],
+            "relationship_signals": base["relationship_signals"],
             "sensitive_topics": base["sensitive_topics"],
         }
     if summary_type == "client-facing":
@@ -482,6 +535,7 @@ def build_client_memory_summary_payload(memory: dict[str, Any], summary_type: st
             "key_contacts": base["key_contacts"],
             "structured_stakeholders": base["structured_stakeholders"],
             "project_history": base["project_history"],
+            "relationship_signals": base["relationship_signals"],
             "sensitive_topics": base["sensitive_topics"],
         }
     if summary_type == "delivery":

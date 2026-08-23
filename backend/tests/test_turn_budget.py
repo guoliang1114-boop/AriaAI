@@ -323,6 +323,7 @@ async def test_orchestrator_finalizes_budget_exhaustion_as_failed_without_run_do
         "message_id": 91,
         "phase": "turn_budget",
         "error_code": "TURN_BUDGET_EXCEEDED",
-        "error_message": "budget stopped",
-        "retryable": False,
-    }
+            "error_message": "budget stopped",
+            "retryable": False,
+            "run_outputs": [],
+        }

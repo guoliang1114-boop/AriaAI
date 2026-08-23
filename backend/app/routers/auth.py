@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from app.config import LOGIN_RATE_LIMIT_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW_SECONDS
 from app.database import get_session, engine
-from app.models.db import User, UserToken
+from app.models.db import MemoryCandidate, User, UserToken
 from app.services.time_utils import utc_now_naive
 from app.services.token_cache import invalidate_token_cache
 
@@ -441,6 +441,16 @@ def delete_user(
     if user.auth_token:
         invalidate_token_cache(user.auth_token)
     _revoke_user_tokens(session, user.id)
+    for candidate in session.exec(
+        select(MemoryCandidate).where(MemoryCandidate.owner_user_id == user_id)
+    ).all():
+        session.delete(candidate)
+    for candidate in session.exec(
+        select(MemoryCandidate).where(MemoryCandidate.resolved_by_user_id == user_id)
+    ).all():
+        candidate.resolved_by_user_id = None
+        session.add(candidate)
+    session.flush()
     session.delete(user)
     session.commit()
     return {"ok": True}

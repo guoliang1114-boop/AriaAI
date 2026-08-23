@@ -2,7 +2,11 @@ import { useMemo, useState } from 'react'
 import { api } from '../../../api/client'
 import { MarkdownRenderer } from '../../../components/MarkdownRenderer'
 import { useToast } from '../../../contexts/ToastContext'
-import type { GeneratedArtifact, Message } from '../../../types/api'
+import type {
+  GeneratedArtifact,
+  MemoryCandidateCreateResponse,
+  Message,
+} from '../../../types/api'
 import { CxIcon } from './CxIcons'
 import { formatUpdatedRelative } from './useProjectsApi'
 
@@ -175,7 +179,13 @@ export function ProjectChatMessage({
               </div>
             )}
             {!isStreaming && meta.references.length > 0 && <ReferenceChips refs={meta.references} />}
-            {!isStreaming && <AriaActionChips content={message.content} projectId={projectId} />}
+            {!isStreaming && (
+              <AriaActionChips
+                content={message.content}
+                messageId={message.id}
+                projectId={projectId}
+              />
+            )}
           </>
         )}
       </div>
@@ -475,13 +485,15 @@ function ReferenceChips({ refs }: { refs: ReferenceRef[] }) {
 /* ────────────────────────────────────────────────────────────────
  * Aria action chips — hover-revealed pill row. Two actions:
  *   - 复制       → copy message content to clipboard
- *   - 沉淀到记忆 → POST /projects/:id/memory/rebuild
+ *   - 沉淀到记忆 → create a source-linked candidate for human review
  * ──────────────────────────────────────────────────────────────── */
 function AriaActionChips({
   content,
+  messageId,
   projectId,
 }: {
   content: string
+  messageId: number
   projectId: number
 }) {
   const toast = useToast()
@@ -505,10 +517,25 @@ function AriaActionChips({
     if (memBusy) return
     setMemBusy(true)
     try {
-      await api.post(`/projects/${projectId}/memory/rebuild`, {}, { timeout: 180000 })
+      const response = await api.post<MemoryCandidateCreateResponse>('/memory-candidates', {
+        scope: 'project',
+        candidate_type: 'project_fact',
+        content: content.trim().slice(0, 4000),
+        source_type: 'chat_message',
+        source_id: String(messageId),
+        project_id: projectId,
+        confidence: 1,
+      })
       toast.success({
-        title: '已沉淀到项目记忆',
-        description: '稍后到「项目记忆」查看更新',
+        title: response.created
+          ? '已加入记忆候选'
+          : response.candidate.status === 'accepted'
+            ? '这条内容已在正式记忆中'
+            : '候选已经存在',
+        description:
+          response.candidate.status === 'pending'
+            ? '到「项目记忆」确认后才会写入正式记忆'
+            : '无需重复提交',
       })
     } catch (err) {
       toast.error({
@@ -536,7 +563,7 @@ function AriaActionChips({
       </Chip>
       <Chip onClick={sinkToMemory} disabled={memBusy} tone="accent">
         <CxIcon name="sparkle" size={11} stroke={1.6} />
-        {memBusy ? '沉淀中…' : '沉淀到项目记忆'}
+        {memBusy ? '提交中…' : '提交记忆候选'}
       </Chip>
     </div>
   )

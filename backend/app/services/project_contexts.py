@@ -78,6 +78,7 @@ MAX_SUMMARY_DOCUMENT_ITEMS = 4
 MAX_SUMMARY_DOCUMENT_NAME_CHARS = 80
 MAX_SUMMARY_DOCUMENT_REASON_CHARS = 120
 EDITABLE_MEMORY_SLOTS = ("key_risks", "open_questions", "stakeholder_notes")
+ACCEPTED_MEMORY_CANDIDATES_KEY = "_accepted_memory_candidates"
 
 
 def _resolve_output_language(language: str | None) -> str:
@@ -117,6 +118,7 @@ def _default_project_memory(project: Project) -> dict[str, Any]:
         "stale": project.memory_stale,
         "rebuild_log": [],
         "_coverage": {},
+        ACCEPTED_MEMORY_CANDIDATES_KEY: {},
     }
 
 
@@ -159,6 +161,49 @@ def _get_existing_raw_memory(project: Project) -> dict[str, Any]:
         return parsed if isinstance(parsed, dict) else {}
     except json.JSONDecodeError:
         return {}
+
+
+def _merge_accepted_memory_candidates(
+    memory: dict[str, Any],
+    existing_raw: dict[str, Any],
+) -> dict[str, Any]:
+    """Overlay user-accepted anchors onto a newly derived memory payload."""
+
+    existing_candidates = existing_raw.get(ACCEPTED_MEMORY_CANDIDATES_KEY)
+    existing_candidates = (
+        dict(existing_candidates) if isinstance(existing_candidates, dict) else {}
+    )
+    incoming_candidates = memory.get(ACCEPTED_MEMORY_CANDIDATES_KEY)
+    incoming_candidates = (
+        dict(incoming_candidates) if isinstance(incoming_candidates, dict) else {}
+    )
+    accepted_candidates: dict[str, list[str]] = {}
+    for slot_name in {*existing_candidates, *incoming_candidates}:
+        combined: list[str] = []
+        for source in (existing_candidates.get(slot_name), incoming_candidates.get(slot_name)):
+            if isinstance(source, list):
+                combined.extend(str(item).strip() for item in source if str(item).strip())
+        accepted_candidates[str(slot_name)] = list(dict.fromkeys(combined))[-50:]
+    for slot_name, raw_items in accepted_candidates.items():
+        items = (
+            [str(item).strip() for item in raw_items if str(item).strip()]
+            if isinstance(raw_items, list)
+            else []
+        )
+        if slot_name in EDITABLE_MEMORY_SLOTS:
+            slot = _normalize_editable_slot(memory.get(slot_name))
+            slot["pinned"] = list(dict.fromkeys([*slot["pinned"], *items]))[-50:]
+            memory[slot_name] = slot
+        elif slot_name in {"recent_progress", "next_actions", "delivery_signals"}:
+            current = memory.get(slot_name)
+            current = (
+                [str(item).strip() for item in current if str(item).strip()]
+                if isinstance(current, list)
+                else []
+            )
+            memory[slot_name] = list(dict.fromkeys([*current, *items]))[-50:]
+    memory[ACCEPTED_MEMORY_CANDIDATES_KEY] = accepted_candidates
+    return memory
 
 
 def get_project_memory_payload(project: Project) -> dict[str, Any]:
@@ -636,6 +681,8 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
             ]
         memory[key] = _normalize_editable_slot(memory.get(key), pinned=existing_pinned)
 
+    _merge_accepted_memory_candidates(memory, existing_raw)
+
     important_documents = memory.get("important_documents")
     if isinstance(important_documents, list):
         memory["important_documents"] = [
@@ -662,9 +709,16 @@ def save_project_memory(
     trigger: str = "manual",
     coverage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    project = session.get(Project, project_id)
+    project = session.exec(
+        select(Project).where(Project.id == project_id).with_for_update()
+    ).first()
     if not project:
         raise HTTPException(404, "Project not found")
+
+    memory = _merge_accepted_memory_candidates(
+        dict(memory),
+        _get_existing_raw_memory(project),
+    )
 
     project.memory_version = (project.memory_version or 0) + 1
     project.memory_updated_at = utc_now_naive()

@@ -44,7 +44,7 @@ from app.services.project_contexts import mark_project_memory_stale
 from app.services.project_core import init_default_project_folders
 from app.services.project_documents import create_project_document_record
 from app.services.time_utils import utc_now_naive
-from app.services.chat_store import persist_assistant_message, persist_generated_artifacts
+from app.services.chat_store import persist_assistant_message, persist_run_artifacts
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
 from app.services.chat.trace import persist_chat_trace
@@ -284,7 +284,10 @@ async def _maybe_generate_missing_ppt_artifact(
         else None
     )
     if artifact:
-        state.artifacts.append(artifact)
+        state.record_artifact_output(
+            artifact,
+            source_tool=_PPT_GENERATION_TOOL_NAME,
+        )
         state.record_trace_event(
             "deterministic_ppt_fallback_succeeded",
             stage="persist",
@@ -612,9 +615,73 @@ async def run_persist(
             full_text = _remove_stale_ppt_failure_text(full_text)
             yield sse_event({"type": "status", "stage": "tools", "message": "PPT 交付文件已补齐生成，正在保存链接..."})
 
+    # A deterministic Markdown fallback is still a real run output. Create it
+    # before the common persistence boundary so ProjectFile evidence, file
+    # bytes, digest, GeneratedFile, event, rollout, and evaluation stay aligned.
+    fallback_markdown = None
+    if not state.budget_exhausted:
+        fallback_markdown = _maybe_create_markdown_from_response(
+            runtime=runtime,
+            req=req,
+            bind=bind,
+            state=state,
+            full_text=full_text,
+            artifact_contract=artifact_contract,
+        )
+    if fallback_markdown:
+        state.pending_markdown_saves.append(
+            {
+                "project_id": req.project_id,
+                "file_id": fallback_markdown.get("project_file_id") or fallback_markdown.get("id"),
+                "file_name": fallback_markdown.get("name"),
+                "mode": "create",
+                "content": full_text,
+                "summary": "Saved from project chat response",
+                "folder_id": fallback_markdown.get("folder_id"),
+                "saved": True,
+                "saved_result": fallback_markdown,
+                "source": "persist_markdown_fallback",
+            }
+        )
+        state.record_tool_execution(
+            {
+                "tool_name": "update_project_markdown_document",
+                "status": "completed",
+                "message": "已写入项目 Markdown 文件。",
+                "summary": f"Created {fallback_markdown.get('name')}",
+                "output": fallback_markdown,
+            }
+        )
+        state.record_artifact_output(
+            fallback_markdown,
+            source_tool="update_project_markdown_document",
+        )
+        state.record_trace_event(
+            "markdown_fallback_save",
+            file_name=fallback_markdown.get("name"),
+            project_file_id=fallback_markdown.get("project_file_id") or fallback_markdown.get("id"),
+        )
+
     # Persist artifacts
     if state.artifacts:
-        state.artifacts = persist_generated_artifacts(bind, runtime.conv_id, state.artifacts, req.project_id)
+        artifact_batch = persist_run_artifacts(
+            bind,
+            runtime.conv_id,
+            state.artifacts,
+            req.project_id,
+            run_id=state.run_id,
+            run_outputs=state.run_outputs,
+        )
+        state.artifacts = artifact_batch.artifacts
+        state.replace_run_output_records(artifact_batch.run_outputs)
+        for failure in artifact_batch.failures:
+            failure_payload = failure.get("failure") if isinstance(failure, dict) else {}
+            state.record_trace_event(
+                "run_output_persistence_failed",
+                stage="persist",
+                output_id=str(failure.get("output_id") or "") if isinstance(failure, dict) else "",
+                failure_code=str(failure_payload.get("code") or "") if isinstance(failure_payload, dict) else "",
+            )
 
         # Product Run Event v1: announce each newly-persisted artifact so a v1
         # frontend can render a "ready to download" card without polling.
@@ -646,11 +713,9 @@ async def run_persist(
                         state.run_id,
                         artifact_id,
                         v1_kind,
-                        source_tool=(
-                            str(artifact.get("source_tool") or "") or None
-                            if artifact.get("product_event") == "artifact_ready"
-                            else None
-                        ),
+                        source_tool=str(artifact.get("source_tool") or "") or None,
+                        output_id=str(artifact.get("output_id") or "") or None,
+                        content_sha256=str(artifact.get("content_sha256") or "") or None,
                     )
                 )
 
@@ -692,50 +757,6 @@ async def run_persist(
                 "建议稍后重试，或前往「设置」检查 API Key 配置。"
             )
             logger.warning("[persist] empty response detected, using fallback message")
-
-    fallback_markdown = None
-    if not state.budget_exhausted:
-        fallback_markdown = _maybe_create_markdown_from_response(
-            runtime=runtime,
-            req=req,
-            bind=bind,
-            state=state,
-            full_text=full_text,
-            artifact_contract=artifact_contract,
-        )
-    if fallback_markdown:
-        state.pending_markdown_saves.append(
-            {
-                "project_id": req.project_id,
-                "file_id": fallback_markdown.get("project_file_id") or fallback_markdown.get("id"),
-                "file_name": fallback_markdown.get("name"),
-                "mode": "create",
-                "content": full_text,
-                "summary": "Saved from project chat response",
-                "folder_id": fallback_markdown.get("folder_id"),
-                "saved": True,
-                "saved_result": fallback_markdown,
-                "source": "persist_markdown_fallback",
-            }
-        )
-        state.record_tool_execution(
-            {
-                "tool_name": "update_project_markdown_document",
-                "status": "completed",
-                "message": "已写入项目 Markdown 文件。",
-                "summary": f"Created {fallback_markdown.get('name')}",
-                "output": fallback_markdown,
-            }
-        )
-        state.record_trace_event(
-            "markdown_fallback_save",
-            file_name=fallback_markdown.get("name"),
-            project_file_id=fallback_markdown.get("project_file_id") or fallback_markdown.get("id"),
-        )
-        notice = f"已写入项目 Markdown 文件：{fallback_markdown.get('name')}"
-        if notice not in full_text:
-            full_text = f"{full_text}\n\n{notice}".strip()
-            yield sse_event({"type": "text", "content": f"\n\n{notice}"})
 
     delivery_failed = False
     if artifact_contract and not _delivery_satisfied(state, artifact_contract):
@@ -1046,6 +1067,8 @@ async def run_persist(
         metadata["resolved_action_confirmations"] = list(req.action_confirmations)
     if state.artifacts:
         metadata["artifacts"] = state.artifacts
+    if state.run_outputs:
+        metadata["run_outputs"] = state.run_outputs
     if state.pending_markdown_saves:
         metadata["pending_markdown_saves"] = state.pending_markdown_saves
     working_memory = getattr(runtime, "working_memory", None)

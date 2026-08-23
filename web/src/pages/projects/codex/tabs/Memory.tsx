@@ -1,7 +1,11 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
-import type { ProjectDetail as ProjectDetailType } from '../../../../types/api'
+import type {
+  MemoryCandidate,
+  MemoryCandidateListResponse,
+  ProjectDetail as ProjectDetailType,
+} from '../../../../types/api'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus } from '../CxPrimitives'
@@ -335,6 +339,50 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
   }, [files, milestones, slots, memory, project.memory_updated_at])
 
   const toast = useToast()
+  const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([])
+  const [candidateBusyId, setCandidateBusyId] = useState<number | null>(null)
+  const loadMemoryCandidates = useCallback(async () => {
+    try {
+      const response = await api.get<MemoryCandidateListResponse>('/memory-candidates', {
+        params: { scope: 'project', project_id: projectId, status: 'pending' },
+      })
+      setMemoryCandidates(response.items)
+    } catch (error) {
+      console.error('Failed to load memory candidates:', error)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    void loadMemoryCandidates()
+  }, [loadMemoryCandidates])
+
+  const decideMemoryCandidate = useCallback(
+    async (candidate: MemoryCandidate, decision: 'accept' | 'reject') => {
+      if (candidateBusyId != null) return
+      setCandidateBusyId(candidate.id)
+      try {
+        await api.post(`/memory-candidates/${candidate.id}/${decision}`, {})
+        toast.success({
+          title: decision === 'accept' ? '候选已写入正式记忆' : '候选已拒绝',
+          description:
+            decision === 'accept'
+              ? '来源和裁决记录已保留，可继续追溯'
+              : '正式项目记忆没有发生变化',
+        })
+        await loadMemoryCandidates()
+        if (decision === 'accept') await refetch()
+      } catch (error) {
+        toast.error({
+          title: decision === 'accept' ? '写入失败' : '拒绝失败',
+          description: error instanceof Error ? error.message : '请稍后重试',
+        })
+      } finally {
+        setCandidateBusyId(null)
+      }
+    },
+    [candidateBusyId, loadMemoryCandidates, refetch, toast],
+  )
+
   const [rebuildBusy, setRebuildBusy] = useState(false)
   const triggerRebuild = useCallback(async () => {
     if (rebuildBusy) return
@@ -417,6 +465,89 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
               <CxMemoryRebuildButton projectId={projectId} onTriggered={refetch} />
             </div>
           </div>
+
+          {memoryCandidates.length > 0 && (
+            <CxPanel
+              title={`待确认记忆候选 · ${memoryCandidates.length}`}
+              subtitle="接受后才会写入正式项目记忆；拒绝不会触发重建"
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {memoryCandidates.map((candidate) => {
+                  const busy = candidateBusyId === candidate.id
+                  return (
+                    <div
+                      key={candidate.id}
+                      style={{
+                        padding: '12px 14px',
+                        border: '1px solid var(--line-soft)',
+                        borderRadius: 'var(--r-sm)',
+                        background: 'var(--bg-tint)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: 'var(--ink)',
+                          lineHeight: 1.7,
+                          whiteSpace: 'pre-wrap',
+                          maxHeight: 150,
+                          overflow: 'auto',
+                        }}
+                      >
+                        {candidate.content}
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          marginTop: 10,
+                          fontSize: 11.5,
+                          color: 'var(--ink-mute)',
+                        }}
+                      >
+                        <span>{candidate.target_slot || 'recent_progress'}</span>
+                        <span>·</span>
+                        <span>
+                          来源 {candidate.source_type === 'chat_message' ? `对话 #${candidate.source_id}` : candidate.source_type}
+                        </span>
+                        <span style={{ flex: 1 }} />
+                        <button
+                          type="button"
+                          disabled={candidateBusyId != null}
+                          onClick={() => void decideMemoryCandidate(candidate, 'reject')}
+                          style={{
+                            padding: '4px 10px',
+                            color: 'var(--ink-soft)',
+                            background: 'transparent',
+                            border: '1px solid var(--line)',
+                            borderRadius: 'var(--r-sm)',
+                          }}
+                        >
+                          拒绝
+                        </button>
+                        <button
+                          type="button"
+                          disabled={candidateBusyId != null}
+                          onClick={() => void decideMemoryCandidate(candidate, 'accept')}
+                          style={{
+                            padding: '4px 10px',
+                            color: 'var(--accent)',
+                            background: 'var(--accent-bg)',
+                            border: '1px solid transparent',
+                            borderRadius: 'var(--r-sm)',
+                            opacity: busy ? 0.65 : 1,
+                          }}
+                        >
+                          {busy ? '处理中…' : '接受并写入'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </CxPanel>
+          )}
 
           {/* Pinned anchors highlight */}
           {pinnedBlocks.length > 0 && (

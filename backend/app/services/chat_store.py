@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -11,9 +13,18 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.config import CHAT_RETENTION_DAYS, CONVERSATION_CACHE_TTL, UPLOADS_DIR
-from app.models.db import ChatTrace, Conversation, ConversationState, GeneratedFile, Message, PendingToolAction, TaskRun, ToolCall
+from app.models.db import ChatTrace, Conversation, ConversationState, GeneratedFile, MemoryCandidate, Message, PendingToolAction, ProjectFile, TaskRun, ToolCall
+from app.services.agent_harness.run_output_record import (
+    RUN_OUTPUT_RECORD_VERSION,
+    append_run_output_record,
+    build_artifact_output_record,
+    mark_artifact_output_persisted,
+    mark_run_output_failed,
+    normalize_run_output_records,
+)
 from app.services.cache import conversations_cache
 from app.services.time_utils import utc_now_naive
+from app.services.upload_paths import resolve_upload_path
 
 _CONV_TTL = CONVERSATION_CACHE_TTL
 _RETENTION_DAYS = max(CHAT_RETENTION_DAYS, 1)
@@ -217,45 +228,190 @@ def persist_user_message(
     return user_msg
 
 
-def persist_generated_artifacts(
+@dataclass(frozen=True)
+class ArtifactPersistenceBatch:
+    artifacts: list[dict]
+    run_outputs: list[dict]
+    failures: list[dict]
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _canonical_file_kind(value: str) -> str:
+    normalized = str(value or "").strip().lower().lstrip(".")
+    return {
+        "markdown": "md",
+        "text": "txt",
+        "jpeg": "jpg",
+    }.get(normalized, normalized)
+
+
+_VERIFIABLE_FILE_KINDS = {
+    "pptx",
+    "docx",
+    "xlsx",
+    "pdf",
+    "md",
+    "txt",
+    "json",
+    "csv",
+    "html",
+    "jpg",
+    "png",
+}
+
+
+def persist_run_artifacts(
     bind,
     conv_id: int,
     artifacts: list[dict],
     project_id: Optional[int] = None,
-) -> list[dict]:
+    *,
+    run_id: str = "",
+    run_outputs: Optional[list[dict]] = None,
+) -> ArtifactPersistenceBatch:
     if not artifacts:
-        return []
+        return ArtifactPersistenceBatch([], normalize_run_output_records(run_outputs or []), [])
 
     normalized_artifacts: list[dict] = []
+    normalized_outputs = normalize_run_output_records(run_outputs or [])
+    failures: list[dict] = []
+    records_by_id = {
+        str(item.get("output_id") or ""): item
+        for item in normalized_outputs
+        if isinstance(item, dict) and item.get("output_id")
+    }
     with Session(bind) as session:
         for artifact in artifacts:
             name = str(artifact.get("name") or "").strip()
             path = str(artifact.get("path") or "").strip()
             file_type = str(artifact.get("file_type") or "").strip()
+            output_id = str(artifact.get("output_id") or "").strip()
+            record = records_by_id.get(output_id) or build_artifact_output_record(
+                artifact,
+                run_id=run_id,
+                source_tool=str(artifact.get("source_tool") or ""),
+                tool_use_id=str(artifact.get("tool_use_id") or ""),
+            )
+            output_id = str(record.get("output_id") or output_id)
             if not (name and path and file_type):
-                normalized_artifacts.append(dict(artifact))
+                failed_record = mark_run_output_failed(
+                    record,
+                    "ARTIFACT_SCHEMA_INVALID",
+                    "artifact name, path, and file_type are required",
+                )
+                append_run_output_record(normalized_outputs, failed_record)
+                failures.append(failed_record)
                 continue
 
-            existing = session.exec(
-                select(GeneratedFile).where(
-                    GeneratedFile.conversation_id == conv_id,
-                    GeneratedFile.path == path,
-                    GeneratedFile.name == name,
+            try:
+                full_path = resolve_upload_path(
+                    UPLOADS_DIR,
+                    path,
+                    must_exist=True,
+                    allow_absolute=True,
                 )
-            ).first()
+            except HTTPException as exc:
+                failure_code = (
+                    "ARTIFACT_PATH_UNSAFE"
+                    if int(exc.status_code) == 400
+                    else "ARTIFACT_FILE_MISSING"
+                )
+                failed_record = mark_run_output_failed(
+                    record,
+                    failure_code,
+                    str(exc.detail),
+                )
+                append_run_output_record(normalized_outputs, failed_record)
+                failures.append(failed_record)
+                continue
 
-            full_path = UPLOADS_DIR / Path(path)
-            size_bytes = artifact.get("size_bytes")
-            if not isinstance(size_bytes, int):
-                size_bytes = full_path.stat().st_size if full_path.is_file() else 0
+            relative_path = str(full_path.relative_to(UPLOADS_DIR.resolve()))
+            expected_kind = _canonical_file_kind(file_type)
+            path_kind = _canonical_file_kind(full_path.suffix)
+            name_kind = _canonical_file_kind(Path(name).suffix)
+            if expected_kind in _VERIFIABLE_FILE_KINDS and (
+                path_kind != expected_kind
+                or (name_kind and name_kind != expected_kind)
+            ):
+                failed_record = mark_run_output_failed(
+                    record,
+                    "ARTIFACT_TYPE_MISMATCH",
+                    "artifact file_type does not match its file extension",
+                )
+                append_run_output_record(normalized_outputs, failed_record)
+                failures.append(failed_record)
+                continue
+
+            project_file_id = artifact.get("project_file_id")
+            if isinstance(project_file_id, int):
+                project_file = session.get(ProjectFile, project_file_id)
+                project_file_invalid = (
+                    project_file is None
+                    or project_file.deleted_at is not None
+                    or (project_id is not None and project_file.project_id != project_id)
+                )
+                if not project_file_invalid:
+                    try:
+                        project_file_path = resolve_upload_path(
+                            UPLOADS_DIR,
+                            project_file.path,
+                            must_exist=True,
+                            allow_absolute=True,
+                        )
+                        project_file_invalid = project_file_path != full_path
+                    except HTTPException:
+                        project_file_invalid = True
+                if project_file_invalid:
+                    failed_record = mark_run_output_failed(
+                        record,
+                        "PROJECT_FILE_EVIDENCE_MISMATCH",
+                        "project_file_id does not resolve to the produced artifact",
+                    )
+                    append_run_output_record(normalized_outputs, failed_record)
+                    failures.append(failed_record)
+                    continue
+
+            existing = None
+            if output_id:
+                existing = session.exec(
+                    select(GeneratedFile).where(
+                        GeneratedFile.conversation_id == conv_id,
+                        GeneratedFile.output_id == output_id,
+                    )
+                ).first()
+            if existing is None:
+                existing = session.exec(
+                    select(GeneratedFile).where(
+                        GeneratedFile.conversation_id == conv_id,
+                        GeneratedFile.path == relative_path,
+                        GeneratedFile.name == name,
+                    )
+                ).first()
+
+            size_bytes = full_path.stat().st_size
+            content_sha256 = _file_sha256(full_path)
 
             description = str(artifact.get("description") or "")
             mime_type = str(artifact.get("mime_type") or "")
+            source_tool = str(artifact.get("source_tool") or "")[:120]
 
             if existing:
                 existing.project_id = project_id if project_id is not None else existing.project_id
                 existing.file_type = file_type or existing.file_type
-                existing.size_bytes = size_bytes or existing.size_bytes
+                existing.path = relative_path
+                existing.size_bytes = size_bytes
+                existing.run_id = run_id or existing.run_id
+                existing.output_id = output_id or existing.output_id
+                existing.source_tool = source_tool or existing.source_tool
+                existing.content_sha256 = content_sha256
+                existing.output_record_version = RUN_OUTPUT_RECORD_VERSION
                 if description:
                     existing.description = description
                 if mime_type:
@@ -269,10 +425,15 @@ def persist_generated_artifacts(
                     project_id=project_id,
                     name=name,
                     file_type=file_type,
-                    path=path,
+                    path=relative_path,
                     size_bytes=size_bytes,
                     description=description,
                     mime_type=mime_type,
+                    run_id=run_id,
+                    output_id=output_id,
+                    source_tool=source_tool,
+                    content_sha256=content_sha256,
+                    output_record_version=RUN_OUTPUT_RECORD_VERSION,
                 )
                 session.add(record)
                 session.flush()
@@ -281,14 +442,52 @@ def persist_generated_artifacts(
             artifact_payload["id"] = record.id
             artifact_payload["conversation_id"] = conv_id
             artifact_payload["project_id"] = project_id
+            artifact_payload["path"] = relative_path
             artifact_payload["size_bytes"] = size_bytes
+            artifact_payload["output_id"] = output_id
+            artifact_payload["content_sha256"] = content_sha256
+            artifact_payload["persistence_status"] = "persisted"
             if description:
                 artifact_payload["description"] = description
             normalized_artifacts.append(artifact_payload)
 
+            persisted_record = mark_artifact_output_persisted(
+                records_by_id.get(output_id) or build_artifact_output_record(
+                    artifact_payload,
+                    run_id=run_id,
+                    source_tool=source_tool,
+                    tool_use_id=str(artifact.get("tool_use_id") or ""),
+                ),
+                generated_file_id=int(record.id),
+                size_bytes=size_bytes,
+                content_sha256=content_sha256,
+                project_file_id=project_file_id if isinstance(project_file_id, int) else None,
+            )
+            append_run_output_record(normalized_outputs, persisted_record)
+
         session.commit()
 
-    return normalized_artifacts
+    return ArtifactPersistenceBatch(
+        artifacts=normalized_artifacts,
+        run_outputs=normalize_run_output_records(normalized_outputs),
+        failures=failures,
+    )
+
+
+def persist_generated_artifacts(
+    bind,
+    conv_id: int,
+    artifacts: list[dict],
+    project_id: Optional[int] = None,
+) -> list[dict]:
+    """Compatibility wrapper; new chat code consumes ``persist_run_artifacts``."""
+
+    return persist_run_artifacts(
+        bind,
+        conv_id,
+        artifacts,
+        project_id,
+    ).artifacts
 
 
 def persist_assistant_message(
@@ -347,6 +546,22 @@ def persist_assistant_message(
 
 def delete_conversation_with_messages(session: Session, conv_id: int, *, clear_cache: bool = True) -> None:
     conv = get_conversation_or_404(session, conv_id)
+    messages = session.exec(select(Message).where(Message.conversation_id == conv_id)).all()
+    message_source_ids = [str(message.id) for message in messages if message.id is not None]
+    if message_source_ids:
+        for candidate in session.exec(
+            select(MemoryCandidate).where(
+                MemoryCandidate.source_type == "chat_message",
+                MemoryCandidate.source_id.in_(message_source_ids),
+            )
+        ).all():
+            candidate.source_type = "deleted_chat_message"
+            if candidate.status == "pending":
+                candidate.status = "archived"
+                candidate.decision_note = "Source conversation deleted"
+                candidate.resolved_at = utc_now_naive()
+            session.add(candidate)
+        session.flush()
     for task in session.exec(select(TaskRun).where(TaskRun.conversation_id == conv_id)).all():
         task.conversation_id = None
         session.add(task)
@@ -361,7 +576,7 @@ def delete_conversation_with_messages(session: Session, conv_id: int, *, clear_c
     for action in session.exec(select(PendingToolAction).where(PendingToolAction.conversation_id == conv_id)).all():
         session.delete(action)
     session.flush()
-    for msg in session.exec(select(Message).where(Message.conversation_id == conv_id)).all():
+    for msg in messages:
         session.delete(msg)
     session.delete(conv)
     session.commit()

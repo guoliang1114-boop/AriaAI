@@ -38,6 +38,9 @@ Goal: make long-lived project, client, contact, and user memory useful without b
 - Add memory candidate review before durable writes.
 - Link memory updates to source messages, files, and runs.
 - Add tests for memory injection, stale detection, and cross-scope isolation.
+- Baseline delivered on 2026-08-23: source-linked pending candidates, explicit
+  accept/reject decisions, protected accepted anchors, project/client permission
+  checks, and PostgreSQL-isolated contract coverage.
 
 ## 3. Knowledge Workflows
 

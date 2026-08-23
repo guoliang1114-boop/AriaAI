@@ -8,6 +8,11 @@ from app.services.agent_harness.tool_execution_record import (
     append_tool_execution_record,
     normalize_tool_execution_records,
 )
+from app.services.agent_harness.run_output_record import (
+    append_run_output_record,
+    build_artifact_output_record,
+    normalize_run_output_records,
+)
 from app.services.chat.agent_step import AgentStep
 from app.tools.capabilities import (
     TOOL_CAPABILITY_MANIFEST_VERSION,
@@ -37,6 +42,7 @@ class ChatSessionState:
     budget_exhaustion: dict[str, Any] = field(default_factory=dict)
     run_evaluation: dict[str, Any] = field(default_factory=dict)
     context_manifest: dict[str, Any] = field(default_factory=dict)
+    run_outputs: list[dict[str, Any]] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # User-visible text (assembled by the agent loop)
@@ -105,6 +111,34 @@ class ChatSessionState:
         normalized_event.setdefault("retry_mode", capability.retry_mode.value)
         normalized_event.setdefault("product_event", capability.product_event.value)
         return append_tool_execution_record(self.tool_call_events, normalized_event)
+
+    def record_artifact_output(
+        self,
+        artifact: dict[str, Any],
+        *,
+        source_tool: str = "",
+        tool_use_id: str = "",
+    ) -> dict[str, Any]:
+        """Record one produced artifact and bind it to RunOutputRecord v1."""
+
+        record = build_artifact_output_record(
+            artifact,
+            run_id=self.run_id,
+            source_tool=source_tool,
+            tool_use_id=tool_use_id,
+        )
+        stored = append_run_output_record(self.run_outputs, record)
+        payload = dict(artifact)
+        payload["output_id"] = stored["output_id"]
+        if source_tool:
+            payload["source_tool"] = source_tool
+        if tool_use_id:
+            payload["tool_use_id"] = tool_use_id
+        self.artifacts.append(payload)
+        return payload
+
+    def replace_run_output_records(self, records: list[dict[str, Any]]) -> None:
+        self.run_outputs = normalize_run_output_records(records)
 
     def replace_tool_execution_records(self, events: list[dict[str, Any]]) -> None:
         """Normalize records received from a durable/legacy execution path."""

@@ -10,6 +10,7 @@ from app.models.db import (
     DocumentChunk,
     GeneratedFile,
     KnowledgeDocument,
+    MemoryCandidate,
     Message,
     Milestone,
     PendingToolAction,
@@ -36,6 +37,12 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
+
+    for candidate in session.exec(
+        select(MemoryCandidate).where(MemoryCandidate.project_id == project_id)
+    ).all():
+        session.delete(candidate)
+    session.flush()
 
     conversations = session.exec(
         select(Conversation).where(Conversation.project_id == project_id)

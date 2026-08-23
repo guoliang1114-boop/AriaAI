@@ -822,9 +822,18 @@ async def execute_tool_with_policy(
     duration_ms = round((time.perf_counter() - started_at) * 1000)
 
     # ---- Artifact extraction ----
-    artifact = _extract_artifact(result, tool_name=tool_name, tool_input=tool_input)
+    artifact = _extract_artifact(
+        result,
+        tool_name=tool_name,
+        tool_input=tool_input,
+        tool_use_id=tool_id,
+    )
     if artifact:
-        state.artifacts.append(artifact)
+        state.record_artifact_output(
+            artifact,
+            source_tool=tool_name,
+            tool_use_id=tool_id,
+        )
 
     # ---- Markdown write side effects (pending_markdown_saves) ----
     if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None and not _result_failed(result):

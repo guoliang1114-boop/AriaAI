@@ -15,6 +15,7 @@ from app.services.chat.product_run_events import (
     artifact_ready,
     confirmation_required,
     make_run_id,
+    memory_candidate_ready,
     message_persisted,
     reference_delta,
     run_done,
@@ -181,15 +182,41 @@ class ArtifactReadyTest(unittest.TestCase):
             artifact_type=ArtifactType.PPTX,
             download_url="/files/57",
             source_tool="generate_ppt_from_skill",
+            output_id="out_artifact_57",
+            content_sha256="a" * 64,
         )
         self.assertEqual(event["artifact_id"], "57")
         self.assertEqual(event["artifact_type"], "pptx")
         self.assertEqual(event["download_url"], "/files/57")
         self.assertEqual(event["source_tool"], "generate_ppt_from_skill")
+        self.assertEqual(event["output_id"], "out_artifact_57")
+        self.assertEqual(event["content_sha256"], "a" * 64)
 
     def test_invalid_artifact_type_rejected(self):
         with self.assertRaises(ValueError):
             artifact_ready(make_run_id(), 1, "wav")
+
+    def test_invalid_content_digest_rejected(self):
+        with self.assertRaises(ValueError):
+            artifact_ready(make_run_id(), 1, ArtifactType.PDF, content_sha256="short")
+
+
+class MemoryCandidateReadyTest(unittest.TestCase):
+    def test_pending_review_event(self):
+        event = memory_candidate_ready(
+            make_run_id(),
+            18,
+            "project",
+            "project_risk",
+            content_sha256="b" * 64,
+        )
+        self.assertEqual(event["type"], EventType.MEMORY_CANDIDATE_READY)
+        self.assertEqual(event["candidate_id"], "18")
+        self.assertEqual(event["status"], "pending_review")
+
+    def test_invalid_scope_rejected(self):
+        with self.assertRaises(ValueError):
+            memory_candidate_ready(make_run_id(), 18, "organization", "lesson")
 
 
 class RunTerminalEventsTest(unittest.TestCase):

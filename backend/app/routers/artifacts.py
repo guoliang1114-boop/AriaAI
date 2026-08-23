@@ -28,6 +28,11 @@ class ArtifactOut(BaseModel):
     path: str
     size_bytes: int
     description: str
+    run_id: str = ""
+    output_id: str = ""
+    source_tool: str = ""
+    content_sha256: str = ""
+    output_record_version: int = 1
     created_at: datetime
 
 

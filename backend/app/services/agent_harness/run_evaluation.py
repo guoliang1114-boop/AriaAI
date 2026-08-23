@@ -28,6 +28,11 @@ from app.services.agent_harness.tool_execution_record import (
     tool_event_is_failure,
     tool_event_is_omission_marker,
 )
+from app.services.agent_harness.run_output_record import (
+    RunOutputKind,
+    RunOutputStatus,
+    normalize_run_output_records,
+)
 
 
 RUN_EVALUATION_SCHEMA_VERSION = 1
@@ -196,7 +201,32 @@ def evaluate_run_completion(
     completed_tool_count = sum(
         tool_event_is_completed(event) for event in tool_events
     )
-    artifact_count = len(list(getattr(state, "artifacts", None) or []))
+    run_outputs = normalize_run_output_records(
+        list(getattr(state, "run_outputs", None) or [])
+    )
+    artifact_outputs = [
+        output
+        for output in run_outputs
+        if output.get("kind") == RunOutputKind.ARTIFACT.value
+    ]
+    failed_artifact_outputs = [
+        output
+        for output in artifact_outputs
+        if output.get("status") == RunOutputStatus.FAILED.value
+    ]
+    unpersisted_artifact_outputs = [
+        output
+        for output in artifact_outputs
+        if output.get("status") == RunOutputStatus.PRODUCED.value
+    ]
+    artifact_count = (
+        sum(
+            output.get("status") == RunOutputStatus.PERSISTED.value
+            for output in artifact_outputs
+        )
+        if artifact_outputs
+        else len(list(getattr(state, "artifacts", None) or []))
+    )
     confirmation_requested = bool(getattr(state, "confirmation_requested", False))
     # Dedicated checks below provide more actionable findings for these
     # synthetic harness events, so exclude them from the generic tool finding.
@@ -261,6 +291,27 @@ def evaluate_run_completion(
         )
     else:
         checks["artifact_delivery"] = "passed"
+
+    if failed_artifact_outputs or unpersisted_artifact_outputs:
+        checks["output_persistence"] = "failed"
+        failure_codes = list(
+            dict.fromkeys(
+                str((output.get("failure") or {}).get("code") or "OUTPUT_NOT_PERSISTED")
+                for output in [*failed_artifact_outputs, *unpersisted_artifact_outputs]
+            )
+        )[:5]
+        findings.append(
+            _finding(
+                "OUTPUT_PERSISTENCE_FAILED",
+                FindingSeverity.ERROR,
+                "一个或多个产物没有形成可验证的持久化记录。",
+                failure_count=len(failed_artifact_outputs),
+                unpersisted_count=len(unpersisted_artifact_outputs),
+                failure_codes=failure_codes,
+            )
+        )
+    else:
+        checks["output_persistence"] = "passed"
 
     if "execution_truth_gate_blocked_completion_claim" in trace_types:
         checks["execution_grounding"] = "failed"
@@ -417,6 +468,7 @@ def evaluate_run_completion(
             "OUTPUT_TRUNCATED": "模型输出仍不完整，本轮已按失败状态保存。",
             "EMPTY_MODEL_OUTPUT": "模型未生成可用正文，本轮已按失败状态保存。",
             "CONTEXT_ASSEMBLY_INVALID": "模型上下文清单校验失败，本轮未达到可验证完成状态。",
+            "OUTPUT_PERSISTENCE_FAILED": "产物持久化证据未通过校验，本轮不会声称文件已经保存。",
         }
         summary = summary_by_code.get(
             primary_code,
@@ -437,6 +489,8 @@ def evaluate_run_completion(
         "unresolved_tool_failure_count": len(unresolved_failures),
         "recovered_tool_failure_count": len(recovered_failures),
         "artifact_count": artifact_count,
+        "run_output_count": len(run_outputs),
+        "failed_run_output_count": len(failed_artifact_outputs),
         "pending_confirmation_count": len(
             list(getattr(state, "pending_tool_confirmations", None) or [])
         ),

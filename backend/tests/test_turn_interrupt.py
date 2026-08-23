@@ -200,6 +200,7 @@ async def test_stream_cancellation_persists_partial_reply_and_cancelled_rollout(
         "message_id": 99,
         "phase": "stream",
         "error_code": "USER_INTERRUPTED",
-        "error_message": "user_interrupted",
-        "retryable": False,
-    }
+            "error_message": "user_interrupted",
+            "retryable": False,
+            "run_outputs": [],
+        }

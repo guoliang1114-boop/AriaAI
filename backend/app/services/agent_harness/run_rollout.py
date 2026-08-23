@@ -26,6 +26,7 @@ from app.services.agent_harness.tool_execution_record import (
     tool_event_is_omission_marker,
     tool_event_waits_confirmation,
 )
+from app.services.agent_harness.run_output_record import normalize_run_output_records
 from app.services.time_utils import utc_now_naive
 
 ROLLOUT_SCHEMA_VERSION = 1
@@ -250,6 +251,7 @@ def reconstruct_rollout(
     context_manifest: dict[str, Any] = {}
     status = "running" if task_status in {"pending", "running"} else task_status
     message_id: int | str | None = None
+    run_outputs: list[dict[str, Any]] = []
     valid_records = 0
 
     for record in ordered:
@@ -278,6 +280,7 @@ def reconstruct_rollout(
         elif event_type in _TERMINAL_EVENT_STATUS:
             terminal_event = event_type
             status = _TERMINAL_EVENT_STATUS[event_type]
+            run_outputs = normalize_run_output_records(payload.get("run_outputs") or [])
 
     if not terminal_event and status in {"pending", "running"}:
         status = "interrupted"
@@ -296,6 +299,7 @@ def reconstruct_rollout(
         "terminal_event": terminal_event or None,
         "message_id": message_id,
         "context_manifest": context_manifest,
+        "run_outputs": run_outputs,
         "last_ordinal": int(ordered[-1]["payload"]["ordinal"]) if ordered else 0,
         "steps": ordered_steps,
         "recovery": _recovery_plan(status, ordered_steps),
@@ -478,6 +482,7 @@ def finalize_chat_rollout(
     error_code: str = "",
     error_message: str = "",
     retryable: bool = False,
+    run_outputs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Append one terminal boundary and store the reconstructed snapshot."""
 
@@ -504,6 +509,7 @@ def finalize_chat_rollout(
                 "error_code": error_code,
                 "error_message": error_message[:800],
                 "retryable": bool(retryable),
+                "run_outputs": normalize_run_output_records(run_outputs or []),
             },
         )
         now = utc_now_naive()
@@ -615,6 +621,9 @@ def build_in_memory_rollout_snapshot(
                 "run_id": run_id,
                 "phase": phase,
                 "error_message": error_message[:800],
+                "run_outputs": normalize_run_output_records(
+                    getattr(state, "run_outputs", None) or []
+                ),
             },
         }
     )

@@ -158,7 +158,9 @@ jobs:
                 tests/test_database_extended.py \
                 tests/test_product_run_events.py \
                 tests/test_run_evaluation.py \
+                tests/test_run_output_record.py \
                 tests/test_run_rollout.py \
+                tests/test_memory_candidates.py \
                 tests/test_skill_root_snapshots.py \
                 tests/test_structured_patch.py \
                 tests/test_tool_capability_manifest.py \

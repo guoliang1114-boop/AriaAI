@@ -608,6 +608,11 @@ class GeneratedFile(SQLModel, table=True):
     # 元数据
     description: str = ""           # 文件描述
     mime_type: str = ""             # MIME 类型
+    run_id: str = Field(default="", index=True)
+    output_id: str = Field(default="", index=True)
+    source_tool: str = ""
+    content_sha256: str = Field(default="", index=True)
+    output_record_version: int = 1
     
     created_at: datetime = Field(default_factory=utc_now_naive)
 
@@ -764,6 +769,52 @@ class UserMemory(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now_naive)
 
     user: Optional[User] = Relationship()
+
+
+class MemoryCandidate(SQLModel, table=True):
+    """Source-linked proposal that must be reviewed before durable memory use."""
+
+    __table_args__ = (
+        Index(
+            "uq_memorycandidate_owner_source_digest",
+            "owner_user_id",
+            "scope",
+            "candidate_type",
+            "source_type",
+            "source_id",
+            "content_sha256",
+            unique=True,
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_user_id: int = Field(foreign_key="user.id", index=True)
+    scope: str = Field(index=True)  # user | project | client
+    candidate_type: str = Field(index=True)
+    content: str = Field(sa_column=Column(Text, nullable=False))
+    content_sha256: str = Field(index=True)
+    source_type: str = Field(default="manual", index=True)
+    source_id: str = Field(default="", index=True)
+    source_run_id: str = Field(default="", index=True)
+    source_refs_json: str = Field(default="[]", sa_column=Column(Text, nullable=False, default="[]"))
+    project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
+    client_id: Optional[int] = Field(default=None, foreign_key="clientrecord.id", index=True)
+    confidence: float = 1.0
+    status: str = Field(default="pending", index=True)
+    created_by: str = "user"  # user | ai | system
+    target_slot: str = ""
+    applied_memory_version: Optional[int] = None
+    resolved_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    decision_note: str = ""
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+    resolved_at: Optional[datetime] = None
+
+    owner: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[MemoryCandidate.owner_user_id]"}
+    )
+    resolved_by: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[MemoryCandidate.resolved_by_user_id]"}
+    )
 
 
 class SystemMessage(SQLModel, table=True):

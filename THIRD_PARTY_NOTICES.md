@@ -37,6 +37,10 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - versioned context-assembly manifests, stable source identities, bounded
   privacy-safe snapshots, domain-separated fingerprints, exact initial model
   request binding, and shared Trace/Rollout/Evaluation context evidence;
+- typed run-output items, stable output identities, source-linked artifact
+  lifecycle facts, verified persistence digests, and separately reviewed memory
+  candidate decisions without storing raw paths or candidate text in the run
+  record;
 - `SKILL.md` frontmatter parsing and conservative YAML scalar repair; and
 - ordered Skill-root discovery, immutable content snapshots, cache reuse,
   error-isolated merging, and unambiguous candidate selection.
