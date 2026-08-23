@@ -37,7 +37,7 @@ export type StepCompletedStatus = "completed" | "failed";
 
 export type ArtifactType = "pptx" | "docx" | "xlsx" | "pdf" | "markdown";
 
-export type RunFinalStatus = "completed" | "failed" | "cancelled";
+export type RunFinalStatus = "completed" | "waiting_confirmation" | "failed" | "cancelled";
 
 export type RunErrorCode =
   | "TOOL_EXECUTION_FAILED"
@@ -46,6 +46,7 @@ export type RunErrorCode =
   | "POLICY_REJECTED"
   | "CONTEXT_PREPARATION_FAILED"
   | "TURN_BUDGET_EXCEEDED"
+  | "RUN_EVALUATION_FAILED"
   | "UNKNOWN"
   | string; // tolerate forward-compatible codes
 

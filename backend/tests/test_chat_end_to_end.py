@@ -395,6 +395,9 @@ class DestructiveConfirmationTests(ChatEndToEndBase):
         self.assertEqual(len(confirms), 1)
         self.assertTrue(confirms[0]["action"])
         self.assertTrue(confirms[0]["impact"])
+        run_done_events = _events_of_type(events, "run_done")
+        self.assertEqual(len(run_done_events), 1)
+        self.assertEqual(run_done_events[0]["final_status"], "waiting_confirmation")
         # The destructive tool did not actually run, so no completed/failed
         # tool_progress for it.
         terminal_statuses = [

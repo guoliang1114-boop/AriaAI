@@ -1,0 +1,418 @@
+"""Deterministic completion evidence and verdicts for Aria chat runs.
+
+The bounded evidence snapshots, structured findings, and explicit overall
+verdict are adapted from OpenAI Codex's
+``codex-rs/core/src/context/guardian_review_evidence.rs``,
+``codex-rs/prompts/templates/review/rubric.md``, and
+``codex-rs/protocol/src/review_format.rs`` at upstream commit
+``99660ab3c7b861c916e467581fa9b8723504d66b`` (Apache License 2.0).
+
+Modified for AriaAI on 2026-08-23: replaced code-review/model judgment with a
+provider-neutral deterministic grader over Aria Agent Steps, tool audit events,
+Artifact delivery, policy traces, confirmation state, and execution budgets.
+Only bounded evidence summaries are persisted; no Codex runtime, reviewer,
+protocol, account, or model API is used.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
+
+
+RUN_EVALUATION_SCHEMA_VERSION = 1
+MAX_EVALUATION_FINDINGS = 8
+MAX_EVIDENCE_TOOL_NAMES = 5
+
+_FAILED_TOOL_STATUSES = frozenset({"blocked", "conflict", "error", "failed"})
+_COMPLETED_TOOL_STATUS = "completed"
+
+
+class CompletionVerdict(str, Enum):
+    COMPLETED = "completed"
+    WAITING_CONFIRMATION = "waiting_confirmation"
+    FAILED = "failed"
+
+
+class FindingSeverity(str, Enum):
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
+
+
+@dataclass(frozen=True)
+class EvaluationFinding:
+    code: str
+    severity: FindingSeverity
+    message: str
+    evidence: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "severity": self.severity.value,
+            "message": self.message[:300],
+            "evidence": dict(self.evidence),
+        }
+
+
+@dataclass(frozen=True)
+class RunCompletionEvaluation:
+    verdict: CompletionVerdict
+    score: int
+    summary: str
+    checks: dict[str, str]
+    evidence: dict[str, Any]
+    findings: tuple[EvaluationFinding, ...]
+
+    @property
+    def failed(self) -> bool:
+        return self.verdict is CompletionVerdict.FAILED
+
+    @property
+    def primary_finding_code(self) -> str:
+        for finding in self.findings:
+            if finding.severity is FindingSeverity.ERROR:
+                return finding.code
+        return ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": RUN_EVALUATION_SCHEMA_VERSION,
+            "verdict": self.verdict.value,
+            "score": self.score,
+            "summary": self.summary,
+            "primary_finding_code": self.primary_finding_code or None,
+            "checks": dict(self.checks),
+            "evidence": dict(self.evidence),
+            "findings": [finding.to_dict() for finding in self.findings],
+        }
+
+
+def _event_status(event: dict[str, Any]) -> str:
+    return str(event.get("status") or "").strip().lower()
+
+
+def _event_tool_name(event: dict[str, Any]) -> str:
+    return str(event.get("tool_name") or "unknown").strip()[:120] or "unknown"
+
+
+def _event_tool_use_id(event: dict[str, Any]) -> str:
+    return str(event.get("tool_use_id") or "").strip()[:200]
+
+
+def _trace_types(state: Any) -> set[str]:
+    return {
+        str(event.get("type") or "")
+        for event in list(getattr(state, "trace_events", None) or [])
+        if isinstance(event, dict)
+    }
+
+
+def _unresolved_tool_failures(
+    tool_events: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split failures into unresolved and explicitly linked recoveries.
+
+    A later successful call with the same tool name is not enough evidence: it
+    may target a different file or record. Recovery therefore requires the
+    success event to identify the failed call through ``retry_of_tool_use_id``
+    or ``recovery_of_tool_use_id``.
+    """
+
+    unresolved: list[dict[str, Any]] = []
+    recovered: list[dict[str, Any]] = []
+    for index, event in enumerate(tool_events):
+        if _event_status(event) not in _FAILED_TOOL_STATUSES:
+            continue
+        tool_name = _event_tool_name(event)
+        tool_use_id = _event_tool_use_id(event)
+        later_success = any(
+            completed_index > index
+            and _event_status(completed_event) == _COMPLETED_TOOL_STATUS
+            and _event_tool_name(completed_event) == tool_name
+            and tool_use_id
+            and tool_use_id
+            in {
+                str(completed_event.get("retry_of_tool_use_id") or "").strip(),
+                str(completed_event.get("recovery_of_tool_use_id") or "").strip(),
+            }
+            for completed_index, completed_event in enumerate(tool_events)
+        )
+        (recovered if later_success else unresolved).append(event)
+    return unresolved, recovered
+
+
+def _tool_names(events: list[dict[str, Any]]) -> list[str]:
+    return list(
+        dict.fromkeys(_event_tool_name(event) for event in events)
+    )[:MAX_EVIDENCE_TOOL_NAMES]
+
+
+def _finding(
+    code: str,
+    severity: FindingSeverity,
+    message: str,
+    **evidence: Any,
+) -> EvaluationFinding:
+    return EvaluationFinding(
+        code=code,
+        severity=severity,
+        message=message,
+        evidence=evidence,
+    )
+
+
+def evaluate_run_completion(
+    runtime: Any,
+    state: Any,
+    *,
+    full_text: str,
+    delivery_failed: bool = False,
+    output_was_empty: bool = False,
+) -> RunCompletionEvaluation:
+    """Grade whether the persisted run has evidence for a completed verdict.
+
+    This grader never inspects raw tool arguments or full tool outputs. It also
+    never calls a model, so the verdict is stable across providers and retries.
+    """
+
+    del runtime  # Reserved for future contract-specific deterministic checks.
+    tool_events = [
+        event
+        for event in list(getattr(state, "tool_call_events", None) or [])
+        if isinstance(event, dict)
+    ]
+    steps = list(getattr(state, "steps", None) or [])
+    trace_types = _trace_types(state)
+    unresolved_failures, recovered_failures = _unresolved_tool_failures(tool_events)
+    completed_tool_count = sum(
+        _event_status(event) == _COMPLETED_TOOL_STATUS for event in tool_events
+    )
+    artifact_count = len(list(getattr(state, "artifacts", None) or []))
+    confirmation_requested = bool(getattr(state, "confirmation_requested", False))
+    # Dedicated checks below provide more actionable findings for these
+    # synthetic harness events, so exclude them from the generic tool finding.
+    generic_unresolved = [
+        event
+        for event in unresolved_failures
+        if _event_tool_name(event) not in {"execution_truth_gate", "hitas"}
+        and _event_status(event) != "blocked"
+    ]
+
+    findings: list[EvaluationFinding] = []
+    checks: dict[str, str] = {}
+
+    if bool(getattr(state, "budget_exhausted", False)):
+        checks["turn_budget"] = "failed"
+        exhaustion = getattr(state, "budget_exhaustion", None) or {}
+        findings.append(
+            _finding(
+                "TURN_BUDGET_EXCEEDED",
+                FindingSeverity.ERROR,
+                "单轮执行预算已耗尽。",
+                kind=str(exhaustion.get("kind") or "unknown"),
+            )
+        )
+    else:
+        checks["turn_budget"] = "passed"
+
+    if delivery_failed:
+        checks["artifact_delivery"] = "failed"
+        findings.append(
+            _finding(
+                "ARTIFACT_DELIVERY_MISSING",
+                FindingSeverity.ERROR,
+                "请求的交付物缺少可验证的持久化结果。",
+                artifact_count=len(list(getattr(state, "artifacts", None) or [])),
+            )
+        )
+    else:
+        checks["artifact_delivery"] = "passed"
+
+    if "execution_truth_gate_blocked_completion_claim" in trace_types:
+        checks["execution_grounding"] = "failed"
+        findings.append(
+            _finding(
+                "EXECUTION_CLAIM_UNGROUNDED",
+                FindingSeverity.ERROR,
+                "完成表述缺少成功工具或交付物证据。",
+                gate="execution_truth_gate",
+            )
+        )
+    else:
+        checks["execution_grounding"] = "passed"
+
+    if "tool_blocked" in trace_types:
+        checks["policy"] = "failed"
+        findings.append(
+            _finding(
+                "POLICY_REJECTED",
+                FindingSeverity.ERROR,
+                "计划中的工具调用被 Aria 权限策略拒绝。",
+                blocked=True,
+            )
+        )
+    else:
+        checks["policy"] = "passed"
+
+    if "pending_action_persist_failed" in trace_types:
+        checks["approval_persistence"] = "failed"
+        findings.append(
+            _finding(
+                "APPROVAL_PERSISTENCE_FAILED",
+                FindingSeverity.ERROR,
+                "待确认动作未能可靠保存。",
+                pending_action_count=len(
+                    list(getattr(state, "pending_tool_actions", None) or [])
+                ),
+            )
+        )
+    else:
+        checks["approval_persistence"] = "passed"
+
+    if generic_unresolved:
+        checks["tool_execution"] = "failed"
+        findings.append(
+            _finding(
+                "TOOL_EXECUTION_UNRESOLVED",
+                FindingSeverity.ERROR,
+                "一个或多个工具调用失败，且没有同工具的后续成功证据。",
+                failure_count=len(generic_unresolved),
+                tool_names=_tool_names(generic_unresolved),
+            )
+        )
+    elif recovered_failures:
+        checks["tool_execution"] = "warning"
+        findings.append(
+            _finding(
+                "TOOL_FAILURE_RECOVERED",
+                FindingSeverity.WARNING,
+                "工具失败后由同工具的后续成功调用恢复。",
+                recovered_count=len(recovered_failures),
+                tool_names=_tool_names(recovered_failures),
+            )
+        )
+    else:
+        checks["tool_execution"] = "passed"
+
+    failed_steps_without_tool_event = [
+        step
+        for step in steps
+        if str(getattr(step, "status", "") or "") in {"failed", "running", "cancelled"}
+        and not list(getattr(step, "tool_calls", None) or [])
+    ]
+    if failed_steps_without_tool_event:
+        checks["step_terminal_state"] = "failed"
+        findings.append(
+            _finding(
+                "STEP_INCOMPLETE",
+                FindingSeverity.ERROR,
+                "存在没有工具审计证据的未完成 Agent Step。",
+                step_indexes=[
+                    int(getattr(step, "index", 0) or 0)
+                    for step in failed_steps_without_tool_event[:5]
+                ],
+            )
+        )
+    else:
+        checks["step_terminal_state"] = "passed"
+
+    truncated_steps = [
+        int(getattr(step, "index", 0) or 0)
+        for step in steps
+        if bool(getattr(step, "truncated", False))
+    ]
+    if truncated_steps:
+        checks["output_completeness"] = "failed"
+        findings.append(
+            _finding(
+                "OUTPUT_TRUNCATED",
+                FindingSeverity.ERROR,
+                "模型输出在自动续写后仍被截断。",
+                step_indexes=truncated_steps[:5],
+            )
+        )
+    elif not full_text.strip() or (
+        output_was_empty
+        and completed_tool_count == 0
+        and artifact_count == 0
+        and not confirmation_requested
+    ):
+        checks["output_completeness"] = "failed"
+        findings.append(
+            _finding(
+                "EMPTY_MODEL_OUTPUT",
+                FindingSeverity.ERROR,
+                "模型没有产生可用的正文输出。",
+                output_chars=len(full_text),
+            )
+        )
+    else:
+        checks["output_completeness"] = "passed"
+
+    checks["confirmation"] = "pending" if confirmation_requested else "not_required"
+
+    findings = findings[:MAX_EVALUATION_FINDINGS]
+    error_count = sum(
+        finding.severity is FindingSeverity.ERROR for finding in findings
+    )
+    warning_count = sum(
+        finding.severity is FindingSeverity.WARNING for finding in findings
+    )
+    score = max(0, 100 - error_count * 30 - warning_count * 8)
+    if error_count:
+        verdict = CompletionVerdict.FAILED
+    elif confirmation_requested:
+        verdict = CompletionVerdict.WAITING_CONFIRMATION
+    else:
+        verdict = CompletionVerdict.COMPLETED
+
+    if verdict is CompletionVerdict.FAILED:
+        primary_code = next(
+            finding.code
+            for finding in findings
+            if finding.severity is FindingSeverity.ERROR
+        )
+        summary_by_code = {
+            "TURN_BUDGET_EXCEEDED": "本轮达到执行预算上限，已保存现有结果。",
+            "ARTIFACT_DELIVERY_MISSING": "请求的交付物未成功生成，本轮已按失败状态保存。",
+            "EXECUTION_CLAIM_UNGROUNDED": "本轮缺少可验证的执行结果，已按失败状态保存。",
+            "POLICY_REJECTED": "计划动作被权限策略拒绝，本轮未完成。",
+            "APPROVAL_PERSISTENCE_FAILED": "待确认动作保存失败，本轮未完成。",
+            "TOOL_EXECUTION_UNRESOLVED": "部分工具执行失败，本轮未达到可验证完成状态。",
+            "STEP_INCOMPLETE": "Agent Step 未正常结束，本轮已按失败状态保存。",
+            "OUTPUT_TRUNCATED": "模型输出仍不完整，本轮已按失败状态保存。",
+            "EMPTY_MODEL_OUTPUT": "模型未生成可用正文，本轮已按失败状态保存。",
+        }
+        summary = summary_by_code.get(
+            primary_code,
+            "完成证据检查未通过，本轮已按失败状态保存。",
+        )
+    elif verdict is CompletionVerdict.WAITING_CONFIRMATION:
+        summary = "完成证据已记录，本轮正在等待用户确认。"
+    elif warning_count:
+        summary = "完成证据检查通过，但包含已恢复的工具失败。"
+    else:
+        summary = "完成证据检查通过。"
+
+    evidence = {
+        "output_chars": len(full_text),
+        "step_count": len(steps),
+        "tool_call_count": len(tool_events),
+        "completed_tool_count": completed_tool_count,
+        "unresolved_tool_failure_count": len(unresolved_failures),
+        "recovered_tool_failure_count": len(recovered_failures),
+        "artifact_count": artifact_count,
+        "pending_confirmation_count": len(
+            list(getattr(state, "pending_tool_confirmations", None) or [])
+        ),
+    }
+    return RunCompletionEvaluation(
+        verdict=verdict,
+        score=score,
+        summary=summary,
+        checks=checks,
+        evidence=evidence,
+        findings=tuple(findings),
+    )

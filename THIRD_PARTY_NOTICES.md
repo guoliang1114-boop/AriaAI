@@ -26,12 +26,14 @@ with a Codex runtime. The adapted mechanisms currently cover:
   reply markers, cancelled-step checkpoints, and terminal cancellation events;
 - monotonic per-turn execution accounting, atomic planned-tool reservations,
   shared model/tool deadlines, and durable budget-exhaustion boundaries;
+- bounded run-completion evidence, structured deterministic findings, explicit
+  terminal verdicts, and false-completion prevention;
 - `SKILL.md` frontmatter parsing and conservative YAML scalar repair; and
 - ordered Skill-root discovery, immutable content snapshots, cache reuse,
   error-isolated merging, and unambiguous candidate selection.
 
-Upstream baseline: commit `343074d4207d572809bd8cea15f4be1d09d98e0b`
-(2026-08-22). The specific upstream source path and Aria modification notice
+Upstream baseline: commit `99660ab3c7b861c916e467581fa9b8723504d66b`
+(2026-08-23). The specific upstream source path and Aria modification notice
 are recorded in each adapted Python module.
 
 OpenAI Codex is available under the Apache License 2.0:

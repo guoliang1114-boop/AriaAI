@@ -27,6 +27,7 @@ class ChatSessionState:
     turn_budget: Any = field(default=None, repr=False)
     budget_exhausted: bool = False
     budget_exhaustion: dict[str, Any] = field(default_factory=dict)
+    run_evaluation: dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # User-visible text (assembled by the agent loop)

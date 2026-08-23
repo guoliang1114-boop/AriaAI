@@ -17,13 +17,24 @@ def _step(*, index, tool_calls=None, duration_ms=0, truncated=False):
     )
 
 
-def _state(*, run_id="run_x", steps=None, tool_call_events=None, artifacts=None, full_text=""):
+def _state(
+    *,
+    run_id="run_x",
+    steps=None,
+    tool_call_events=None,
+    artifacts=None,
+    full_text="",
+    confirmation_requested=False,
+    run_evaluation=None,
+):
     return SimpleNamespace(
         run_id=run_id,
         steps=steps or [],
         tool_call_events=tool_call_events or [],
         artifacts=artifacts or [],
         full_text=full_text,
+        confirmation_requested=confirmation_requested,
+        run_evaluation=run_evaluation or {},
     )
 
 
@@ -52,6 +63,24 @@ class BuildActivityTimelineTest(unittest.TestCase):
         self.assertEqual(timeline["final_status"], "completed")
         self.assertEqual(timeline["text"], "hello")
         self.assertNotIn("skill", timeline)
+
+    def test_final_status_uses_completion_evaluation_verdict(self):
+        waiting = build_activity_timeline(
+            _state(
+                confirmation_requested=True,
+                run_evaluation={"verdict": "waiting_confirmation"},
+            ),
+            _runtime(),
+        )
+        failed = build_activity_timeline(
+            _state(run_evaluation={"verdict": "failed"}),
+            _runtime(),
+        )
+
+        assert waiting is not None
+        assert failed is not None
+        self.assertEqual(waiting["final_status"], "waiting_confirmation")
+        self.assertEqual(failed["final_status"], "failed")
 
     def test_step_with_tool_and_matching_event_marks_completed(self):
         timeline = build_activity_timeline(

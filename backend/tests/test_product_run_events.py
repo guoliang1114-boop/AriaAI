@@ -206,6 +206,10 @@ class RunTerminalEventsTest(unittest.TestCase):
         self.assertEqual(event["final_status"], "completed")
         self.assertEqual(event["artifact_ids"], ["57", "58"])
 
+    def test_run_done_waiting_confirmation(self):
+        event = run_done(make_run_id(), RunFinalStatus.WAITING_CONFIRMATION)
+        self.assertEqual(event["final_status"], "waiting_confirmation")
+
     def test_run_done_status_restricted(self):
         with self.assertRaises(ValueError):
             run_done(make_run_id(), "running")

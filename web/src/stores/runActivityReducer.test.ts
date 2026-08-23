@@ -103,7 +103,7 @@ describe("reduceRunActivity", () => {
         download_url: "/files/57",
       },
       { type: "message_persisted", run_id: "r", message_id: 100 },
-      { type: "run_done", run_id: "r", final_status: "completed" },
+      { type: "run_done", run_id: "r", final_status: "waiting_confirmation" },
     ]);
     expect(t.confirmation).toEqual({
       action: "删除文件",
@@ -114,7 +114,7 @@ describe("reduceRunActivity", () => {
     expect(t.artifacts).toHaveLength(1);
     expect(t.artifacts[0]).toMatchObject({ id: "57", type: "pptx", download_url: "/files/57" });
     expect(t.message_id).toBe(100);
-    expect(t.final_status).toBe("completed");
+    expect(t.final_status).toBe("waiting_confirmation");
   });
 
   it("captures task_update progress", () => {

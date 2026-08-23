@@ -700,6 +700,38 @@ async def _stream_chat_events_impl(
         )
         return
 
+    if state.run_evaluation.get("verdict") == "failed":
+        evaluation_message = str(
+            state.run_evaluation.get("summary")
+            or "完成证据检查未通过，本轮已按失败状态保存。"
+        )
+        _finalize_rollout_safely(
+            state,
+            status="failed",
+            message_id=state.assistant_message_id,
+            phase="completion_evaluation",
+            error_code=ErrorCode.RUN_EVALUATION_FAILED,
+            error_message=evaluation_message,
+            retryable=False,
+        )
+        yield sse_event(
+            run_failed(
+                state.run_id,
+                ErrorCode.RUN_EVALUATION_FAILED,
+                evaluation_message,
+                retryable=False,
+                fallback_content=state.full_text,
+            )
+        )
+        logger.info(
+            "[run failed] run_id=%s phase=completion_evaluation score=%s primary=%s message_id=%s",
+            state.run_id,
+            state.run_evaluation.get("score"),
+            state.run_evaluation.get("primary_finding_code"),
+            state.assistant_message_id,
+        )
+        return
+
     # Successful end-of-run terminator (Product Run Event v1).
     _finalize_rollout_safely(
         state,
@@ -707,7 +739,14 @@ async def _stream_chat_events_impl(
         message_id=state.assistant_message_id,
         phase="persist",
     )
-    yield sse_event(run_done(state.run_id, RunFinalStatus.COMPLETED))
+    yield sse_event(
+        run_done(
+            state.run_id,
+            RunFinalStatus.WAITING_CONFIRMATION
+            if state.confirmation_requested
+            else RunFinalStatus.COMPLETED,
+        )
+    )
     logger.info(
         "[run done] run_id=%s path=agent_loop duration_ms=%s steps=%s artifacts=%s tool_events=%s",
         state.run_id,

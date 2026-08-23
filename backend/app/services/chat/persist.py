@@ -553,6 +553,8 @@ async def run_persist(
         logger.warning(f"[SAVE] suppressed {len(leaked_tool_blocks)} leaked tool_use JSON block(s) from assistant text")
         full_text = cleaned_full_text.strip()
 
+    output_was_empty = not full_text.strip()
+
     logger.info(f"[persist] persisting. full_text_len={len(full_text)}")
 
     if state.workflow_started:
@@ -943,6 +945,34 @@ async def run_persist(
             full_text = f"{full_text}\n\n{failure_notice}".strip()
             yield sse_event({"type": "text", "content": f"\n\n{failure_notice}"})
 
+    # Deterministic completion evidence gate. Unlike a model reviewer this is
+    # stable across providers and only consumes bounded Aria audit summaries.
+    from app.services.agent_harness.run_evaluation import evaluate_run_completion
+
+    run_evaluation = evaluate_run_completion(
+        runtime,
+        state,
+        full_text=full_text,
+        delivery_failed=delivery_failed,
+        output_was_empty=output_was_empty,
+    )
+    state.run_evaluation = run_evaluation.to_dict()
+    state.record_trace_event(
+        "run_completion_evaluated",
+        stage="completion_evaluation",
+        verdict=run_evaluation.verdict.value,
+        score=run_evaluation.score,
+        primary_finding_code=run_evaluation.primary_finding_code,
+        finding_count=len(run_evaluation.findings),
+    )
+    if run_evaluation.failed:
+        delivery_failed = True
+        if run_evaluation.summary not in full_text:
+            full_text = f"{full_text}\n\n{run_evaluation.summary}".strip()
+            yield sse_event(
+                {"type": "text", "content": f"\n\n{run_evaluation.summary}"}
+            )
+
     # Build metadata
     metadata: dict = {}
     if state.turn_budget is not None:
@@ -952,6 +982,7 @@ async def run_persist(
             if state.budget_exhausted
             else {"status": "within_budget", "budget": turn_budget_snapshot}
         )
+    metadata["run_evaluation"] = dict(state.run_evaluation)
     if runtime.rag_sources:
         metadata["references"] = runtime.rag_sources
     if state.tool_call_events:
@@ -1002,19 +1033,29 @@ async def run_persist(
     from app.services.agent_harness.run_rollout import build_in_memory_rollout_snapshot
 
     if state.run_id:
+        completion_failed = state.run_evaluation.get("verdict") == "failed"
+        rollout_failed = state.budget_exhausted or completion_failed
         metadata["run_rollout"] = build_in_memory_rollout_snapshot(
             state,
             status=(
                 "failed"
-                if state.budget_exhausted
+                if rollout_failed
                 else "waiting_confirmation"
                 if state.confirmation_requested
                 else "completed"
             ),
-            phase="turn_budget" if state.budget_exhausted else "persist",
+            phase=(
+                "turn_budget"
+                if state.budget_exhausted
+                else "completion_evaluation"
+                if completion_failed
+                else "persist"
+            ),
             error_message=(
                 str(state.budget_exhaustion.get("message") or "")
                 if state.budget_exhausted
+                else str(state.run_evaluation.get("summary") or "")
+                if completion_failed
                 else ""
             ),
         )

@@ -126,12 +126,18 @@ _ARTIFACT_TYPES = frozenset(
 
 class RunFinalStatus:
     COMPLETED = "completed"
+    WAITING_CONFIRMATION = "waiting_confirmation"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
 
 _RUN_FINAL_STATUSES = frozenset(
-    {RunFinalStatus.COMPLETED, RunFinalStatus.FAILED, RunFinalStatus.CANCELLED}
+    {
+        RunFinalStatus.COMPLETED,
+        RunFinalStatus.WAITING_CONFIRMATION,
+        RunFinalStatus.FAILED,
+        RunFinalStatus.CANCELLED,
+    }
 )
 
 
@@ -145,6 +151,7 @@ class ErrorCode:
     POLICY_REJECTED = "POLICY_REJECTED"
     CONTEXT_PREPARATION_FAILED = "CONTEXT_PREPARATION_FAILED"
     TURN_BUDGET_EXCEEDED = "TURN_BUDGET_EXCEEDED"
+    RUN_EVALUATION_FAILED = "RUN_EVALUATION_FAILED"
     UNKNOWN = "UNKNOWN"
 
 
@@ -156,6 +163,7 @@ _ERROR_CODES = frozenset(
         ErrorCode.POLICY_REJECTED,
         ErrorCode.CONTEXT_PREPARATION_FAILED,
         ErrorCode.TURN_BUDGET_EXCEEDED,
+        ErrorCode.RUN_EVALUATION_FAILED,
         ErrorCode.UNKNOWN,
     }
 )

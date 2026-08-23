@@ -130,12 +130,24 @@ def build_activity_timeline(state: Any, runtime: Any, *, full_text: str = "") ->
     tool_events = list(getattr(state, "tool_call_events", None) or [])
     steps = [_build_step(step, tool_events) for step in getattr(state, "steps", None) or []]
     artifacts = _build_artifacts(getattr(state, "artifacts", None))
+    evaluation = getattr(state, "run_evaluation", None)
+    evaluation_verdict = (
+        str(evaluation.get("verdict") or "") if isinstance(evaluation, dict) else ""
+    )
+    if evaluation_verdict == "failed":
+        final_status = "failed"
+    elif evaluation_verdict == "waiting_confirmation" or bool(
+        getattr(state, "confirmation_requested", False)
+    ):
+        final_status = "waiting_confirmation"
+    else:
+        final_status = "completed"
 
     timeline: dict[str, Any] = {
         "run_id": run_id,
         "steps": steps,
         "artifacts": artifacts,
-        "final_status": "completed",
+        "final_status": final_status,
         "text": full_text or str(getattr(state, "full_text", "") or ""),
     }
 

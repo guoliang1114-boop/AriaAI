@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
 > 更新日期：2026-08-23
-> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K 已实施
+> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -54,8 +54,8 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 本轮审计基线：
 
 - 上游仓库：`openai/codex`；
-- 上游提交：`343074d4207d572809bd8cea15f4be1d09d98e0b`；
-- 提交日期：2026-08-22；
+- 上游提交：`99660ab3c7b861c916e467581fa9b8723504d66b`；
+- 提交日期：2026-08-23；
 - 许可证：Apache License 2.0。
 
 “开源”不等于“全部可搬”。选择源码时同时考虑产品相关性、技术栈差异、维护成本、安全边界和许可证义务。
@@ -79,7 +79,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 
 大型 Rust 子系统只有在 Python 重写成本明显高于收益、且 Aria 确实需要同类能力时才重新评估。目前没有这种必要。
 
-## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K 已吸收的源码机制
+## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L 已吸收的源码机制
 
 | Codex 上游机制 | 上游路径 | Aria 原生实现 | 接入位置 | 价值 |
 |---|---|---|---|---|
@@ -94,6 +94,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 | 只读工具并发车道与写入屏障 | `core/src/tools/parallel.rs`、`orchestrator.rs` | `backend/app/services/agent_harness/tool_scheduler.py` | `chat/agent_loop.py` + 项目文件读取工具 | 显式安全的连续读取可有界并发；写入、审批、未知工具始终作为顺序屏障，结果按模型调用顺序回填 |
 | 用户中断与终止边界 | `core/src/tasks/mod.rs`、`context/turn_aborted.rs`、`tests/suite/abort_tasks.rs` | `backend/app/services/agent_harness/turn_interrupt.py` | Chat SSE + Run Rollout + 两个聊天前端 | 停止按钮取消真实后端任务，保留部分回复并持久化 `cancelled` 终态；可能已执行的工具不会被盲目重放 |
 | 单轮执行预算与停止边界 | `ext/goal/src/accounting.rs`、`ext/goal/src/runtime.rs`、`core/src/tools/orchestrator.rs` | `backend/app/services/agent_harness/turn_budget.py` | Agent Loop + Model Stream + Tool Batch + Persist + Run Rollout | 用单调时钟统一限制步骤、计划工具总数和总耗时；超限保存部分结果并以不可重试失败终态收口 |
+| 有界完成证据与结构化裁决 | `core/src/context/guardian_review_evidence.rs`、`prompts/templates/review/rubric.md`、`protocol/src/review_format.rs` | `backend/app/services/agent_harness/run_evaluation.py` | Persist + Run Rollout + Product Run Event | 以工具、交付物、策略、审批、预算和输出完整性事实裁决终态，阻止失败 Run 被误报为 completed |
 | Skill 前置信息解析 | `codex-rs/skills/src/parser.rs` | `backend/app/services/agent_harness/skill_package.py` | `routers/skills.py` | 校验 `SKILL.md`、修复有限 YAML 歧义、安全加载指定引用 |
 | Skill Root 快照与选择 | `codex-rs/skills/src/loading.rs`、`selection.rs`、`ext/skills/src/loader/` | `backend/app/services/agent_harness/skill_roots.py` | Skill 启动同步 + `skill_router.py` | 有序 Root、不可变内容指纹、增量缓存、坏包隔离和发布态候选选择 |
 
@@ -380,6 +381,19 @@ Phase 2K 吸收 Codex 目标运行时的单调用量记账与 Tool Orchestrator 
 
 这不是 Codex Goal Runtime 的移植。Aria 没有引入 Goal、Token Budget 服务或 Codex Tool Runtime；当前执行预算只作用于一次普通聊天 Agent Loop，长任务继续由 Durable Task Orchestrator 的步骤级生命周期管理。
 
+### 4.15 完成证据裁决与可验证终态
+
+Phase 2L 吸收 Codex Guardian Review 的有界证据、结构化 Finding 和显式 Overall Verdict，但将代码审查语义改写为 Aria 原生的 Run 完成条件：
+
+- Persist 在发送最终成功事件前统一检查执行预算、交付物契约、执行真实性门、权限策略、审批持久化、工具终态、Agent Step 终态和输出完整性；
+- 每次裁决形成版本化 `run_evaluation`，包括 `verdict`、`score`、`checks`、`findings` 和数量型证据摘要，并随 Assistant Message 与 Run Rollout 保存；
+- 证据最多保留八条 Finding、五个工具名，不保存工具参数、完整结果、原始错误正文或模型上下文；
+- 未恢复的工具失败、缺失交付物、无证据完成表述、策略拒绝、审批保存失败、残留运行中 Step、二次续写后仍截断或空模型输出，都会产生不可重试的 `RUN_EVALUATION_FAILED`；
+- 只有显式关联原失败调用的后续成功才能把早期失败降为警告；同名但未关联的工具调用可能作用于不同目标，不作为恢复证据；等待确认保持 `waiting_confirmation`，不会误判为失败；
+- 普通文本问答无需虚构工具证据；无正文但已有成功工具或已持久化交付物时，也允许由事实证明完成。
+
+裁决器完全确定性运行，不调用评审模型，不使用 OpenAI Evals API，也不引入 Codex Reviewer、协议或进程。它只审阅 Aria 已经产生的有界状态，因此不同模型 Provider、重试次数和部署环境会得到相同终态。
+
 ## 5. 已撤回的错误方向
 
 下列通信型实现已从工作区移除：
@@ -516,6 +530,16 @@ Phase 2K 吸收 Codex 目标运行时的单调用量记账与 Tool Orchestrator 
 - `codex-rs/core/src/tools/orchestrator.rs`。
 
 已完成：为普通聊天建立共享的 Step、计划工具调用和墙钟预算；模型流、重试等待和工具批次共用一个截止时间；超限时原子停止新工具、保存部分输出和预算证据、标记不可重试失败，并阻止 Persist 启动新的补偿性模型或写入工作。配置可通过 `AGENT_TURN_MAX_STEPS`、`AGENT_TURN_MAX_TOOL_CALLS`、`AGENT_TURN_TIMEOUT_SECONDS` 调整并受代码硬上限保护。不运行、不导入、不连接 Codex，不新增数据库迁移。
+
+### Phase 2L：完成证据裁决与可验证终态（已实施）
+
+参考候选：
+
+- `codex-rs/core/src/context/guardian_review_evidence.rs`；
+- `codex-rs/prompts/templates/review/rubric.md`；
+- `codex-rs/protocol/src/review_format.rs`。
+
+已完成：在 Persist 与成功终态之间加入确定性证据裁决，把预算、工具、交付物、策略、审批、Step 和输出完整性收敛为结构化 `run_evaluation`；证据失败时保存现有结果和裁决摘要，但只发送 `run_failed / RUN_EVALUATION_FAILED`，不再发送 `run_done(completed)`。实现不调用模型或 OpenAI Evals API，不保存原始工具参数/结果，不运行、不导入、不连接 Codex，也不新增数据库迁移。
 
 ## 8. 许可证与升级流程
 

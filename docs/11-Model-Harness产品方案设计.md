@@ -494,6 +494,8 @@ Model Layer（外部推理服务）
 - 通过 `POST /chat/runs/{run_id}/cancel` 在复检 Conversation 写权限后取消活动 Turn；浏览器断流不是业务取消的唯一信号。
 - 为普通聊天统一管理单轮 Step、计划工具调用总数和墙钟预算；模型流、重试等待与工具批次共享同一个停止边界。
 - 预算超限以 `TURN_BUDGET_EXCEEDED` 失败终态收口，保存部分结果和预算快照，不自动重放可能已有副作用的工具。
+- 在持久化与成功终态之间运行确定性完成证据裁决；只有交付物、工具、策略、审批、Step 与输出完整性检查通过，Run 才能进入 `completed`。
+- 将版本化 `run_evaluation` 保存到 Assistant Message 与 Run Rollout；失败时发送 `RUN_EVALUATION_FAILED`，不再同时发送成功终态。
 
 设计原则：
 
@@ -528,6 +530,7 @@ Model Layer（外部推理服务）
 | `generating` | 文本截断，显示"生成中断" | 保存部分回复和中断标记；新 Run 可基于历史继续 | 保存 `cancelled` message/step/run 边界，不盲目重放工具 |
 | `running_tool` | 展示工具失败原因 | 若工具支持幂等，自动重试 1 次；否则进入 `failed` | 已执行的写入操作不自动回滚 |
 | `turn_budget` | 展示达到步数、工具调用或总时长上限 | 保存部分结果；用户发起新 Run 继续 | 新批次不执行；工具超时可能已部分生效，先核对事实且不自动重放 |
+| `completion_evaluation` | 展示本轮未达到可验证完成状态 | 保存当前回复和有界 Finding；依据主错误码发起新 Run 修复 | 原结果不回滚；失败 Run 不发送 `run_done(completed)` |
 | `persisting` | "保存结果失败" | 保留 trace，开发者手动修复 | 内部标记为 `persist_failed`，人工介入 |
 
 关键原则：失败时必须给用户可理解的状态，而不是空白或无限 loading。
@@ -613,7 +616,7 @@ Model Layer（外部推理服务）
 | `step_index` | 单调递增，1 起算；`tool_progress` / `step_completed` 的 `step_index` 必须先有对应 `step_started` |
 | `message` | 面向最终用户的中文文案，禁止包含内部技术术语或堆栈信息 |
 | `content` | 纯文本片段，禁止包含 Markdown 格式控制符（由前端统一渲染） |
-| `error_code` | 机器可读的错误码，如 `TOOL_EXECUTION_FAILED`、`MODEL_TIMEOUT`、`PERSISTENCE_ERROR` |
+| `error_code` | 机器可读的错误码，如 `TOOL_EXECUTION_FAILED`、`MODEL_TIMEOUT`、`PERSISTENCE_ERROR`、`TURN_BUDGET_EXCEEDED`、`RUN_EVALUATION_FAILED` |
 
 关键要求：
 
