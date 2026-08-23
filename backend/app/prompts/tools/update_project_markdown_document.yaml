@@ -3,10 +3,3 @@ purpose: Create, append to, replace, structurally patch, or roll back a Markdown
 when_to_use: Use only when the user explicitly asks to create, save, export, append, replace, modify, or restore Markdown content. Prefer patch after a read for targeted changes.
 when_not_to_use: Do not use for analysis-only answers, summaries that were not requested as files, or speculative drafts that the user has not asked to save.
 ui_effect: Creates or updates a project-space artifact that should appear in chat and in the Space page.
-required_policy:
-  default: write_artifact
-  create: write_artifact
-  append: modify_existing_file
-  replace: modify_existing_file
-  patch: modify_existing_file
-  rollback: modify_existing_file

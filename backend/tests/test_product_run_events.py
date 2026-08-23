@@ -180,10 +180,12 @@ class ArtifactReadyTest(unittest.TestCase):
             artifact_id=57,
             artifact_type=ArtifactType.PPTX,
             download_url="/files/57",
+            source_tool="generate_ppt_from_skill",
         )
         self.assertEqual(event["artifact_id"], "57")
         self.assertEqual(event["artifact_type"], "pptx")
         self.assertEqual(event["download_url"], "/files/57")
+        self.assertEqual(event["source_tool"], "generate_ppt_from_skill")
 
     def test_invalid_artifact_type_rejected(self):
         with self.assertRaises(ValueError):

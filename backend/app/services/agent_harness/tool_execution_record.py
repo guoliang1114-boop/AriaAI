@@ -8,8 +8,9 @@ and explicit omission accounting are Python adaptations of OpenAI Codex's
 
 Modified for AriaAI on 2026-08-23: records execution outcomes rather than raw
 model arguments, preserves Aria policy/confirmation/retry fields, removes raw
-tool inputs and outputs from the audit ledger, and provides provider-neutral
-status classification for rollout, evaluation, persistence, and UI consumers.
+tool inputs and outputs from the audit ledger, attaches bounded capability
+manifest fields, and provides provider-neutral status classification for
+rollout, evaluation, persistence, and UI consumers.
 This module does not import, start, or communicate with a Codex runtime.
 """
 from __future__ import annotations
@@ -80,6 +81,10 @@ _OPTIONAL_TEXT_FIELDS = (
     "source",
     "retry_of_tool_use_id",
     "recovery_of_tool_use_id",
+    "tool_effect",
+    "result_kind",
+    "retry_mode",
+    "product_event",
 )
 _OPTIONAL_NON_NEGATIVE_INT_FIELDS = (
     "step_index",
@@ -88,6 +93,7 @@ _OPTIONAL_NON_NEGATIVE_INT_FIELDS = (
     "attempt_count",
     "max_attempts",
     "http_status",
+    "capability_version",
 )
 
 

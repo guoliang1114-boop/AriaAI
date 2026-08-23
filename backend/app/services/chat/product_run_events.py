@@ -432,6 +432,7 @@ def artifact_ready(
     *,
     download_url: str | None = None,
     preview_url: str | None = None,
+    source_tool: str | None = None,
 ) -> dict:
     event: dict[str, Any] = {
         "type": EventType.ARTIFACT_READY,
@@ -443,6 +444,12 @@ def artifact_ready(
         event["download_url"] = download_url
     if preview_url is not None:
         event["preview_url"] = preview_url
+    if source_tool is not None:
+        normalized_source = str(source_tool).strip()
+        if normalized_source:
+            if len(normalized_source) > 120:
+                raise ValueError("artifact_ready.source_tool must be at most 120 characters")
+            event["source_tool"] = normalized_source
     return event
 
 

@@ -134,6 +134,7 @@ export interface ArtifactReadyEvent {
   artifact_type: ArtifactType;
   download_url?: string;
   preview_url?: string;
+  source_tool?: string;
 }
 
 export interface MessagePersistedEvent {

@@ -3,10 +3,3 @@ purpose: Manage project-space folders and file placement.
 when_to_use: Use to list folders, create folders, rename folders, or move files between folders when explicitly requested.
 when_not_to_use: Do not delete project files. For file cleanup or deletion, use manage_project_files. Do not delete non-empty folders. Do not move or rename files unless the user clearly requested file organization.
 ui_effect: Changes project-space organization and refreshes project memory.
-required_policy:
-  default: destructive_action
-  list: read_only_tool
-  create: write_artifact
-  rename: modify_existing_file
-  move_file: modify_existing_file
-  delete: destructive_action

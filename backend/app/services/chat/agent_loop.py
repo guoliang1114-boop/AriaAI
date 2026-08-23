@@ -68,6 +68,7 @@ from app.services.chat_tools import (
     _strip_internal_tool_markers,
     _tool_start_progress_payload,
 )
+from app.tools.capabilities import tool_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -763,7 +764,7 @@ async def _run_agent_loop_impl(
                         _tool_progress_event(
                             state.run_id,
                             step_index + 1,
-                            title=str(tool_call.get("name") or "工具"),
+                            title=tool_display_name(str(tool_call.get("name") or "")),
                             status=ToolProgressStatus.RUNNING,
                         )
                     )
@@ -825,14 +826,17 @@ async def _run_agent_loop_impl(
 
                 # Product Run Event v1: pair each tool with its terminal state.
                 if state.run_id:
-                    tool_name_v1 = str(tool_call.get("name") or "") or "工具"
+                    tool_name_v1 = str(tool_call.get("name") or "")
+                    tool_title_v1 = tool_display_name(tool_name_v1)
                     if outcome.confirmation_required:
                         pending = (
                             state.pending_tool_confirmations[-1]
                             if state.pending_tool_confirmations
                             else {}
                         )
-                        action_text = str(pending.get("tool_name") or tool_name_v1)
+                        action_text = tool_display_name(
+                            str(pending.get("tool_name") or tool_name_v1)
+                        )
                         impact_text = (
                             str(pending.get("summary") or "")
                             or "该动作会修改或删除项目内容，需要用户确认才能继续。"
@@ -855,7 +859,7 @@ async def _run_agent_loop_impl(
                             _tool_progress_event(
                                 state.run_id,
                                 step_index + 1,
-                                title=tool_name_v1,
+                                title=tool_title_v1,
                                 status=_classify_tool_outcome_status(outcome),
                             )
                         )

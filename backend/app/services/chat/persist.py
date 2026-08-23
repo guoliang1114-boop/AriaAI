@@ -51,6 +51,10 @@ from app.services.chat.trace import persist_chat_trace
 from app.services.chat.workflow import workflow_status
 from app.services.title_generator import schedule_title_generation
 from app.tools import registry
+from app.tools.capabilities import (
+    TOOL_CAPABILITY_MANIFEST_VERSION,
+    resolve_tool_capability,
+)
 from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME
 
 logger = logging.getLogger(__name__)
@@ -93,18 +97,6 @@ _MUTATING_ACTION_POLICIES = {
     ActionPolicy.MODIFY_EXISTING_FILE.value,
     ActionPolicy.DURABLE_TASK.value,
     ActionPolicy.DESTRUCTIVE_ACTION.value,
-}
-_MUTATING_TOOL_NAMES = {
-    "write_project_office_document",
-    "update_project_markdown_document",
-    "save_previous_answer_as_markdown",
-    "manage_project_files",
-    "manage_project_folders",
-    "generate_ppt",
-    "generate_ppt_from_skill",
-    "generate_docx",
-    "generate_xlsx",
-    "generate_pdf",
 }
 _PPT_GENERATION_TOOL_NAME = "generate_ppt_from_skill"
 
@@ -266,13 +258,31 @@ async def _maybe_generate_missing_ppt_artifact(
         "duration_ms": duration_ms,
         "source": "deterministic_ppt_fallback",
     }
+    fallback_capability = resolve_tool_capability(_PPT_GENERATION_TOOL_NAME, tool_input)
+    event.update(
+        {
+            "capability_version": TOOL_CAPABILITY_MANIFEST_VERSION,
+            "tool_effect": fallback_capability.effect.value,
+            "result_kind": fallback_capability.result_kind.value,
+            "retry_mode": fallback_capability.retry_mode.value,
+            "product_event": fallback_capability.product_event.value,
+        }
+    )
     if error:
         event["error"] = error
     if isinstance(result, dict):
         event["output"] = output
     state.record_tool_execution(event)
 
-    artifact = _extract_artifact(result) if isinstance(result, dict) else None
+    artifact = (
+        _extract_artifact(
+            result,
+            tool_name=_PPT_GENERATION_TOOL_NAME,
+            tool_input=tool_input,
+        )
+        if isinstance(result, dict)
+        else None
+    )
     if artifact:
         state.artifacts.append(artifact)
         state.record_trace_event(
@@ -321,7 +331,20 @@ def _has_successful_mutation(state: ChatSessionState) -> bool:
         if not tool_event_is_completed(event):
             continue
         tool_name = str(event.get("tool_name") or "")
-        if tool_name in _MUTATING_TOOL_NAMES or _event_has_project_artifact(event):
+        manifest = registry.get_manifest(tool_name)
+        tool_effect = str(event.get("tool_effect") or "")
+        mutating_effect = manifest is not None and tool_effect in {
+            "create",
+            "modify",
+            "delete",
+            "external",
+        }
+        if not tool_effect and manifest is not None:
+            mutating_effect = manifest.resolve().mutating
+        if (
+            mutating_effect
+            or _event_has_project_artifact(event)
+        ):
             return True
     return False
 
@@ -618,7 +641,18 @@ async def run_persist(
                 v1_kind = _ARTIFACT_TYPE_V1_MAP.get(raw_kind)
                 if not v1_kind:
                     continue
-                yield sse_event(_artifact_ready(state.run_id, artifact_id, v1_kind))
+                yield sse_event(
+                    _artifact_ready(
+                        state.run_id,
+                        artifact_id,
+                        v1_kind,
+                        source_tool=(
+                            str(artifact.get("source_tool") or "") or None
+                            if artifact.get("product_event") == "artifact_ready"
+                            else None
+                        ),
+                    )
+                )
 
     # Build artifact notice
     artifact_notice = _build_artifact_notice(state.artifacts) if state.artifacts else ""

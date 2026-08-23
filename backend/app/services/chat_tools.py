@@ -5,16 +5,8 @@ import re
 from dataclasses import dataclass
 
 from app.services.artifact_intent import ArtifactContract
+from app.tools.capabilities import tool_running_message
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
-
-_TOOL_DISPLAY_NAMES = {
-    "manage_project_files": "管理项目文件",
-    "manage_project_folders": "管理项目文件夹",
-    "read_project_file": "读取项目文件",
-    READ_MARKDOWN_TOOL_NAME: "读取项目文档",
-    PROJECT_MARKDOWN_TOOL_NAME: "写入项目 Markdown 文档",
-    "write_project_office_document": "生成项目文档",
-}
 
 
 @dataclass
@@ -97,7 +89,7 @@ def _tool_progress_payload(tool_name: str, tool_input: dict) -> dict:
         return {"message": f"Generating spreadsheet ({len(tool_input.get('sheets', []))} sheets)\u2026"}
     if tool_name == "generate_pdf":
         return {"message": f"Generating PDF \"{tool_input.get('title', 'Untitled')}\"\u2026"}
-    return {"message": f"正在执行{_TOOL_DISPLAY_NAMES.get(tool_name, tool_name)}…"}
+    return {"message": tool_running_message(tool_name)}
 
 
 def _tool_start_progress_payload(tool_name: str) -> dict | None:
@@ -113,7 +105,7 @@ def _tool_start_progress_payload(tool_name: str) -> dict | None:
         return {"message": "Generating spreadsheet..."}
     if tool_name == "generate_pdf":
         return {"message": "Generating PDF..."}
-    return {"message": f"正在执行{_TOOL_DISPLAY_NAMES.get(tool_name, tool_name)}..."}
+    return {"message": tool_running_message(tool_name)}
 
 
 def _user_requested_project_markdown_write(content: str) -> bool:

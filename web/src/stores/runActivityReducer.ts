@@ -36,6 +36,7 @@ export interface ActivityArtifact {
   type: ArtifactType;
   download_url?: string;
   preview_url?: string;
+  source_tool?: string;
 }
 
 export interface ActivityTaskState {
@@ -220,6 +221,7 @@ export function reduceRunActivity(
             type: event.artifact_type,
             download_url: event.download_url,
             preview_url: event.preview_url,
+            source_tool: event.source_tool,
           },
         ],
       };

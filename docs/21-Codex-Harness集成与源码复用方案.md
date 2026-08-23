@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
 > 更新日期：2026-08-23
-> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M 已实施
+> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -79,7 +79,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 
 大型 Rust 子系统只有在 Python 重写成本明显高于收益、且 Aria 确实需要同类能力时才重新评估。目前没有这种必要。
 
-## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M 已吸收的源码机制
+## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N 已吸收的源码机制
 
 | Codex 上游机制 | 上游路径 | Aria 原生实现 | 接入位置 | 价值 |
 |---|---|---|---|---|
@@ -551,6 +551,17 @@ Phase 2L 吸收 Codex Guardian Review 的有界证据、结构化 Finding 和显
 - `codex-rs/core/src/tools/events.rs`。
 
 已完成：新增 Aria 原生 `ToolExecutionRecord v1`，所有普通工具、文本回退工具、Persist 补偿工具和 Durable Task 工具都经过同一写入边界；`tool_use_id` 将 planned 与 terminal 状态合并，`outcome` 为 Rollout、完成裁决和时间线提供统一判定。长期台账只允许保存摘要、错误、审批、重试和耗时字段，拒绝原始 `input/tool_input/output`；记录超过 256 条或 32 KiB 时优先保留最近证据，并用本地生成、调用方不可伪造的 marker 记录省略数量。前端重复工具按 `tool_use_id` 区分，不再错误覆盖同一步内的同名调用。实现不调用 Codex、不新增数据库迁移。
+
+### Phase 2N：工具能力清单与产品事件映射（已实施）
+
+参考候选：
+
+- `codex-rs/core/src/tools/registry.rs`；
+- `codex-rs/core/src/tools/router.rs`；
+- `codex-rs/core/src/tools/parallel.rs`；
+- `codex-rs/core/src/tools/tool_dispatch_trace.rs`。
+
+已完成：为现有 17 个 Aria 工具建立 `ToolCapabilityManifest v1`，统一声明 display name、项目作用域、操作级 ActionPolicy、副作用、只读并行、重试模式、结果类型和 Product Run Event；注册时校验名称与 JSON object schema、绑定 schema SHA-256 并拒绝重复名称，未分类工具默认按 `destructive_action + serial + never retry` 失败关闭。Policy Guard、Tool Scheduler、Agent Executor、Persist 真值门、工具审计和前端产品事件标题均改为读取同一事实源；Artifact 在提取时携带 `source_tool/product_event`，持久化后的 `artifact_ready` 可追溯到来源工具。该批同时补齐 `manage_pdf` 的项目作用域注入，并关闭 Office 编辑、PDF 写操作与文档翻译误落入只读默认策略的缺口。实现不调用 Codex，不新增数据库迁移。
 
 ## 8. 许可证与升级流程
 

@@ -11,16 +11,10 @@ from app.services.context_builder.query_classifiers import (
     is_workspace_project_inventory_query,
 )
 from app.services.artifact_intent import detect_artifact_intent, is_question_like, primary_user_request_text
-from app.services.tool_descriptions import tool_required_policy
-from app.tools.office_documents import (
-    MANAGE_PROJECT_FOLDERS_TOOL_NAME,
-    MANAGE_PROJECT_FILES_TOOL_NAME,
-    READ_PROJECT_FILE_TOOL_NAME,
-    WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+from app.tools.capabilities import (
+    resolve_tool_capability,
+    resolve_tool_manifest,
 )
-from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
-
-PPT_GENERATION_TOOL_NAMES = {"generate_ppt", "generate_ppt_from_skill"}
 
 
 class PolicyRank(IntEnum):
@@ -510,48 +504,12 @@ def classify_chat_mode_and_policy(
 
 
 def _required_policy_for_tool(tool_name: str, tool_input: dict[str, Any] | None = None) -> ActionPolicy:
-    tool_input = tool_input or {}
-    operation = str(
-        tool_input.get("action")
-        or tool_input.get("mode")
-        or tool_input.get("file_type")
-        or tool_input.get("document_type")
-        or "default"
-    ).lower()
-    configured_policy = tool_required_policy(tool_name, operation)
-    if configured_policy:
-        try:
-            return ActionPolicy(configured_policy)
-        except ValueError:
-            pass
-    if tool_name in {READ_MARKDOWN_TOOL_NAME, READ_PROJECT_FILE_TOOL_NAME}:
-        return ActionPolicy.READ_ONLY_TOOL
-    if tool_name == PROJECT_MARKDOWN_TOOL_NAME:
-        mode = str(tool_input.get("mode") or "").lower()
-        if mode in {"replace", "append"}:
-            return ActionPolicy.MODIFY_EXISTING_FILE
-        return ActionPolicy.WRITE_ARTIFACT
-    if tool_name == WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME:
-        return ActionPolicy.WRITE_ARTIFACT
-    if tool_name in PPT_GENERATION_TOOL_NAMES:
-        return ActionPolicy.WRITE_ARTIFACT
-    if tool_name == MANAGE_PROJECT_FOLDERS_TOOL_NAME:
-        action = str(tool_input.get("action") or "").lower()
-        if action in {"list"}:
-            return ActionPolicy.READ_ONLY_TOOL
-        if action in {"delete"}:
-            return ActionPolicy.DESTRUCTIVE_ACTION
-        if action in {"rename", "move_file"}:
-            return ActionPolicy.MODIFY_EXISTING_FILE
-        return ActionPolicy.WRITE_ARTIFACT
-    if tool_name == MANAGE_PROJECT_FILES_TOOL_NAME:
-        action = str(tool_input.get("action") or "").lower()
-        if action == "list":
-            return ActionPolicy.READ_ONLY_TOOL
-        if action == "delete":
-            return ActionPolicy.DESTRUCTIVE_ACTION
+    configured_policy = resolve_tool_capability(tool_name, tool_input).required_policy
+    try:
+        return ActionPolicy(configured_policy)
+    except ValueError:
+        # Invalid metadata never lowers the permission boundary.
         return ActionPolicy.DESTRUCTIVE_ACTION
-    return ActionPolicy.READ_ONLY_TOOL
 
 
 def policy_allows_tool(
@@ -587,11 +545,21 @@ def filter_tools_for_policy(tools: list[dict] | None, action_policy: ActionPolic
         name = str(tool.get("name") or "")
         if not name:
             continue
-        if name == MANAGE_PROJECT_FOLDERS_TOOL_NAME and POLICY_RANK[current] >= POLICY_RANK[ActionPolicy.MODIFY_EXISTING_FILE]:
-            filtered.append(tool)
-            continue
-        allowed, _, _ = policy_allows_tool(current, name, {})
-        if allowed:
+        manifest = resolve_tool_manifest(name)
+        policies = {
+            manifest.default.required_policy,
+            *(capability.required_policy for capability in manifest.operations.values()),
+        }
+        visible = False
+        for required_policy in policies:
+            try:
+                required = ActionPolicy(required_policy)
+            except ValueError:
+                continue
+            if POLICY_RANK[current] >= POLICY_RANK[required]:
+                visible = True
+                break
+        if visible:
             filtered.append(tool)
     return filtered
 

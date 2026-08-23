@@ -9,7 +9,12 @@ if TYPE_CHECKING:
     from app.services.chat_tools import ChatRuntime
 
 
-def _extract_artifact(result: dict) -> dict | None:
+def _extract_artifact(
+    result: dict,
+    *,
+    tool_name: str | None = None,
+    tool_input: dict | None = None,
+) -> dict | None:
     source = result
     if not (result.get("file_path") or result.get("path")) and isinstance(result.get("output"), dict):
         source = result["output"]
@@ -33,6 +38,12 @@ def _extract_artifact(result: dict) -> dict | None:
     project_file_id = source.get("project_file_id") or source.get("id")
     if isinstance(project_file_id, int):
         artifact["project_file_id"] = project_file_id
+    if tool_name:
+        from app.tools.capabilities import resolve_tool_capability
+
+        capability = resolve_tool_capability(tool_name, tool_input)
+        artifact["source_tool"] = tool_name
+        artifact["product_event"] = capability.product_event.value
     return artifact
 
 

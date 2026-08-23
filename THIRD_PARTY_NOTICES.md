@@ -31,6 +31,9 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - versioned tool-execution records, call-ID-linked lifecycle updates, trusted
   omission accounting, recent-first bounded retention, and shared outcome
   classification without persisting raw tool inputs or outputs;
+- fail-closed versioned tool capability manifests, duplicate-registration
+  rejection, registry-owned execution metadata, operation-aware policy and
+  scheduling lookup, schema fingerprints, and Product Run Event mapping;
 - `SKILL.md` frontmatter parsing and conservative YAML scalar repair; and
 - ordered Skill-root discovery, immutable content snapshots, cache reuse,
   error-isolated merging, and unambiguous candidate selection.

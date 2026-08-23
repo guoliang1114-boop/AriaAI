@@ -1,8 +1,8 @@
-"""Tool description and policy-spec loader.
+"""Tool description loader and capability-manifest compatibility helpers.
 
-Tool prompts and side-effect policy are product contracts, not implementation
-comments.  Keeping them in YAML makes the registry reviewable and testable
-without chasing scattered inline strings.
+Tool prompt copy remains in reviewable YAML. Execution policy, scheduling, and
+result semantics come from the versioned capability manifest so every runtime
+consumer reads one source of truth.
 """
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from app.tools.capabilities import resolve_tool_manifest
 
 
 _TOOLS_DIR = Path(__file__).resolve().parents[1] / "prompts" / "tools"
@@ -40,13 +42,10 @@ def tool_description(tool_name: str, fallback: str) -> str:
 
 
 def tool_required_policy(tool_name: str, operation: str = "default") -> str | None:
-    spec = load_tool_spec(tool_name)
-    policies = spec.get("required_policy") if spec else None
-    if not isinstance(policies, dict):
-        return None
     key = (operation or "default").strip().lower()
-    value = policies.get(key) or policies.get("default")
-    return str(value).strip() if value else None
+    manifest = resolve_tool_manifest(tool_name)
+    capability = manifest.operations.get(key, manifest.default)
+    return capability.required_policy
 
 
 def tool_supports_parallel(tool_name: str, operation: str = "default") -> bool:
@@ -56,12 +55,6 @@ def tool_supports_parallel(tool_name: str, operation: str = "default") -> bool:
     mixed read/write tool to opt in only its read-only operations.
     """
 
-    spec = load_tool_spec(tool_name)
-    configured = spec.get("parallel_safe") if spec else None
-    if isinstance(configured, bool):
-        return configured
-    if not isinstance(configured, dict):
-        return False
     key = (operation or "default").strip().lower()
-    value = configured.get(key, configured.get("default", False))
-    return value is True
+    manifest = resolve_tool_manifest(tool_name)
+    return manifest.operations.get(key, manifest.default).parallel_safe

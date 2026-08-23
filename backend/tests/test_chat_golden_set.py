@@ -11,7 +11,8 @@ from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPo
 from app.services.chat.turn_contract import build_turn_contract
 from app.services.intent_router import classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_access, filter_tools_for_policy, policy_allows_tool
-from app.services.tool_descriptions import load_tool_spec, tool_description
+from app.services.tool_descriptions import tool_description
+from app.tools.capabilities import resolve_tool_manifest
 from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 
 
@@ -384,9 +385,9 @@ def test_pptx_request_referencing_prior_outline_uses_conversational_artifact():
     assert called is False
 
 
-def test_tool_specs_are_loaded_from_yaml_and_drive_policy():
-    spec = load_tool_spec("update_project_markdown_document")
-    assert spec["required_policy"]["append"] == "modify_existing_file"
+def test_tool_manifests_drive_policy_while_yaml_drives_prompt_copy():
+    manifest = resolve_tool_manifest("update_project_markdown_document")
+    assert manifest.operations["append"].required_policy == "modify_existing_file"
     assert "analysis-only" in tool_description("update_project_markdown_document", "")
 
     allowed, _, required = policy_allows_tool(
@@ -415,7 +416,11 @@ def test_filter_tools_for_policy_uses_tool_default_policy_for_all_policies():
 
     filtered = filter_tools_for_policy(tools, ActionPolicy.WRITE_ARTIFACT)
 
-    assert [tool["name"] for tool in filtered or []] == ["read_project_markdown_document", "update_project_markdown_document"]
+    assert [tool["name"] for tool in filtered or []] == [
+        "read_project_markdown_document",
+        "update_project_markdown_document",
+        "manage_project_folders",
+    ]
 
 
 def test_tool_access_policy_hides_read_tools_for_injected_context_answers():

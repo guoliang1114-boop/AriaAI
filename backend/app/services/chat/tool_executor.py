@@ -47,11 +47,15 @@ from app.services.chat_tools import (
     _tool_progress_payload,
 )
 from app.tools import registry
+from app.tools.capabilities import (
+    TOOL_CAPABILITY_MANIFEST_VERSION,
+    ToolRetryMode,
+    resolve_tool_capability,
+    tool_is_project_scoped,
+)
 from app.tools.office_documents import (
-    EDIT_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
     MANAGE_PROJECT_FILES_TOOL_NAME,
     MANAGE_PROJECT_FOLDERS_TOOL_NAME,
-    READ_PROJECT_FILE_TOOL_NAME,
     WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
 )
 from app.tools.project_markdown import (
@@ -64,14 +68,6 @@ logger = logging.getLogger(__name__)
 
 _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
-_PROJECT_FILE_TOOLS = frozenset(
-    {
-        READ_PROJECT_FILE_TOOL_NAME,
-        WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
-        EDIT_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
-    }
-)
-_PROJECT_SPACE_MANAGEMENT_TOOLS = frozenset({MANAGE_PROJECT_FILES_TOOL_NAME, MANAGE_PROJECT_FOLDERS_TOOL_NAME})
 _MAX_TOOL_ATTEMPTS = 2
 _TRANSIENT_FAILURE_MARKERS = (
     "429",
@@ -117,20 +113,30 @@ def _result_failed(result: dict | None) -> bool:
     return result.get("status") == "error" or result.get("success") is False or bool(result.get("error"))
 
 
-def _should_retry_tool(runtime: ChatRuntime, tool_name: str) -> bool:
+def _should_retry_tool(runtime: ChatRuntime, tool_name: str, tool_input: dict[str, Any]) -> bool:
+    capability = resolve_tool_capability(tool_name, tool_input)
+    if capability.retry_mode is not ToolRetryMode.ARTIFACT:
+        return False
     contract = getattr(runtime, "artifact_contract", None)
     allowed_tools = set(getattr(contract, "allowed_tools", ()) or ())
     if getattr(contract, "delivery_required", False) and tool_name in allowed_tools:
         return True
-    return tool_name in _PROJECT_OFFICE_TOOLS
+    return True
 
 
-def _is_safe_read_retry_tool(tool_name: str) -> bool:
-    normalized = (tool_name or "").lower()
-    return normalized in {
-        READ_MARKDOWN_TOOL_NAME,
-        READ_PROJECT_FILE_TOOL_NAME,
-    } or normalized.startswith(("read_", "list_", "search_", "get_"))
+def _is_safe_read_retry_tool(tool_name: str, tool_input: dict[str, Any]) -> bool:
+    return resolve_tool_capability(tool_name, tool_input).retry_mode is ToolRetryMode.TRANSIENT_READ
+
+
+def _capability_record_fields(tool_name: str, tool_input: dict[str, Any] | None = None) -> dict[str, Any]:
+    capability = resolve_tool_capability(tool_name, tool_input)
+    return {
+        "capability_version": TOOL_CAPABILITY_MANIFEST_VERSION,
+        "tool_effect": capability.effect.value,
+        "result_kind": capability.result_kind.value,
+        "retry_mode": capability.retry_mode.value,
+        "product_event": capability.product_event.value,
+    }
 
 
 def _is_transient_failure(result: dict | None) -> bool:
@@ -389,8 +395,10 @@ def _apply_input_repair(
             changes=ppt_changes,
         )
 
-    if tool_name in _PROJECT_MARKDOWN_TOOLS and runtime.project_id is not None:
+    if runtime.project_id is not None and tool_is_project_scoped(tool_name):
         tool_input = {**tool_input, "project_id": runtime.project_id}
+
+    if tool_name in _PROJECT_MARKDOWN_TOOLS and runtime.project_id is not None:
         tool_input, md_changes = _repair_project_markdown_tool_input(tool_name, tool_input)
         if md_changes:
             state.record_trace_event(
@@ -399,9 +407,6 @@ def _apply_input_repair(
                 tool_name=tool_name,
                 changes=md_changes,
             )
-
-    if tool_name in _PROJECT_FILE_TOOLS and runtime.project_id is not None:
-        tool_input = {**tool_input, "project_id": runtime.project_id}
 
     if tool_name in _PROJECT_OFFICE_TOOLS:
         tool_input, office_changes = repair_project_office_tool_input(
@@ -415,9 +420,6 @@ def _apply_input_repair(
                 changes=office_changes,
             )
 
-    if tool_name in _PROJECT_SPACE_MANAGEMENT_TOOLS and runtime.project_id is not None:
-        tool_input = {**tool_input, "project_id": runtime.project_id}
-
     return tool_name, tool_input
 
 
@@ -425,6 +427,7 @@ def _handle_blocked(
     *,
     state: ChatSessionState,
     tool_name: str,
+    tool_input: dict[str, Any],
     tool_id: str,
     block_reason: str,
     required_policy: ActionPolicy,
@@ -455,6 +458,7 @@ def _handle_blocked(
             "attempt_count": 0,
             "max_attempts": 0,
             "retryable": False,
+            **_capability_record_fields(tool_name, tool_input),
         }
     )
     state.record_trace_event(
@@ -522,6 +526,7 @@ def _handle_confirmation(
             "attempt_count": 0,
             "max_attempts": 0,
             "retryable": False,
+            **_capability_record_fields(tool_name, tool_input),
         }
     )
     state.pending_tool_confirmations.append(
@@ -569,6 +574,7 @@ def _handle_patch_preflight_failure(
     *,
     state: ChatSessionState,
     tool_name: str,
+    tool_input: dict[str, Any],
     tool_id: str,
     step_index: int,
     exc: HTTPException,
@@ -597,6 +603,7 @@ def _handle_patch_preflight_failure(
             "attempt_count": 0,
             "max_attempts": 0,
             "retryable": exc.status_code == 409,
+            **_capability_record_fields(tool_name, tool_input),
         }
     )
     state.record_trace_event(
@@ -662,6 +669,10 @@ async def execute_tool_with_policy(
                 "attempt_count": 0,
                 "max_attempts": 0,
                 "retryable": False,
+                **_capability_record_fields(
+                    tool_name,
+                    tool_input if isinstance(tool_input, dict) else None,
+                ),
             }
         )
         return ToolOutcome(
@@ -697,6 +708,7 @@ async def execute_tool_with_policy(
         return _handle_blocked(
             state=state,
             tool_name=tool_name,
+            tool_input=tool_input,
             tool_id=tool_id,
             block_reason=evaluation.reason,
             required_policy=evaluation.required_policy,
@@ -713,6 +725,7 @@ async def execute_tool_with_policy(
             return _handle_patch_preflight_failure(
                 state=state,
                 tool_name=tool_name,
+                tool_input=tool_input,
                 tool_id=tool_id,
                 step_index=step_index,
                 exc=exc,
@@ -722,6 +735,7 @@ async def execute_tool_with_policy(
             return _handle_patch_preflight_failure(
                 state=state,
                 tool_name=tool_name,
+                tool_input=tool_input,
                 tool_id=tool_id,
                 step_index=step_index,
                 exc=HTTPException(500, "Structured patch preflight failed; no approval action was created."),
@@ -759,8 +773,8 @@ async def execute_tool_with_policy(
 
     # ---- Execute (bounded retry for artifact tools and transient reads) ----
     started_at = time.perf_counter()
-    retry_by_contract = _should_retry_tool(runtime, tool_name)
-    retry_safe_read = _is_safe_read_retry_tool(tool_name)
+    retry_by_contract = _should_retry_tool(runtime, tool_name, tool_input)
+    retry_safe_read = _is_safe_read_retry_tool(tool_name, tool_input)
     max_attempts = _MAX_TOOL_ATTEMPTS if retry_by_contract or retry_safe_read else 1
     result: dict | None = None
     attempt_count = 0
@@ -808,7 +822,7 @@ async def execute_tool_with_policy(
     duration_ms = round((time.perf_counter() - started_at) * 1000)
 
     # ---- Artifact extraction ----
-    artifact = _extract_artifact(result)
+    artifact = _extract_artifact(result, tool_name=tool_name, tool_input=tool_input)
     if artifact:
         state.artifacts.append(artifact)
 
@@ -853,6 +867,7 @@ async def execute_tool_with_policy(
             "attempt_count": attempt_count,
             "max_attempts": max_attempts,
             "retryable": failure_retryable,
+            **_capability_record_fields(tool_name, tool_input),
             **({"error": str(result.get("error"))} if result.get("error") else {}),
         }
     )

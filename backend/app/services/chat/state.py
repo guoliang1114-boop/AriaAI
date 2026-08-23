@@ -9,6 +9,10 @@ from app.services.agent_harness.tool_execution_record import (
     normalize_tool_execution_records,
 )
 from app.services.chat.agent_step import AgentStep
+from app.tools.capabilities import (
+    TOOL_CAPABILITY_MANIFEST_VERSION,
+    resolve_tool_capability,
+)
 
 
 @dataclass
@@ -87,11 +91,36 @@ class ChatSessionState:
 
     def record_tool_execution(self, event: dict[str, Any]) -> dict[str, Any]:
         """Append one canonical, bounded ToolExecutionRecord v1."""
-        return append_tool_execution_record(self.tool_call_events, event)
+        normalized_event = dict(event)
+        tool_name = str(normalized_event.get("tool_name") or normalized_event.get("name") or "")
+        raw_input = normalized_event.get("tool_input") or normalized_event.get("input")
+        capability = resolve_tool_capability(
+            tool_name,
+            raw_input if isinstance(raw_input, dict) else None,
+        )
+        normalized_event.setdefault("capability_version", TOOL_CAPABILITY_MANIFEST_VERSION)
+        normalized_event.setdefault("tool_effect", capability.effect.value)
+        normalized_event.setdefault("result_kind", capability.result_kind.value)
+        normalized_event.setdefault("retry_mode", capability.retry_mode.value)
+        normalized_event.setdefault("product_event", capability.product_event.value)
+        return append_tool_execution_record(self.tool_call_events, normalized_event)
 
     def replace_tool_execution_records(self, events: list[dict[str, Any]]) -> None:
         """Normalize records received from a durable/legacy execution path."""
-        self.tool_call_events = normalize_tool_execution_records(events)
+        enriched: list[dict[str, Any]] = []
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            payload = dict(event)
+            tool_name = str(payload.get("tool_name") or payload.get("name") or "")
+            capability = resolve_tool_capability(tool_name)
+            payload.setdefault("capability_version", TOOL_CAPABILITY_MANIFEST_VERSION)
+            payload.setdefault("tool_effect", capability.effect.value)
+            payload.setdefault("result_kind", capability.result_kind.value)
+            payload.setdefault("retry_mode", capability.retry_mode.value)
+            payload.setdefault("product_event", capability.product_event.value)
+            enriched.append(payload)
+        self.tool_call_events = normalize_tool_execution_records(enriched)
 
     def record_tool_use_via_text(self, stage: str, block: dict, *, status: str) -> None:
         """Record provider fallback tool JSON parsed from normal text."""
@@ -104,6 +133,7 @@ class ChatSessionState:
         event = {
             "tool_name": str(block.get("name") or ""),
             "tool_use_id": str(block.get("id") or ""),
+            "tool_input": block.get("input") if isinstance(block.get("input"), dict) else {},
             "status": status,
             "source": "text_fallback",
             "message": (

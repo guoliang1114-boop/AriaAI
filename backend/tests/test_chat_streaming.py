@@ -699,6 +699,14 @@ class ExtractArtifactTests(unittest.TestCase):
         self.assertEqual(result["name"], "y")
         self.assertEqual(result["description"], "n")
 
+    def test_source_tool_maps_artifact_to_product_event(self):
+        result = _extract_artifact(
+            {"path": "/x", "name": "y", "file_type": "docx"},
+            tool_name="generate_docx",
+        )
+        self.assertEqual(result["source_tool"], "generate_docx")
+        self.assertEqual(result["product_event"], "artifact_ready")
+
     def test_missing_fields_returns_none(self):
         self.assertIsNone(_extract_artifact({"file_path": "/a"}))
         self.assertIsNone(_extract_artifact({"file_name": "x"}))

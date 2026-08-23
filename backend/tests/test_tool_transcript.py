@@ -225,8 +225,8 @@ def test_agent_loop_normalizes_the_transcript_at_the_provider_boundary() -> None
 
 
 def test_agent_loop_drops_duplicate_call_id_before_tool_execution() -> None:
-    first = json.dumps(_tool_call("duplicate", "search"))
-    second = json.dumps(_tool_call("duplicate", "search_again"))
+    first = json.dumps(_tool_call("duplicate", "read_project_file"))
+    second = json.dumps(_tool_call("duplicate", "read_project_markdown_document"))
     llm = _SequenceLLM([[first, second], ["complete"]])
     runtime = SimpleNamespace(
         llm=llm,
@@ -256,7 +256,7 @@ def test_agent_loop_drops_duplicate_call_id_before_tool_execution() -> None:
     with patch("app.services.chat.agent_loop.execute_tool_with_policy", new=fake_execute):
         asyncio.run(collect())
 
-    assert executed == ["search"]
+    assert executed == ["read_project_file"]
     assert len(state.steps[0].tool_calls) == 1
     assert len(llm.received_messages[1][1]["content"]) == 1
     assert len(llm.received_messages[1][2]["content"]) == 1
@@ -266,7 +266,7 @@ def test_agent_loop_drops_duplicate_call_id_before_tool_execution() -> None:
 
 
 def test_agent_loop_rebudgets_large_tool_output_before_the_next_model_turn() -> None:
-    planned = json.dumps(_tool_call("large_call", "search"))
+    planned = json.dumps(_tool_call("large_call", "read_project_file"))
     llm = _SequenceLLM([[planned], ["complete"]])
     runtime = SimpleNamespace(
         llm=llm,

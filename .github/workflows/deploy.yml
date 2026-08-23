@@ -160,6 +160,7 @@ jobs:
                 tests/test_run_rollout.py \
                 tests/test_skill_root_snapshots.py \
                 tests/test_structured_patch.py \
+                tests/test_tool_capability_manifest.py \
                 tests/test_tool_execution_record.py \
                 tests/test_tool_transcript.py \
                 tests/test_tool_parallelism.py \

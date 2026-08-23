@@ -575,7 +575,7 @@ Model Layer（外部推理服务）
 | `tool_progress` | 可展示工具进度 | `run_id`, `step_index`, `title`, `status` | `detail`, `progress` | `status` 枚举：`pending`, `running`, `completed`, `failed`；归属于当前步骤 |
 | `task_update` | 长任务进度更新 | `run_id`, `task_id`, `status` | `progress_pct`, `current_step`, `total_steps`, `step_title` | `progress_pct` 为 0–100 整数；在 `task` mode 下作为时间线步骤渲染 |
 | `confirmation_required` | 需要用户确认 | `run_id`, `action`, `impact` | `params_snapshot`, `deadline` | `action` 必须人类可读，`params_snapshot` 用于确认后冻结执行 |
-| `artifact_ready` | 交付物可用 | `run_id`, `artifact_id`, `artifact_type` | `download_url`, `preview_url` | `artifact_type` 枚举：`pptx`, `docx`, `xlsx`, `pdf`, `markdown` |
+| `artifact_ready` | 交付物可用 | `run_id`, `artifact_id`, `artifact_type` | `download_url`, `preview_url`, `source_tool` | `artifact_type` 枚举：`pptx`, `docx`, `xlsx`, `pdf`, `markdown`；`source_tool` 来自 Tool Capability Manifest 映射 |
 | `message_persisted` | assistant message 已保存 | `run_id`, `message_id` | `parent_run_id` | 用于 streaming 气泡替换为持久化消息 |
 | `run_done` | run 完成 | `run_id`, `final_status` | `message_id`, `artifact_ids` | `final_status` 必须与 run status 一致 |
 | `run_failed` | run 失败 | `run_id`, `error_code`, `error_message` | `retryable`, `fallback_content` | `error_message` 面向用户，禁止暴露内部堆栈 |
@@ -874,15 +874,15 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 目标：降低扩展新工具、新 Skill、新交付物的成本。
 
-当前进展（2026-08-23）：第一批“工具结果 schema 标准化”已落地。后端统一输出 `ToolExecutionRecord v1`（版本、调用 ID、status、outcome、终态、摘要、错误、重试与耗时），Rollout、Evaluation、Persist 和前端 Store 已共用该契约；原始工具输入/输出不进入长期台账，超限时保留最近记录并显式报告省略数。后续继续推进工具注册表、context builder、artifact/memory candidate 与 product event 映射。
+当前进展（2026-08-23）：前两批已经落地。第一批统一 `ToolExecutionRecord v1`（版本、调用 ID、status、outcome、终态、摘要、错误、重试与耗时），Rollout、Evaluation、Persist 和前端 Store 共用该契约；原始工具输入/输出不进入长期台账，超限时保留最近记录并显式报告省略数。第二批统一 `ToolCapabilityManifest v1`：17 个现有工具的权限、副作用、并行、重试、项目作用域、结果类型、展示名和 Product Run Event 进入一个注册事实源，未知工具失败关闭，Artifact Ready 事件保留来源工具。后续继续推进 context builder，以及 artifact / memory candidate 保存流程。
 
 范围：
 
-- 工具注册表标准化。
-- 工具结果 schema 标准化。
+- 工具注册表标准化。（首批已完成）
+- 工具结果 schema 标准化。（首批已完成）
 - context builder 输出 schema 标准化。
 - artifact 和 memory candidate 保存流程标准化。
-- tool result 到 product event 的映射标准化。
+- tool result 到 product event 的映射标准化。（Artifact / Tool Progress 首批已完成）
 
 预期收益：
 

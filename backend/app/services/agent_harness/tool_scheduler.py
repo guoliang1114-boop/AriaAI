@@ -20,7 +20,7 @@ from typing import Any, Sequence
 
 from app.services.agent_harness.tool_policy import PolicyDecision, evaluate_tool_policy
 from app.services.chat.mode_registry import ActionPolicy
-from app.services.tool_descriptions import tool_supports_parallel
+from app.tools import registry
 
 DEFAULT_MAX_PARALLEL_TOOLS = 4
 HARD_MAX_PARALLEL_TOOLS = 8
@@ -69,16 +69,6 @@ def normalize_max_parallel(value: Any) -> int:
     return max(1, min(parsed, HARD_MAX_PARALLEL_TOOLS))
 
 
-def _operation(tool_input: dict[str, Any]) -> str:
-    return str(
-        tool_input.get("action")
-        or tool_input.get("mode")
-        or tool_input.get("file_type")
-        or tool_input.get("document_type")
-        or "default"
-    ).strip().lower()
-
-
 def tool_call_supports_parallel(
     action_policy: ActionPolicy | str,
     tool_call: dict[str, Any],
@@ -96,7 +86,7 @@ def tool_call_supports_parallel(
         return False
     if evaluation.required_policy is not ActionPolicy.READ_ONLY_TOOL:
         return False
-    return tool_supports_parallel(name, _operation(tool_input))
+    return registry.resolve_capability(name, tool_input).parallel_safe
 
 
 def plan_tool_execution(

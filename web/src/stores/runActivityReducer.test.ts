@@ -101,6 +101,7 @@ describe("reduceRunActivity", () => {
         artifact_id: "57",
         artifact_type: "pptx",
         download_url: "/files/57",
+        source_tool: "generate_ppt_from_skill",
       },
       { type: "message_persisted", run_id: "r", message_id: 100 },
       { type: "run_done", run_id: "r", final_status: "waiting_confirmation" },
@@ -112,7 +113,12 @@ describe("reduceRunActivity", () => {
       deadline: undefined,
     });
     expect(t.artifacts).toHaveLength(1);
-    expect(t.artifacts[0]).toMatchObject({ id: "57", type: "pptx", download_url: "/files/57" });
+    expect(t.artifacts[0]).toMatchObject({
+      id: "57",
+      type: "pptx",
+      download_url: "/files/57",
+      source_tool: "generate_ppt_from_skill",
+    });
     expect(t.message_id).toBe(100);
     expect(t.final_status).toBe("waiting_confirmation");
   });
