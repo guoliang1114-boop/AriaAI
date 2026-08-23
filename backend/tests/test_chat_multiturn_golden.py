@@ -11,6 +11,7 @@ import yaml
 from app.services.chat.persist import run_persist
 from app.services.chat.state import ChatSessionState
 from app.services.chat.working_memory import build_working_memory, should_continue_current_artifact
+from app.services.conversation_state import merge_user_constraints
 
 
 def _cases() -> list[dict]:
@@ -49,7 +50,7 @@ def test_multiturn_truth_gate_golden_cases():
         state = ChatSessionState()
         state.full_text = case["assistant_text"]
         with patch("app.services.chat.persist.persist_assistant_message") as mock_persist, \
-             patch("app.services.chat.persist.persist_generated_artifacts") as mock_artifacts:
+             patch("app.services.chat.persist.persist_run_artifacts") as mock_artifacts:
             mock_persist.return_value = (False, 99)
             mock_artifacts.return_value = []
             async for _ in run_persist(runtime, req, MagicMock(), state):
@@ -59,3 +60,11 @@ def test_multiturn_truth_gate_golden_cases():
     for case in [item for item in _cases() if item["kind"] == "truth_gate"]:
         text = asyncio.run(run_case(case))
         assert case["expected_text_contains"] in text, case["id"]
+
+
+def test_multiturn_constraint_resolution_golden_cases():
+    for case in [item for item in _cases() if item["kind"] == "constraint_merge"]:
+        assert merge_user_constraints(
+            case["existing_constraints"],
+            case["user_content"],
+        ) == case["expected_constraints"], case["id"]

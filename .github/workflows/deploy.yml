@@ -155,7 +155,9 @@ jobs:
                 tests/test_activity_timeline_persist.py \
                 tests/test_approval_envelope.py \
                 tests/test_context_assembly_manifest.py \
+                tests/test_conversation_capsule.py \
                 tests/test_database_extended.py \
+                tests/test_instruction_manifest.py \
                 tests/test_knowledge_evidence.py \
                 tests/test_knowledge_job_recovery.py \
                 tests/test_knowledge_legacy_migration.py \
@@ -173,7 +175,8 @@ jobs:
                 tests/test_turn_interrupt.py \
                 tests/test_turn_budget.py \
                 tests/test_turn_retry.py \
-                tests/test_chat_actions.py
+                tests/test_chat_actions.py \
+                tests/test_chat_multiturn_golden.py
 
             # Govern historical migration state before applying the latest schema.
             "$PYTHON" scripts/migration_governance.py report

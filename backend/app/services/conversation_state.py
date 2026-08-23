@@ -14,6 +14,11 @@ from app.services.time_utils import utc_now_naive
 _CONSTRAINT_TERMS = (
     "必须",
     "不要",
+    "不用",
+    "无需",
+    "取消",
+    "改成",
+    "改为",
     "不能",
     "保持",
     "统一",
@@ -21,11 +26,25 @@ _CONSTRAINT_TERMS = (
     "写入",
     "输出为",
     "正式",
+    "口语",
+    "简洁",
+    "详细",
+    "只回答",
+    "不要修改",
     "深度",
     "辩证",
     "Markdown",
     ".md",
 )
+
+_CONSTRAINT_DIMENSIONS = {
+    "tone": ("正式", "口语", "语气", "专业"),
+    "detail": ("简洁", "详细", "辩证", "深度", "简短", "展开"),
+    "format": ("markdown", ".md", "ppt", "pptx", "docx", "xlsx", "pdf", "格式", "输出为"),
+    "action": ("写入", "保存", "修改", "更新", "覆盖", "只回答", "只分析", "不要修改"),
+    "length": ("篇幅", "长度", "页", "字"),
+    "language": ("中文", "英文", "中英", "语言"),
+}
 
 
 def _loads(value: str, fallback):
@@ -45,11 +64,68 @@ def _compact(text: str, limit: int = 500) -> str:
     return value[:limit]
 
 
-def _extract_constraint(user_content: str) -> str:
+def _extract_constraints(user_content: str) -> list[str]:
     text = _compact(user_content, 300)
     if not text:
-        return ""
-    return text if any(term.lower() in text.lower() for term in _CONSTRAINT_TERMS) else ""
+        return []
+    clauses = re.split(r"[\n，,；;。]+", text)
+    constraints: list[str] = []
+    for clause in clauses:
+        normalized = re.sub(r"^(?:并且|而且|同时|并|且)\s*", "", clause.strip())
+        if not normalized:
+            continue
+        if any(term.lower() in normalized.lower() for term in _CONSTRAINT_TERMS):
+            constraints.append(normalized)
+    return constraints
+
+
+def _constraint_dimensions(text: str) -> set[str]:
+    normalized = str(text or "").lower()
+    return {
+        dimension
+        for dimension, terms in _CONSTRAINT_DIMENSIONS.items()
+        if any(term.lower() in normalized for term in terms)
+    }
+
+
+def merge_user_constraints(
+    existing: list[Any] | None,
+    current_content: str,
+    *,
+    limit: int = 12,
+) -> list[str]:
+    """Merge durable user constraints while retiring explicitly superseded ones.
+
+    Historical requirements are retained by default. A current turn only
+    retires requirements in a dimension it explicitly restates, such as tone,
+    output format, language, or write policy. This gives current user
+    instructions a deterministic override boundary without treating every
+    topic change as a preference reset.
+    """
+
+    normalized_existing: list[str] = []
+    for item in list(existing or []):
+        if item is None or not str(item).strip() or str(item).strip().lower() == "none":
+            continue
+        split_items = _extract_constraints(str(item))
+        normalized_existing.extend(split_items or [str(item).strip()])
+
+    current_constraints = _extract_constraints(current_content)
+    if not current_constraints:
+        return list(dict.fromkeys(normalized_existing))[: max(1, limit)]
+
+    current_dimensions: set[str] = set()
+    for constraint in current_constraints:
+        current_dimensions.update(_constraint_dimensions(constraint))
+    if current_dimensions:
+        normalized_existing = [
+            item
+            for item in normalized_existing
+            if not (_constraint_dimensions(item) & current_dimensions)
+        ]
+
+    merged = [*current_constraints, *normalized_existing]
+    return list(dict.fromkeys(merged))[: max(1, limit)]
 
 
 def _task_from_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -114,12 +190,10 @@ def upsert_conversation_state_from_metadata(
         active_file_ids.insert(0, file_id)
         active_file_ids = active_file_ids[:12]
 
-    constraints = _loads(state.user_constraints_json, [])
-    constraint = _extract_constraint(user_content)
-    if constraint:
-        constraints = [item for item in constraints if item != constraint]
-        constraints.insert(0, constraint)
-        constraints = constraints[:12]
+    constraints = merge_user_constraints(
+        _loads(state.user_constraints_json, []),
+        user_content,
+    )
 
     decisions = _loads(state.decisions_json, [])
     tool_calls = metadata.get("tool_calls") if isinstance(metadata.get("tool_calls"), list) else []

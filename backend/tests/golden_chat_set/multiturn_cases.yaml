@@ -26,3 +26,24 @@ cases:
     action_policy: modify_existing_file
     assistant_text: "已完成归类，并已经移动文件。"
     expected_text_contains: "没有完成这个操作"
+
+  - id: current_tone_override_retires_historical_tone
+    kind: constraint_merge
+    existing_constraints:
+      - 必须使用正式语气
+      - 输出为 Markdown
+    user_content: "不用正式语气，改成简洁口语"
+    expected_constraints:
+      - 不用正式语气
+      - 改成简洁口语
+      - 输出为 Markdown
+
+  - id: unrelated_followup_retains_confirmed_constraints
+    kind: constraint_merge
+    existing_constraints:
+      - 必须使用正式语气
+      - 输出为 Markdown
+    user_content: "继续补充竞争分析"
+    expected_constraints:
+      - 必须使用正式语气
+      - 输出为 Markdown

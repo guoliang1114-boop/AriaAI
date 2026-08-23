@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
 > 更新日期：2026-08-24
-> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q + Phase 2R + Phase 2S + Phase 2T 已实施
+> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q + Phase 2R + Phase 2S + Phase 2T + Phase 2U 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -81,7 +81,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 
 大型 Rust 子系统只有在 Python 重写成本明显高于收益、且 Aria 确实需要同类能力时才重新评估。目前没有这种必要。
 
-## 4. Phase 1 至 Phase 2T 已吸收的源码机制
+## 4. Phase 1 至 Phase 2U 已吸收的源码机制
 
 | Codex 上游机制 | 上游路径 | Aria 原生实现 | 接入位置 | 价值 |
 |---|---|---|---|---|
@@ -694,6 +694,19 @@ Phase 2S 把 Codex apply-patch 的“先冻结基线、写入前重新验证”�
 - `codex-rs/core/src/session/turn.rs`。
 
 已完成：把 `Conversation.skill_id` 从永久注入开关改为可续接元数据，只有相关追问、当前 Skill 明确提及或高置信相关工作流才在本轮继续生效；普通无关问题、话题切换和显式停用会释放旧关联，新工作流仍可切换到新的唯一高置信 Skill。`ChatRuntime`、`run_started` 和 Chat UI 现在共享实际 Skill ID、名称与来源，用户能看到显式启用、自动匹配或相关追问沿用的运行回执。实现不调用 Codex、不新增数据库迁移。完整差距矩阵和后续路线见 `docs/22-项目对话与Skill交互全量优化方案.md`。
+
+### Phase 2U：Conversation Capsule 与指令优先级（已实施）
+
+参考候选：
+
+- `codex-rs/core/src/context_manager/history.rs`；
+- `codex-rs/core/src/context/world_state/mod.rs`；
+- `codex-rs/core/src/session/turn.rs`；
+- `codex-rs/codex-home/src/instructions/mod.rs`。
+
+已完成：新增 Provider-neutral `Conversation Capsule v1`，每轮从现有 `ConversationState` 和消息元数据确定性重建，保留当前目标、Turn 模式、交付物/任务、有效约束、决策、工具结果、未解除阻塞与下一目标；胶囊绑定会话/项目/来源消息并形成上一胶囊哈希链，跨项目状态不续接，工具输入、完整输出、服务器路径和隐藏推理不进入胶囊。用户明确重述语气、详略、格式、语言或写入策略时，同维度旧约束会被永久撤销，普通追问仍保留其他确认约束。
+
+同时新增八层 `InstructionManifest v1`，固定平台规则 > 本轮用户要求 > 项目作用域 > 当前任务状态 > 有效 Skill > 用户偏好 > 工作区证据 > 历史 Capsule；Context Assembly、Message、ChatTrace 和 Run Evaluation 共享其无原文指纹清单与 Capsule 证据。实现复用现有 JSON 字段，不调用 Codex 或 Provider 专属远程压缩，不新增数据库迁移。完整交互规范见 `docs/22-项目对话与Skill交互全量优化方案.md`。
 
 ## 8. 许可证与升级流程
 

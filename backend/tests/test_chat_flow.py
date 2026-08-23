@@ -23,6 +23,7 @@ from app.models.db import (
     ClientRecord,
     ClientStakeholder,
     Conversation,
+    ConversationState,
     DocumentChunk,
     GeneratedFile,
     KnowledgeDocument,
@@ -76,6 +77,8 @@ from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
 from app.services import scheduler as scheduler_module
 from app.services.chat.runtime import prepare_chat_runtime, _upgrade_policy_for_artifact_continuation
+from app.services.agent_harness.conversation_capsule import validate_conversation_capsule
+from app.services.agent_harness.instruction_manifest import validate_instruction_manifest
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.intent_router import IntentDecision
 from contextlib import ExitStack, contextmanager
@@ -3621,6 +3624,56 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(len(runtime.api_messages), chat_streaming_module.CHAT_HISTORY_WINDOW)
         self.assertEqual(runtime.api_messages[0]["content"], "message-7")
         self.assertEqual(runtime.api_messages[-1]["content"], "latest-message")
+
+    def test_prepare_chat_runtime_builds_capsule_and_instruction_manifest(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            session.add(
+                ConversationState(
+                    conversation_id=conv_id,
+                    user_constraints_json=json.dumps(
+                        ["必须使用正式语气", "输出为 Markdown"],
+                        ensure_ascii=False,
+                    ),
+                )
+            )
+            session.commit()
+
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: "system"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        content="不用正式语气，改成简洁口语",
+                    ),
+                )
+
+        self.assertEqual(validate_conversation_capsule(runtime.conversation_capsule), (True, "valid"))
+        self.assertEqual(validate_instruction_manifest(runtime.instruction_manifest), (True, "valid"))
+        self.assertEqual(
+            runtime.conversation_capsule["confirmed_constraints"],
+            ["不用正式语气", "改成简洁口语", "输出为 Markdown"],
+        )
+        self.assertIn("Conversation Capsule v1", runtime.system)
+        self.assertIn("Instruction Precedence Manifest v1", runtime.system)
+        source_ids = [source["source_id"] for source in runtime.context_manifest["sources"]]
+        self.assertIn("conversation_capsule", source_ids)
+        self.assertIn("instruction_manifest", source_ids)
+        self.assertNotIn("working_memory", source_ids)
+        self.assertTrue(runtime.prepare_metrics["conversation_capsule"]["valid"])
+        self.assertTrue(runtime.prepare_metrics["instruction_manifest"]["valid"])
 
     def test_prepare_chat_runtime_routes_standalone_short_chat_to_fast_model(self):
         conv_id = self._create_conversation()

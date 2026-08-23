@@ -61,6 +61,43 @@ def test_persist_assistant_message_updates_conversation_state():
         engine.dispose()
 
 
+def test_persist_assistant_message_retires_only_superseded_constraint_dimension():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            conv = Conversation()
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+            conv_id = conv.id
+
+        persist_assistant_message(
+            engine,
+            conv_id,
+            "会按正式 Markdown 输出。",
+            "必须使用正式语气，并输出为 Markdown",
+            {},
+        )
+        persist_assistant_message(
+            engine,
+            conv_id,
+            "已改成口语表达。",
+            "不用正式语气，改成简洁口语",
+            {},
+        )
+
+        with Session(engine) as session:
+            payload = get_conversation_state_payload(session, conv_id)
+
+        assert payload["user_constraints"] == [
+            "不用正式语气",
+            "改成简洁口语",
+            "输出为 Markdown",
+        ]
+    finally:
+        engine.dispose()
+
+
 def test_persist_assistant_message_records_state_update_failure():
     engine = _engine()
     try:

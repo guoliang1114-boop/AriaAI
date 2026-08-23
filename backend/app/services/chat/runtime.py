@@ -31,6 +31,16 @@ from app.services.agent_harness.context_budget import (
 )
 from app.services.agent_harness.tool_transcript import normalize_tool_transcript
 from app.services.agent_harness.knowledge_evidence import knowledge_evidence_reference
+from app.services.agent_harness.conversation_capsule import (
+    build_conversation_capsule,
+    conversation_capsule_reference,
+    format_conversation_capsule_for_prompt,
+)
+from app.services.agent_harness.instruction_manifest import (
+    build_instruction_manifest,
+    format_instruction_precedence_for_prompt,
+    instruction_manifest_reference,
+)
 from app.services.chat_store import (
     build_message_metadata,
     get_recent_message_history,
@@ -56,7 +66,6 @@ from app.services.chat.mode_registry import ActionPolicy, ChatMode, MODE_CONFIG,
 from app.services.chat.turn_contract import build_turn_contract
 from app.services.chat.working_memory import (
     build_working_memory,
-    format_working_memory_for_prompt,
     should_continue_current_artifact,
 )
 from app.services.consulting_intelligence import ConsultingTurnFrame, build_consulting_turn_frame
@@ -859,9 +868,6 @@ def prepare_chat_runtime(
         chat_mode=intent_decision.chat_mode,
     )
     provider_system_contract = system
-    working_memory_prompt = format_working_memory_for_prompt(working_memory)
-    if working_memory_prompt:
-        system = f"{system.rstrip()}\n\n{working_memory_prompt}\n"
     if tool_history_context:
         system = f"{system.rstrip()}\n\n{tool_history_context}\n"
     consulting_frame = build_consulting_turn_frame(
@@ -907,6 +913,71 @@ def prepare_chat_runtime(
         prepare_metrics["user_memory_injected"] = True
         prepare_metrics["user_memory_chars"] = len(user_memory_section)
 
+    # Conversation Capsule v1 is rebuilt from authoritative current state and
+    # message metadata on every turn. It is intentionally provider-neutral and
+    # replaces the old unversioned Working Memory prompt representation.
+    conversation_capsule = build_conversation_capsule(
+        conversation_id=conv_id,
+        project_id=req.project_id,
+        history=history,
+        current_content=req.content,
+        working_memory=working_memory,
+        turn_contract=turn_contract.to_dict(),
+    )
+    conversation_capsule_prompt = format_conversation_capsule_for_prompt(
+        conversation_capsule
+    )
+    if conversation_capsule_prompt:
+        system = f"{system.rstrip()}\n\n{conversation_capsule_prompt}\n"
+
+    platform_policy_layer = json.dumps(
+        {
+            "intent_contract": intent_contract.to_dict(),
+            "turn_contract": turn_contract.to_dict(),
+            "action_policy": intent_decision.action_policy.value,
+            "tool_access_policy": intent_decision.tool_access_policy.value,
+            "tool_names": [
+                str(tool.get("name") or tool.get("function", {}).get("name") or "")
+                for tool in (runtime_tools or [])
+                if isinstance(tool, dict)
+            ],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    active_task_layer = json.dumps(
+        {
+            "active_artifact": conversation_capsule.get("active_artifact"),
+            "active_task": conversation_capsule.get("active_task"),
+            "turn_mode": conversation_capsule.get("turn_mode"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    instruction_manifest = build_instruction_manifest(
+        layers={
+            "platform_policy": platform_policy_layer,
+            "current_user_request": req.content,
+            "project_scope": chat_ctx.project_context,
+            "active_task_state": active_task_layer,
+            "effective_skill": chat_ctx.skill_prompt,
+            "user_preferences": user_memory_section,
+            "workspace_evidence": chat_ctx.rag_context,
+            "conversation_capsule": conversation_capsule_prompt,
+        }
+    )
+    instruction_precedence_frame = format_instruction_precedence_for_prompt(
+        instruction_manifest
+    )
+    if instruction_precedence_frame:
+        system = f"{system.rstrip()}\n\n{instruction_precedence_frame}\n"
+    prepare_metrics["conversation_capsule"] = conversation_capsule_reference(
+        conversation_capsule
+    )
+    prepare_metrics["instruction_manifest"] = instruction_manifest_reference(
+        instruction_manifest
+    )
+
     # Aria-native context budgeting. This is intentionally provider-neutral and
     # performs no remote compaction call: system context, tool schemas, history,
     # output reserve, and a safety margin share one deterministic budget.
@@ -950,10 +1021,10 @@ def prepare_chat_runtime(
                 metadata={"provider": provider, "model": runtime_model},
             ),
             ContextSourceInput(
-                source_id="working_memory",
+                source_id="conversation_capsule",
                 kind="memory",
                 trust="workspace",
-                content=working_memory_prompt or "",
+                content=conversation_capsule_prompt or "",
             ),
             ContextSourceInput(
                 source_id="recent_tool_history",
@@ -1015,6 +1086,13 @@ def prepare_chat_runtime(
                 kind="preferences",
                 trust="user",
                 content=user_memory_section or "",
+            ),
+            ContextSourceInput(
+                source_id="instruction_manifest",
+                kind="policy",
+                trust="platform",
+                content=instruction_precedence_frame or "",
+                metadata=instruction_manifest_reference(instruction_manifest),
             ),
         ]
     )
@@ -1090,6 +1168,8 @@ def prepare_chat_runtime(
         intent_task_route=intent_decision.task_route,
         artifact_contract=intent_decision.artifact_contract,
         working_memory=working_memory.to_dict(),
+        conversation_capsule=conversation_capsule,
+        instruction_manifest=instruction_manifest,
         context_manifest=context_assembly.manifest,
         intent_prepared_async=intent_prepared_async,
         context_window_tokens=context_window_tokens,

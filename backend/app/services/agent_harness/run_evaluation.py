@@ -37,6 +37,14 @@ from app.services.agent_harness.knowledge_evidence import (
     knowledge_evidence_reference,
     validate_knowledge_evidence_manifest,
 )
+from app.services.agent_harness.conversation_capsule import (
+    conversation_capsule_reference,
+    validate_conversation_capsule,
+)
+from app.services.agent_harness.instruction_manifest import (
+    instruction_manifest_reference,
+    validate_instruction_manifest,
+)
 
 
 RUN_EVALUATION_SCHEMA_VERSION = 1
@@ -194,6 +202,10 @@ def evaluate_run_completion(
 
     context_manifest = getattr(runtime, "context_manifest", None)
     context_manifest_ref = context_manifest_reference(context_manifest)
+    conversation_capsule = getattr(runtime, "conversation_capsule", None)
+    conversation_capsule_ref = conversation_capsule_reference(conversation_capsule)
+    instruction_manifest = getattr(runtime, "instruction_manifest", None)
+    instruction_manifest_ref = instruction_manifest_reference(instruction_manifest)
     tool_events = [
         event
         for event in list(getattr(state, "tool_call_events", None) or [])
@@ -270,6 +282,44 @@ def evaluate_run_completion(
         # Direct unit/recovery constructors predate the production manifest.
         # They remain usable, but production runtimes always populate it.
         checks["context_assembly"] = "not_available"
+
+    if conversation_capsule:
+        capsule_valid, capsule_reason = validate_conversation_capsule(
+            conversation_capsule
+        )
+        if capsule_valid:
+            checks["conversation_capsule"] = "passed"
+        else:
+            checks["conversation_capsule"] = "failed"
+            findings.append(
+                _finding(
+                    "CONVERSATION_CAPSULE_INVALID",
+                    FindingSeverity.ERROR,
+                    "多轮对话状态胶囊未通过完整性校验。",
+                    validation_reason=capsule_reason,
+                )
+            )
+    else:
+        checks["conversation_capsule"] = "not_available"
+
+    if instruction_manifest:
+        instruction_valid, instruction_reason = validate_instruction_manifest(
+            instruction_manifest
+        )
+        if instruction_valid:
+            checks["instruction_manifest"] = "passed"
+        else:
+            checks["instruction_manifest"] = "failed"
+            findings.append(
+                _finding(
+                    "INSTRUCTION_MANIFEST_INVALID",
+                    FindingSeverity.ERROR,
+                    "指令优先级清单未通过完整性校验。",
+                    validation_reason=instruction_reason,
+                )
+            )
+    else:
+        checks["instruction_manifest"] = "not_available"
 
     if knowledge_evidence:
         evidence_valid, evidence_reason = validate_knowledge_evidence_manifest(
@@ -533,6 +583,8 @@ def evaluate_run_completion(
             "CONTEXT_ASSEMBLY_INVALID": "模型上下文清单校验失败，本轮未达到可验证完成状态。",
             "OUTPUT_PERSISTENCE_FAILED": "产物持久化证据未通过校验，本轮不会声称文件已经保存。",
             "KNOWLEDGE_EVIDENCE_INVALID": "知识证据清单校验失败，本轮未达到可验证完成状态。",
+            "CONVERSATION_CAPSULE_INVALID": "多轮对话状态胶囊校验失败，本轮未达到可验证完成状态。",
+            "INSTRUCTION_MANIFEST_INVALID": "指令优先级清单校验失败，本轮未达到可验证完成状态。",
         }
         summary = summary_by_code.get(
             primary_code,
@@ -559,6 +611,8 @@ def evaluate_run_completion(
             list(getattr(state, "pending_tool_confirmations", None) or [])
         ),
         "context_manifest": context_manifest_ref,
+        "conversation_capsule": conversation_capsule_ref,
+        "instruction_manifest": instruction_manifest_ref,
         "knowledge_evidence": knowledge_evidence_ref,
     }
     return RunCompletionEvaluation(

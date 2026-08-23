@@ -11,6 +11,9 @@ from app.services.agent_harness.run_evaluation import (
     evaluate_run_completion,
 )
 from app.services.agent_harness.run_rollout import reconstruct_rollout
+from app.services.agent_harness.conversation_capsule import build_conversation_capsule
+from app.services.agent_harness.instruction_manifest import build_instruction_manifest
+from app.services.chat.working_memory import WorkingMemory
 from app.services.chat.state import ChatSessionState
 from app.services.chat.trace import build_chat_trace_payload
 from app.services.chat.agent_loop import run_agent_loop
@@ -220,6 +223,62 @@ def test_completion_evaluation_checks_context_manifest_integrity() -> None:
     assert invalid.verdict is CompletionVerdict.FAILED
     assert invalid.checks["context_assembly"] == "failed"
     assert invalid.primary_finding_code == "CONTEXT_ASSEMBLY_INVALID"
+
+
+def test_completion_evaluation_checks_capsule_and_instruction_integrity() -> None:
+    capsule = build_conversation_capsule(
+        conversation_id=7,
+        project_id=3,
+        history=[],
+        current_content="继续分析",
+        working_memory=WorkingMemory(user_constraints=["输出为 Markdown"]),
+        turn_contract={"mode": "answer_only", "user_goal": "继续分析"},
+    )
+    instruction_manifest = build_instruction_manifest(
+        layers={
+            "platform_policy": "policy",
+            "current_user_request": "继续分析",
+            "conversation_capsule": capsule["capsule_sha256"],
+        }
+    )
+    state = SimpleNamespace(
+        tool_call_events=[],
+        steps=[],
+        trace_events=[],
+        artifacts=[],
+        pending_tool_confirmations=[],
+        pending_tool_actions=[],
+        confirmation_requested=False,
+        budget_exhausted=False,
+    )
+    valid = evaluate_run_completion(
+        SimpleNamespace(
+            context_manifest=None,
+            conversation_capsule=capsule,
+            instruction_manifest=instruction_manifest,
+        ),
+        state,
+        full_text="completed answer",
+    )
+
+    assert valid.verdict is CompletionVerdict.COMPLETED
+    assert valid.checks["conversation_capsule"] == "passed"
+    assert valid.checks["instruction_manifest"] == "passed"
+
+    tampered_capsule = deepcopy(capsule)
+    tampered_capsule["next_goal"] = "tampered"
+    invalid = evaluate_run_completion(
+        SimpleNamespace(
+            context_manifest=None,
+            conversation_capsule=tampered_capsule,
+            instruction_manifest=instruction_manifest,
+        ),
+        state,
+        full_text="completed answer",
+    )
+    assert invalid.verdict is CompletionVerdict.FAILED
+    assert invalid.checks["conversation_capsule"] == "failed"
+    assert invalid.primary_finding_code == "CONVERSATION_CAPSULE_INVALID"
 
 
 @pytest.mark.asyncio

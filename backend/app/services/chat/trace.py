@@ -24,6 +24,8 @@ from app.services.agent_harness.tool_execution_record import (
     tool_event_is_omission_marker,
 )
 from app.services.agent_harness.knowledge_evidence import knowledge_evidence_reference
+from app.services.agent_harness.conversation_capsule import conversation_capsule_reference
+from app.services.agent_harness.instruction_manifest import instruction_manifest_reference
 from app.services.chat.state import ChatSessionState
 from app.services.chat_tools import ChatRuntime
 
@@ -139,6 +141,12 @@ def build_chat_trace_payload(runtime: ChatRuntime, state: ChatSessionState) -> d
             "rollout_task_id": state.rollout_task_id,
             "context_manifest": context_manifest or {},
             "context_manifest_ref": context_manifest_reference(context_manifest),
+            "conversation_capsule": conversation_capsule_reference(
+                getattr(runtime, "conversation_capsule", None)
+            ),
+            "instruction_manifest": instruction_manifest_reference(
+                getattr(runtime, "instruction_manifest", None)
+            ),
             "knowledge_evidence": knowledge_evidence_reference(
                 getattr(state, "knowledge_evidence", None)
             ),

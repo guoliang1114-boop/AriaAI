@@ -57,6 +57,12 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - per-turn Skill mention/selection boundaries adapted into relevant-follow-up
   continuation, stale conversation-Skill release, and user-visible activation
   provenance.
+- project-bound retained conversation capsules, previous-state fingerprint
+  chaining, bounded tool outcomes, unresolved blocker retention, and
+  current-turn constraint supersession without remote compaction; and
+- stable instruction-layer identities and precedence adapted into a bounded,
+  no-content manifest covering platform policy, current user requests, project
+  scope, active task state, Skills, preferences, evidence, and history.
 
 Latest upstream audit baseline: commit `83d1fe0e67b1323f71febc2925817732b449f1d9`
 (2026-08-23). The specific upstream source path and Aria modification notice

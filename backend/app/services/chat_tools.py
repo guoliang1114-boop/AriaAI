@@ -38,6 +38,11 @@ class ChatRuntime:
     intent_task_route: object | None = None
     artifact_contract: ArtifactContract | None = None
     working_memory: dict | None = None
+    # Provider-neutral retained state and its explicit instruction precedence.
+    # Both are versioned and fingerprinted; direct test/recovery constructors
+    # may omit them for backward compatibility.
+    conversation_capsule: dict | None = None
+    instruction_manifest: dict | None = None
     # Privacy-safe Context Assembly Manifest v1. It fingerprints the exact
     # initial provider request without retaining raw prompt or retrieved text.
     context_manifest: dict | None = None

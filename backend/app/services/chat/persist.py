@@ -33,6 +33,9 @@ from app.services.agent_harness.knowledge_evidence import (
     knowledge_evidence_reference,
     resolve_runtime_knowledge_evidence,
 )
+from app.services.agent_harness.conversation_capsule import (
+    advance_conversation_capsule,
+)
 from app.services.artifact_intent import ArtifactContract
 from app.services.chat_tools import (
     ChatRuntime,
@@ -1093,6 +1096,22 @@ async def run_persist(
     working_memory = getattr(runtime, "working_memory", None)
     if isinstance(working_memory, dict) and working_memory:
         metadata["working_memory"] = working_memory
+    finalized_capsule = advance_conversation_capsule(
+        getattr(runtime, "conversation_capsule", None),
+        tool_events=state.tool_call_events,
+        assistant_summary=full_text,
+        waiting_confirmation=bool(
+            state.confirmation_requested
+            or state.pending_tool_confirmations
+            or pending_action_ids
+        ),
+    )
+    if finalized_capsule:
+        runtime.conversation_capsule = finalized_capsule
+        metadata["conversation_capsule"] = finalized_capsule
+    instruction_manifest = getattr(runtime, "instruction_manifest", None)
+    if isinstance(instruction_manifest, dict) and instruction_manifest:
+        metadata["instruction_manifest"] = instruction_manifest
     contract_metadata = _contract_to_metadata(artifact_contract)
     if contract_metadata:
         metadata["artifact_contract"] = contract_metadata

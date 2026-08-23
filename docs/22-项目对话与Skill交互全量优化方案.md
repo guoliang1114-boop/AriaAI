@@ -11,7 +11,7 @@ Aria 当前最薄弱的不是“模型不够强”，而是模型前后的交互
 1. `Conversation.skill_id` 被当成永久生效开关。用户切换话题后，旧 Skill 仍可能静默改变后续回答。
 2. 后端自动匹配或沿用 Skill 时，聊天页不知道本轮实际使用了哪个 Skill，也不能解释它为何被启用。
 
-Phase 2T 先关闭这两个缺口。长期目标则是让每一轮项目对话都能回答五个问题：
+Phase 2T 先关闭这两个缺口，Phase 2U 进一步补上长对话状态和指令冲突治理。长期目标则是让每一轮项目对话都能回答五个问题：
 
 - 我理解你现在要什么？
 - 我正在使用哪些项目事实、文件、记忆和 Skill？
@@ -24,14 +24,14 @@ Phase 2T 先关闭这两个缺口。长期目标则是让每一轮项目对话�
 | 能力层 | Codex 参考路径/机制 | 值得借鉴的原则 | Aria 当前状态 | Aria 后续动作 |
 |---|---|---|---|---|
 | 本轮输入边界 | `core/src/session/turn_input.rs`、`session/turn.rs` | 每轮输入是新的决策边界；追加上下文、纠偏和开始新轮次必须可区分 | 已有 `SendMessageRequest`、Turn Contract | 增加结构化“本轮目标/约束/引用对象”输入，不依赖纯文本猜测 |
-| 项目指令层级 | `codex-home/src/instructions/mod.rs` | 全局、项目、目录指令按明确层级加载，越近的规则越具体 | 已有系统 Prompt、项目上下文、Skill Prompt，但优先级主要靠拼接顺序 | 建立显式 `InstructionManifest`，记录来源、优先级、作用域和冲突裁决 |
+| 项目指令层级 | `codex-home/src/instructions/mod.rs` | 全局、项目、目录指令按明确层级加载，越近的规则越具体 | Phase 2U 已建立显式 `InstructionManifest v1` | 后续把简化冲突回执开放给前端，持续扩充跨层冲突评测 |
 | Skill 发现 | `skills/src/loading.rs`、`parser.rs` | 先发现元数据，命中后再加载完整内容；坏包隔离 | 已完成 Skill Root 快照、发布态目录、解析校验 | 增加作者预览、依赖校验、样例输入和质量评分 |
 | Skill 本轮选择 | `skills/src/mentions.rs`、`selection.rs` | 只解析本轮结构化输入和显式提及；去重后注入本轮 | 曾把会话 Skill 无条件粘住；Phase 2T 已修复 | 增加更丰富的显式 `@Skill` 解析和歧义候选确认 |
 | Skill 续用/释放 | Codex 的 per-turn selection boundary | Skill 不是会话永久所有者；是否续用应由本轮相关性决定 | Phase 2T 已实现相关追问续用、无关话题释放、显式退出 | 用真实匿名交互数据持续校准续用词与误触发率 |
 | Skill 可见性 | Turn 内 Skill 注入项 + 运行事件 | 用户应知道本轮实际加载了什么能力 | Phase 2T 已通过 `run_started.skill` 展示来源 | 增加可展开的“为什么匹配”和一键关闭/切换 |
 | 项目世界状态 | `core/src/context/world_state/` | 把工作目录、规则和环境变化建模为基线与差异，不把所有内容反复塞入 Prompt | 已有项目/客户结构化上下文与 Context Assembly Manifest | 增加项目状态版本、变化摘要和陈旧证据提示 |
-| 对话历史治理 | `core/src/context_manager/history.rs` | 保持工具调用/结果配对，压缩时保留任务状态和恢复边界 | 已有 history window、工具转录规范化和本地预算压缩 | 从“摘录旧消息”升级为结构化 continuation capsule |
-| 长对话压缩 | Context compaction 与状态续接 | 压缩结果必须保留目标、已完成动作、假设、标识、工具结果、阻塞与下一步 | 已有确定性本地压缩，未使用 Provider 专属远程压缩 | 建立 Provider-neutral `Conversation Capsule v1`，必要时再评估官方 Compaction API |
+| 对话历史治理 | `core/src/context_manager/history.rs` | 保持工具调用/结果配对，压缩时保留任务状态和恢复边界 | Phase 2U 已用结构化 Capsule 绑定目标、约束、工具结果、阻塞和来源消息 | 扩大真实长对话集，并在压缩前后自动比较状态保持率 |
+| 长对话压缩 | Context compaction 与状态续接 | 压缩结果必须保留目标、已完成动作、假设、标识、工具结果、阻塞与下一步 | Phase 2U 已建立 Provider-neutral `Conversation Capsule v1`，仍使用确定性本地预算压缩 | 先积累 Provider 对比数据，再决定是否按模型启用官方 Compaction API |
 | 计划与执行 | `session/turn.rs` 的 turn loop、任务状态 | 计划、执行、反馈和完成应有状态边界，用户纠偏可进入当前轮次 | 已有 Intent/Turn/Artifact Contract、Agent Loop、Durable Task | 给用户展示简洁执行契约，并支持“只改计划、不重开任务” |
 | Steering | `session/turn_input.rs` 的 steer + expected turn id | 用户追加要求必须绑定正确运行，防止发给已经结束或另一个 Run | 已有 stop/cancel 和 run id，普通追加仍是新消息 | 增加运行中追加指令队列与 expected run id 校验 |
 | 中断与恢复 | Task abort、rollout reconstruction | 停止不是删掉结果；应保存部分输出、已执行副作用和可恢复状态 | 已完成用户中断、Rollout、恢复规划 | 前端提供“从中断点继续”而非只显示失败 |
@@ -122,28 +122,34 @@ Message + Rollout + Evaluation + Next-turn Capsule
 
 冲突时应遵守：本轮明确要求优先于历史偏好；权限规则优先于 Skill；证据事实优先于历史摘要；未确认候选不能冒充正式记忆。
 
-## 7. Conversation Capsule v1 建议
+## 7. Conversation Capsule v1（已实施）
 
-长对话不能只保留最近 24 条，也不能用一段自由文本摘要代替状态。建议建立可版本化、Provider-neutral 的续接胶囊：
+长对话不能只保留最近 24 条，也不能用一段自由文本摘要代替状态。Phase 2U 已建立可版本化、Provider-neutral 的续接胶囊：
 
 ```json
 {
-  "version": 1,
+  "schema_version": 1,
+  "conversation_id": 42,
+  "project_id": 7,
   "active_goal": "当前要完成的业务目标",
   "turn_mode": "answer_only | plan_only | execute_now",
   "active_artifact": {"id": "...", "type": "pptx", "status": "draft"},
   "confirmed_constraints": ["不修改原文件"],
   "decisions": ["使用三阶段路线图"],
-  "completed_actions": ["已读取项目范围说明"],
-  "tool_outcomes": [{"call_id": "...", "status": "completed", "summary": "..."}],
-  "open_questions": ["预算上限尚未确认"],
+  "tool_outcomes": [{"tool_use_id": "...", "status": "completed", "summary": "..."}],
   "blockers": [],
-  "next_step": "补齐价值测算",
-  "source_message_ids": [101, 102]
+  "next_goal": "补齐价值测算",
+  "source_message_ids": [101, 102],
+  "previous_capsule_sha256": "...",
+  "capsule_sha256": "..."
 }
 ```
 
-胶囊必须由确定性字段与有界摘要组成，绑定来源消息和版本；不能保存隐藏推理，也不能越过项目权限。官方长上下文建议同样强调，压缩后要保留已完成动作、假设、标识、工具结果、阻塞和下一目标。Aria 应先实现本地、Provider-neutral 版本，再决定是否对支持的模型使用远程 Compaction API。
+胶囊由确定性字段与有界摘要组成，绑定会话、项目、来源消息、上一胶囊哈希和当前指纹；只保留安全的 Artifact/Task 字段和工具结果摘要，不保存工具输入、完整输出、服务器路径或隐藏推理。相同工具后续成功不能自动抹掉旧失败，只有通过 `retry_of_tool_use_id` / `recovery_of_tool_use_id` 显式关联才解除阻塞。
+
+每轮 Runtime 从 `ConversationState` 与消息元数据重建胶囊，P4 完成时写回当前工具结果与 Assistant 摘要。当前用户指令是新的裁决边界：明确重述语气、详略、格式、语言或写入策略时，只撤销同维度的旧约束；“不用、不要、取消、改为”等否定/切换表达也按同一规则处理。普通续接不会清空无关要求。跨项目历史胶囊一律不继承。
+
+`InstructionManifest v1` 同时固定八层优先级：平台规则、本轮用户要求、项目作用域、当前任务状态、本轮有效 Skill、用户偏好、工作区证据、历史 Capsule。持久清单只记录层 ID、优先级、作用域、字符数和 SHA-256，不保存原始 Prompt。模型侧明确把项目/RAG/工具结果/历史摘要视为数据而不是可执行指令。
 
 ## 8. 让用户更容易和 AI 交互的产品改进
 
@@ -199,12 +205,14 @@ Message + Rollout + Evaluation + Next-turn Capsule
 - 增加路由、事件和前端回执回归测试；
 - 无数据库迁移。
 
-### Phase 2U：Conversation Capsule 与上下文优先级
+### Phase 2U：Conversation Capsule 与上下文优先级（已实施）
 
-- 建立 `Conversation Capsule v1`；
-- 引入显式 Instruction Manifest 和冲突裁决；
-- 压缩前后验证目标、约束、工具结果、交付物和下一步不丢失；
-- 在 Context Assembly Manifest 中只记录摘要哈希和来源，不记录敏感原文。
+- 已建立 `Conversation Capsule v1`，保存目标、模式、当前交付物/任务、有效约束、已完成决策、工具结果、阻塞和下一目标；
+- 已用会话、项目、来源消息、上一胶囊哈希和当前 SHA-256 防止错链或篡改；
+- 已建立八层 `InstructionManifest v1`，当前用户要求可覆盖历史/偏好/Skill 默认值，但不能越过平台策略；
+- 已将 Capsule、Instruction Manifest 接入 Context Assembly、Message Metadata、ChatTrace 和 Run Evaluation；
+- 已增加多轮约束保持、显式覆盖、跨项目隔离、工具失败恢复、隐私与篡改拒绝测试；
+- 复用现有 `ConversationState` 和 `Message.metadata_json`，无数据库迁移，也不调用 Provider 专属远程压缩。
 
 ### Phase 2V：运行中 Steering 与理解回执
 
