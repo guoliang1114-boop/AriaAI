@@ -6,7 +6,7 @@ import json
 import math
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from sqlmodel import Session, select
 
@@ -357,99 +357,208 @@ def _materialize_consulting_assets(
     session.commit()
 
 
-def index_document(session: Session, document_id: int, *, template_key: str | None = None) -> KnowledgeV1Document:
+def index_document(
+    session: Session,
+    document_id: int,
+    *,
+    template_key: str | None = None,
+    resume_checkpoint: dict[str, Any] | None = None,
+    checkpoint: Callable[[str, dict[str, Any]], None] | None = None,
+) -> KnowledgeV1Document:
     doc = session.get(KnowledgeV1Document, document_id)
     if not doc:
         raise ValueError(f"Knowledge document not found: {document_id}")
 
     storage = StorageService(UPLOADS_DIR)
     path = storage.resolve_path(doc.original_storage_key or doc.path)
-    _set_status(session, doc, "extracting", "extract_started")
-
-    text = extract_text_from_file(
-        path,
-        doc.file_type,
-        max_chars=200_000,
-        empty_placeholder="",
-        unsupported_placeholder="",
-        error_prefix="",
+    resume_value = dict(resume_checkpoint or {})
+    resume_phase = str(
+        resume_value.get("document_phase") or resume_value.get("phase") or ""
     )
-    if not text.strip():
-        doc.status = "failed_extract"
-        doc.error_message = "No text could be extracted from this document."
-        doc.updated_at = utc_now_naive()
-        session.add(doc)
-        session.commit()
-        record_document_event(session, doc.id, "extract_failed", doc.status, message=doc.error_message)
+    phase_order = {
+        "": 0,
+        "queued": 0,
+        "extracting": 1,
+        "extracted": 2,
+        "understood": 3,
+        "chunks_ready": 4,
+        "embedding": 5,
+        "indexed": 6,
+        "completed": 7,
+    }
+
+    def phase_reached(phase: str) -> bool:
+        return phase_order.get(resume_phase, 0) >= phase_order[phase]
+
+    def emit_checkpoint(phase: str, **facts: Any) -> None:
+        if checkpoint:
+            checkpoint(phase, facts)
+
+    if doc.status == "indexed" and phase_reached("indexed"):
         return doc
 
-    frontmatter = {}
-    if doc.file_type == "md":
-        frontmatter, text = parse_markdown_frontmatter(text)
-    extracted_key = f"knowledge/extracted/{doc.id}/text.json"
-    storage.put_text(
-        extracted_key,
-        json.dumps({"document_id": doc.id, "text": text, "frontmatter": frontmatter}, ensure_ascii=False),
-    )
-    doc.extracted_text_storage_key = extracted_key
-    doc.token_count = estimate_tokens(text)
-    doc.page_count = text.count("[Page ") or 0
-    doc.slide_count = text.count("[Slide ") or 0
-    _set_status(session, doc, "extracted", "extract_completed", message=f"Extracted {len(text)} characters")
-    _set_status(session, doc, "understanding", "understand_started")
-    inferred_template, confidence = identify_template(doc.file_type, text)
-    final_template = template_key or inferred_template
-    extracted = extract_template_fields(final_template, text, doc.title)
+    text = ""
+    frontmatter: dict[str, Any] = {}
+    if phase_reached("extracted") and doc.extracted_text_storage_key:
+        try:
+            cached = json.loads(storage.read_text(doc.extracted_text_storage_key))
+            if isinstance(cached, dict) and cached.get("document_id") == doc.id:
+                text = str(cached.get("text") or "")
+                raw_frontmatter = cached.get("frontmatter")
+                if isinstance(raw_frontmatter, dict):
+                    frontmatter = raw_frontmatter
+        except (FileNotFoundError, json.JSONDecodeError, ValueError):
+            text = ""
+
+    if not text.strip():
+        doc.error_message = None
+        _set_status(session, doc, "extracting", "extract_started")
+        text = extract_text_from_file(
+            path,
+            doc.file_type,
+            max_chars=200_000,
+            empty_placeholder="",
+            unsupported_placeholder="",
+            error_prefix="",
+        )
+        if not text.strip():
+            doc.status = "failed_extract"
+            doc.error_message = "No text could be extracted from this document."
+            doc.updated_at = utc_now_naive()
+            session.add(doc)
+            session.commit()
+            record_document_event(session, doc.id, "extract_failed", doc.status, message=doc.error_message)
+            return doc
+
+        if doc.file_type == "md":
+            frontmatter, text = parse_markdown_frontmatter(text)
+        extracted_key = f"knowledge/extracted/{doc.id}/text.json"
+        storage.put_text(
+            extracted_key,
+            json.dumps(
+                {"document_id": doc.id, "text": text, "frontmatter": frontmatter},
+                ensure_ascii=False,
+            ),
+        )
+        doc.extracted_text_storage_key = extracted_key
+        doc.token_count = estimate_tokens(text)
+        doc.page_count = text.count("[Page ") or 0
+        doc.slide_count = text.count("[Slide ") or 0
+        _set_status(
+            session,
+            doc,
+            "extracted",
+            "extract_completed",
+            message=f"Extracted {len(text)} characters",
+        )
+        emit_checkpoint("extracted", token_count=doc.token_count)
+
     metadata = parse_json_object(doc.metadata_json)
-    metadata.update(frontmatter)
-    metadata.update(infer_metadata_from_text(doc.file_type, text, final_template))
-    metadata.update(extracted)
-    metadata["template_key"] = final_template
-    metadata["extraction_confidence"] = confidence
-    doc.metadata_json = json.dumps(metadata, ensure_ascii=False)
-    source = session.get(KnowledgeSource, doc.source_id)
-    _materialize_consulting_assets(
+    final_template = str(template_key or metadata.get("template_key") or "")
+    if not phase_reached("understood") or not final_template:
+        _set_status(session, doc, "understanding", "understand_started")
+        inferred_template, confidence = identify_template(doc.file_type, text)
+        final_template = template_key or inferred_template
+        extracted = extract_template_fields(final_template, text, doc.title)
+        metadata.update(frontmatter)
+        metadata.update(infer_metadata_from_text(doc.file_type, text, final_template))
+        metadata.update(extracted)
+        metadata["template_key"] = final_template
+        metadata["extraction_confidence"] = confidence
+        doc.metadata_json = json.dumps(metadata, ensure_ascii=False)
+        source = session.get(KnowledgeSource, doc.source_id)
+        _materialize_consulting_assets(
+            session,
+            doc=doc,
+            source=source,
+            template_key=final_template,
+            extracted=extracted,
+            metadata=metadata,
+        )
+        old_extractions = session.exec(
+            select(KnowledgeTemplateExtraction).where(
+                KnowledgeTemplateExtraction.document_id == doc.id
+            )
+        ).all()
+        for old_extraction in old_extractions:
+            session.delete(old_extraction)
+        session.add(
+            KnowledgeTemplateExtraction(
+                document_id=doc.id,
+                template_key=final_template,
+                status="completed",
+                extracted_json=json.dumps(extracted, ensure_ascii=False),
+                confidence=confidence,
+            )
+        )
+        session.add(doc)
+        session.commit()
+        record_document_event(
+            session,
+            doc.id,
+            "understand_completed",
+            "understanding",
+            message=f"Template: {final_template}",
+        )
+        emit_checkpoint("understood", template_key=final_template)
+
+    chunks: list[tuple[list[str], str]] = []
+    if phase_reached("chunks_ready") and doc.chunks_storage_key:
+        try:
+            cached_chunks = json.loads(storage.read_text(doc.chunks_storage_key))
+            if isinstance(cached_chunks, list):
+                for item in cached_chunks:
+                    if not isinstance(item, dict) or not str(item.get("content") or "").strip():
+                        continue
+                    raw_heading = item.get("heading_path")
+                    heading = [str(value) for value in raw_heading] if isinstance(raw_heading, list) else []
+                    chunks.append((heading, str(item["content"])))
+        except (FileNotFoundError, json.JSONDecodeError, ValueError):
+            chunks = []
+
+    if not chunks:
+        _set_status(session, doc, "chunking", "chunk_started")
+        chunks = chunk_markdown_or_text(text)
+        chunks_key = f"knowledge/chunks/{doc.id}/chunks.json"
+        storage.put_text(
+            chunks_key,
+            json.dumps(
+                [
+                    {
+                        "heading_path": heading,
+                        "content": content,
+                        "token_count": estimate_tokens(content),
+                    }
+                    for heading, content in chunks
+                ],
+                ensure_ascii=False,
+            ),
+        )
+        doc.chunks_storage_key = chunks_key
+        doc.chunk_count = len(chunks)
+        session.add(doc)
+        session.commit()
+        emit_checkpoint(
+            "chunks_ready",
+            template_key=final_template,
+            chunk_count=len(chunks),
+        )
+
+    old_chunks = session.exec(
+        select(KnowledgeChunk).where(KnowledgeChunk.document_id == doc.id)
+    ).all()
+    for old_chunk in old_chunks:
+        session.delete(old_chunk)
+    session.commit()
+
+    _set_status(
         session,
-        doc=doc,
-        source=source,
-        template_key=final_template,
-        extracted=extracted,
-        metadata=metadata,
+        doc,
+        "embedding",
+        "embedding_started",
+        message=f"Embedding {len(chunks)} chunks",
     )
-    extraction = KnowledgeTemplateExtraction(
-        document_id=doc.id,
-        template_key=final_template,
-        status="completed",
-        extracted_json=json.dumps(extracted, ensure_ascii=False),
-        confidence=confidence,
-    )
-    session.add(extraction)
-    session.add(doc)
-    session.commit()
-    record_document_event(session, doc.id, "understand_completed", "understanding", message=f"Template: {final_template}")
-
-    old_chunks = session.exec(select(KnowledgeChunk).where(KnowledgeChunk.document_id == doc.id)).all()
-    for chunk in old_chunks:
-        session.delete(chunk)
-    session.commit()
-
-    _set_status(session, doc, "chunking", "chunk_started")
-    chunks = chunk_markdown_or_text(text)
-    chunks_key = f"knowledge/chunks/{doc.id}/chunks.json"
-    storage.put_text(
-        chunks_key,
-        json.dumps(
-            [
-                {"heading_path": heading, "content": content, "token_count": estimate_tokens(content)}
-                for heading, content in chunks
-            ],
-            ensure_ascii=False,
-        ),
-    )
-    doc.chunks_storage_key = chunks_key
-    doc.chunk_count = len(chunks)
-
-    _set_status(session, doc, "embedding", "embedding_started", message=f"Embedding {len(chunks)} chunks")
+    emit_checkpoint("embedding", template_key=final_template, chunk_count=len(chunks))
     for index, (heading, content) in enumerate(chunks):
         session.add(
             KnowledgeChunk(
@@ -478,6 +587,7 @@ def index_document(session: Session, document_id: int, *, template_key: str | No
     session.add(doc)
     session.commit()
     record_document_event(session, doc.id, "index_completed", doc.status, message=f"Indexed {len(chunks)} chunks")
+    emit_checkpoint("indexed", template_key=final_template, chunk_count=len(chunks))
     session.refresh(doc)
     return doc
 

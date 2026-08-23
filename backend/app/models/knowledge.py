@@ -186,11 +186,19 @@ class KnowledgeJob(SQLModel, table=True):
     source_id: Optional[int] = Field(default=None, foreign_key="knowledge_source.id", index=True)
     requested_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     payload_json: str = Field(default="{}")
+    checkpoint_json: str = Field(default="{}", sa_column=Column(Text, nullable=False))
     error_message: str = Field(default="", sa_column=Column(Text))
+    failure_code: str = Field(default="", sa_column=Column(String(100), nullable=False))
+    retryable: bool = Field(default=False)
     attempt: int = Field(default=0)
     max_attempts: int = Field(default=3)
     trace_id: str = Field(default="", sa_column=Column(String(100), index=True))
+    idempotency_key: str = Field(default="", sa_column=Column(String(64), nullable=False))
+    lease_token: str = Field(default="", sa_column=Column(String(64), nullable=False))
     created_at: datetime = Field(default_factory=utc_now_naive)
     updated_at: datetime = Field(default_factory=utc_now_naive)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    next_attempt_at: Optional[datetime] = None
+    lease_expires_at: Optional[datetime] = None
+    last_heartbeat_at: Optional[datetime] = None

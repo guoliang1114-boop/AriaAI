@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from app.config import DATABASE_URL
 import app.models.db  # noqa: F401 — registers all models in metadata
+import app.models.knowledge  # noqa: F401 — registers Knowledge v0.0.5 models
 
 config = context.config
 config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))

@@ -45,6 +45,9 @@ with a Codex runtime. The adapted mechanisms currently cover:
   knowledge-evidence manifests, stable citation keys, output citation
   resolution, and content-digest provenance without persisting retrieved chunk
   text;
+- semantic failure categories and bounded exponential retry adapted into
+  lease-based, checkpointed knowledge-ingestion jobs with deterministic
+  idempotency and without persisting raw document text or local paths;
 - `SKILL.md` frontmatter parsing and conservative YAML scalar repair; and
 - ordered Skill-root discovery, immutable content snapshots, cache reuse,
   error-isolated merging, and unambiguous candidate selection.

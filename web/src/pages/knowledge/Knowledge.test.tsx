@@ -25,6 +25,7 @@ const v005Doc = ({
   path,
   size = 102400,
   status = 'indexed',
+  latest_job,
 }: {
   category?: string
   file_type: string
@@ -33,6 +34,7 @@ const v005Doc = ({
   path: string
   size?: number
   status?: string
+  latest_job?: Record<string, unknown>
 }) => ({
   id,
   source_id: source.id,
@@ -48,6 +50,7 @@ const v005Doc = ({
   status,
   created_at: '2025-01-01',
   updated_at: '2025-01-02',
+  latest_job,
 })
 
 vi.mock('../../api/client', () => ({
@@ -167,7 +170,7 @@ describe('Knowledge', () => {
     const confirmBtn = within(dialog).getByRole('button', { name: '删除' })
     fireEvent.click(confirmBtn)
     await waitFor(() => {
-      expect(mockDelete).toHaveBeenCalledWith('/knowledge/documents/1')
+      expect(mockDelete).toHaveBeenCalledWith('/knowledge/sources/10/documents/1')
     })
   })
 
@@ -185,7 +188,7 @@ describe('Knowledge', () => {
     fireEvent.click(screen.getByRole('button', { name: '管理' }))
     fireEvent.click(screen.getByRole('button', { name: '重新处理' }))
     await waitFor(() => {
-      expect(mockPost).toHaveBeenCalledWith('/knowledge/sources/10/sync')
+      expect(mockPost).toHaveBeenCalledWith('/knowledge/sources/10/documents/3/reindex')
     })
   })
 
@@ -204,7 +207,44 @@ describe('Knowledge', () => {
     expect(screen.queryByText(/等待解析或索引/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '重新处理' }))
     await waitFor(() => {
-      expect(mockPost).toHaveBeenCalledWith('/knowledge/sources/10/sync')
+      expect(mockPost).toHaveBeenCalledWith('/knowledge/sources/10/documents/4/reindex')
+    })
+  })
+
+  it('resumes a retryable failed job from its durable checkpoint', async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/knowledge/sources') return Promise.resolve([source])
+      if (url === '/knowledge/sources/10/documents') return Promise.resolve([
+        v005Doc({
+          id: 5,
+          name: 'recoverable.pdf',
+          file_type: 'pdf',
+          path: '/docs/recoverable.pdf',
+          status: 'failed',
+          latest_job: {
+            id: 42,
+            job_id: 42,
+            status: 'failed',
+            attempt: 3,
+            max_attempts: 3,
+            failure_code: 'transient_io_error',
+            retryable: true,
+            error_message: 'Temporary storage error.',
+            checkpoint: { phase: 'chunks_ready' },
+          },
+        }),
+      ])
+      return Promise.resolve([])
+    })
+    mockPost.mockResolvedValue({})
+    render(<Knowledge />)
+    await waitFor(() => screen.getAllByText('recoverable.pdf'))
+    fireEvent.click(screen.getByRole('button', { name: '管理' }))
+    expect(screen.getByText(/尝试 3\/3/)).toBeInTheDocument()
+    expect(screen.getByText(/transient_io_error/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重新处理' }))
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/knowledge/jobs/42/retry')
     })
   })
 })

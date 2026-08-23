@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
 > 更新日期：2026-08-23
-> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q 已实施
+> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q + Phase 2R 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -81,7 +81,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 
 大型 Rust 子系统只有在 Python 重写成本明显高于收益、且 Aria 确实需要同类能力时才重新评估。目前没有这种必要。
 
-## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q 已吸收的源码机制
+## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q + Phase 2R 已吸收的源码机制
 
 | Codex 上游机制 | 上游路径 | Aria 原生实现 | 接入位置 | 价值 |
 |---|---|---|---|---|
@@ -101,6 +101,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 | 上下文组装清单与请求绑定 | `core/src/context/world_state/mod.rs`、`core/src/context_manager/history.rs` | `backend/app/services/context_builder/assembly.py` | Context Builder + Runtime + Agent Loop + Trace + Rollout + Evaluation | 用稳定来源 ID、信任层级、有界元数据和域分离 SHA-256 记录每一层上下文，并把 Manifest 绑定到实际 Provider 首次请求；不持久化 Prompt、历史、RAG 或工具 Schema 原文 |
 | 运行输出 Item 与生命周期事实 | `protocol/src/models.rs`、`analytics/src/facts.rs` | `backend/app/services/agent_harness/run_output_record.py` | Tool Executor + Artifact Persist + Evaluation + Rollout + Memory Candidate + 前端 Store | 将模型正文、交付物和记忆候选拆成不同结果边界；Artifact 只有在文件、项目证据与内容哈希验证后才成为 persisted，候选则单独进入人工裁决生命周期 |
 | 知识证据 Item 与引用闭环 | `protocol/src/models.rs`、`protocol/src/items.rs` | `backend/app/services/agent_harness/knowledge_evidence.py` | RAG + Context Builder + Persist + Evaluation + Trace + 两个聊天前端 | 检索片段获得稳定 Evidence ID 与 `K*` 引用键；原文只进入本轮 Prompt，持久化仅保留来源元数据和 SHA-256，回答只展示实际引用且有效的来源 |
+| 语义失败分类与有界退避 | `protocol/src/error.rs`、`core/src/util.rs` | `backend/app/jobs/knowledge_jobs.py` | Knowledge Job + Ingestion + Scheduler + API + 知识库前端 | 按短暂/永久错误决定自动恢复，通过幂等键、lease、checkpoint 和有界尝试保证重启后可继续且不重复索引 |
 | Skill 前置信息解析 | `codex-rs/skills/src/parser.rs` | `backend/app/services/agent_harness/skill_package.py` | `routers/skills.py` | 校验 `SKILL.md`、修复有限 YAML 歧义、安全加载指定引用 |
 | Skill Root 快照与选择 | `codex-rs/skills/src/loading.rs`、`selection.rs`、`ext/skills/src/loader/` | `backend/app/services/agent_harness/skill_roots.py` | Skill 启动同步 + `skill_router.py` | 有序 Root、不可变内容指纹、增量缓存、坏包隔离和发布态候选选择 |
 
@@ -442,6 +443,19 @@ Phase 2Q 从 Codex 的 typed `ResponseItem::WebSearchCall`、`WebSearchItem` 和
 
 本阶段没有新增数据库字段或迁移；完整 Evidence Manifest 随 Assistant Message 元数据保存，生产数据库验收在备份后的独立 schema 中覆盖引用持久化和跨项目检索隔离。Aria 没有引入 Codex Web Search、Responses API、协议类型或运行时。
 
+### 4.19 Knowledge Job 持久恢复与状态闭环
+
+Phase 2R 从 Codex 的语义错误分类和指数退避边界中吸收“只有短暂错误才自动重试”的原则，并改写为 Aria 原生的知识导入恢复机制：
+
+- 上传、手动重建和知识源同步都先创建数据库 job，稳定幂等键和部分唯一索引阻止同一目标并发重复执行；
+- worker 获取有时限的 lease，过期的 `running` job 可被定时器回收，未过期任务不会被其他 worker 抢占；
+- extraction、understanding、chunk、embedding 和 indexed 阶段保存有界 checkpoint，重启后复用已持久化的中间结果，并使用幂等 chunk/模板提取写入；
+- 网络、I/O 和短暂服务错误按可配置上限退避，格式、权限、文件缺失等永久错误直接失败关闭；用户仍可对已用尽自动尝试的短暂错误发起显式重试；
+- API 和前端只暴露阶段、尝试次数、安全错误码与可重试标记，不返回 job payload、checkpoint、本地路径或文档原文；
+- 知识库页面轮询活动任务，展示阶段进度、尝试次数和可恢复入口；旧版文档继续显示，不因 v0.0.5 source API 上线而消失。
+
+本阶段使用加法迁移 `027_v1_27`扩展现有 `knowledge_job`；生产验收仍在完整备份后使用隔离 schema，结束后比对 `public` 表与 revision 签名。Aria 不运行、不导入、不连接 Codex，也没有新增第二个队列或数据库。
+
 ## 5. 已撤回的错误方向
 
 下列通信型实现已从工作区移除：
@@ -636,6 +650,15 @@ Phase 2Q 从 Codex 的 typed `ResponseItem::WebSearchCall`、`WebSearchItem` 和
 - `codex-rs/protocol/src/items.rs`。
 
 已完成：新增无原文、可校验的 `KnowledgeEvidenceManifest v1`，将检索片段、模型引用、持久化来源和 Artifact provenance 绑定到稳定 evidence identity；只显示最终正文实际使用的合法 `[K*]` 来源，未知/缺失引用进入确定性完成质量检查。显式文档 ID 与自动 RAG 均在 Prompt 注入前应用项目/客户成员边界，两个聊天前端共享 canonical citation key。实现不调用 Codex，不使用其 Web Search 或协议，不新增数据库迁移。
+
+### Phase 2R：Knowledge Job 持久恢复（已实施）
+
+参考候选：
+
+- `codex-rs/protocol/src/error.rs`；
+- `codex-rs/core/src/util.rs`。
+
+已完成：把知识文档导入、重建和 source sync 收口为 Aria 原生持久任务，通过幂等键、租约、心跳、过期回收、阶段 checkpoint、语义失败分类与有界退避实现可恢复执行；补齐 source/document/job/event/template/search API 和前端状态可见性。原始 payload、checkpoint、文档内容与本地路径不进入 API 状态。迁移由 `027_v1_27` 管理；实现不运行、不导入、不连接 Codex。
 
 ## 8. 许可证与升级流程
 

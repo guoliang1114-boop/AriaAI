@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, BackgroundTasks, Query
 from pydantic import BaseModel
@@ -13,10 +14,38 @@ from sqlmodel import Session, select, func
 
 from app.config import UPLOADS_DIR
 from app.database import get_session, engine
-from app.models.db import KnowledgeDocument, DocumentChunk, Project
+from app.models.db import KnowledgeDocument, DocumentChunk, Project, User
+from app.models.knowledge import (
+    KnowledgeChunk,
+    KnowledgeDocumentEvent,
+    KnowledgeJob,
+    KnowledgeSource,
+    KnowledgeTemplateExtraction,
+    KnowledgeV1Document,
+)
+from app.jobs.knowledge_jobs import (
+    ACTIVE_JOB_STATUSES,
+    KnowledgeJobFailure,
+    enqueue_knowledge_job,
+    knowledge_job_to_dict,
+    process_knowledge_job_by_id,
+    retry_knowledge_job,
+)
 from app.services import parser, rag
+from app.services.knowledge_ingestion import (
+    SUPPORTED_SOURCE_FILE_TYPES,
+    create_document_from_bytes,
+    normalize_file_type,
+    parse_json_object,
+    sha256_bytes,
+)
+from app.services.knowledge_permissions import can_access_source
+from app.services.knowledge_retrieval import search_knowledge
+from app.services.knowledge_templates import seed_builtin_templates, template_to_dict
+from app.services.storage import StorageService
+from app.services.time_utils import utc_now_naive
 
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, require_admin
 
 router = APIRouter(
     prefix="/knowledge",
@@ -56,6 +85,132 @@ class KnowledgeDocumentListResponse(BaseModel):
     total_size: int = 0
 
 
+class KnowledgeSourceCreate(BaseModel):
+    name: str
+    source_type: str = "manual_upload"
+    scope_type: str = "workspace"
+    scope_id: Optional[int] = None
+    sync_mode: str = "manual"
+    include_patterns: str = "**/*.pptx,**/*.pdf,**/*.docx,**/*.md"
+    exclude_patterns: str = ".obsidian/**,node_modules/**"
+    tags: str = ""
+    root_path: str = ""
+    config: dict[str, Any] = {}
+
+
+class KnowledgeSearchRequest(BaseModel):
+    query: str
+    scope_types: Optional[list[str]] = None
+    scope_ids: Optional[list[int]] = None
+    template_keys: Optional[list[str]] = None
+    industries: Optional[list[str]] = None
+    service_lines: Optional[list[str]] = None
+    confidential_levels: Optional[list[str]] = None
+    can_generate: Optional[bool] = None
+    top_k: int = 8
+
+
+def _source_to_dict(source: KnowledgeSource) -> dict[str, Any]:
+    return {
+        "id": source.id,
+        "name": source.name,
+        "source_type": source.source_type,
+        "scope_type": source.scope_type,
+        "scope_id": source.scope_id,
+        "owner_user_id": source.owner_user_id,
+        "sync_mode": source.sync_mode,
+        "include_patterns": source.include_patterns,
+        "exclude_patterns": source.exclude_patterns,
+        "tags": source.tags,
+        "status": source.status,
+        "created_at": source.created_at.isoformat(),
+        "updated_at": source.updated_at.isoformat(),
+    }
+
+
+def _latest_document_job(session: Session, document_id: int) -> KnowledgeJob | None:
+    return session.exec(
+        select(KnowledgeJob)
+        .where(KnowledgeJob.document_id == document_id)
+        .order_by(KnowledgeJob.created_at.desc(), KnowledgeJob.id.desc())
+    ).first()
+
+
+def _document_to_dict(
+    document: KnowledgeV1Document,
+    *,
+    session: Session,
+    job: KnowledgeJob | None = None,
+) -> dict[str, Any]:
+    latest_job = job or _latest_document_job(session, int(document.id))
+    payload = {
+        "id": document.id,
+        "source_id": document.source_id,
+        "title": document.title,
+        "file_name": document.file_name,
+        "file_type": document.file_type,
+        "path": document.path,
+        "metadata_json": document.metadata_json,
+        "file_size_bytes": document.file_size_bytes,
+        "page_count": document.page_count,
+        "slide_count": document.slide_count,
+        "token_count": document.token_count,
+        "chunk_count": document.chunk_count,
+        "scope_type": document.scope_type,
+        "scope_id": document.scope_id,
+        "status": document.status,
+        "error_message": document.error_message,
+        "created_at": document.created_at.isoformat(),
+        "updated_at": document.updated_at.isoformat(),
+        "job_id": latest_job.id if latest_job else None,
+        "latest_job": knowledge_job_to_dict(latest_job) if latest_job else None,
+    }
+    return payload
+
+
+def _source_or_404(session: Session, source_id: int) -> KnowledgeSource:
+    source = session.get(KnowledgeSource, source_id)
+    if not source:
+        raise HTTPException(404, "Knowledge source not found")
+    return source
+
+
+def _document_or_404(session: Session, document_id: int) -> KnowledgeV1Document:
+    document = session.get(KnowledgeV1Document, document_id)
+    if not document or document.status == "deleted":
+        raise HTTPException(404, "Knowledge document not found")
+    return document
+
+
+def _require_source_access(
+    session: Session,
+    current_user: User,
+    source: KnowledgeSource,
+) -> None:
+    if not can_access_source(current_user, source, session):
+        raise HTTPException(403, "Knowledge source access denied")
+
+
+def _job_or_404(session: Session, job_id: int) -> KnowledgeJob:
+    job = session.get(KnowledgeJob, job_id)
+    if not job:
+        raise HTTPException(404, "Knowledge job not found")
+    return job
+
+
+def _require_job_access(
+    session: Session,
+    current_user: User,
+    job: KnowledgeJob,
+) -> None:
+    source = session.get(KnowledgeSource, job.source_id) if job.source_id else None
+    if not source and job.document_id:
+        document = session.get(KnowledgeV1Document, job.document_id)
+        source = session.get(KnowledgeSource, document.source_id) if document else None
+    if not source or not can_access_source(current_user, source, session):
+        raise HTTPException(403, "Knowledge job access denied")
+
+
 def _knowledge_scope_filters(project_id: Optional[int], client_id: Optional[int]):
     filters = []
     if project_id is not None:
@@ -89,6 +244,372 @@ def _knowledge_file_type_values(file_type: str) -> list[str]:
     if normalized in ("pdf", "pptx", "docx", "xlsx", "md", "txt", "csv", "json"):
         return [normalized]
     return []
+
+
+# ── Knowledge v0.0.5 source + durable ingestion API ──────────────────────────
+
+
+@router.get("/sources")
+def list_knowledge_sources(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    sources = session.exec(
+        select(KnowledgeSource).order_by(
+            KnowledgeSource.updated_at.desc(),
+            KnowledgeSource.id.desc(),
+        )
+    ).all()
+    return [
+        _source_to_dict(source)
+        for source in sources
+        if can_access_source(current_user, source, session)
+    ]
+
+
+@router.post("/sources", status_code=201)
+def create_knowledge_source(
+    body: KnowledgeSourceCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    source_type = body.source_type.strip().lower()
+    scope_type = body.scope_type.strip().lower()
+    if source_type not in {
+        "manual_upload",
+        "markdown_folder",
+        "obsidian_vault",
+        "git_repo",
+        "project_space",
+    }:
+        raise HTTPException(400, "Unsupported knowledge source type")
+    if scope_type not in {"user", "project", "client", "workspace", "skill", "global"}:
+        raise HTTPException(400, "Unsupported knowledge source scope")
+    if source_type in {"markdown_folder", "obsidian_vault", "git_repo"} and not current_user.is_admin:
+        raise HTTPException(403, "Admin access is required for server filesystem sources")
+    if scope_type in {"project", "client"} and body.scope_id is None:
+        raise HTTPException(400, "scope_id is required for project/client knowledge")
+
+    config = dict(body.config or {})
+    if body.root_path.strip():
+        config["root_path"] = body.root_path.strip()
+    source = KnowledgeSource(
+        name=body.name.strip()[:255],
+        source_type=source_type,
+        scope_type=scope_type,
+        scope_id=body.scope_id,
+        owner_user_id=current_user.id,
+        sync_mode=body.sync_mode.strip()[:50] or "manual",
+        include_patterns=body.include_patterns.strip(),
+        exclude_patterns=body.exclude_patterns.strip(),
+        tags=body.tags.strip(),
+        config_json=json.dumps(config, ensure_ascii=False),
+        status="active",
+    )
+    if not source.name:
+        raise HTTPException(400, "Knowledge source name is required")
+    if not can_access_source(current_user, source, session):
+        raise HTTPException(403, "Knowledge source scope access denied")
+    session.add(source)
+    session.commit()
+    session.refresh(source)
+    return _source_to_dict(source)
+
+
+@router.get("/sources/{source_id}/documents")
+def list_source_documents(
+    source_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    source = _source_or_404(session, source_id)
+    _require_source_access(session, current_user, source)
+    documents = session.exec(
+        select(KnowledgeV1Document)
+        .where(
+            KnowledgeV1Document.source_id == source_id,
+            KnowledgeV1Document.status != "deleted",
+        )
+        .order_by(KnowledgeV1Document.updated_at.desc(), KnowledgeV1Document.id.desc())
+    ).all()
+    return [_document_to_dict(document, session=session) for document in documents]
+
+
+@router.post("/sources/{source_id}/documents", status_code=201)
+async def upload_source_document(
+    source_id: int,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    template_key: Optional[str] = Query(None),
+    category: str = Form(""),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    source = _source_or_404(session, source_id)
+    _require_source_access(session, current_user, source)
+    file_name = file.filename or "document.txt"
+    file_type = normalize_file_type(file_name)
+    if file_type not in SUPPORTED_SOURCE_FILE_TYPES:
+        raise HTTPException(400, f"Unsupported knowledge file type: {file_type}")
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "Knowledge document is empty")
+    content_hash = sha256_bytes(content)
+    storage_key = f"knowledge/originals/source-{source.id}/{content_hash}.{file_type}"
+    StorageService(UPLOADS_DIR).put_bytes(storage_key, content)
+    document = create_document_from_bytes(
+        session=session,
+        source=source,
+        file_name=file_name,
+        content=content,
+        relative_path=storage_key,
+        template_key=template_key,
+        source_metadata={"category": category.strip()} if category.strip() else None,
+    )
+    if document.status == "indexed":
+        return _document_to_dict(document, session=session)
+    job = enqueue_knowledge_job(
+        session,
+        job_type="index_document",
+        document_id=document.id,
+        source_id=source.id,
+        requested_by_user_id=current_user.id,
+        payload={"template_key": template_key} if template_key else {},
+    )
+    background_tasks.add_task(process_knowledge_job_by_id, int(job.id), session.get_bind())
+    session.refresh(document)
+    return _document_to_dict(document, session=session, job=job)
+
+
+@router.post("/sources/{source_id}/sync", status_code=202)
+def sync_knowledge_source(
+    source_id: int,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    source = _source_or_404(session, source_id)
+    _require_source_access(session, current_user, source)
+    job = enqueue_knowledge_job(
+        session,
+        job_type="sync_source",
+        source_id=source.id,
+        requested_by_user_id=current_user.id,
+    )
+    background_tasks.add_task(process_knowledge_job_by_id, int(job.id), session.get_bind())
+    return knowledge_job_to_dict(job)
+
+
+@router.post("/sources/{source_id}/documents/{document_id}/reindex", status_code=202)
+def reindex_source_document(
+    source_id: int,
+    document_id: int,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    source = _source_or_404(session, source_id)
+    _require_source_access(session, current_user, source)
+    document = _document_or_404(session, document_id)
+    if document.source_id != source.id:
+        raise HTTPException(404, "Knowledge document not found in source")
+    job = enqueue_knowledge_job(
+        session,
+        job_type="index_document",
+        source_id=source.id,
+        document_id=document.id,
+        requested_by_user_id=current_user.id,
+        force_new=True,
+    )
+    background_tasks.add_task(process_knowledge_job_by_id, int(job.id), session.get_bind())
+    return knowledge_job_to_dict(job)
+
+
+@router.delete("/sources/{source_id}/documents/{document_id}")
+def delete_source_document(
+    source_id: int,
+    document_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    source = _source_or_404(session, source_id)
+    _require_source_access(session, current_user, source)
+    document = _document_or_404(session, document_id)
+    if document.source_id != source.id:
+        raise HTTPException(404, "Knowledge document not found in source")
+    active_job = session.exec(
+        select(KnowledgeJob).where(
+            KnowledgeJob.document_id == document.id,
+            KnowledgeJob.status.in_(ACTIVE_JOB_STATUSES),
+        )
+    ).first()
+    if active_job:
+        raise HTTPException(409, "Knowledge document still has an active ingestion job")
+
+    for model in (KnowledgeChunk, KnowledgeTemplateExtraction, KnowledgeDocumentEvent, KnowledgeJob):
+        rows = session.exec(select(model).where(model.document_id == document.id)).all()
+        for row in rows:
+            session.delete(row)
+    storage = StorageService(UPLOADS_DIR)
+    for storage_key in (
+        document.original_storage_key,
+        document.extracted_text_storage_key,
+        document.chunks_storage_key,
+        document.preview_storage_key,
+    ):
+        if storage_key:
+            storage.delete(storage_key)
+    session.delete(document)
+    session.commit()
+    return {"ok": True}
+
+
+@router.get("/jobs")
+def list_knowledge_jobs(
+    status: str = "",
+    limit: int = Query(50, ge=1, le=100),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    stmt = select(KnowledgeJob).order_by(
+        KnowledgeJob.created_at.desc(),
+        KnowledgeJob.id.desc(),
+    )
+    if status.strip():
+        stmt = stmt.where(KnowledgeJob.status == status.strip().lower())
+    jobs = session.exec(stmt.limit(limit)).all()
+    visible = []
+    for job in jobs:
+        try:
+            _require_job_access(session, current_user, job)
+        except HTTPException:
+            continue
+        visible.append(knowledge_job_to_dict(job))
+    return {"items": visible, "total": len(visible)}
+
+
+@router.get("/jobs/{job_id}")
+def get_knowledge_job(
+    job_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    job = _job_or_404(session, job_id)
+    _require_job_access(session, current_user, job)
+    return knowledge_job_to_dict(job)
+
+
+@router.post("/jobs/{job_id}/retry", status_code=202)
+def retry_failed_knowledge_job(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    force: bool = Query(False),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    job = _job_or_404(session, job_id)
+    _require_job_access(session, current_user, job)
+    if force and not current_user.is_admin:
+        raise HTTPException(403, "Admin access is required to force a permanent failure retry")
+    try:
+        job = retry_knowledge_job(session, job_id, force=force)
+    except KnowledgeJobFailure as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    background_tasks.add_task(process_knowledge_job_by_id, int(job.id), session.get_bind())
+    return knowledge_job_to_dict(job)
+
+
+@router.get("/documents/{document_id}/events")
+def list_document_events(
+    document_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    document = _document_or_404(session, document_id)
+    source = _source_or_404(session, document.source_id)
+    _require_source_access(session, current_user, source)
+    events = session.exec(
+        select(KnowledgeDocumentEvent)
+        .where(KnowledgeDocumentEvent.document_id == document.id)
+        .order_by(KnowledgeDocumentEvent.created_at.asc(), KnowledgeDocumentEvent.id.asc())
+    ).all()
+    return [
+        {
+            "id": event.id,
+            "document_id": event.document_id,
+            "event_type": event.event_type,
+            "status": event.status,
+            "message": event.message,
+            "duration_ms": event.duration_ms,
+            "metadata": parse_json_object(event.metadata_json),
+            "created_at": event.created_at.isoformat(),
+        }
+        for event in events
+    ]
+
+
+@router.get("/documents/{document_id}/template-result")
+def get_document_template_result(
+    document_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    document = _document_or_404(session, document_id)
+    source = _source_or_404(session, document.source_id)
+    _require_source_access(session, current_user, source)
+    extraction = session.exec(
+        select(KnowledgeTemplateExtraction)
+        .where(KnowledgeTemplateExtraction.document_id == document.id)
+        .order_by(
+            KnowledgeTemplateExtraction.updated_at.desc(),
+            KnowledgeTemplateExtraction.id.desc(),
+        )
+    ).first()
+    if not extraction:
+        raise HTTPException(404, "Knowledge template extraction not found")
+    return {
+        "id": extraction.id,
+        "document_id": extraction.document_id,
+        "template_key": extraction.template_key,
+        "status": extraction.status,
+        "extracted": parse_json_object(extraction.extracted_json),
+        "confidence": extraction.confidence,
+        "error_message": extraction.error_message,
+        "created_at": extraction.created_at.isoformat(),
+        "updated_at": extraction.updated_at.isoformat(),
+    }
+
+
+@router.get("/templates")
+def list_knowledge_templates(
+    session: Session = Depends(get_session),
+):
+    return {"templates": [template_to_dict(item) for item in seed_builtin_templates(session)]}
+
+
+@router.post("/search")
+def search_knowledge_v005(
+    body: KnowledgeSearchRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if not body.query.strip():
+        raise HTTPException(400, "Knowledge search query is required")
+    return search_knowledge(
+        session=session,
+        user=current_user,
+        query=body.query.strip(),
+        scope_types=body.scope_types,
+        scope_ids=body.scope_ids,
+        template_keys=body.template_keys,
+        industries=body.industries,
+        service_lines=body.service_lines,
+        confidential_levels=body.confidential_levels,
+        can_generate=body.can_generate,
+        top_k=body.top_k,
+    )
 
 
 @router.get("/documents")

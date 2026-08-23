@@ -53,8 +53,12 @@ Goal: turn documents and team knowledge into workflow context, not only search r
 - Baseline delivered on 2026-08-23: stable evidence IDs and canonical `K*`
   citation keys, untrusted-source prompt boundaries, cited-only source display,
   no retrieved chunk text in durable run metadata, artifact provenance, and
-  member-scoped filtering for explicit document IDs. Ingestion retry/status
-  remains the next open knowledge-workflow item.
+  member-scoped filtering for explicit document IDs.
+- Recovery baseline delivered on 2026-08-23: persistent ingestion jobs,
+  idempotent enqueueing, leases and stale-worker reclamation, bounded semantic
+  retry, resumable checkpoints, scheduled recovery, safe status APIs, and
+  phase-aware frontend retry visibility. The next open item is controlled
+  migration of legacy knowledge documents into the source-scoped v0.0.5 model.
 
 ## 4. Skill Workflows
 

@@ -150,6 +150,16 @@ async def lifespan(app: FastAPI):
             args=[engine],
             metadata={"job_type": "hitas_reaper"},
         )
+        from app.config import KNOWLEDGE_JOB_SWEEP_MINUTES
+        from app.jobs.knowledge_jobs import run_pending_knowledge_jobs_with_engine
+
+        scheduler.add_or_replace_interval_job(
+            "knowledge_ingestion_recovery",
+            minutes=KNOWLEDGE_JOB_SWEEP_MINUTES,
+            func=run_pending_knowledge_jobs_with_engine,
+            args=[engine],
+            metadata={"job_type": "knowledge_ingestion_recovery"},
+        )
 
     # Pre-warm the LLM HTTPS connection so the first real chat doesn't pay
     # the TLS handshake + first-request initialization tax (observed at ~3.6s

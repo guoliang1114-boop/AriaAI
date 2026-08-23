@@ -52,6 +52,7 @@ type KnowledgeApiMode = 'v005' | 'legacy'
 type KnowledgeVectorStatus = LegacyKnowledgeDocument['vector_status']
 
 interface KnowledgeViewDocument extends LegacyKnowledgeDocument {
+  api_mode?: KnowledgeApiMode
   source_id?: number | null
   source_name?: string
   source_type?: string
@@ -64,6 +65,7 @@ interface KnowledgeViewDocument extends LegacyKnowledgeDocument {
   heading_path?: string[]
   document_id?: number
   chunk_count?: number
+  latest_job?: KnowledgeJobResponseV005 | null
 }
 
 interface KnowledgeSourceV005 {
@@ -101,6 +103,8 @@ interface KnowledgeDocumentV005 {
   error_message?: string | null
   created_at?: string
   updated_at?: string
+  job_id?: number | null
+  latest_job?: KnowledgeJobResponseV005 | null
 }
 
 interface KnowledgeSearchChunkV005 {
@@ -129,7 +133,20 @@ interface KnowledgeSearchResponseV005 {
 interface KnowledgeJobResponseV005 {
   job_id?: number | string
   id?: number | string
+  job_type?: string
   status?: string
+  attempt?: number
+  max_attempts?: number
+  failure_code?: string
+  retryable?: boolean
+  error_message?: string
+  next_attempt_at?: string | null
+  checkpoint?: {
+    phase?: string
+    document_phase?: string
+    completed_document_count?: number
+    current_document_id?: number | null
+  }
 }
 
 interface KnowledgeLoadResult {
@@ -276,6 +293,7 @@ function mapV005Document(doc: KnowledgeDocumentV005, source?: KnowledgeSourceV00
   const updatedAt = doc.updated_at || doc.created_at || new Date(0).toISOString()
   return {
     id: doc.id,
+    api_mode: 'v005',
     name: doc.file_name || doc.title,
     file_type: doc.file_type,
     path: doc.path,
@@ -293,6 +311,7 @@ function mapV005Document(doc: KnowledgeDocumentV005, source?: KnowledgeSourceV00
     metadata,
     error_message: doc.error_message,
     chunk_count: doc.chunk_count,
+    latest_job: doc.latest_job,
   }
 }
 
@@ -303,6 +322,7 @@ function mapV005SearchChunk(chunk: KnowledgeSearchChunkV005, sources: KnowledgeS
   const fileName = pathParts[pathParts.length - 1] || chunk.document_title
   return {
     id: chunk.id || chunk.document_id,
+    api_mode: 'v005',
     document_id: chunk.document_id,
     name: chunk.document_title || fileName,
     file_type: fileName.includes('.') ? fileName.split('.').pop() || 'doc' : 'doc',
@@ -321,6 +341,17 @@ function mapV005SearchChunk(chunk: KnowledgeSearchChunkV005, sources: KnowledgeS
     search_snippet: chunk.content,
     search_relevance: chunk.relevance,
     heading_path: chunk.heading_path || [],
+  }
+}
+
+function mapLegacyDocument(doc: LegacyKnowledgeDocument): KnowledgeViewDocument {
+  return {
+    ...doc,
+    // Keep legacy and V0.0.5 primary-key spaces distinct in React state while
+    // retaining the real legacy id for API operations.
+    id: -Math.abs(doc.id),
+    document_id: doc.id,
+    api_mode: 'legacy',
   }
 }
 
@@ -437,10 +468,24 @@ function formatRelativeTime(value: string, isZh: boolean) {
   return formatDateOnly(value, { month: 'short', day: 'numeric' })
 }
 
-function statusMeta(status: KnowledgeViewDocument['vector_status'], isZh: boolean): { label: string; tone: CxStatusTone; pulse?: boolean; progress?: number } {
+function knowledgeJobProgress(job?: KnowledgeJobResponseV005 | null) {
+  const phase = job?.checkpoint?.document_phase || job?.checkpoint?.phase || ''
+  return {
+    queued: 8,
+    extracting: 22,
+    extracted: 35,
+    understood: 52,
+    chunks_ready: 68,
+    embedding: 84,
+    indexed: 96,
+    syncing: 48,
+  }[phase]
+}
+
+function statusMeta(status: KnowledgeViewDocument['vector_status'], isZh: boolean, job?: KnowledgeJobResponseV005 | null): { label: string; tone: CxStatusTone; pulse?: boolean; progress?: number } {
   if (status === 'synced') return { label: isZh ? '可用' : 'Ready', tone: 'good' }
   if (status === 'failed') return { label: isZh ? '失败' : 'Failed', tone: 'bad' }
-  if (status === 'processing') return { label: isZh ? '解析中' : 'Parsing', tone: 'accent', pulse: true, progress: 48 }
+  if (status === 'processing') return { label: isZh ? '解析中' : 'Parsing', tone: 'accent', pulse: true, progress: knowledgeJobProgress(job) || 48 }
   return { label: isZh ? '排队中' : 'Queued', tone: 'warn', pulse: true }
 }
 
@@ -526,15 +571,19 @@ async function fetchKnowledgeV005({
 }): Promise<KnowledgeLoadResult> {
   const rawSources = await api.get<unknown>('/knowledge/sources')
   const sources = normalizeArrayResponse<KnowledgeSourceV005>(rawSources)
-  const sourceDocuments = await Promise.all(
-    sources.map(async (source) => {
-      const rawDocuments = await api.get<unknown>(`/knowledge/sources/${source.id}/documents`)
-      return normalizeArrayResponse<KnowledgeDocumentV005>(rawDocuments)
-        .filter((doc) => doc.status !== 'deleted')
-        .map((doc) => mapV005Document(doc, source))
-    }),
-  )
-  const allDocuments = sourceDocuments.flat()
+  const [sourceDocuments, rawLegacyDocuments] = await Promise.all([
+    Promise.all(
+      sources.map(async (source) => {
+        const rawDocuments = await api.get<unknown>(`/knowledge/sources/${source.id}/documents`)
+        return normalizeArrayResponse<KnowledgeDocumentV005>(rawDocuments)
+          .filter((doc) => doc.status !== 'deleted')
+          .map((doc) => mapV005Document(doc, source))
+      }),
+    ),
+    api.get<unknown>('/knowledge/documents').catch(() => []),
+  ])
+  const legacyDocuments = normalizeArrayResponse<LegacyKnowledgeDocument>(rawLegacyDocuments).map(mapLegacyDocument)
+  const allDocuments = [...sourceDocuments.flat(), ...legacyDocuments]
   const queryText = query.trim()
   let visibleDocuments = filterDocuments(allDocuments, {
     category,
@@ -549,7 +598,14 @@ async function fetchKnowledgeV005({
       scope_types: ['workspace', 'project', 'client'],
       top_k: Math.max(page * pageSize, pageSize),
     })
-    visibleDocuments = searchData.chunks.map((chunk) => mapV005SearchChunk(chunk, sources))
+    const semanticDocuments = searchData.chunks.map((chunk) => mapV005SearchChunk(chunk, sources))
+    const matchingLegacyDocuments = filterDocuments(legacyDocuments, {
+      category,
+      fileType,
+      query: queryText,
+      status,
+    })
+    visibleDocuments = [...semanticDocuments, ...matchingLegacyDocuments]
     if (category !== 'all' || fileType !== 'all' || status !== 'all') {
       visibleDocuments = filterDocuments(visibleDocuments, {
         category,
@@ -719,6 +775,16 @@ export function Knowledge() {
   const processingCount = (statusCountMap.processing || 0) + (statusCountMap.pending || 0)
   const failedCount = statusCountMap.failed || 0
   const selectedDocumentCount = selectedDocumentIds.length
+  const fetchDataRef = useRef(fetchData)
+  fetchDataRef.current = fetchData
+
+  useEffect(() => {
+    if (!hasLoaded || apiMode !== 'v005' || processingCount === 0) return undefined
+    const timer = window.setInterval(() => {
+      void fetchDataRef.current({ silent: true })
+    }, 4000)
+    return () => window.clearInterval(timer)
+  }, [apiMode, hasLoaded, processingCount])
 
   useEffect(() => {
     setSelectedDocumentIds((ids) => ids.filter((id) => documents.some((doc) => doc.id === id)))
@@ -811,7 +877,12 @@ export function Knowledge() {
     if (pendingDeleteId == null) return
     setDeleting(true)
     try {
-      await api.delete(`/knowledge/documents/${pendingDeleteId}`)
+      const pendingDocument = documents.find((doc) => doc.id === pendingDeleteId)
+      if (pendingDocument?.api_mode === 'v005' && pendingDocument.source_id) {
+        await api.delete(`/knowledge/sources/${pendingDocument.source_id}/documents/${pendingDocument.document_id || pendingDocument.id}`)
+      } else {
+        await api.delete(`/knowledge/documents/${pendingDocument?.document_id || pendingDeleteId}`)
+      }
       setPendingDeleteId(null)
       toast.success({ title: isZh ? '文档已删除' : 'Document deleted' })
       await fetchData({ silent: true })
@@ -828,8 +899,13 @@ export function Knowledge() {
   const reindexDocument = async (doc: KnowledgeViewDocument) => {
     setReindexingId(doc.id)
     try {
-      if (apiMode === 'v005' && doc.source_id) {
-        await api.post<KnowledgeJobResponseV005>(`/knowledge/sources/${doc.source_id}/sync`)
+      if (doc.api_mode === 'v005' && doc.source_id) {
+        const jobId = doc.latest_job?.job_id || doc.latest_job?.id
+        if (jobId && doc.latest_job?.status === 'failed' && doc.latest_job.retryable) {
+          await api.post<KnowledgeJobResponseV005>(`/knowledge/jobs/${jobId}/retry`)
+        } else {
+          await api.post<KnowledgeJobResponseV005>(`/knowledge/sources/${doc.source_id}/documents/${doc.document_id || doc.id}/reindex`)
+        }
       } else {
         await api.post(`/knowledge/documents/${doc.document_id || doc.id}/reindex`)
       }
@@ -884,9 +960,7 @@ export function Knowledge() {
             documentPageSize={documentPageSize}
             documentTotal={documentTotal}
             error={error}
-            failedCount={failedCount}
             fileTypeCounts={fileTypeCounts}
-            indexedCount={indexedCount}
             isZh={isZh}
             latestDoc={latestDoc}
             onCategoryChange={(category) => {
@@ -908,7 +982,6 @@ export function Knowledge() {
             }}
             onReindex={(doc) => void reindexDocument(doc)}
             onUpload={() => fileInputRef.current?.click()}
-            processingCount={processingCount}
             reindexingId={reindexingId}
             searchQuery={searchQuery}
             selectedCategory={selectedCategory}
@@ -1076,9 +1149,7 @@ function KnowledgeFindView({
   documentPageSize,
   documentTotal,
   error,
-  failedCount,
   fileTypeCounts,
-  indexedCount,
   isZh,
   latestDoc,
   onCategoryChange,
@@ -1088,7 +1159,6 @@ function KnowledgeFindView({
   onPageSizeChange,
   onReindex,
   onUpload,
-  processingCount,
   reindexingId,
   searchQuery,
   selectedCategory,
@@ -1106,9 +1176,7 @@ function KnowledgeFindView({
   documentPageSize: number
   documentTotal: number
   error: string | null
-  failedCount: number
   fileTypeCounts: KnowledgeFileTypeCount[]
-  indexedCount: number
   isZh: boolean
   latestDoc?: KnowledgeViewDocument
   onCategoryChange: (category: string) => void
@@ -1118,7 +1186,6 @@ function KnowledgeFindView({
   onPageSizeChange: (pageSize: number) => void
   onReindex: (doc: KnowledgeViewDocument) => void
   onUpload: () => void
-  processingCount: number
   reindexingId: number | null
   searchQuery: string
   selectedCategory: string
@@ -1711,7 +1778,7 @@ function ManageDocumentRow({
   onToggleSelection: () => void
   reindexing: boolean
 }) {
-  const status = statusMeta(doc.vector_status, isZh)
+  const status = statusMeta(doc.vector_status, isZh, doc.latest_job)
   const type = fileType(doc.file_type)
   const source = sourceLabel(doc, isZh)
 
@@ -1804,7 +1871,13 @@ function ManageDocumentRow({
         >
           <span style={{ fontSize: 12, color: 'var(--color-codex-ink-soft)' }}>
             <span style={{ color: 'var(--color-codex-bad)' }}>{isZh ? '无法索引 — ' : 'Index failed — '}</span>
-            {isZh ? '当前文件未生成可检索内容。' : 'This file has no searchable content yet.'}
+            {doc.latest_job?.error_message || doc.error_message || (isZh ? '当前文件未生成可检索内容。' : 'This file has no searchable content yet.')}
+            {doc.latest_job?.attempt ? (
+              <span className="codex-mono" style={{ marginLeft: 8, color: 'var(--color-codex-ink-faint)' }}>
+                {isZh ? `尝试 ${doc.latest_job.attempt}/${doc.latest_job.max_attempts || '—'}` : `attempt ${doc.latest_job.attempt}/${doc.latest_job.max_attempts || '—'}`}
+                {doc.latest_job.failure_code ? ` · ${doc.latest_job.failure_code}` : ''}
+              </span>
+            ) : null}
           </span>
           <button
             type="button"
@@ -1845,7 +1918,7 @@ function SearchResultRow({
   onReindex: () => void
   reindexing: boolean
 }) {
-  const status = statusMeta(doc.vector_status, isZh)
+  const status = statusMeta(doc.vector_status, isZh, doc.latest_job)
   const score = resultScore(doc, index)
   const tone = scoreColor(score)
   const description =
