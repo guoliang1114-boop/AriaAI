@@ -302,6 +302,7 @@ jobs:
                         "-q",
                         "tests/test_chat_end_to_end.py",
                         "tests/test_chat_streaming.py",
+                        "tests/test_rag.py",
                         "tests/test_run_outputs_postgres.py",
                     ],
                     env=env,

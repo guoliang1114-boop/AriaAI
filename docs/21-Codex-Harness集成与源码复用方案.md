@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
 > 更新日期：2026-08-23
-> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P 已实施
+> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -81,7 +81,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 
 大型 Rust 子系统只有在 Python 重写成本明显高于收益、且 Aria 确实需要同类能力时才重新评估。目前没有这种必要。
 
-## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P 已吸收的源码机制
+## 4. Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q 已吸收的源码机制
 
 | Codex 上游机制 | 上游路径 | Aria 原生实现 | 接入位置 | 价值 |
 |---|---|---|---|---|
@@ -100,6 +100,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 | 工具执行台账与结果契约 | `core/src/tools/executed_tool_calls.rs`、`protocol/src/models/executed_tool_calls.rs` | `backend/app/services/agent_harness/tool_execution_record.py` | Tool Executor + Agent Loop + Durable Task + Persist + Rollout + Evaluation + 前端 Store | 用 `tool_use_id` 合并调用生命周期，统一 outcome，移除原始输入/输出，并按 256 条/32 KiB 预算优先保留最近证据和显式省略计数 |
 | 上下文组装清单与请求绑定 | `core/src/context/world_state/mod.rs`、`core/src/context_manager/history.rs` | `backend/app/services/context_builder/assembly.py` | Context Builder + Runtime + Agent Loop + Trace + Rollout + Evaluation | 用稳定来源 ID、信任层级、有界元数据和域分离 SHA-256 记录每一层上下文，并把 Manifest 绑定到实际 Provider 首次请求；不持久化 Prompt、历史、RAG 或工具 Schema 原文 |
 | 运行输出 Item 与生命周期事实 | `protocol/src/models.rs`、`analytics/src/facts.rs` | `backend/app/services/agent_harness/run_output_record.py` | Tool Executor + Artifact Persist + Evaluation + Rollout + Memory Candidate + 前端 Store | 将模型正文、交付物和记忆候选拆成不同结果边界；Artifact 只有在文件、项目证据与内容哈希验证后才成为 persisted，候选则单独进入人工裁决生命周期 |
+| 知识证据 Item 与引用闭环 | `protocol/src/models.rs`、`protocol/src/items.rs` | `backend/app/services/agent_harness/knowledge_evidence.py` | RAG + Context Builder + Persist + Evaluation + Trace + 两个聊天前端 | 检索片段获得稳定 Evidence ID 与 `K*` 引用键；原文只进入本轮 Prompt，持久化仅保留来源元数据和 SHA-256，回答只展示实际引用且有效的来源 |
 | Skill 前置信息解析 | `codex-rs/skills/src/parser.rs` | `backend/app/services/agent_harness/skill_package.py` | `routers/skills.py` | 校验 `SKILL.md`、修复有限 YAML 歧义、安全加载指定引用 |
 | Skill Root 快照与选择 | `codex-rs/skills/src/loading.rs`、`selection.rs`、`ext/skills/src/loader/` | `backend/app/services/agent_harness/skill_roots.py` | Skill 启动同步 + `skill_router.py` | 有序 Root、不可变内容指纹、增量缓存、坏包隔离和发布态候选选择 |
 
@@ -427,6 +428,20 @@ Phase 2P 从 Codex 的 typed `ResponseItem` 与 Artifact lifecycle fact 中吸�
 
 本阶段新增 Alembic `026_v1_26`，只做加法迁移；生产数据库测试继续在完整备份后使用独立 `ariaai_test_*` schema，测试结束删除该 schema 并比较 `public` 表与 revision 签名。Aria 没有引入 Codex Response API、协议类型、Analytics 服务或任何运行时依赖。
 
+### 4.18 Knowledge Evidence Manifest 与引用闭环
+
+Phase 2Q 从 Codex 的 typed `ResponseItem::WebSearchCall`、`WebSearchItem` 和稳定 Item ID 边界中吸收“检索动作、检索结果、模型正文与可展示引用必须是不同对象”的原则，并改写为 Aria 原生 `KnowledgeEvidenceManifest v1`：
+
+- 每个进入 Provider 上下文的知识块按文档 ID、chunk index 与内容 SHA-256 生成稳定 `evidence_id`，并按本轮检索顺序获得不可跳号的 `K1/K2/...`；
+- Prompt 明确要求模型只使用本轮存在的 `[K*]`，证据不足时显式说明，同时把检索内容标为 untrusted source data，禁止执行文档内指令；
+- Evidence Manifest 最多保存 12 条有界元数据，只包含文档 ID、标题、chunk index、相似度、引用键和内容摘要，不保存 query 或检索片段原文；
+- Persist 对最终正文做确定性引用解析，只把真实出现且能回指 Manifest 的来源写入 `references` 并发送 Product Run Event `reference_delta`；未知键记录为 invalid，未引用检索上下文记录为非阻断质量警告；
+- 两个聊天前端使用后端给出的 `K*`，不会在过滤来源后错误重编号；旧消息仍兼容 `[1]` 数字标签，异常或含原文的旧引用 payload 会在持久化边界被收敛为安全字段；
+- Run Evaluation、Chat Trace 和 Artifact Run Output 共享 Evidence Manifest 摘要，使交付物能追溯到本轮知识证据，而不复制客户材料正文；
+- 显式 `rag_doc_ids` 与环境检索统一应用用户的 `ProjectMember` 项目清单；无权项目/客户文档即使 ID 被猜中也不会进入相似度计算或 Prompt，workspace/global 文档仍按既有规则可用。
+
+本阶段没有新增数据库字段或迁移；完整 Evidence Manifest 随 Assistant Message 元数据保存，生产数据库验收在备份后的独立 schema 中覆盖引用持久化和跨项目检索隔离。Aria 没有引入 Codex Web Search、Responses API、协议类型或运行时。
+
 ## 5. 已撤回的错误方向
 
 下列通信型实现已从工作区移除：
@@ -612,6 +627,15 @@ Phase 2P 从 Codex 的 typed `ResponseItem` 与 Artifact lifecycle fact 中吸�
 - `codex-rs/analytics/src/facts.rs`。
 
 已完成：新增有界、无原文的 `RunOutputRecord v1`，通过 `output_id` 连接工具产出、真实文件校验、`GeneratedFile`、Product Run Event、Activity Timeline、Rollout 和完成裁决；缺失或越界文件不能再以大小 0 的附件冒充交付成功。新增来源关联的 Memory Candidate 表与审核 API，项目聊天只提交 pending 候选，项目记忆页执行 accept/reject；accepted 内容写入带版本 snapshot 的正式记忆并在后续重建中保留。实现只借鉴 Item 与生命周期边界，不运行、不导入、不连接 Codex；数据库变更由加法迁移 `026_v1_26` 管理。
+
+### Phase 2Q：Knowledge Evidence 与引用闭环（已实施）
+
+参考候选：
+
+- `codex-rs/protocol/src/models.rs`；
+- `codex-rs/protocol/src/items.rs`。
+
+已完成：新增无原文、可校验的 `KnowledgeEvidenceManifest v1`，将检索片段、模型引用、持久化来源和 Artifact provenance 绑定到稳定 evidence identity；只显示最终正文实际使用的合法 `[K*]` 来源，未知/缺失引用进入确定性完成质量检查。显式文档 ID 与自动 RAG 均在 Prompt 注入前应用项目/客户成员边界，两个聊天前端共享 canonical citation key。实现不调用 Codex，不使用其 Web Search 或协议，不新增数据库迁移。
 
 ## 8. 许可证与升级流程
 

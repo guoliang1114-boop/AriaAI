@@ -6,7 +6,9 @@ import type {
   GeneratedArtifact,
   MemoryCandidateCreateResponse,
   Message,
+  Reference,
 } from '../../../types/api'
+import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 import { CxIcon } from './CxIcons'
 import { formatUpdatedRelative } from './useProjectsApi'
 
@@ -20,17 +22,11 @@ import { formatUpdatedRelative } from './useProjectsApi'
  *
  *   - skill_progress[]   → compact "执行清单" pill (collapsed by default)
  *   - artifacts[]        → file-style cards with size / type badge
- *   - references[]       → numbered [N] citation chips
+ *   - references[]       → canonical [K*] / legacy [N] citation chips
  *
  * Bottom of each Aria message: hover-only action chips. Just two —
  * 复制 and 沉淀到项目记忆.
  */
-
-interface ReferenceRef {
-  type: string
-  id: number
-  title: string
-}
 
 interface ProgressStep {
   key?: string
@@ -41,7 +37,7 @@ interface ProgressStep {
 }
 
 interface ParsedMeta {
-  references: ReferenceRef[]
+  references: Reference[]
   artifacts: GeneratedArtifact[]
   progress: ProgressStep[]
 }
@@ -50,7 +46,7 @@ function parseMeta(raw: string | undefined): ParsedMeta {
   if (!raw) return { references: [], artifacts: [], progress: [] }
   try {
     const meta = JSON.parse(raw) as Record<string, unknown>
-    const refs = Array.isArray(meta.references) ? (meta.references as ReferenceRef[]) : []
+    const refs = normalizeKnowledgeReferences(meta.references)
     const arts = Array.isArray(meta.artifacts) ? (meta.artifacts as GeneratedArtifact[]) : []
     const prog = Array.isArray(meta.skill_progress) ? (meta.skill_progress as ProgressStep[]) : []
     return { references: refs, artifacts: arts, progress: prog }
@@ -417,10 +413,10 @@ function ArtifactCard({
 }
 
 /* ────────────────────────────────────────────────────────────────
- * Reference chips — numbered citations. Matches /chat's R19 chip
- * style (mono [N] + lucide icon + title).
+ * Reference chips — canonical evidence citations. Matches /chat's R19 chip
+ * style (mono [K*] / legacy [N] + lucide icon + title).
  * ──────────────────────────────────────────────────────────────── */
-function ReferenceChips({ refs }: { refs: ReferenceRef[] }) {
+function ReferenceChips({ refs }: { refs: Reference[] }) {
   return (
     <div
       style={{
@@ -433,6 +429,7 @@ function ReferenceChips({ refs }: { refs: ReferenceRef[] }) {
       {refs.map((r, i) => (
         <span
           key={`${r.type}-${r.id}-${i}`}
+          title={r.chunk_index != null ? `${r.title} · 片段 ${r.chunk_index + 1}` : r.title}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -453,7 +450,7 @@ function ReferenceChips({ refs }: { refs: ReferenceRef[] }) {
               fontWeight: 500,
             }}
           >
-            [{i + 1}]
+            {knowledgeReferenceLabel(r, i)}
           </span>
           <CxIcon
             name={

@@ -50,6 +50,11 @@ Goal: turn documents and team knowledge into workflow context, not only search r
 - Add source citations to knowledge-assisted answers and artifacts.
 - Enforce project/client permission boundaries before retrieval.
 - Add retry and status visibility for failed ingestion jobs.
+- Baseline delivered on 2026-08-23: stable evidence IDs and canonical `K*`
+  citation keys, untrusted-source prompt boundaries, cited-only source display,
+  no retrieved chunk text in durable run metadata, artifact provenance, and
+  member-scoped filtering for explicit document IDs. Ingestion retry/status
+  remains the next open knowledge-workflow item.
 
 ## 4. Skill Workflows
 

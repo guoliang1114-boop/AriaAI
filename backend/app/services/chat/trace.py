@@ -23,6 +23,7 @@ from app.services.agent_harness.tool_execution_record import (
     tool_event_is_failure,
     tool_event_is_omission_marker,
 )
+from app.services.agent_harness.knowledge_evidence import knowledge_evidence_reference
 from app.services.chat.state import ChatSessionState
 from app.services.chat_tools import ChatRuntime
 
@@ -138,6 +139,9 @@ def build_chat_trace_payload(runtime: ChatRuntime, state: ChatSessionState) -> d
             "rollout_task_id": state.rollout_task_id,
             "context_manifest": context_manifest or {},
             "context_manifest_ref": context_manifest_reference(context_manifest),
+            "knowledge_evidence": knowledge_evidence_reference(
+                getattr(state, "knowledge_evidence", None)
+            ),
         },
     }
 

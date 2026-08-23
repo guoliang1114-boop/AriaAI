@@ -28,6 +28,7 @@ class ChatContext:
         project_context: str = "",
         rag_context: str = "",
         rag_sources: Optional[list] = None,
+        knowledge_evidence_manifest: Optional[dict] = None,
         tools: Optional[list] = None,
         max_tokens: int = 4096,
         context_sources: Optional[list[ContextSourceInput]] = None,
@@ -36,6 +37,7 @@ class ChatContext:
         self.project_context = project_context
         self.rag_context = rag_context
         self.rag_sources = rag_sources or []
+        self.knowledge_evidence_manifest = knowledge_evidence_manifest or {}
         self.tools = tools
         self.max_tokens = max_tokens
         self.context_sources = tuple(context_sources or ())
@@ -134,6 +136,7 @@ def build_chat_context(
         project_id=project_id,
         knowledge_scope=knowledge_scope,
         auto_trigger=True,
+        accessible_project_ids=accessible_project_ids,
     )
     
     return ChatContext(
@@ -141,6 +144,7 @@ def build_chat_context(
         project_context=project_context,
         rag_context=rag_data["text"],
         rag_sources=rag_data["sources"],
+        knowledge_evidence_manifest=rag_data.get("evidence_manifest") or {},
         tools=_merge_project_chat_tools(skill_ctx.tools, project_id),
         max_tokens=skill_ctx.max_tokens or default_max_tokens,
         context_sources=[

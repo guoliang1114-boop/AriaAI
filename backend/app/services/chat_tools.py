@@ -38,6 +38,10 @@ class ChatRuntime:
     # Privacy-safe Context Assembly Manifest v1. It fingerprints the exact
     # initial provider request without retaining raw prompt or retrieved text.
     context_manifest: dict | None = None
+    # Bounded, no-content Knowledge Evidence Manifest v1. ``rag_sources`` is
+    # retained as the frontend-safe compatibility view; retrieved chunk text
+    # exists only inside ``system`` while the provider request is assembled.
+    knowledge_evidence_manifest: dict | None = None
     intent_prepared_async: bool = False
     # Per-turn context budgeting. Production runtime construction always sets
     # these values; zero keeps direct test/recovery constructors backward

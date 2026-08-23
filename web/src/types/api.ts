@@ -824,6 +824,32 @@ export interface Reference {
   type: 'skill' | 'doc' | 'file' | 'milestone'
   id: number
   title: string
+  schema_version?: 1
+  evidence_id?: string
+  citation_key?: string
+  chunk_index?: number
+  score?: number
+  content_sha256?: string
+}
+
+export interface KnowledgeEvidenceManifest {
+  schema_version: 1
+  manifest_id: string
+  knowledge_scope: string
+  project_id?: number | null
+  status: 'available' | 'cited' | 'uncited' | 'invalid' | 'partial' | 'not_available'
+  entries: Array<{
+    evidence_id: string
+    citation_key: string
+    source_type: 'knowledge_document'
+    document_id: number
+    title: string
+    chunk_index: number
+    score: number
+    content_sha256: string
+  }>
+  cited_evidence_ids: string[]
+  invalid_citation_keys: string[]
 }
 
 export interface ToolCallEvent {
@@ -1098,6 +1124,7 @@ export interface TaskRun {
 
 export interface MessageMetadata {
   references?: Reference[]
+  knowledge_evidence?: KnowledgeEvidenceManifest
   tool_calls?: ToolCallEvent[]
   artifacts?: GeneratedArtifact[]
   run_outputs?: RunOutputRecord[]

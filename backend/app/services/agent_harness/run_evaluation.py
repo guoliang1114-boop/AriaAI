@@ -33,6 +33,10 @@ from app.services.agent_harness.run_output_record import (
     RunOutputStatus,
     normalize_run_output_records,
 )
+from app.services.agent_harness.knowledge_evidence import (
+    knowledge_evidence_reference,
+    validate_knowledge_evidence_manifest,
+)
 
 
 RUN_EVALUATION_SCHEMA_VERSION = 1
@@ -228,6 +232,8 @@ def evaluate_run_completion(
         else len(list(getattr(state, "artifacts", None) or []))
     )
     confirmation_requested = bool(getattr(state, "confirmation_requested", False))
+    knowledge_evidence = getattr(state, "knowledge_evidence", None)
+    knowledge_evidence_ref = knowledge_evidence_reference(knowledge_evidence)
     # Dedicated checks below provide more actionable findings for these
     # synthetic harness events, so exclude them from the generic tool finding.
     generic_unresolved = [
@@ -264,6 +270,63 @@ def evaluate_run_completion(
         # Direct unit/recovery constructors predate the production manifest.
         # They remain usable, but production runtimes always populate it.
         checks["context_assembly"] = "not_available"
+
+    if knowledge_evidence:
+        evidence_valid, evidence_reason = validate_knowledge_evidence_manifest(
+            knowledge_evidence
+        )
+        evidence_status = str(knowledge_evidence_ref.get("status") or "")
+        if not evidence_valid:
+            checks["knowledge_evidence"] = "failed"
+            findings.append(
+                _finding(
+                    "KNOWLEDGE_EVIDENCE_INVALID",
+                    FindingSeverity.ERROR,
+                    "知识证据清单未通过完整性校验。",
+                    validation_reason=evidence_reason,
+                )
+            )
+        elif not knowledge_evidence_ref["evidence_count"]:
+            checks["knowledge_evidence"] = "not_used"
+        elif evidence_status == "cited":
+            checks["knowledge_evidence"] = "passed"
+        elif evidence_status == "partial":
+            checks["knowledge_evidence"] = "warning"
+            findings.append(
+                _finding(
+                    "KNOWLEDGE_CITATION_PARTIAL",
+                    FindingSeverity.WARNING,
+                    "回答引用了有效知识证据，但同时包含未知引用标记。",
+                    cited_count=knowledge_evidence_ref["cited_count"],
+                    invalid_citation_count=knowledge_evidence_ref[
+                        "invalid_citation_count"
+                    ],
+                )
+            )
+        elif evidence_status == "invalid":
+            checks["knowledge_evidence"] = "warning"
+            findings.append(
+                _finding(
+                    "KNOWLEDGE_CITATION_INVALID",
+                    FindingSeverity.WARNING,
+                    "回答包含无法回指到本轮检索证据的引用标记。",
+                    invalid_citation_count=knowledge_evidence_ref[
+                        "invalid_citation_count"
+                    ],
+                )
+            )
+        else:
+            checks["knowledge_evidence"] = "warning"
+            findings.append(
+                _finding(
+                    "KNOWLEDGE_EVIDENCE_UNCITED",
+                    FindingSeverity.WARNING,
+                    "本轮使用了知识检索上下文，但回答没有回指有效证据。",
+                    evidence_count=knowledge_evidence_ref["evidence_count"],
+                )
+            )
+    else:
+        checks["knowledge_evidence"] = "not_used"
 
     if bool(getattr(state, "budget_exhausted", False)):
         checks["turn_budget"] = "failed"
@@ -469,6 +532,7 @@ def evaluate_run_completion(
             "EMPTY_MODEL_OUTPUT": "模型未生成可用正文，本轮已按失败状态保存。",
             "CONTEXT_ASSEMBLY_INVALID": "模型上下文清单校验失败，本轮未达到可验证完成状态。",
             "OUTPUT_PERSISTENCE_FAILED": "产物持久化证据未通过校验，本轮不会声称文件已经保存。",
+            "KNOWLEDGE_EVIDENCE_INVALID": "知识证据清单校验失败，本轮未达到可验证完成状态。",
         }
         summary = summary_by_code.get(
             primary_code,
@@ -477,7 +541,7 @@ def evaluate_run_completion(
     elif verdict is CompletionVerdict.WAITING_CONFIRMATION:
         summary = "完成证据已记录，本轮正在等待用户确认。"
     elif warning_count:
-        summary = "完成证据检查通过，但包含已恢复的工具失败。"
+        summary = "完成证据检查通过，但包含需要关注的非阻断警告。"
     else:
         summary = "完成证据检查通过。"
 
@@ -495,6 +559,7 @@ def evaluate_run_completion(
             list(getattr(state, "pending_tool_confirmations", None) or [])
         ),
         "context_manifest": context_manifest_ref,
+        "knowledge_evidence": knowledge_evidence_ref,
     }
     return RunCompletionEvaluation(
         verdict=verdict,

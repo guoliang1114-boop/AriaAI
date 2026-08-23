@@ -6,10 +6,11 @@ from typing import List, Optional
 
 import numpy as np
 from fastembed import TextEmbedding
+from sqlalchemy import and_, or_
 from sqlmodel import Session, select
 
 from app.config import CHUNK_SIZE, CHUNK_OVERLAP, TOP_K_RESULTS, EMBEDDING_MODEL
-from app.models.db import DocumentChunk, KnowledgeDocument
+from app.models.db import ClientRecord, DocumentChunk, KnowledgeDocument, Project
 
 _model: Optional[TextEmbedding] = None
 
@@ -94,6 +95,7 @@ def retrieve_structured(
     doc_ids: Optional[List[int]] = None,
     project_id: Optional[int] = None,
     client_id: Optional[int] = None,
+    accessible_project_ids: Optional[List[int]] = None,
 ) -> RetrievalContext:
     """
     Retrieve relevant chunks with full source attribution.
@@ -104,6 +106,49 @@ def retrieve_structured(
     query_embedding = embed_texts([query])[0]
 
     stmt = select(DocumentChunk).join(KnowledgeDocument, KnowledgeDocument.id == DocumentChunk.document_id)
+    # User-facing chat callers pass their exact ProjectMember inventory. This
+    # closes the explicit-doc-id path as well as ambient project/client
+    # retrieval: a caller cannot widen retrieval merely by guessing another
+    # KnowledgeDocument id. ``None`` is reserved for trusted internal callers;
+    # an empty list grants only legacy workspace/global documents.
+    if accessible_project_ids is not None:
+        allowed_project_ids = list(
+            dict.fromkeys(
+                int(value)
+                for value in accessible_project_ids
+                if isinstance(value, int) and value >= 0
+            )
+        )
+        allowed_client_ids: list[int] = []
+        if allowed_project_ids:
+            client_names = {
+                str(name or "").strip()
+                for name in session.exec(
+                    select(Project.client).where(Project.id.in_(allowed_project_ids))
+                ).all()
+                if str(name or "").strip()
+            }
+            if client_names:
+                allowed_client_ids = list(
+                    session.exec(
+                        select(ClientRecord.id).where(ClientRecord.name.in_(client_names))
+                    ).all()
+                )
+        permission_clauses = [
+            and_(
+                KnowledgeDocument.project_id.is_(None),
+                KnowledgeDocument.client_id.is_(None),
+            )
+        ]
+        if allowed_project_ids:
+            permission_clauses.append(
+                KnowledgeDocument.project_id.in_(allowed_project_ids)
+            )
+        if allowed_client_ids:
+            permission_clauses.append(
+                KnowledgeDocument.client_id.in_(allowed_client_ids)
+            )
+        stmt = stmt.where(or_(*permission_clauses))
     if doc_ids:
         stmt = stmt.where(DocumentChunk.document_id.in_(doc_ids))
     elif project_id is not None:
@@ -153,13 +198,21 @@ def retrieve(
     doc_ids: Optional[List[int]] = None,
     project_id: Optional[int] = None,
     client_id: Optional[int] = None,
+    accessible_project_ids: Optional[List[int]] = None,
 ) -> str:
     """
     Legacy retrieve function — returns text for LLM prompt.
     
     Use retrieve_structured() for new code that needs source attribution.
     """
-    return retrieve_structured(query, session, doc_ids, project_id=project_id, client_id=client_id).to_text()
+    return retrieve_structured(
+        query,
+        session,
+        doc_ids,
+        project_id=project_id,
+        client_id=client_id,
+        accessible_project_ids=accessible_project_ids,
+    ).to_text()
 
 
 async def index_document(document: KnowledgeDocument, text: str, session: Session) -> None:

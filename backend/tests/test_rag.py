@@ -146,6 +146,63 @@ class RetrieveStructuredTestCase(unittest.TestCase):
             ctx = rag_module.retrieve_structured("briefing", session, client_id=7)
             self.assertEqual(len(ctx.results), 1)
 
+    @patch.object(rag_module, "embed_texts")
+    def test_explicit_document_ids_cannot_widen_project_membership(self, mock_embed):
+        mock_embed.return_value = [[1.0, 0.0, 0.0]]
+        with Session(self.engine) as session:
+            allowed_project = Project(name="Allowed", client="Allowed Client")
+            denied_project = Project(name="Denied", client="Denied Client")
+            session.add(allowed_project)
+            session.add(denied_project)
+            session.commit()
+            session.refresh(allowed_project)
+            session.refresh(denied_project)
+
+            documents = [
+                KnowledgeDocument(
+                    name="allowed.pdf",
+                    file_type="pdf",
+                    path="allowed.pdf",
+                    project_id=allowed_project.id,
+                ),
+                KnowledgeDocument(
+                    name="denied.pdf",
+                    file_type="pdf",
+                    path="denied.pdf",
+                    project_id=denied_project.id,
+                ),
+                KnowledgeDocument(
+                    name="workspace.pdf",
+                    file_type="pdf",
+                    path="workspace.pdf",
+                ),
+            ]
+            session.add_all(documents)
+            session.commit()
+            for document in documents:
+                session.refresh(document)
+                session.add(
+                    DocumentChunk(
+                        document_id=document.id,
+                        chunk_index=0,
+                        content=document.name,
+                        embedding_json=json.dumps([1.0, 0.0, 0.0]),
+                    )
+                )
+            session.commit()
+
+            ctx = rag_module.retrieve_structured(
+                "briefing",
+                session,
+                doc_ids=[document.id for document in documents],
+                accessible_project_ids=[allowed_project.id],
+            )
+
+        assert {result.document_name for result in ctx.results} == {
+            "allowed.pdf",
+            "workspace.pdf",
+        }
+
 
 class RetrieveTestCase(unittest.TestCase):
     def setUp(self):

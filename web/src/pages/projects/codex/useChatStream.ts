@@ -2,7 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { requestChatRunCancellation } from '../../../api/chatRuns'
 import { getApiBaseUrl } from '../../../config/api'
 import i18n from '../../../i18n'
-import type { GeneratedArtifact, Message } from '../../../types/api'
+import type {
+  GeneratedArtifact,
+  KnowledgeEvidenceManifest,
+  Message,
+  Reference,
+} from '../../../types/api'
+import { normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 
 /** Project-chat-tab SSE streaming hook.
  *
@@ -80,7 +86,8 @@ interface StreamEvent {
   run_id?: string
   content?: string
   message?: string
-  references?: Array<{ type: string; id: number; title: string }>
+  references?: Reference[]
+  knowledge_evidence?: KnowledgeEvidenceManifest
   artifacts?: GeneratedArtifact[]
   tool_calls?: unknown[]
   skill_progress?: unknown[]
@@ -268,7 +275,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
-      let finalReferences: Array<{ type: string; id: number; title: string }> = []
+      let finalReferences: Reference[] = []
+      let finalKnowledgeEvidence: KnowledgeEvidenceManifest | undefined
       let finalArtifacts: GeneratedArtifact[] = []
       let finalToolCalls: unknown[] = []
       let finalSkillProgress: unknown[] = []
@@ -317,7 +325,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         } else if (ev.type === 'done') {
           done = true
           activeRunIdRef.current = null
-          finalReferences = ev.references || []
+          finalReferences = normalizeKnowledgeReferences(ev.references)
+          finalKnowledgeEvidence = ev.knowledge_evidence
           finalArtifacts = ev.artifacts && ev.artifacts.length > 0 ? ev.artifacts : artifactsRef.current
           finalToolCalls = ev.tool_calls || []
           finalSkillProgress = ev.skill_progress || []
@@ -394,6 +403,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         content: accumulatedRef.current,
         metadata_json: JSON.stringify({
           references: finalReferences,
+          knowledge_evidence: finalKnowledgeEvidence,
           artifacts: finalArtifacts,
           tool_calls: finalToolCalls,
           skill_progress: finalSkillProgress,

@@ -4249,7 +4249,12 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
 
         mocked_retrieve.assert_called_once()
         self.assertIn("Relevant knowledge", ctx.rag_context)
+        self.assertIn("[K1] Source: Selected Doc", ctx.rag_context)
         self.assertEqual(len(ctx.rag_sources), 1)
+        self.assertEqual(ctx.rag_sources[0]["type"], "doc")
+        self.assertEqual(ctx.rag_sources[0]["citation_key"], "K1")
+        self.assertNotIn("content", ctx.rag_sources[0])
+        self.assertEqual(ctx.knowledge_evidence_manifest["status"], "available")
 
     def test_standalone_chat_context_uses_lightweight_workspace_brief(self):
         with Session(self.engine) as session:
@@ -4886,6 +4891,63 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             metadata = json.loads(assistant_messages[0].metadata_json)
             self.assertEqual(metadata["references"][0]["title"], "project-brief.md")
             self.assertEqual(metadata["project_id"], 12)
+
+    def test_stream_chat_events_persists_only_cited_knowledge_evidence(self):
+        from types import SimpleNamespace
+
+        from app.services.agent_harness.knowledge_evidence import (
+            build_knowledge_evidence_manifest,
+            knowledge_evidence_references,
+        )
+
+        conv_id = self._create_conversation()
+        retrieved_text = "Confidential retrieved evidence text"
+        evidence_manifest = build_knowledge_evidence_manifest(
+            [
+                SimpleNamespace(
+                    content=retrieved_text,
+                    document_name="Evidence brief.md",
+                    document_id=17,
+                    chunk_index=4,
+                    score=0.91,
+                )
+            ],
+            knowledge_scope="project",
+            project_id=12,
+        )
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            selected_model="claude-sonnet-4-6",
+            llm=FakeStreamingLLM([["Grounded answer [K1]"]]),
+            system="system",
+            api_messages=[{"role": "user", "content": "hello"}],
+            rag_sources=knowledge_evidence_references(evidence_manifest),
+            knowledge_evidence_manifest=evidence_manifest,
+            tools=None,
+            max_tokens=1024,
+            temperature=0.7,
+        )
+        req = chat_router_module.SendMessageRequest(content="hello", project_id=12)
+
+        events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+        self.assertIn('"citation_key": "K1"', "".join(events))
+
+        with Session(self.engine) as session:
+            assistant_message = session.exec(
+                select(Message).where(
+                    Message.conversation_id == conv_id,
+                    Message.role == "assistant",
+                )
+            ).one()
+            metadata = json.loads(assistant_message.metadata_json)
+
+        self.assertEqual(metadata["references"][0]["citation_key"], "K1")
+        self.assertEqual(metadata["knowledge_evidence"]["status"], "cited")
+        self.assertEqual(
+            metadata["run_evaluation"]["checks"]["knowledge_evidence"],
+            "passed",
+        )
+        self.assertNotIn(retrieved_text, assistant_message.metadata_json)
 
     def test_stream_chat_events_continues_truncated_plain_response(self):
         conv_id = self._create_conversation()

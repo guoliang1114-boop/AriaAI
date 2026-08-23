@@ -156,6 +156,7 @@ jobs:
                 tests/test_approval_envelope.py \
                 tests/test_context_assembly_manifest.py \
                 tests/test_database_extended.py \
+                tests/test_knowledge_evidence.py \
                 tests/test_product_run_events.py \
                 tests/test_run_evaluation.py \
                 tests/test_run_output_record.py \

@@ -15,6 +15,10 @@ from app.services.agent_harness.run_output_record import (
     build_artifact_output_record,
     mark_run_output_failed,
 )
+from app.services.agent_harness.knowledge_evidence import (
+    build_knowledge_evidence_manifest,
+    resolve_knowledge_citations,
+)
 from app.services.chat.agent_step import AgentStep
 from app.services.chat.mode_registry import ActionPolicy
 from app.services.chat.persist import run_persist
@@ -59,6 +63,38 @@ def test_text_only_answer_passes_without_tool_evidence() -> None:
     assert evaluation.score == 100
     assert evaluation.findings == ()
     assert evaluation.to_dict()["primary_finding_code"] is None
+
+
+def test_uncited_knowledge_evidence_is_a_non_blocking_warning() -> None:
+    manifest = build_knowledge_evidence_manifest(
+        [
+            SimpleNamespace(
+                content="Grounded fact",
+                document_name="brief.md",
+                document_id=4,
+                chunk_index=0,
+                score=0.9,
+            )
+        ]
+    )
+    resolved, _ = resolve_knowledge_citations(manifest, "Answer without a citation")
+    state = ChatSessionState(
+        knowledge_evidence=resolved,
+        steps=[AgentStep(index=0, model_text="answer", status="completed")],
+    )
+
+    evaluation = evaluate_run_completion(
+        _runtime(),
+        state,
+        full_text="Answer without a citation",
+    )
+
+    assert evaluation.verdict is CompletionVerdict.COMPLETED
+    assert evaluation.score == 92
+    assert evaluation.checks["knowledge_evidence"] == "warning"
+    assert [finding.code for finding in evaluation.findings] == [
+        "KNOWLEDGE_EVIDENCE_UNCITED"
+    ]
 
 
 def test_missing_required_artifact_is_a_failed_verdict() -> None:

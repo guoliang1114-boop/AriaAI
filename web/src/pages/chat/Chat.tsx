@@ -44,7 +44,8 @@ import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { PageTitle } from '../../components/PageTitle'
 import { CxSkeleton, CxStatus, CxTopProgress } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
-import type { Conversation, GeneratedArtifact, Message, Project, Skill } from '../../types/api'
+import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skill } from '../../types/api'
+import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../utils/knowledgeEvidence'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
 import { formatDateOnly, formatDatePartsKey, formatTimeOnly, parseAppDateTime } from '../../utils/timezone'
 
@@ -1728,6 +1729,7 @@ export function Chat() {
             content: assistantContent,
             metadata_json: JSON.stringify({
               references: data.references || [],
+              knowledge_evidence: data.knowledge_evidence,
               tool_calls: finalToolCalls,
               artifacts: finalArtifacts,
               skill_id: skillForThisMessage || undefined,
@@ -3725,13 +3727,13 @@ function MessageRow({ message }: { message: Message }) {
   const userLabel = displayName || fallbackYou
   const userInitial = getInitialChar(displayName, fallbackYou)
 
-  let references: Array<{ type: string; id: number; title: string }> = []
+  let references: Reference[] = []
   let skillProgress: ChatProgressStep[] = []
   let artifacts: GeneratedArtifact[] = []
   let stageTimings: StageTimingEntry[] = []
   try {
     const meta = JSON.parse(message.metadata_json || '{}')
-    references = meta.references || []
+    references = normalizeKnowledgeReferences(meta.references)
     artifacts = Array.isArray(meta.artifacts) ? meta.artifacts : []
     skillProgress = buildProgressFromMetadata(meta)
     stageTimings = stageTimingEntriesFromMeta(meta)
@@ -3839,6 +3841,7 @@ function MessageRow({ message }: { message: Message }) {
               <span
                 key={i}
                 className="inline-flex items-center"
+                title={ref.chunk_index != null ? `${ref.title} · 片段 ${ref.chunk_index + 1}` : ref.title}
                 style={{
                   gap: 5,
                   padding: '2px 8px',
@@ -3857,7 +3860,7 @@ function MessageRow({ message }: { message: Message }) {
                     fontWeight: 500,
                   }}
                 >
-                  [{i + 1}]
+                  {knowledgeReferenceLabel(ref, i)}
                 </span>
                 {ref.type === 'skill' && (
                   <Wrench

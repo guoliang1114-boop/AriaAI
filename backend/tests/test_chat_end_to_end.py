@@ -267,6 +267,42 @@ class TextOnlyResponseTests(ChatEndToEndBase):
             )
 
 
+class KnowledgeEvidenceResponseTests(ChatEndToEndBase):
+    async def test_cited_evidence_round_trips_without_retrieved_text(self) -> None:
+        from app.services.agent_harness.knowledge_evidence import (
+            build_knowledge_evidence_manifest,
+            knowledge_evidence_references,
+        )
+
+        retrieved_text = "Private evidence that must stay out of message metadata."
+        manifest = build_knowledge_evidence_manifest(
+            [
+                SimpleNamespace(
+                    content=retrieved_text,
+                    document_name="project-brief.md",
+                    document_id=11,
+                    chunk_index=3,
+                    score=0.93,
+                )
+            ],
+            knowledge_scope="project",
+        )
+        self.runtime.knowledge_evidence_manifest = manifest
+        self.runtime.rag_sources = knowledge_evidence_references(manifest)
+        self.set_llm_stream(["The approved approach is phased [K1]."])
+
+        events = await self.drain()
+
+        done = _events_of_type(events, "done")
+        self.assertEqual(done[0]["references"][0]["citation_key"], "K1")
+        self.assertEqual(_events_of_type(events, "reference_delta")[0]["source"], "K1")
+        assistant = [message for message in self.assistant_messages() if message.role == "assistant"][0]
+        metadata = json.loads(assistant.metadata_json)
+        self.assertEqual(metadata["knowledge_evidence"]["status"], "cited")
+        self.assertEqual(metadata["run_evaluation"]["checks"]["knowledge_evidence"], "passed")
+        self.assertNotIn(retrieved_text, assistant.metadata_json)
+
+
 # ----------------------------------------------------------------------
 # Scenario 2: single tool call → result → follow-up text
 # ----------------------------------------------------------------------

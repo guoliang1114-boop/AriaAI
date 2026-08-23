@@ -60,6 +60,9 @@ from app.services.agent_harness.turn_interrupt import (
     register_active_turn,
     unregister_active_turn,
 )
+from app.services.agent_harness.knowledge_evidence import (
+    resolve_runtime_knowledge_evidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -212,8 +215,15 @@ def _persist_interrupted_turn(
             error_message=reason,
         ),
     }
-    if getattr(runtime, "rag_sources", None):
-        metadata["references"] = runtime.rag_sources
+    resolved_evidence, references = resolve_runtime_knowledge_evidence(
+        runtime,
+        full_text,
+    )
+    if resolved_evidence:
+        state.knowledge_evidence = resolved_evidence
+        metadata["knowledge_evidence"] = resolved_evidence
+    if references:
+        metadata["references"] = references
 
     try:
         _, assistant_message_id = persist_assistant_message(
@@ -292,8 +302,15 @@ def _persist_phase_error_events(
             error_message=str(exc),
         ),
     }
-    if runtime.rag_sources:
-        metadata["references"] = runtime.rag_sources
+    resolved_evidence, references = resolve_runtime_knowledge_evidence(
+        runtime,
+        full_text,
+    )
+    if resolved_evidence:
+        state.knowledge_evidence = resolved_evidence
+        metadata["knowledge_evidence"] = resolved_evidence
+    if references:
+        metadata["references"] = references
 
     try:
         _, assistant_message_id = persist_assistant_message(
@@ -397,6 +414,9 @@ async def stream_chat_events(
     state = ChatSessionState(
         stage_timings=dict(runtime.prepare_metrics or {}),
         context_manifest=dict(getattr(runtime, "context_manifest", None) or {}),
+        knowledge_evidence=dict(
+            getattr(runtime, "knowledge_evidence_manifest", None) or {}
+        ),
     )
     state.run_id = make_run_id()
     state.rollout_bind = bind

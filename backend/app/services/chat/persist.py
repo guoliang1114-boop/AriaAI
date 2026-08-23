@@ -29,6 +29,10 @@ from app.services.agent_harness.tool_execution_record import (
     tool_event_is_failure,
     tool_event_is_omission_marker,
 )
+from app.services.agent_harness.knowledge_evidence import (
+    knowledge_evidence_reference,
+    resolve_runtime_knowledge_evidence,
+)
 from app.services.artifact_intent import ArtifactContract
 from app.services.chat_tools import (
     ChatRuntime,
@@ -1012,6 +1016,19 @@ async def run_persist(
             full_text = f"{full_text}\n\n{failure_notice}".strip()
             yield sse_event({"type": "text", "content": f"\n\n{failure_notice}"})
 
+    resolved_evidence, cited_references = resolve_runtime_knowledge_evidence(
+        runtime,
+        full_text,
+    )
+    if resolved_evidence:
+        state.knowledge_evidence = resolved_evidence
+        evidence_ref = knowledge_evidence_reference(resolved_evidence)
+        state.record_trace_event(
+            "knowledge_citations_resolved",
+            stage="completion_evaluation",
+            **evidence_ref,
+        )
+
     # Deterministic completion evidence gate. Unlike a model reviewer this is
     # stable across providers and only consumes bounded Aria audit summaries.
     from app.services.agent_harness.run_evaluation import evaluate_run_completion
@@ -1050,8 +1067,10 @@ async def run_persist(
             else {"status": "within_budget", "budget": turn_budget_snapshot}
         )
     metadata["run_evaluation"] = dict(state.run_evaluation)
-    if runtime.rag_sources:
-        metadata["references"] = runtime.rag_sources
+    if cited_references:
+        metadata["references"] = cited_references
+    if resolved_evidence:
+        metadata["knowledge_evidence"] = resolved_evidence
     if state.tool_call_events:
         metadata["tool_calls"] = state.tool_call_events
     if pending_action_ids:
@@ -1205,9 +1224,20 @@ async def run_persist(
     # Product Run Event v1: signal that the assistant message is now persisted,
     # right before the legacy done event. Additive — old frontends ignore it.
     if state.run_id and assistant_message_id is not None:
-        from app.services.chat.product_run_events import message_persisted as _message_persisted
+        from app.services.chat.product_run_events import (
+            message_persisted as _message_persisted,
+            reference_delta as _reference_delta,
+        )
 
         yield sse_event(_message_persisted(state.run_id, assistant_message_id))
+        for reference in cited_references:
+            yield sse_event(
+                _reference_delta(
+                    state.run_id,
+                    str(reference.get("citation_key") or "knowledge"),
+                    title=str(reference.get("title") or ""),
+                )
+            )
 
     # Auto-title — runs in the BACKGROUND so it never blocks ``done``.
     # In-band title generation was an LLM call that could take 10-16s,

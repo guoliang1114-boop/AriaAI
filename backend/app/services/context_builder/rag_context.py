@@ -5,6 +5,11 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from app.models.db import ClientRecord, KnowledgeDocument, Project
+from app.services.agent_harness.knowledge_evidence import (
+    build_knowledge_evidence_manifest,
+    build_knowledge_evidence_prompt,
+    knowledge_evidence_references,
+)
 from app.services.rag import retrieve_structured as _retrieve_structured
 
 
@@ -26,6 +31,7 @@ def build_rag_context(
     project_id: Optional[int] = None,
     knowledge_scope: str = "global",
     auto_trigger: bool = True,
+    accessible_project_ids: Optional[list[int]] = None,
 ) -> dict:
     """
     Build RAG context from knowledge documents.
@@ -63,7 +69,7 @@ def build_rag_context(
         should_retrieve = session.exec(scoped_docs_stmt.limit(1)).first() is not None
 
     if not should_retrieve:
-        return {"text": "", "sources": []}
+        return {"text": "", "sources": [], "evidence_manifest": {}}
 
     ctx = _current_retrieve_structured()(
         query,
@@ -71,10 +77,27 @@ def build_rag_context(
         rag_doc_ids,
         project_id=effective_project_id,
         client_id=client_id,
+        accessible_project_ids=accessible_project_ids,
     )
-    
+    results = list(getattr(ctx, "results", None) or [])
+    if not results:
+        # Compatibility for test/internal retrieval adapters that still return
+        # prompt text without structured result identities. Such text may enter
+        # the provider context but cannot become a durable citation claim.
+        return {
+            "text": ctx.to_text(),
+            "sources": [],
+            "query": getattr(ctx, "query", query),
+            "evidence_manifest": {},
+        }
+    evidence_manifest = build_knowledge_evidence_manifest(
+        results,
+        knowledge_scope=knowledge_scope,
+        project_id=project_id,
+    )
     return {
-        "text": ctx.to_text(),
-        "sources": [r.to_dict() for r in ctx.results],
-        "query": ctx.query,
+        "text": build_knowledge_evidence_prompt(results, evidence_manifest),
+        "sources": knowledge_evidence_references(evidence_manifest),
+        "query": getattr(ctx, "query", query),
+        "evidence_manifest": evidence_manifest,
     }

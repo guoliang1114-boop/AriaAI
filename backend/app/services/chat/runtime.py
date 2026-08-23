@@ -30,6 +30,7 @@ from app.services.agent_harness.context_budget import (
     resolve_model_context_window,
 )
 from app.services.agent_harness.tool_transcript import normalize_tool_transcript
+from app.services.agent_harness.knowledge_evidence import knowledge_evidence_reference
 from app.services.chat_store import (
     build_message_metadata,
     get_recent_message_history,
@@ -1026,6 +1027,9 @@ def prepare_chat_runtime(
     prepare_metrics["context_compacted"] = context_assembly.budget_report.compacted
     prepare_metrics["context_window_tokens"] = context_assembly.budget_report.context_window_tokens
     prepare_metrics["context_manifest"] = context_manifest_reference(context_assembly.manifest)
+    prepare_metrics["knowledge_evidence"] = knowledge_evidence_reference(
+        chat_ctx.knowledge_evidence_manifest
+    )
     prepare_metrics["history_message_count"] = len(api_messages)
     prepare_metrics["history_summarized_message_count"] = context_assembly.budget_report.summarized_messages
     prepare_metrics["intent_frame"] = intent_frame
@@ -1055,6 +1059,7 @@ def prepare_chat_runtime(
         system=system,
         api_messages=api_messages,
         rag_sources=chat_ctx.rag_sources,
+        knowledge_evidence_manifest=chat_ctx.knowledge_evidence_manifest,
         tools=runtime_tools,
         max_tokens=runtime_max_tokens,
         temperature=temperature,

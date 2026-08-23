@@ -41,6 +41,10 @@ with a Codex runtime. The adapted mechanisms currently cover:
   lifecycle facts, verified persistence digests, and separately reviewed memory
   candidate decisions without storing raw paths or candidate text in the run
   record;
+- typed search-result identities and item lifecycles adapted into bounded
+  knowledge-evidence manifests, stable citation keys, output citation
+  resolution, and content-digest provenance without persisting retrieved chunk
+  text;
 - `SKILL.md` frontmatter parsing and conservative YAML scalar repair; and
 - ordered Skill-root discovery, immutable content snapshots, cache reuse,
   error-isolated merging, and unambiguous candidate selection.
