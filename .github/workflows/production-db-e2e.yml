@@ -52,42 +52,167 @@ jobs:
             # DATABASE_URL is loaded inside Python so credentials never enter the
             # workflow command output or a temporary shell file.
             "$PYTHON" - <<'PY'
+            import glob
             import hashlib
             import os
+            import re
+            import shutil
             import subprocess
             from pathlib import Path
+
+            from sqlalchemy import create_engine, text
+            from sqlalchemy.engine import make_url
 
             from app.config import DATABASE_URL
 
             backup_path = Path(os.environ["BACKUP_PATH"])
-            subprocess.run(
-                [
-                    "pg_dump",
-                    "--format=custom",
-                    "--no-owner",
-                    "--no-acl",
-                    "--file",
-                    str(backup_path),
-                    DATABASE_URL,
-                ],
-                check=True,
+            backup_dir = backup_path.parent
+            for stale_path in backup_dir.glob("ariaai_pre_e2e_*.dump"):
+                if stale_path.is_file() and stale_path.stat().st_size == 0:
+                    stale_path.unlink()
+                    print(f"Removed invalid empty backup: path={stale_path}")
+
+            engine = create_engine(DATABASE_URL)
+            try:
+                with engine.connect() as connection:
+                    server_version_num = int(
+                        connection.execute(text("SHOW server_version_num")).scalar_one()
+                    )
+            finally:
+                engine.dispose()
+            server_major = server_version_num // 10000
+
+            candidate_paths = set(
+                glob.glob("/usr/lib/postgresql/*/bin/pg_dump")
+                + glob.glob("/usr/pgsql-*/bin/pg_dump")
+                + glob.glob("/www/server/pgsql*/bin/pg_dump")
+                + glob.glob("/www/server/pgsql/*/bin/pg_dump")
+                + glob.glob("/opt/pgsql*/bin/pg_dump")
             )
-            subprocess.run(
-                ["pg_restore", "--list", str(backup_path)],
-                check=True,
-                stdout=subprocess.DEVNULL,
-            )
-            os.chmod(backup_path, 0o600)
-            digest_builder = hashlib.sha256()
-            with backup_path.open("rb") as backup_file:
-                for chunk in iter(lambda: backup_file.read(1024 * 1024), b""):
-                    digest_builder.update(chunk)
-            digest = digest_builder.hexdigest()
-            print(
-                "Production backup verified: "
-                f"path={backup_path}, bytes={backup_path.stat().st_size}, "
-                f"sha256={digest}"
-            )
+            default_pg_dump = shutil.which("pg_dump")
+            if default_pg_dump:
+                candidate_paths.add(default_pg_dump)
+            for process_exe in glob.glob("/proc/[0-9]*/exe"):
+                try:
+                    resolved = Path(process_exe).resolve()
+                except OSError:
+                    continue
+                if resolved.name.startswith("postgres"):
+                    candidate_paths.add(str(resolved.parent / "pg_dump"))
+
+            compatible_clients = []
+            discovered_versions = []
+            for candidate in sorted(candidate_paths):
+                if not os.path.isfile(candidate) or not os.access(candidate, os.X_OK):
+                    continue
+                version_result = subprocess.run(
+                    [candidate, "--version"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                version_text = (version_result.stdout or version_result.stderr).strip()
+                match = re.search(r"(\d+)(?:\.\d+)?", version_text)
+                if not match:
+                    continue
+                client_major = int(match.group(1))
+                discovered_versions.append(f"{candidate}:{client_major}")
+                if client_major >= server_major:
+                    compatible_clients.append((client_major, candidate))
+
+            database_url = make_url(DATABASE_URL)
+            client_env = os.environ.copy()
+            if database_url.password:
+                client_env["PGPASSWORD"] = database_url.password
+
+            connection_args = []
+            if database_url.host:
+                connection_args.extend(["--host", database_url.host])
+            if database_url.port:
+                connection_args.extend(["--port", str(database_url.port)])
+            if database_url.username:
+                connection_args.extend(["--username", database_url.username])
+            if database_url.database:
+                connection_args.extend(["--dbname", database_url.database])
+
+            try:
+                if compatible_clients:
+                    client_major, pg_dump = sorted(compatible_clients)[-1]
+                    pg_restore = str(Path(pg_dump).with_name("pg_restore"))
+                    if not os.path.isfile(pg_restore):
+                        raise SystemExit(f"Matching pg_restore not found beside {pg_dump}")
+                    subprocess.run(
+                        [
+                            pg_dump,
+                            *connection_args,
+                            "--format=custom",
+                            "--no-owner",
+                            "--no-acl",
+                            "--file",
+                            str(backup_path),
+                        ],
+                        env=client_env,
+                        check=True,
+                    )
+                    subprocess.run(
+                        [pg_restore, "--list", str(backup_path)],
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                    )
+                    backup_client = f"local:{pg_dump}:v{client_major}"
+                else:
+                    docker = shutil.which("docker")
+                    if not docker:
+                        raise SystemExit(
+                            "No PostgreSQL client compatible with server "
+                            f"v{server_major}; discovered={discovered_versions}"
+                        )
+                    docker_env_args = ["--env", "PGPASSWORD"] if database_url.password else []
+                    image = f"postgres:{server_major}"
+                    with backup_path.open("wb") as backup_file:
+                        subprocess.run(
+                            [
+                                docker,
+                                "run",
+                                "--rm",
+                                "--network",
+                                "host",
+                                *docker_env_args,
+                                image,
+                                "pg_dump",
+                                *connection_args,
+                                "--format=custom",
+                                "--no-owner",
+                                "--no-acl",
+                            ],
+                            env=client_env,
+                            check=True,
+                            stdout=backup_file,
+                        )
+                    with backup_path.open("rb") as backup_file:
+                        subprocess.run(
+                            [docker, "run", "--rm", "-i", image, "pg_restore", "--list"],
+                            check=True,
+                            stdin=backup_file,
+                            stdout=subprocess.DEVNULL,
+                        )
+                    backup_client = f"docker:{image}"
+
+                os.chmod(backup_path, 0o600)
+                digest_builder = hashlib.sha256()
+                with backup_path.open("rb") as backup_file:
+                    for chunk in iter(lambda: backup_file.read(1024 * 1024), b""):
+                        digest_builder.update(chunk)
+                digest = digest_builder.hexdigest()
+                print(
+                    "Production backup verified: "
+                    f"path={backup_path}, bytes={backup_path.stat().st_size}, "
+                    f"sha256={digest}, server_major={server_major}, "
+                    f"client={backup_client}"
+                )
+            except BaseException:
+                backup_path.unlink(missing_ok=True)
+                raise
             PY
 
             # Run PostgreSQL-backed chat tests inside one uniquely named schema.
