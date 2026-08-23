@@ -44,6 +44,7 @@ export interface StreamReferencesEvent {
 
 export interface StreamToolExecutingEvent {
   type: "tool_executing";
+  tool_use_id?: string;
   tool_name: string;
   message?: string;
   total?: number;

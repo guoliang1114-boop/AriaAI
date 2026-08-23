@@ -45,6 +45,7 @@ from app.services.agent_harness.tool_transcript import (
     normalize_tool_transcript,
 )
 from app.services.agent_harness.tool_policy import PolicyDecision, evaluate_tool_policy
+from app.services.agent_harness.tool_execution_record import tool_event_is_failure
 from app.services.chat.agent_step import AgentStep, build_agent_step_event
 from app.services.chat.product_run_events import (
     StepCompletedStatus,
@@ -551,7 +552,6 @@ def _checkpoint_step(state: ChatSessionState, step: AgentStep) -> None:
 
 
 _PARALLEL_TOOL_STATE_LIST_FIELDS = (
-    "tool_call_events",
     "pending_tool_confirmations",
     "pending_tool_actions",
     "trace_events",
@@ -573,6 +573,9 @@ def _fork_parallel_tool_state(parent: ChatSessionState) -> ChatSessionState:
 def _merge_parallel_tool_state(parent: ChatSessionState, child: ChatSessionState) -> None:
     """Merge one completed read call in original model-call order."""
 
+    for event in child.tool_call_events:
+        if isinstance(event, dict):
+            parent.record_tool_execution(event)
     for field_name in _PARALLEL_TOOL_STATE_LIST_FIELDS:
         getattr(parent, field_name).extend(getattr(child, field_name))
     parent.confirmation_requested = parent.confirmation_requested or child.confirmation_requested
@@ -891,7 +894,7 @@ async def _run_agent_loop_impl(
         failed_events = [
             event
             for event in step_events
-            if str(event.get("status") or "") in {"error", "failed", "blocked"}
+            if tool_event_is_failure(event)
         ]
         if confirmation_index is not None:
             step.status = "waiting_confirmation"
@@ -905,7 +908,7 @@ async def _run_agent_loop_impl(
             retry_candidates = [
                 event
                 for event in failed_events
-                if str(event.get("status") or "") in {"error", "failed"}
+                if str(event.get("status") or "") not in {"blocked", "conflict"}
             ]
             step.retryable = bool(retry_candidates) and all(
                 bool(event.get("retryable", False)) for event in retry_candidates

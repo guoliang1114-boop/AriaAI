@@ -4,6 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.services.agent_harness.tool_execution_record import (
+    append_tool_execution_record,
+    normalize_tool_execution_records,
+)
 from app.services.chat.agent_step import AgentStep
 
 
@@ -81,8 +85,36 @@ class ChatSessionState:
         """Record an internal decision for diagnostics without changing chat UI."""
         self.trace_events.append({"type": event_type, **payload})
 
+    def record_tool_execution(self, event: dict[str, Any]) -> dict[str, Any]:
+        """Append one canonical, bounded ToolExecutionRecord v1."""
+        return append_tool_execution_record(self.tool_call_events, event)
+
+    def replace_tool_execution_records(self, events: list[dict[str, Any]]) -> None:
+        """Normalize records received from a durable/legacy execution path."""
+        self.tool_call_events = normalize_tool_execution_records(events)
+
     def record_tool_use_via_text(self, stage: str, block: dict, *, status: str) -> None:
         """Record provider fallback tool JSON parsed from normal text."""
+        step_index: int | None = None
+        if stage.startswith("step_"):
+            try:
+                step_index = int(stage.removeprefix("step_").split("_", 1)[0])
+            except ValueError:
+                step_index = None
+        event = {
+            "tool_name": str(block.get("name") or ""),
+            "tool_use_id": str(block.get("id") or ""),
+            "status": status,
+            "source": "text_fallback",
+            "message": (
+                "已从模型普通文本中识别出工具计划。"
+                if status == "planned"
+                else "模型普通文本中的工具计划被权限策略阻止。"
+            ),
+        }
+        if step_index is not None:
+            event["step_index"] = step_index
+        self.record_tool_execution(event)
         self.record_trace_event(
             "tool_use_via_text",
             stage=stage,

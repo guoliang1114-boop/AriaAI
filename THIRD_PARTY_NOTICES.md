@@ -28,11 +28,14 @@ with a Codex runtime. The adapted mechanisms currently cover:
   shared model/tool deadlines, and durable budget-exhaustion boundaries;
 - bounded run-completion evidence, structured deterministic findings, explicit
   terminal verdicts, and false-completion prevention;
+- versioned tool-execution records, call-ID-linked lifecycle updates, trusted
+  omission accounting, recent-first bounded retention, and shared outcome
+  classification without persisting raw tool inputs or outputs;
 - `SKILL.md` frontmatter parsing and conservative YAML scalar repair; and
 - ordered Skill-root discovery, immutable content snapshots, cache reuse,
   error-isolated merging, and unambiguous candidate selection.
 
-Upstream baseline: commit `99660ab3c7b861c916e467581fa9b8723504d66b`
+Latest upstream audit baseline: commit `83d1fe0e67b1323f71febc2925817732b449f1d9`
 (2026-08-23). The specific upstream source path and Aria modification notice
 are recorded in each adapted Python module.
 

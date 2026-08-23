@@ -436,13 +436,14 @@ def _handle_blocked(
     )
     skip_result = {
         "type": "tool_result",
+        "tool_use_id": tool_id,
         "tool_name": tool_name,
         "status": "blocked",
         "success": False,
         "error": skipped_output["error"],
         "output": skipped_output,
     }
-    state.tool_call_events.append(
+    state.record_tool_execution(
         {
             "tool_use_id": tool_id,
             "tool_name": tool_name,
@@ -508,7 +509,7 @@ def _handle_confirmation(
     )
     if hitas:
         state.pending_tool_actions.append(hitas)
-    state.tool_call_events.append(
+    state.record_tool_execution(
         {
             "tool_use_id": tool_id,
             "tool_name": tool_name,
@@ -545,6 +546,7 @@ def _handle_confirmation(
 
     sse_result = {
         "type": "tool_result",
+        "tool_use_id": tool_id,
         "tool_name": tool_name,
         "status": "confirmation_required",
         "summary": confirmation_output["reason"],
@@ -583,7 +585,7 @@ def _handle_patch_preflight_failure(
             "Do not claim the edit is complete. Read the latest document and create a new patch when this is a conflict."
         ),
     }
-    state.tool_call_events.append(
+    state.record_tool_execution(
         {
             "tool_use_id": tool_id,
             "tool_name": tool_name,
@@ -606,6 +608,7 @@ def _handle_patch_preflight_failure(
     )
     sse_result = {
         "type": "tool_result",
+        "tool_use_id": tool_id,
         "tool_name": tool_name,
         "status": output["status"],
         "summary": detail,
@@ -647,7 +650,7 @@ async def execute_tool_with_policy(
     tool_input = tool_call.get("input") or {}
 
     if not tool_name or not isinstance(tool_input, dict):
-        state.tool_call_events.append(
+        state.record_tool_execution(
             {
                 "tool_use_id": tool_id,
                 "tool_name": tool_name,
@@ -744,7 +747,14 @@ async def execute_tool_with_policy(
             inline_text = markdown_content
 
     events: list[str] = [
-        sse_event({"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)})
+        sse_event(
+            {
+                "type": "tool_executing",
+                "tool_use_id": tool_id,
+                "tool_name": tool_name,
+                **_tool_progress_payload(tool_name, tool_input),
+            }
+        )
     ]
 
     # ---- Execute (bounded retry for artifact tools and transient reads) ----
@@ -831,7 +841,7 @@ async def execute_tool_with_policy(
             or (retry_safe_read and _is_transient_failure(result))
         )
     )
-    state.tool_call_events.append(
+    state.record_tool_execution(
         {
             "tool_use_id": tool_id,
             "tool_name": tool_name,
@@ -847,7 +857,14 @@ async def execute_tool_with_policy(
         }
     )
 
-    events.append(sse_event({"type": "tool_result", "result": result}))
+    events.append(
+        sse_event(
+            {
+                "type": "tool_result",
+                "result": {**result, "tool_use_id": tool_id},
+            }
+        )
+    )
     events.append(sse_event({"type": "timing", "key": f"tool:{tool_name}", "duration_ms": duration_ms}))
 
     output_payload = result.get("output", result)

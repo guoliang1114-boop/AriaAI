@@ -874,6 +874,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 目标：降低扩展新工具、新 Skill、新交付物的成本。
 
+当前进展（2026-08-23）：第一批“工具结果 schema 标准化”已落地。后端统一输出 `ToolExecutionRecord v1`（版本、调用 ID、status、outcome、终态、摘要、错误、重试与耗时），Rollout、Evaluation、Persist 和前端 Store 已共用该契约；原始工具输入/输出不进入长期台账，超限时保留最近记录并显式报告省略数。后续继续推进工具注册表、context builder、artifact/memory candidate 与 product event 映射。
+
 范围：
 
 - 工具注册表标准化。

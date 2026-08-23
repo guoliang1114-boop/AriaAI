@@ -24,6 +24,11 @@ from app.services.agent_harness.approval_envelope import (
     approval_envelope_hash,
     legacy_tool_input_hash,
 )
+from app.services.agent_harness.tool_execution_record import (
+    tool_event_is_completed,
+    tool_event_is_failure,
+    tool_event_is_omission_marker,
+)
 from app.services.artifact_intent import ArtifactContract
 from app.services.chat_tools import (
     ChatRuntime,
@@ -123,7 +128,7 @@ def _delivery_satisfied(state: ChatSessionState, contract: ArtifactContract | No
         if file_type == output_kind or (output_kind and file_name.endswith(f".{output_kind}")):
             return True
     for event in state.tool_call_events:
-        if str(event.get("status") or "").lower() != "completed":
+        if not tool_event_is_completed(event):
             continue
         artifact = event.get("artifact") or event.get("output") or {}
         if isinstance(artifact, dict):
@@ -137,7 +142,7 @@ def _delivery_satisfied(state: ChatSessionState, contract: ArtifactContract | No
 def _tool_failure_detail_for_user(state: ChatSessionState) -> str:
     errors: list[str] = []
     for event in reversed(state.tool_call_events):
-        if str(event.get("status") or "").lower() != "error":
+        if not tool_event_is_failure(event):
             continue
         raw_error = str(event.get("error") or event.get("summary") or event.get("message") or "").strip()
         tool_name = str(event.get("tool_name") or "").strip()
@@ -265,7 +270,7 @@ async def _maybe_generate_missing_ppt_artifact(
         event["error"] = error
     if isinstance(result, dict):
         event["output"] = output
-    state.tool_call_events.append(event)
+    state.record_tool_execution(event)
 
     artifact = _extract_artifact(result) if isinstance(result, dict) else None
     if artifact:
@@ -313,7 +318,7 @@ def _has_successful_mutation(state: ChatSessionState) -> bool:
     if state.artifacts or state.pending_markdown_saves:
         return True
     for event in state.tool_call_events:
-        if str(event.get("status") or "").lower() != "completed":
+        if not tool_event_is_completed(event):
             continue
         tool_name = str(event.get("tool_name") or "")
         if tool_name in _MUTATING_TOOL_NAMES or _event_has_project_artifact(event):
@@ -493,7 +498,7 @@ def _ensure_project_cleanup_confirmation(runtime: ChatRuntime, req: SendMessageR
             "confirmation_token": confirmation_token,
         }
     )
-    state.tool_call_events.append(
+    state.record_tool_execution(
         {
             "tool_name": MANAGE_PROJECT_FILES_TOOL_NAME,
             "status": "confirmation_required",
@@ -629,10 +634,17 @@ async def run_persist(
         if state.confirmation_requested:
             full_text = "这个操作会修改或删除项目内容，已暂停。请确认后我再继续执行。"
             yield sse_event({"type": "text", "content": full_text})
-        elif state.tool_call_events and all(str(event.get("status") or "") == "completed" for event in state.tool_call_events):
+        elif (
+            (material_tool_events := [
+                event
+                for event in state.tool_call_events
+                if not tool_event_is_omission_marker(event)
+            ])
+            and all(tool_event_is_completed(event) for event in material_tool_events)
+        ):
             summaries = [
                 str(event.get("summary") or event.get("message") or event.get("tool_name") or "").strip()
-                for event in state.tool_call_events
+                for event in material_tool_events
             ]
             summaries = [item for item in summaries if item]
             full_text = "操作已完成。" + (f"\n\n{chr(10).join(f'- {item}' for item in summaries)}" if summaries else "")
@@ -672,7 +684,7 @@ async def run_persist(
                 "source": "persist_markdown_fallback",
             }
         )
-        state.tool_call_events.append(
+        state.record_tool_execution(
             {
                 "tool_name": "update_project_markdown_document",
                 "status": "completed",
@@ -770,7 +782,7 @@ async def run_persist(
                 "所以我不会声称已完成。请重新指定目标文件或确认操作范围后，我再执行。"
             )
 
-        state.tool_call_events.append(
+        state.record_tool_execution(
             {
                 "tool_name": "execution_truth_gate",
                 "status": "error",
@@ -926,7 +938,7 @@ async def run_persist(
         pending_action_batch_ids = []
         state.pending_tool_actions = []
         state.pending_tool_confirmations = []
-        state.tool_call_events.append(
+        state.record_tool_execution(
             {
                 "tool_name": "hitas",
                 "status": "error",
@@ -1015,7 +1027,10 @@ async def run_persist(
     if runtime.skill_name:
         prepare_metrics = getattr(runtime, "prepare_metrics", {}) if isinstance(getattr(runtime, "prepare_metrics", {}), dict) else {}
         metadata["skill_id"] = req.skill_id or prepare_metrics.get("effective_skill_id")
-        metadata["skill_progress"] = _build_completed_skill_progress(state.tool_call_events, full_text)
+        metadata["skill_progress"] = _build_completed_skill_progress(
+            [event for event in state.tool_call_events if not tool_event_is_omission_marker(event)],
+            full_text,
+        )
     if any(step.truncated for step in state.steps):
         metadata["truncated"] = True
 

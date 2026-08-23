@@ -19,14 +19,16 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from app.services.agent_harness.tool_execution_record import (
+    tool_event_is_completed,
+    tool_event_is_failure,
+    tool_event_is_omission_marker,
+)
+
 
 RUN_EVALUATION_SCHEMA_VERSION = 1
 MAX_EVALUATION_FINDINGS = 8
 MAX_EVIDENCE_TOOL_NAMES = 5
-
-_FAILED_TOOL_STATUSES = frozenset({"blocked", "conflict", "error", "failed"})
-_COMPLETED_TOOL_STATUS = "completed"
-
 
 class CompletionVerdict(str, Enum):
     COMPLETED = "completed"
@@ -123,13 +125,13 @@ def _unresolved_tool_failures(
     unresolved: list[dict[str, Any]] = []
     recovered: list[dict[str, Any]] = []
     for index, event in enumerate(tool_events):
-        if _event_status(event) not in _FAILED_TOOL_STATUSES:
+        if not tool_event_is_failure(event):
             continue
         tool_name = _event_tool_name(event)
         tool_use_id = _event_tool_use_id(event)
         later_success = any(
             completed_index > index
-            and _event_status(completed_event) == _COMPLETED_TOOL_STATUS
+            and tool_event_is_completed(completed_event)
             and _event_tool_name(completed_event) == tool_name
             and tool_use_id
             and tool_use_id
@@ -181,13 +183,13 @@ def evaluate_run_completion(
     tool_events = [
         event
         for event in list(getattr(state, "tool_call_events", None) or [])
-        if isinstance(event, dict)
+        if isinstance(event, dict) and not tool_event_is_omission_marker(event)
     ]
     steps = list(getattr(state, "steps", None) or [])
     trace_types = _trace_types(state)
     unresolved_failures, recovered_failures = _unresolved_tool_failures(tool_events)
     completed_tool_count = sum(
-        _event_status(event) == _COMPLETED_TOOL_STATUS for event in tool_events
+        tool_event_is_completed(event) for event in tool_events
     )
     artifact_count = len(list(getattr(state, "artifacts", None) or []))
     confirmation_requested = bool(getattr(state, "confirmation_requested", False))

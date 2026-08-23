@@ -310,6 +310,8 @@ async def _handle_markdown_artifact_continuation(
                     "total_stream_ms": round((time.perf_counter() - stream_started_at) * 1000),
                 },
             }
+            state.replace_tool_execution_records(metadata["tool_calls"])
+            metadata["tool_calls"] = state.tool_call_events
             state.full_text = full_text
             yield sse_event({"type": "text", "content": full_text})
             _, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
@@ -368,7 +370,8 @@ async def _handle_markdown_artifact_continuation(
             },
         }
         state.full_text = full_text
-        state.tool_call_events = [tool_call_event]
+        state.replace_tool_execution_records([tool_call_event])
+        metadata["tool_calls"] = state.tool_call_events
         state.stage_timings.update(metadata["stage_timings"])
         yield sse_event({"type": "text", "content": full_text})
         yield sse_event(
@@ -546,6 +549,9 @@ async def run_durable_task(
                         "total_stream_ms": round((time.perf_counter() - stream_started_at) * 1000),
                     },
                 }
+            state.replace_tool_execution_records(metadata["tool_calls"])
+            metadata["tool_calls"] = state.tool_call_events
+            state.artifacts = list(metadata.get("artifacts") or [])
             state.full_text = full_text
             state.stage_timings.update(metadata["stage_timings"])
             yield sse_event({"type": "text", "content": full_text})
@@ -767,6 +773,8 @@ async def run_durable_task(
 
         tool_call_events = task_payload_tool_calls(task_payload)
         if tool_call_events:
+            state.replace_tool_execution_records(tool_call_events)
+            tool_call_events = state.tool_call_events
             metadata["tool_calls"] = tool_call_events
 
         yield sse_event({"type": "text", "content": full_text})
@@ -786,8 +794,6 @@ async def run_durable_task(
         state.full_text = full_text
         if artifacts:
             state.artifacts = artifacts
-        if tool_call_events:
-            state.tool_call_events = tool_call_events
         state.stage_timings.update(metadata["stage_timings"])
 
         need_title, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)

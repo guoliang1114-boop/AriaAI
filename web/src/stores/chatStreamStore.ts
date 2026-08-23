@@ -54,7 +54,9 @@ export const useChatStreamStore = create<ChatStreamState>((set) => ({
   upsertToolCall: (toolCall) =>
     set((state) => {
       const idx = state.streamingToolCalls.findIndex(
-        (t) => t.tool_name === toolCall.tool_name && t.step_index === toolCall.step_index
+        (t) => toolCall.tool_use_id
+          ? t.tool_use_id === toolCall.tool_use_id
+          : !t.tool_use_id && t.tool_name === toolCall.tool_name && t.step_index === toolCall.step_index
       );
       if (idx >= 0) {
         const next = [...state.streamingToolCalls];

@@ -65,6 +65,29 @@ describe("chatStreamStore", () => {
     expect(useChatStreamStore.getState().streamingToolCalls).toHaveLength(2);
   });
 
+  it("keeps repeated tools distinct by tool_use_id", () => {
+    useChatStreamStore.getState().upsertToolCall({
+      tool_use_id: "call-1",
+      tool_name: "read_project_file",
+      status: "completed",
+    });
+    useChatStreamStore.getState().upsertToolCall({
+      tool_use_id: "call-2",
+      tool_name: "read_project_file",
+      status: "error",
+    });
+    useChatStreamStore.getState().upsertToolCall({
+      tool_use_id: "call-2",
+      tool_name: "read_project_file",
+      status: "completed",
+    });
+
+    const calls = useChatStreamStore.getState().streamingToolCalls;
+    expect(calls).toHaveLength(2);
+    expect(calls.map((call) => call.tool_use_id)).toEqual(["call-1", "call-2"]);
+    expect(calls[1].status).toBe("completed");
+  });
+
   it("should set references", () => {
     const refs = [{ type: "doc" as const, id: 1, title: "Doc" }];
     useChatStreamStore.getState().setReferences(refs);

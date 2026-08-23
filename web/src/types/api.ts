@@ -827,17 +827,32 @@ export interface Reference {
 }
 
 export interface ToolCallEvent {
+  schema_version?: 1
+  event_ordinal?: number
+  tool_use_id?: string
   tool_name: string
-  status: 'pending' | 'running' | 'completed' | 'error' | 'blocked' | 'skipped' | 'confirmation_required'
+  status: 'planned' | 'pending' | 'running' | 'completed' | 'error' | 'blocked' | 'conflict' | 'skipped' | 'suppressed' | 'confirmation_required'
+  outcome?: 'pending' | 'succeeded' | 'failed' | 'waiting_confirmation' | 'skipped'
+  terminal?: boolean
   message?: string
   summary?: string
   error?: string
+  error_code?: string
+  error_type?: string
   confirmation_token?: string
   details?: string[]
   step_index?: number
   step_total?: number
   step_title?: string
   has_recoverable_task?: boolean
+  duration_ms?: number
+  attempt_count?: number
+  max_attempts?: number
+  http_status?: number
+  retryable?: boolean
+  required_policy?: string
+  retry_of_tool_use_id?: string
+  recovery_of_tool_use_id?: string
 }
 
 /**

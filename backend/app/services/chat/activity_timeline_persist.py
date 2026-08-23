@@ -14,6 +14,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.agent_harness.tool_execution_record import (
+    ToolExecutionOutcome,
+    tool_event_outcome,
+)
+
 
 _ARTIFACT_TYPE_V1_MAP = {
     "pptx": "pptx",
@@ -37,6 +42,17 @@ def _v1_item_status(raw: Any) -> str:
     if s == "confirmation_required":
         return "running"  # never reached the terminal state in this run
     return "pending"
+
+
+def _v1_tool_event_status(event: dict[str, Any]) -> str:
+    outcome = tool_event_outcome(event)
+    if outcome is ToolExecutionOutcome.SUCCEEDED:
+        return "completed"
+    if outcome is ToolExecutionOutcome.FAILED:
+        return "failed"
+    if outcome is ToolExecutionOutcome.WAITING_CONFIRMATION:
+        return "running"
+    return _v1_item_status(event.get("status"))
 
 
 def _build_step(step: Any, tool_events: list[dict]) -> dict:
@@ -64,7 +80,7 @@ def _build_step(step: Any, tool_events: list[dict]) -> dict:
         status = "completed" if matching else "pending"
         detail: str | None = None
         for ev in matching:
-            ev_status = _v1_item_status(ev.get("status"))
+            ev_status = _v1_tool_event_status(ev)
             # Terminal statuses (failed/completed) override running/pending.
             if ev_status in {"completed", "failed"} or status not in {"completed", "failed"}:
                 status = ev_status

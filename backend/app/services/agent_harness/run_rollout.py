@@ -20,6 +20,11 @@ from typing import Any, Iterable
 from sqlmodel import Session, select
 
 from app.models.db import Message, TaskEvent, TaskRun, TaskStep
+from app.services.agent_harness.tool_execution_record import (
+    tool_event_is_failure,
+    tool_event_is_omission_marker,
+    tool_event_waits_confirmation,
+)
 from app.services.time_utils import utc_now_naive
 
 ROLLOUT_SCHEMA_VERSION = 1
@@ -93,13 +98,15 @@ def build_step_checkpoint(step: Any, state: Any) -> dict[str, Any]:
     matching_tool_events = [
         event
         for event in list(getattr(state, "tool_call_events", None) or [])
-        if isinstance(event, dict) and _safe_int(event.get("step_index"), -1) == step_index
+        if isinstance(event, dict)
+        and not tool_event_is_omission_marker(event)
+        and _safe_int(event.get("step_index"), -1) == step_index
     ]
     status = str(getattr(step, "status", "") or "")
     if not status:
-        if any(str(event.get("status") or "") in {"error", "failed", "blocked"} for event in matching_tool_events):
+        if any(tool_event_is_failure(event) for event in matching_tool_events):
             status = "failed"
-        elif any(str(event.get("status") or "") == "confirmation_required" for event in matching_tool_events):
+        elif any(tool_event_waits_confirmation(event) for event in matching_tool_events):
             status = "waiting_confirmation"
         else:
             status = "completed"
@@ -111,7 +118,7 @@ def build_step_checkpoint(step: Any, state: Any) -> dict[str, Any]:
     failed_events = [
         event
         for event in matching_tool_events
-        if str(event.get("status") or "") in {"error", "failed"}
+        if tool_event_is_failure(event)
     ]
     retryable = bool(failed_events) and all(bool(event.get("retryable", False)) for event in failed_events)
     if getattr(step, "retryable", None) is not None:

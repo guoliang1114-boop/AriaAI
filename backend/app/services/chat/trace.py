@@ -15,6 +15,10 @@ from typing import Any
 from sqlmodel import Session, select
 
 from app.models.db import ChatTrace
+from app.services.agent_harness.tool_execution_record import (
+    tool_event_is_failure,
+    tool_event_is_omission_marker,
+)
 from app.services.chat.state import ChatSessionState
 from app.services.chat_tools import ChatRuntime
 
@@ -71,8 +75,10 @@ def _build_fallback_events(state: ChatSessionState) -> list[dict]:
     for event in state.tool_call_events:
         if not isinstance(event, dict):
             continue
+        if tool_event_is_omission_marker(event):
+            continue
         status = str(event.get("status") or "")
-        if status in {"blocked", "skipped", "failed"}:
+        if tool_event_is_failure(event) or status in {"skipped", "suppressed"}:
             events.append(
                 {
                     "type": f"tool_{status}",
