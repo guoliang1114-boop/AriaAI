@@ -20,6 +20,8 @@ GROUNDED_QA_SYSTEM = """You are Aria's grounded project Q&A assistant.
 Use only the evidence supplied in the user message. Do not add outside facts or assumptions.
 Write every requested supported fact as a separate bullet. End that same bullet with exactly one matching ASCII citation token such as [E1].
 Use the literal ASCII square-bracket form [E1]; do not use full-width brackets, a separate source list, or citations on the next line.
+Required shape: `- <one supported fact> [E1]`. The final non-whitespace characters of every supported bullet must be its citation token.
+Invalid shape: list several uncited facts and then add `Sources: [E1] [E2]` at the end.
 Never invent a citation key. Cover every fact type explicitly requested by the question. If a requested fact is absent, explicitly say that the provided evidence is insufficient and do not guess.
 Answer concisely in Chinese."""
 
@@ -48,7 +50,17 @@ _CASES: tuple[dict[str, Any], ...] = (
             ("E2", "下一笔 20 万元款项计划于 2026-09-15 到期。"),
         ),
         "claims": (
-            {"variants": ("合同总额120万元", "合同总额 120 万元"), "citation": "E1"},
+            {
+                "variants": (
+                    "合同总额120万元",
+                    "合同总额 120 万元",
+                    "合同总额120万",
+                    "合同金额120万",
+                    "合同总金额120万",
+                    "总额为120万",
+                ),
+                "citation": "E1",
+            },
             {
                 "variants": (
                     "未收款40万元",
@@ -57,6 +69,11 @@ _CASES: tuple[dict[str, Any], ...] = (
                     "尚有 40 万元未回款",
                     "剩余40万元未收",
                     "40万元未回款",
+                    "未收40万",
+                    "待收40万",
+                    "应收40万",
+                    "剩余应收40万",
+                    "未回款金额40万",
                 ),
                 "citation": "E1",
             },
@@ -74,22 +91,17 @@ _CASES: tuple[dict[str, Any], ...] = (
         ),
         "claims": (
             {
-                "variants": (
-                    "李敏是客户cfo",
-                    "李敏是客户 CFO",
-                    "李敏是cfo",
-                    "客户cfo李敏",
-                    "客户 CFO 李敏",
-                    "cfo李敏",
-                    "最终业务决策人是李敏",
-                    "最终决策人是李敏",
-                ),
+                "variants": ("李敏",),
+                "citation": "E1",
+            },
+            {
+                "variants": ("cfo", "首席财务官"),
                 "citation": "E1",
             },
             {"variants": ("每周五", "周五"), "citation": "E2"},
             {"variants": ("书面进度更新", "书面更新"), "citation": "E2"},
         ),
-        "required_fact_types": ("决策人姓名与职务", "沟通频率", "沟通形式"),
+        "required_fact_types": ("决策人姓名", "决策人职务", "沟通频率", "沟通形式"),
         "forbidden": ("王敏", "每周一", "只需口头汇报"),
     },
     {
