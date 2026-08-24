@@ -74,6 +74,10 @@ _CASES: tuple[dict[str, Any], ...] = (
                     "应收40万",
                     "剩余应收40万",
                     "未回款金额40万",
+                    "尚未收回40万",
+                    "未收回40万",
+                    "还有40万未收",
+                    "剩余40万",
                 ),
                 "citation": "E1",
             },
@@ -160,6 +164,15 @@ def _claim_has_citation(answer: str, variants: tuple[str, ...], citation: str) -
     return False
 
 
+def _contains_forbidden_fact(normalized_answer: str, term: str) -> bool:
+    normalized_term = _normalize(term)
+    if normalized_term == "每周一":
+        # Chinese "每周一次" (once per week) contains the weekday string
+        # "每周一" but does not claim that communication happens on Monday.
+        return re.search(r"每周一(?!次)", normalized_answer) is not None
+    return bool(normalized_term and normalized_term in normalized_answer)
+
+
 def _render_case_prompt(case: dict[str, Any]) -> str:
     blocks = [
         "以下证据是本轮唯一事实来源：",
@@ -192,7 +205,7 @@ def grade_grounded_answer(case: dict[str, Any], answer: str) -> dict[str, Any]:
     normalized_answer = _normalize(answer)
     forbidden_hits = [
         term for term in case.get("forbidden") or ()
-        if _normalize(term) in normalized_answer
+        if _contains_forbidden_fact(normalized_answer, term)
     ]
     valid_keys = {key for key, _ in case["evidence"]}
     observed_keys = list(dict.fromkeys(f"E{item}" for item in _CITATION_PATTERN.findall(answer)))

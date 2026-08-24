@@ -70,3 +70,18 @@ def test_grounded_grader_accepts_equivalent_fact_order_but_rejects_full_width_ci
     assert result["correctly_cited_claim_count"] == 0
     assert result["observed_citation_count"] == 0
     assert result["citation_format_mismatch_count"] == 1
+
+
+def test_forbidden_weekday_does_not_false_match_once_per_week():
+    case = {
+        "id": "weekday_boundary",
+        "evidence": (("E1", "每周五更新。"),),
+        "claims": ({"variants": ("每周五",), "citation": "E1"},),
+        "forbidden": ("每周一",),
+    }
+
+    once = grade_grounded_answer(case, "每周一次，固定每周五 [E1]。")
+    monday = grade_grounded_answer(case, "每周一更新，另在每周五更新 [E1]。")
+
+    assert once["forbidden_hits"] == []
+    assert monday["forbidden_hits"] == ["每周一"]
