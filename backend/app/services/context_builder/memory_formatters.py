@@ -12,6 +12,12 @@ def _format_project_memory_for_prompt(project: Project) -> str:
         return ""
 
     lines: list[str] = []
+    if project.memory_stale:
+        lines.append(
+            "- Memory freshness: STALE. Treat this synthesized memory as provisional; "
+            "prefer newer milestones, todos, progress updates, files, and current user input. "
+            "If the answer materially depends on a stale item, disclose that limitation."
+        )
     if memory.get("project_brief"):
         lines.append(f"- Project brief: {memory['project_brief']}")
     if memory.get("current_stage"):
@@ -58,7 +64,12 @@ def _format_project_memory_for_prompt(project: Project) -> str:
 
     if not lines:
         return ""
-    return "**Structured Project Memory:**\n" + "\n".join(lines)
+    heading = (
+        "**Structured Project Memory (STALE):**"
+        if project.memory_stale
+        else "**Structured Project Memory:**"
+    )
+    return heading + "\n" + "\n".join(lines)
 
 
 def _format_client_memory_for_prompt(client: ClientRecord) -> str:
@@ -73,6 +84,11 @@ def _format_client_memory_for_prompt(client: ClientRecord) -> str:
         return ""
 
     lines: list[str] = []
+    if client.client_memory_stale:
+        lines.append(
+            "- Memory freshness: STALE. Prefer newer project facts and current user input, "
+            "and disclose when a conclusion materially depends on this stale synthesis."
+        )
     if memory.get("client_profile"):
         lines.append(f"- Client profile: {memory['client_profile']}")
     for key, label in (
@@ -109,7 +125,12 @@ def _format_client_memory_for_prompt(client: ClientRecord) -> str:
 
     if not lines:
         return ""
-    return "**Structured Client Memory:**\n" + "\n".join(lines)
+    heading = (
+        "**Structured Client Memory (STALE):**"
+        if client.client_memory_stale
+        else "**Structured Client Memory:**"
+    )
+    return heading + "\n" + "\n".join(lines)
 
 
 def _memory_items_for_portfolio(memory: dict, key: str, limit: int = 4) -> list[str]:

@@ -46,6 +46,9 @@ class ChatRuntime:
     # Privacy-safe Context Assembly Manifest v1. It fingerprints the exact
     # initial provider request without retaining raw prompt or retrieved text.
     context_manifest: dict | None = None
+    # User-visible, privacy-safe source/freshness summary for this turn. Raw
+    # context remains in-memory only; this structure carries counts and status.
+    context_receipt: dict | None = None
     # Bounded, no-content Knowledge Evidence Manifest v1. ``rag_sources`` is
     # retained as the frontend-safe compatibility view; retrieved chunk text
     # exists only inside ``system`` while the provider request is assembled.

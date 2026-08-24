@@ -9,7 +9,7 @@ import type {
   Reference,
 } from '../../../types/api'
 import { normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
-import type { TurnReceiptEvent } from '../../../types/productRunEvent'
+import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../types/productRunEvent'
 
 /** Project-chat-tab SSE streaming hook.
  *
@@ -73,6 +73,7 @@ interface UseChatStreamReturn {
    * lands. */
   capability: ChatCapabilityFrame | null
   turnReceipt: TurnReceiptEvent | null
+  contextReceipt: ContextReceiptEvent | null
   activeRunId: string | null
   /** Stable id assigned to THIS turn's assistant reply at send time.
    * The caller renders the in-flight reply as a draft message with
@@ -87,6 +88,7 @@ interface UseChatStreamReturn {
 
 interface StreamEvent {
   type: string
+  schema_version?: number
   run_id?: string
   content?: string
   message?: string
@@ -120,6 +122,12 @@ interface StreamEvent {
   requires_confirmation?: boolean
   steering_supported?: boolean
   content_preview?: string
+  scope?: ContextReceiptEvent['scope']
+  project?: ContextReceiptEvent['project']
+  memory?: ContextReceiptEvent['memory']
+  skill?: ContextReceiptEvent['skill']
+  evidence?: ContextReceiptEvent['evidence']
+  warnings?: ContextReceiptEvent['warnings']
 }
 
 function readApiError(err: unknown): string {
@@ -141,6 +149,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [capability, setCapability] = useState<ChatCapabilityFrame | null>(null)
   const [turnReceipt, setTurnReceipt] = useState<TurnReceiptEvent | null>(null)
+  const [contextReceipt, setContextReceipt] = useState<ContextReceiptEvent | null>(null)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   // Stable id for the current turn's assistant reply. State so the
   // caller re-renders the draft under the right key; ref mirror so the
@@ -153,6 +162,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   const abortControllerRef = useRef<AbortController | null>(null)
   const activeRunIdRef = useRef<string | null>(null)
   const turnReceiptRef = useRef<TurnReceiptEvent | null>(null)
+  const contextReceiptRef = useRef<ContextReceiptEvent | null>(null)
   const stopRequestedRef = useRef(false)
 
   const reset = () => {
@@ -162,6 +172,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     setStatusMessage(null)
     setTurnReceipt(null)
     turnReceiptRef.current = null
+    setContextReceipt(null)
+    contextReceiptRef.current = null
   }
 
   const stop = useCallback(() => {
@@ -332,6 +344,28 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           turnReceiptRef.current = receipt
           setTurnReceipt(receipt)
           setStatusMessage(`本轮理解：${receipt.summary}`)
+        } else if (
+          ev.type === 'context_receipt'
+          && typeof ev.run_id === 'string'
+          && ev.scope
+          && ev.memory
+          && ev.skill
+          && ev.evidence
+          && Array.isArray(ev.warnings)
+        ) {
+          const receipt: ContextReceiptEvent = {
+            type: 'context_receipt',
+            schema_version: 1,
+            run_id: ev.run_id,
+            scope: ev.scope,
+            project: ev.project,
+            memory: ev.memory,
+            skill: ev.skill,
+            evidence: ev.evidence,
+            warnings: ev.warnings,
+          }
+          contextReceiptRef.current = receipt
+          setContextReceipt(receipt)
         } else if (ev.type === 'steering_applied' && ev.content_preview) {
           setStatusMessage(`已应用追加要求：${ev.content_preview}`)
         } else if ((ev.type === 'text' || ev.type === 'chunk') && ev.content) {
@@ -459,6 +493,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           skill_progress: finalSkillProgress,
           stage_timings: finalStageTimings,
           turn_receipt: turnReceiptRef.current || undefined,
+          context_receipt: contextReceiptRef.current || undefined,
         }),
         created_at: new Date().toISOString(),
       }
@@ -522,6 +557,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     statusMessage,
     capability,
     turnReceipt,
+    contextReceipt,
     activeRunId,
     streamingMessageId,
     send,

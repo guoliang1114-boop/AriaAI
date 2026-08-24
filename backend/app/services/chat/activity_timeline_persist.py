@@ -200,6 +200,9 @@ def build_activity_timeline(state: Any, runtime: Any, *, full_text: str = "") ->
     receipt = getattr(state, "turn_receipt", None)
     if isinstance(receipt, dict) and receipt:
         timeline["receipt"] = dict(receipt)
+    context_receipt = getattr(state, "context_receipt", None)
+    if isinstance(context_receipt, dict) and context_receipt:
+        timeline["context_receipt"] = dict(context_receipt)
     steering_inputs = getattr(state, "steering_inputs", None)
     if isinstance(steering_inputs, list) and steering_inputs:
         timeline["steering"] = [

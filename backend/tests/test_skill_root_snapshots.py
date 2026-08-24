@@ -226,6 +226,79 @@ def test_auto_selection_rejects_ambiguous_high_confidence_tie() -> None:
         engine.dispose()
 
 
+def test_professional_question_uses_unique_skill_in_read_only_advisory_mode() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            fraud = Skill(
+                name="舞弊风险评估",
+                description="舞弊三角、红旗信号和反舞弊控制。",
+                category="风险与合规",
+            )
+            tax = Skill(
+                name="税务风险管理框架",
+                description="税务风险识别、监控和报告体系。",
+                category="税务",
+            )
+            session.add(fraud)
+            session.add(tax)
+            session.commit()
+
+            selected, decision = auto_select_skill(
+                session,
+                SendMessageRequest(
+                    content="如何识别这个项目的舞弊红旗？",
+                    project_id=7,
+                ),
+            )
+
+        assert selected is not None
+        assert selected.name == "舞弊风险评估"
+        assert decision.apply is True
+        assert decision.reason.startswith("auto_skill_advisory_match:")
+        assert decision.confidence >= 0.88
+    finally:
+        engine.dispose()
+
+
+def test_generic_question_does_not_arm_low_signal_skill() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            session.add(
+                Skill(
+                    name="presentation-builder",
+                    description="PowerPoint generation skill.",
+                    category="consulting",
+                )
+            )
+            session.commit()
+
+            selected, decision = auto_select_skill(
+                session,
+                SendMessageRequest(
+                    content="为什么这个项目需要做 PPT？",
+                    project_id=7,
+                ),
+            )
+
+        assert selected is None
+        assert decision.apply is False
+        assert decision.reason == "auto_skill_skipped_question"
+    finally:
+        engine.dispose()
+
+
 def test_publish_sync_refreshes_changed_high_priority_package(
     tmp_path: Path,
     monkeypatch,

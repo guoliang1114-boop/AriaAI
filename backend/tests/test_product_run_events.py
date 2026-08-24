@@ -14,6 +14,7 @@ from app.services.chat.product_run_events import (
     USER_FACING_MESSAGE_MAX_CHARS,
     artifact_ready,
     confirmation_required,
+    context_receipt,
     make_run_id,
     memory_candidate_ready,
     message_persisted,
@@ -121,6 +122,73 @@ class TurnReceiptAndSteeringTest(unittest.TestCase):
         self.assertEqual(event["type"], EventType.STEERING_APPLIED)
         self.assertEqual(event["sequence"], 2)
         self.assertEqual(event["message_id"], 91)
+
+
+class ContextReceiptTest(unittest.TestCase):
+    def test_context_receipt_exposes_freshness_and_routing_without_content(self):
+        event = context_receipt(
+            make_run_id(),
+            scope="project",
+            project={"id": 26, "name": "Transformation"},
+            memory={"status": "stale", "version": 4, "raw_context_available": True},
+            skill={
+                "status": "applied",
+                "usage_mode": "advisory",
+                "id": 7,
+                "name": "舞弊风险评估",
+                "source": "auto",
+                "reason": "auto_skill_advisory_match",
+                "confidence": 0.9,
+            },
+            evidence={
+                "workspace_context": True,
+                "attached_file_count": 1,
+                "knowledge_reference_count": 2,
+                "history_message_count": 8,
+                "conversation_capsule": True,
+                "user_preferences": False,
+                "compacted": False,
+            },
+            warnings=["project_memory_stale"],
+        )
+
+        self.assertEqual(event["type"], EventType.CONTEXT_RECEIPT)
+        self.assertEqual(event["memory"]["version"], 4)
+        self.assertEqual(event["skill"]["usage_mode"], "advisory")
+        self.assertEqual(event["evidence"]["knowledge_reference_count"], 2)
+        self.assertNotIn("prompt", event)
+        self.assertNotIn("content", event)
+
+    def test_context_receipt_bounds_ambiguous_candidates(self):
+        event = context_receipt(
+            make_run_id(),
+            scope="project",
+            memory={"status": "ready", "version": 2},
+            skill={
+                "status": "ambiguous",
+                "usage_mode": "none",
+                "reason": "auto_skill_ambiguous_advisory_match",
+                "candidates": [
+                    {"id": index, "name": f"Skill {index}", "score": 90}
+                    for index in range(5)
+                ],
+            },
+            evidence={},
+            warnings=["skill_match_ambiguous"],
+        )
+
+        self.assertEqual(len(event["skill"]["candidates"]), 3)
+
+    def test_context_receipt_rejects_unknown_warning(self):
+        with self.assertRaises(ValueError):
+            context_receipt(
+                make_run_id(),
+                scope="chat",
+                memory={"status": "not_applicable", "version": 0},
+                skill={"status": "not_used", "usage_mode": "none"},
+                evidence={},
+                warnings=["raw_prompt_exposed"],
+            )
 
 
 class TextDeltaTest(unittest.TestCase):

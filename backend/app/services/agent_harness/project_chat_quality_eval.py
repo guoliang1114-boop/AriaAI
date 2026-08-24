@@ -1,0 +1,250 @@
+"""Deterministic release-gate evals for project chat context and Skill routing.
+
+These cases exercise Aria's control layer without calling a model or touching
+the configured application database. They complement provider/model evals by
+making regressions in Skill selection, topic release, memory freshness, and
+constraint retention visible in CI.
+"""
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine
+
+from app.models.db import Project, Skill
+from app.routers.chat_schemas import SendMessageRequest
+from app.services.chat.mode_registry import ActionPolicy, ToolAccessPolicy
+from app.services.context_builder.memory_formatters import (
+    _format_project_memory_for_prompt,
+)
+from app.services.conversation_state import merge_user_constraints
+from app.services.intent_router import classify_chat_intent
+from app.services.skill_router import (
+    auto_select_skill,
+    decide_conversation_skill_activation,
+)
+
+
+_CATALOG = (
+    ("舞弊风险评估", "舞弊三角、舞弊红旗和反舞弊控制", "风险与合规"),
+    ("审计计划与风险评估", "ISA 315 与重大错报风险识别", "审计"),
+    ("实质性程序设计", "细节测试、函证程序和审计抽样", "审计"),
+    ("增值税合规与优化", "进项税、销项税和留抵退税", "税务"),
+    ("商业尽职调查", "市场吸引力、客户质量和增长可持续性", "交易"),
+    ("会议纪要提取", "会议纪要、决策和会议行动项", "顾问基础能力"),
+    ("presentation-builder", "PowerPoint generation skill", "consulting"),
+)
+
+_SKILL_CASES = (
+    ("如何识别这个项目的舞弊红旗？", "舞弊风险评估"),
+    ("审计计划阶段如何识别重大错报风险？", "审计计划与风险评估"),
+    ("留抵退税和进项税抵扣风险应该怎么分析？", "增值税合规与优化"),
+    ("商业尽调中如何判断客户质量？", "商业尽职调查"),
+    ("如何从会议记录中提炼会议行动项？", "会议纪要提取"),
+    ("这个项目目前最大的交付风险是什么？", None),
+    ("为什么这个项目需要做 PPT？", None),
+)
+
+_LIFECYCLE_CASES = (
+    ("继续按刚才的格式补充行动项", True, False),
+    ("不用这个技能，回到普通对话", False, True),
+    ("换个话题，另一个问题", False, True),
+    ("这个项目目前最大的交付风险是什么？", False, True),
+)
+
+
+def _ratio(passed: int, total: int) -> float:
+    return round(passed / total, 4) if total else 1.0
+
+
+def _skill_selection_results() -> tuple[int, int, list[dict[str, Any]]]:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    details: list[dict[str, Any]] = []
+    passed = 0
+    try:
+        with Session(engine) as session:
+            for name, description, category in _CATALOG:
+                session.add(
+                    Skill(
+                        name=name,
+                        description=description,
+                        category=category,
+                    )
+                )
+            session.commit()
+            for content, expected in _SKILL_CASES:
+                selected, decision = auto_select_skill(
+                    session,
+                    SendMessageRequest(content=content, project_id=26),
+                )
+                actual = selected.name if selected is not None else None
+                ok = actual == expected
+                passed += int(ok)
+                details.append(
+                    {
+                        "content": content,
+                        "expected": expected,
+                        "actual": actual,
+                        "reason": decision.reason,
+                        "passed": ok,
+                    }
+                )
+    finally:
+        engine.dispose()
+    return passed, len(_SKILL_CASES), details
+
+
+def _lifecycle_results() -> tuple[int, int, list[dict[str, Any]]]:
+    skill = SimpleNamespace(
+        id=7,
+        name="会议纪要提取",
+        description="会议纪要、会议决策和会议行动项",
+        category="顾问基础能力",
+    )
+    details: list[dict[str, Any]] = []
+    passed = 0
+    for content, expected_apply, expected_clear in _LIFECYCLE_CASES:
+        decision = decide_conversation_skill_activation(content, skill)
+        ok = (
+            decision.apply is expected_apply
+            and decision.clear_conversation_skill is expected_clear
+        )
+        passed += int(ok)
+        details.append(
+            {
+                "content": content,
+                "expected_apply": expected_apply,
+                "actual_apply": decision.apply,
+                "expected_clear": expected_clear,
+                "actual_clear": decision.clear_conversation_skill,
+                "reason": decision.reason,
+                "passed": ok,
+            }
+        )
+    return passed, len(_LIFECYCLE_CASES), details
+
+
+def _advisory_safety_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """A matched advisory Skill must not grant side-effect capability."""
+
+    details: list[dict[str, Any]] = []
+    for content in (
+        "如何识别这个项目的舞弊红旗？",
+        "审计计划阶段如何识别重大错报风险？",
+    ):
+        decision = classify_chat_intent(
+            SendMessageRequest(content=content, project_id=26),
+            effective_skill_id=7,
+        )
+        safe_action = decision.action_policy in {
+            ActionPolicy.DIRECT_ANSWER,
+            ActionPolicy.READ_ONLY_TOOL,
+        }
+        no_write_access = decision.tool_access_policy != ToolAccessPolicy.WRITE_ALLOWED
+        details.append(
+            {
+                "content": content,
+                "action_policy": decision.action_policy.value,
+                "tool_access_policy": decision.tool_access_policy.value,
+                "passed": safe_action and no_write_access,
+            }
+        )
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
+def _memory_results() -> tuple[int, int, list[dict[str, Any]]]:
+    stale = Project(
+        name="Stale",
+        client="Client",
+        memory_version=3,
+        memory_stale=True,
+        context_memory_json='{"project_brief":"Earlier synthesis"}',
+    )
+    fresh = Project(
+        name="Fresh",
+        client="Client",
+        memory_version=4,
+        memory_stale=False,
+        context_memory_json='{"project_brief":"Current synthesis"}',
+    )
+    stale_prompt = _format_project_memory_for_prompt(stale)
+    fresh_prompt = _format_project_memory_for_prompt(fresh)
+    details = [
+        {
+            "case": "stale_memory_guard",
+            "passed": "Structured Project Memory (STALE)" in stale_prompt
+            and "prefer newer milestones" in stale_prompt,
+        },
+        {
+            "case": "fresh_memory_no_false_warning",
+            "passed": "Structured Project Memory:**" in fresh_prompt
+            and "STALE" not in fresh_prompt,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
+def _constraint_results() -> tuple[int, int, list[dict[str, Any]]]:
+    cases = (
+        (
+            ["必须使用正式语气", "输出为 Markdown"],
+            "不用正式语气，改成简洁口语",
+            ["不用正式语气", "改成简洁口语", "输出为 Markdown"],
+        ),
+        (
+            ["必须使用正式语气", "输出为 Markdown"],
+            "继续补充竞争分析",
+            ["必须使用正式语气", "输出为 Markdown"],
+        ),
+    )
+    details: list[dict[str, Any]] = []
+    for existing, content, expected in cases:
+        actual = merge_user_constraints(existing, content)
+        details.append(
+            {
+                "content": content,
+                "expected": expected,
+                "actual": actual,
+                "passed": actual == expected,
+            }
+        )
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
+def run_project_chat_quality_eval() -> dict[str, Any]:
+    """Run all deterministic cases and return a JSON-safe release report."""
+
+    groups = {
+        "skill_selection_accuracy": _skill_selection_results(),
+        "skill_lifecycle_accuracy": _lifecycle_results(),
+        "advisory_skill_safety_rate": _advisory_safety_results(),
+        "memory_freshness_guard_rate": _memory_results(),
+        "constraint_retention_rate": _constraint_results(),
+    }
+    metrics = {
+        name: {
+            "passed": result[0],
+            "total": result[1],
+            "score": _ratio(result[0], result[1]),
+        }
+        for name, result in groups.items()
+    }
+    return {
+        "schema_version": 1,
+        "case_count": sum(item["total"] for item in metrics.values()),
+        "metrics": metrics,
+        "release_gate_passed": all(item["score"] == 1.0 for item in metrics.values()),
+        "failures": [
+            {"metric": name, **detail}
+            for name, result in groups.items()
+            for detail in result[2]
+            if not detail["passed"]
+        ],
+    }

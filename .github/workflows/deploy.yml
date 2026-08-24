@@ -44,7 +44,9 @@ jobs:
       - name: Frontend Tests
         run: |
           cd web
-          npm test -- --run
+          # Bound worker fan-out so the full UI suite remains stable on
+          # smaller GitHub runners while preserving test isolation.
+          npm test -- --run --maxWorkers=4
 
       - name: Frontend Lint
         run: |
@@ -155,6 +157,7 @@ jobs:
                 tests/test_activity_timeline_persist.py \
                 tests/test_approval_envelope.py \
                 tests/test_context_assembly_manifest.py \
+                tests/test_context_receipt.py \
                 tests/test_conversation_capsule.py \
                 tests/test_database_extended.py \
                 tests/test_instruction_manifest.py \
@@ -162,6 +165,7 @@ jobs:
                 tests/test_knowledge_job_recovery.py \
                 tests/test_knowledge_legacy_migration.py \
                 tests/test_product_run_events.py \
+                tests/test_project_chat_quality_eval.py \
                 tests/test_run_evaluation.py \
                 tests/test_run_output_record.py \
                 tests/test_run_rollout.py \
@@ -178,6 +182,11 @@ jobs:
                 tests/test_turn_retry.py \
                 tests/test_chat_actions.py \
                 tests/test_chat_multiturn_golden.py
+
+            # Emit deterministic project-chat quality metrics as a release
+            # gate. This uses ephemeral SQLite only and never touches the
+            # configured production database.
+            "$PYTHON" scripts/project_chat_quality_eval.py
 
             # Govern historical migration state before applying the latest schema.
             "$PYTHON" scripts/migration_governance.py report

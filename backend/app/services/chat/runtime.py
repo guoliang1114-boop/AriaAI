@@ -846,6 +846,7 @@ def prepare_chat_runtime(
     )
     prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["context_mode"] = context_mode
+    prepare_metrics["context_receipt_base"] = dict(chat_ctx.context_receipt or {})
 
     # 6. Model & provider resolution
     step_started_at = time.perf_counter()
@@ -1171,6 +1172,7 @@ def prepare_chat_runtime(
         conversation_capsule=conversation_capsule,
         instruction_manifest=instruction_manifest,
         context_manifest=context_assembly.manifest,
+        context_receipt=chat_ctx.context_receipt,
         intent_prepared_async=intent_prepared_async,
         context_window_tokens=context_window_tokens,
         context_safety_margin_percent=context_safety_percent,

@@ -1072,6 +1072,8 @@ async def run_persist(
     metadata["run_evaluation"] = dict(state.run_evaluation)
     if state.turn_receipt:
         metadata["turn_receipt"] = dict(state.turn_receipt)
+    if state.context_receipt:
+        metadata["context_receipt"] = dict(state.context_receipt)
     if state.steering_inputs:
         metadata["steering_inputs"] = state.steering_audit_records()
     if cited_references:

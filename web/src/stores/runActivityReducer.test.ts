@@ -57,6 +57,32 @@ describe("reduceRunActivity", () => {
         steering_supported: true,
       },
       {
+        type: "context_receipt",
+        run_id: "r",
+        scope: "project",
+        project: { id: "26", name: "Project" },
+        memory: { status: "stale", version: 4, raw_context_available: true },
+        skill: {
+          status: "applied",
+          usage_mode: "advisory",
+          id: "7",
+          name: "舞弊风险评估",
+          source: "auto",
+          reason: "auto_skill_advisory_match",
+          confidence: 0.9,
+        },
+        evidence: {
+          workspace_context: true,
+          attached_file_count: 1,
+          knowledge_reference_count: 2,
+          history_message_count: 8,
+          conversation_capsule: true,
+          user_preferences: false,
+          compacted: false,
+        },
+        warnings: ["project_memory_stale"],
+      },
+      {
         type: "steering_applied",
         run_id: "r",
         steering_id: "steer_2",
@@ -73,6 +99,8 @@ describe("reduceRunActivity", () => {
       },
     ]);
     expect(t.receipt?.summary).toBe("生成十页董事会汇报");
+    expect(t.context_receipt?.memory.status).toBe("stale");
+    expect(t.context_receipt?.skill.usage_mode).toBe("advisory");
     expect(t.steering.map((item) => item.sequence)).toEqual([1, 2]);
     expect(t.steering[0].message_id).toBe(91);
   });

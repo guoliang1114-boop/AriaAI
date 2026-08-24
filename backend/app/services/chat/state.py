@@ -46,6 +46,7 @@ class ChatSessionState:
     knowledge_evidence: dict[str, Any] = field(default_factory=dict)
     run_outputs: list[dict[str, Any]] = field(default_factory=list)
     turn_receipt: dict[str, Any] = field(default_factory=dict)
+    context_receipt: dict[str, Any] = field(default_factory=dict)
     steering_inputs: list[dict[str, Any]] = field(default_factory=list)
 
     # ------------------------------------------------------------------

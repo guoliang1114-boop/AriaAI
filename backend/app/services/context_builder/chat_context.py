@@ -32,6 +32,7 @@ class ChatContext:
         tools: Optional[list] = None,
         max_tokens: int = 4096,
         context_sources: Optional[list[ContextSourceInput]] = None,
+        context_receipt: Optional[dict] = None,
     ):
         self.skill_prompt = skill_prompt
         self.project_context = project_context
@@ -41,6 +42,7 @@ class ChatContext:
         self.tools = tools
         self.max_tokens = max_tokens
         self.context_sources = tuple(context_sources or ())
+        self.context_receipt = dict(context_receipt or {})
 
 
 def build_chat_context(
@@ -138,6 +140,46 @@ def build_chat_context(
         auto_trigger=True,
         accessible_project_ids=accessible_project_ids,
     )
+
+    if portfolio_context:
+        context_scope = "client_portfolio"
+    elif workspace_inventory_context or (not project_id and project_context.strip()):
+        context_scope = "workspace"
+    elif project_id:
+        context_scope = "project"
+    else:
+        context_scope = "chat"
+
+    if context_scope == "project" and project is not None:
+        if int(project.memory_version or 0) <= 0:
+            memory_status = "missing"
+        elif project.memory_stale:
+            memory_status = "stale"
+        else:
+            memory_status = "ready"
+        memory_version = int(project.memory_version or 0)
+    else:
+        memory_status = "not_applicable"
+        memory_version = 0
+
+    context_receipt = {
+        "scope": context_scope,
+        "project": (
+            {"id": int(project.id or 0), "name": project.name}
+            if project is not None and project.id is not None
+            else None
+        ),
+        "memory": {
+            "status": memory_status,
+            "version": memory_version,
+            "raw_context_available": bool(project_context.strip()),
+        },
+        "evidence": {
+            "workspace_context": bool(project_context.strip()),
+            "attached_file_count": len(file_ids or []),
+            "knowledge_reference_count": len(rag_data["sources"] or []),
+        },
+    }
     
     return ChatContext(
         skill_prompt=skill_ctx.skill_prompt,
@@ -147,6 +189,7 @@ def build_chat_context(
         knowledge_evidence_manifest=rag_data.get("evidence_manifest") or {},
         tools=_merge_project_chat_tools(skill_ctx.tools, project_id),
         max_tokens=skill_ctx.max_tokens or default_max_tokens,
+        context_receipt=context_receipt,
         context_sources=[
             ContextSourceInput(
                 source_id="skill_instructions",
@@ -164,6 +207,9 @@ def build_chat_context(
                     "context_mode": normalized_context_mode or "auto",
                     "knowledge_scope": normalized_scope,
                     "project_scoped": bool(project_id),
+                    "context_scope": context_scope,
+                    "memory_status": memory_status,
+                    "memory_version": memory_version,
                 },
             ),
             ContextSourceInput(

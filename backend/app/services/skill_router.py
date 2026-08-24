@@ -266,6 +266,71 @@ _SKILL_ALIAS_TERMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("会前", "brief", "meeting"), ("会前", "见客户", "客户会议准备", "客户简报", "pre-meeting", "meeting prep")),
 )
 
+# High-signal professional vocabulary used to select a Skill in advisory mode
+# for question-shaped turns. The generic alias table above is intentionally
+# broad because it primarily routes explicit workflow requests. Questions need
+# a stricter vocabulary: matching just "风险", "报告", or "PPT" must not
+# silently turn a normal project question into a Skill run, while terms such as
+# "重大错报风险", "GloBE", or "舞弊红旗" identify one professional method
+# strongly enough to enrich a read-only answer.
+_SKILL_ADVISORY_ALIAS_TERMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("根因分析", "root cause"), ("根因分析", "根本原因", "issue tree", "假设树")),
+    (("项目启动", "project kickoff"), ("项目启动会", "项目章程", "kickoff")),
+    (("项目复盘", "retrospective"), ("项目复盘", "经验教训", "lessons learned")),
+    (("交付审查", "delivery review"), ("交付审查", "交付物质检", "质量审查")),
+    (("财务健康", "financial health"), ("财务健康", "现金流诊断", "偿债能力")),
+    (("商业案例", "roi"), ("商业案例", "roi", "投资回报", "价值测算")),
+    (("ai 用例", "ai use case"), ("ai用例", "ai场景", "人工智能用例")),
+    (("数字化成熟度", "digital maturity"), ("数字化成熟度", "数字成熟度")),
+    (("数字化战略", "digital-strategy"), ("数字化战略", "数字化蓝图", "转型路线图")),
+    (("企业架构", "archimate"), ("企业架构", "archimate", "togaf")),
+    (("数据治理",), ("数据治理", "数据标准", "主数据", "数据质量")),
+    (("流程数字化", "bpmn"), ("流程数字化", "bpmn", "流程建模", "泳道图")),
+    (("技术路线图", "architecture"), ("技术路线图", "系统架构", "技术架构")),
+    (("组织变革", "change management"), ("组织变革", "变革管理", "利益相关方阻力")),
+    (("风险评估矩阵",), ("风险矩阵", "风险热力图", "可能性影响度")),
+    (("合规差距",), ("合规差距", "差距分析", "合规缺口")),
+    (("okr", "目标定义", "goal-definition"), ("okr", "目标拆解", "smart目标", "成功标准")),
+    (("客户细分",), ("客户细分", "客户画像", "客群画像")),
+    (("gtm", "上市策略"), ("gtm", "上市策略", "市场进入策略")),
+    (("会议纪要", "meeting-intelligence"), ("会议纪要", "会议行动项", "会议决策", "访谈纪要")),
+    (("审计计划", "audit-risk-assessment"), ("重大错报风险", "审计风险评估", "isa315", "审计计划")),
+    (("实质性程序", "audit-substantive-procedures"), ("实质性程序", "细节测试", "函证程序", "审计抽样")),
+    (("审计报告", "audit-report-draft"), ("审计意见", "关键审计事项", "强调事项段", "isa700")),
+    (("集团审计", "group-audit"), ("集团审计", "组成部分审计", "isa600")),
+    (("年度审计计划", "internal-audit-annual-plan"), ("审计宇宙", "年度内审计划", "内审资源分配")),
+    (("内审项目执行", "internal-audit-execution"), ("内审工作底稿", "内部审计程序", "审计发现评级")),
+    (("sox",), ("sox404", "sox 404", "萨班斯", "pcaob")),
+    (("穿行测试", "control testing"), ("穿行测试", "控制测试", "设计有效性", "运行有效性")),
+    (("it 一般控制", "itgc"), ("itgc", "it一般控制", "访问控制测试", "变更管理测试")),
+    (("异常检测", "anomaly"), ("本福特定律", "异常交易", "重复付款", "关联方筛查")),
+    (("esg", "assurance"), ("esg鉴证", "可持续性鉴证", "ifrs s1", "ifrs s2", "esrs")),
+    (("增值税", "vat"), ("增值税", "进项税", "销项税", "留抵退税")),
+    (("税收优惠", "tax incentive"), ("税收优惠", "高新技术企业", "研发费用加计扣除")),
+    (("税务争议", "tax dispute"), ("税务争议", "税务稽查", "纳税评估", "反避税调查")),
+    (("税务合规日历",), ("税务合规日历", "申报截止日", "汇算清缴")),
+    (("并购税务尽调", "ma-tax"), ("并购税务尽调", "税务尽职调查", "税务风险敞口")),
+    (("交易结构税务", "deal-structure"), ("交易结构税务", "股权收购还是资产收购", "特殊性税务处理")),
+    (("并购后税务", "post-merger-tax"), ("并购后税务整合", "税务协同效应", "亏损结转利用")),
+    (("转让定价", "tp-documentation"), ("转让定价", "主体文档", "本地文档", "国别报告")),
+    (("预约定价", "apa"), ("预约定价安排", "apa申请", "双边apa")),
+    (("跨境投资", "cross-border"), ("跨境投资税务", "控股架构税务", "cfc规则", "间接转让")),
+    (("支柱二", "pillar two"), ("支柱二", "globe", "iir", "utpr", "qdmtt")),
+    (("高管薪酬",), ("高管薪酬税务", "递延薪酬", "高管个税")),
+    (("外派人员", "expatriate"), ("外派人员税务", "外籍人员税务", "税收居民身份", "税收抵免")),
+    (("股权激励税务",), ("股权激励税务", "股票期权税务", "限制性股票税务", "rsu税务")),
+    (("关税", "customs"), ("海关估价", "hs归类", "原产地规则", "关税合规")),
+    (("消费税", "间接税"), ("消费税", "印花税", "房产税", "城建税")),
+    (("税务数字化",), ("税务数字化", "金税四期", "税务系统选型", "自动化申报")),
+    (("税务风险管理",), ("税务风险管理", "税务风险框架", "税务风险监控")),
+    (("商业尽职调查", "commercial due diligence"), ("商业尽职调查", "商业尽调", "市场吸引力", "客户质量")),
+    (("并购整合", "pmi"), ("并购后整合", "pmi", "day1", "百日计划")),
+    (("估值", "valuation"), ("dcf", "可比公司估值", "可比交易估值", "wacc", "football field")),
+    (("债务重组",), ("债务重组", "债权人谈判", "债务瀑布")),
+    (("舞弊风险", "fraud"), ("舞弊风险", "舞弊红旗", "舞弊三角", "acfe")),
+    (("合规调查", "investigation"), ("合规调查", "证据保全", "调查访谈", "fcpa")),
+)
+
 
 def is_proposal_presentation_request(content: str) -> bool:
     """Return true for proposal/client-communication requests that need a deck."""
@@ -321,6 +386,19 @@ def skill_auto_match_score(content: str, skill: Skill) -> tuple[int, str]:
                 if score > best_score:
                     best_score = score
                     best_reason = f"alias:{matched_terms[0]}"
+
+    for skill_markers, request_terms in _SKILL_ADVISORY_ALIAS_TERMS:
+        if any(_normalize_for_skill_match(marker) in haystack for marker in skill_markers):
+            matched_terms = [
+                term for term in request_terms
+                if _normalize_for_skill_match(term)
+                and _normalize_for_skill_match(term) in text
+            ]
+            if matched_terms:
+                score = 94 if len(matched_terms) >= 2 else 90
+                if score > best_score:
+                    best_score = score
+                    best_reason = f"professional_alias:{matched_terms[0]}"
 
     skill_tokens = _tokenize_skill_text(f"{skill.name}\n{skill.description}")
     content_tokens = _tokenize_skill_text(content)
@@ -409,17 +487,6 @@ def auto_select_skill(session: Session, req: SendMessageRequest) -> tuple[Skill 
     looks_like_question = normalized_text.endswith(("?", "？")) or normalized_text.startswith(
         ("为什么", "如何", "怎么", "是否", "是不是", "能不能", "可不可以", "what", "why", "how")
     )
-    exact_name_match = any(_normalize_for_skill_match(skill.name) in normalized_text for skill in candidates if skill.name)
-    if looks_like_question and not exact_name_match:
-        return None, SkillActivationDecision(
-            False,
-            "auto_skill_skipped_question",
-            0.0,
-            source="auto",
-            catalog_fingerprint=catalog_fingerprint,
-            candidate_count=len(candidates),
-        )
-
     top_candidates, catalog_fingerprint = rank_published_skill_candidates(
         text,
         candidates,
@@ -443,6 +510,46 @@ def auto_select_skill(session: Session, req: SendMessageRequest) -> tuple[Skill 
                 candidate_count=len(candidates),
             )
         tied_top = [candidate for candidate in top_candidates if candidate["score"] == best_score]
+        if looks_like_question:
+            second_score = int(top_candidates[1]["score"]) if len(top_candidates) > 1 else 0
+            advisory_ambiguous = len(tied_top) > 1 or (
+                second_score >= 88 and best_score - second_score < 4
+            )
+            if best_score >= 88 and advisory_ambiguous:
+                return None, SkillActivationDecision(
+                    False,
+                    "auto_skill_ambiguous_advisory_match",
+                    best_score / 100,
+                    source="auto",
+                    candidate_skill_id=best_skill.id,
+                    candidate_skill_name=best_skill.name,
+                    top_candidates=top_candidates,
+                    catalog_fingerprint=catalog_fingerprint,
+                    candidate_count=len(candidates),
+                )
+            if best_score >= 88:
+                return best_skill, SkillActivationDecision(
+                    True,
+                    f"auto_skill_advisory_match:{best_skill.name}:{best_reason}",
+                    best_score / 100,
+                    source="auto",
+                    candidate_skill_id=best_skill.id,
+                    candidate_skill_name=best_skill.name,
+                    top_candidates=top_candidates,
+                    catalog_fingerprint=catalog_fingerprint,
+                    candidate_count=len(candidates),
+                )
+            return None, SkillActivationDecision(
+                False,
+                "auto_skill_skipped_question",
+                best_score / 100,
+                source="auto",
+                candidate_skill_id=best_skill.id,
+                candidate_skill_name=best_skill.name,
+                top_candidates=top_candidates,
+                catalog_fingerprint=catalog_fingerprint,
+                candidate_count=len(candidates),
+            )
         if best_score >= 82 and len(tied_top) > 1:
             return None, SkillActivationDecision(
                 False,
@@ -481,7 +588,7 @@ def auto_select_skill(session: Session, req: SendMessageRequest) -> tuple[Skill 
 
     return None, SkillActivationDecision(
         False,
-        "auto_skill_no_match",
+        "auto_skill_skipped_question" if looks_like_question else "auto_skill_no_match",
         0.0,
         source="auto",
         catalog_fingerprint=catalog_fingerprint,

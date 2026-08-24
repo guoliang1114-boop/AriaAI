@@ -45,7 +45,7 @@ import { PageTitle } from '../../components/PageTitle'
 import { CxSkeleton, CxStatus, CxTopProgress } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skill } from '../../types/api'
-import type { TurnReceiptEvent } from '../../types/productRunEvent'
+import type { ContextReceiptEvent, TurnReceiptEvent } from '../../types/productRunEvent'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../utils/knowledgeEvidence'
 import { describeRunSkill, normalizeRunSkill, type ActiveRunSkill } from '../../utils/chatRunSkill'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
@@ -320,7 +320,13 @@ function ChatStatusPill({ message }: { message?: string | null }) {
   )
 }
 
-function MainTurnReceiptCard({ receipt }: { receipt: TurnReceiptEvent }) {
+function MainTurnReceiptCard({
+  receipt,
+  contextReceipt,
+}: {
+  receipt: TurnReceiptEvent
+  contextReceipt: ContextReceiptEvent | null
+}) {
   const modeLabel = {
     answer_only: '直接回答',
     plan_only: '只做规划',
@@ -353,6 +359,49 @@ function MainTurnReceiptCard({ receipt }: { receipt: TurnReceiptEvent }) {
         {receipt.requires_confirmation ? ' · 高风险动作会先征求确认' : ''}
         {receipt.steering_supported ? ' · 可继续追加要求' : ''}
       </div>
+      {contextReceipt && <MainContextReceiptSummary receipt={contextReceipt} />}
+    </div>
+  )
+}
+
+function MainContextReceiptSummary({ receipt }: { receipt: ContextReceiptEvent }) {
+  const memoryLabel = {
+    not_applicable: '本轮不依赖单项目记忆',
+    missing: '项目记忆尚未生成，已使用当前项目原始信息',
+    stale: `项目记忆 v${receipt.memory.version} 待刷新，已优先使用较新的项目信号`,
+    ready: `项目记忆 v${receipt.memory.version} 已同步`,
+  }[receipt.memory.status]
+  const skillLabel = receipt.skill.status === 'applied' && receipt.skill.name
+    ? `${receipt.skill.usage_mode === 'advisory' ? '专业问答' : '工作流'}：${receipt.skill.name}`
+    : receipt.skill.status === 'ambiguous'
+      ? `Skill 候选有歧义：${(receipt.skill.candidates || []).map((item) => item.name).join(' / ')}`
+      : '未额外启用 Skill'
+  const evidenceBits = [
+    receipt.evidence.knowledge_reference_count > 0
+      ? `${receipt.evidence.knowledge_reference_count} 条知识证据`
+      : '',
+    receipt.evidence.attached_file_count > 0
+      ? `${receipt.evidence.attached_file_count} 个指定文件`
+      : '',
+    receipt.evidence.history_message_count > 0
+      ? `${receipt.evidence.history_message_count} 条近期对话`
+      : '',
+  ].filter(Boolean)
+  const hasWarning = receipt.warnings.some((warning) =>
+    ['project_memory_missing', 'project_memory_stale', 'skill_match_ambiguous'].includes(warning),
+  )
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        paddingTop: 6,
+        borderTop: '1px solid var(--color-codex-line)',
+        color: hasWarning ? '#a16207' : 'var(--color-codex-ink-mute)',
+        fontSize: 11,
+      }}
+    >
+      <div><strong>本轮依据</strong> · {memoryLabel} · {skillLabel}</div>
+      {evidenceBits.length > 0 && <div style={{ marginTop: 2 }}>{evidenceBits.join(' · ')}</div>}
     </div>
   )
 }
@@ -1051,6 +1100,7 @@ export function Chat() {
   const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [liveStatusText, setLiveStatusText] = useState<string | null>(null)
   const [turnReceipt, setTurnReceipt] = useState<TurnReceiptEvent | null>(null)
+  const [contextReceipt, setContextReceipt] = useState<ContextReceiptEvent | null>(null)
   const [progressSteps, setProgressSteps] = useState<ChatProgressStep[]>([])
   const [liveStageTimings, setLiveStageTimings] = useState<StageTimingEntry[]>([])
   const [skillRunActive, setSkillRunActive] = useState(false)
@@ -1624,6 +1674,7 @@ export function Chat() {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setErrorMsg(null)
     setTurnReceipt(null)
+    setContextReceipt(null)
     activeRunIdRef.current = null
     activeRunSkillRef.current = skillForThisMessage
       ? { id: skillForThisMessage, name: selectedSkillData?.name || 'Skill', source: 'explicit' }
@@ -1716,6 +1767,7 @@ export function Chat() {
       let streamDone = false
       let streamBuffer = ''
       let collectedArtifacts: GeneratedArtifact[] = []
+      let resolvedContextReceipt: ContextReceiptEvent | null = null
       const decoder = new TextDecoder()
 
       const flushUpdate = () => {
@@ -1755,6 +1807,17 @@ export function Chat() {
           const receipt = data as TurnReceiptEvent
           setTurnReceipt(receipt)
           setLiveStatusText(`本轮理解：${receipt.summary}`)
+        } else if (
+          data.type === 'context_receipt'
+          && typeof data.run_id === 'string'
+          && data.scope
+          && data.memory
+          && data.skill
+          && data.evidence
+          && Array.isArray(data.warnings)
+        ) {
+          resolvedContextReceipt = data as ContextReceiptEvent
+          setContextReceipt(resolvedContextReceipt)
         } else if (data.type === 'steering_applied' && data.content_preview) {
           setLiveStatusText(`已应用追加要求：${data.content_preview}`)
         } else if ((data.type === 'text' || data.type === 'chunk') && data.content) {
@@ -1814,6 +1877,7 @@ export function Chat() {
           completedNormally = true
           activeRunIdRef.current = null
           setTurnReceipt(null)
+          setContextReceipt(null)
           stopRequestedRef.current = false
           if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
           flushUpdate()
@@ -1855,6 +1919,7 @@ export function Chat() {
               skill_name: resolvedRunSkill?.name || undefined,
               skill_progress: hasSkillProgress ? (data.skill_progress || completedProgressSteps) : undefined,
               stage_timings: data.stage_timings || Object.fromEntries(liveStageTimingsRef.current.map(item => [item.key, item.durationMs])),
+              context_receipt: resolvedContextReceipt || undefined,
             }),
             created_at: new Date().toISOString(),
           }
@@ -2095,6 +2160,7 @@ export function Chat() {
       activeRunIdRef.current = null
       activeRunSkillRef.current = null
       setTurnReceipt(null)
+      setContextReceipt(null)
       stopRequestedRef.current = false
     }
   }
@@ -2894,7 +2960,9 @@ export function Chat() {
           />
           <div className="mx-auto w-full">
             {selectedSkillData && <SkillRequirementsPanel skill={selectedSkillData} />}
-            {sending && turnReceipt && <MainTurnReceiptCard receipt={turnReceipt} />}
+            {sending && turnReceipt && (
+              <MainTurnReceiptCard receipt={turnReceipt} contextReceipt={contextReceipt} />
+            )}
 
             {/* Composer box — textarea on top, toolbar with context pills + send at the bottom. */}
             <div
@@ -3878,12 +3946,16 @@ function MessageRow({ message }: { message: Message }) {
   let skillProgress: ChatProgressStep[] = []
   let artifacts: GeneratedArtifact[] = []
   let stageTimings: StageTimingEntry[] = []
+  let contextReceipt: ContextReceiptEvent | null = null
   try {
     const meta = JSON.parse(message.metadata_json || '{}')
     references = normalizeKnowledgeReferences(meta.references)
     artifacts = Array.isArray(meta.artifacts) ? meta.artifacts : []
     skillProgress = buildProgressFromMetadata(meta)
     stageTimings = stageTimingEntriesFromMeta(meta)
+    contextReceipt = meta.context_receipt && typeof meta.context_receipt === 'object'
+      ? meta.context_receipt as ContextReceiptEvent
+      : null
   } catch {
     // Ignore invalid metadata payloads from older chat messages.
   }
@@ -3978,6 +4050,7 @@ function MessageRow({ message }: { message: Message }) {
               />
             ))}
             <StreamingAnswerPreview content={message.content} compact={skillProgress.length > 0} />
+            {contextReceipt && <MainContextReceiptSummary receipt={contextReceipt} />}
           </div>
         )}
 

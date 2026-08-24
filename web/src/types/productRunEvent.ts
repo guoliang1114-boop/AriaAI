@@ -11,6 +11,7 @@
 export type ProductRunEventType =
   | "run_started"
   | "turn_receipt"
+  | "context_receipt"
   | "steering_applied"
   | "status"
   | "text_delta"
@@ -79,6 +80,49 @@ export interface TurnReceiptEvent {
   write_allowed: boolean;
   requires_confirmation: boolean;
   steering_supported: boolean;
+}
+
+export type ContextReceiptScope = "chat" | "project" | "client_portfolio" | "workspace";
+export type ContextMemoryStatus = "not_applicable" | "missing" | "stale" | "ready";
+export type ContextSkillStatus = "applied" | "ambiguous" | "not_used";
+export type ContextSkillUsageMode = "none" | "advisory" | "workflow";
+export type ContextWarningCode =
+  | "project_memory_missing"
+  | "project_memory_stale"
+  | "skill_match_ambiguous"
+  | "context_compacted";
+
+export interface ContextReceiptEvent {
+  type: "context_receipt";
+  schema_version: 1;
+  run_id: string;
+  scope: ContextReceiptScope;
+  project?: { id: string; name: string };
+  memory: {
+    status: ContextMemoryStatus;
+    version: number;
+    raw_context_available: boolean;
+  };
+  skill: {
+    status: ContextSkillStatus;
+    usage_mode: ContextSkillUsageMode;
+    id?: string;
+    name?: string;
+    source?: string;
+    reason: string;
+    confidence: number;
+    candidates?: Array<{ id?: string; name: string; score: number }>;
+  };
+  evidence: {
+    workspace_context: boolean;
+    attached_file_count: number;
+    knowledge_reference_count: number;
+    history_message_count: number;
+    conversation_capsule: boolean;
+    user_preferences: boolean;
+    compacted: boolean;
+  };
+  warnings: ContextWarningCode[];
 }
 
 export interface SteeringAppliedEvent {
@@ -208,6 +252,7 @@ export interface RunFailedEvent {
 export type ProductRunEvent =
   | RunStartedEvent
   | TurnReceiptEvent
+  | ContextReceiptEvent
   | SteeringAppliedEvent
   | StatusEvent
   | TextDeltaEvent
@@ -236,6 +281,7 @@ export function isProductRunEvent(value: unknown): value is ProductRunEvent {
 const PRODUCT_RUN_EVENT_TYPES = new Set<string>([
   "run_started",
   "turn_receipt",
+  "context_receipt",
   "steering_applied",
   "status",
   "text_delta",

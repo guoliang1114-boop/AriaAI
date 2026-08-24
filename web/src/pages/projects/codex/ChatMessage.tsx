@@ -8,6 +8,7 @@ import type {
   Message,
   Reference,
 } from '../../../types/api'
+import type { ContextReceiptEvent } from '../../../types/productRunEvent'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 import { CxIcon } from './CxIcons'
 import { formatUpdatedRelative } from './useProjectsApi'
@@ -40,18 +41,22 @@ interface ParsedMeta {
   references: Reference[]
   artifacts: GeneratedArtifact[]
   progress: ProgressStep[]
+  contextReceipt: ContextReceiptEvent | null
 }
 
 function parseMeta(raw: string | undefined): ParsedMeta {
-  if (!raw) return { references: [], artifacts: [], progress: [] }
+  if (!raw) return { references: [], artifacts: [], progress: [], contextReceipt: null }
   try {
     const meta = JSON.parse(raw) as Record<string, unknown>
     const refs = normalizeKnowledgeReferences(meta.references)
     const arts = Array.isArray(meta.artifacts) ? (meta.artifacts as GeneratedArtifact[]) : []
     const prog = Array.isArray(meta.skill_progress) ? (meta.skill_progress as ProgressStep[]) : []
-    return { references: refs, artifacts: arts, progress: prog }
+    const receipt = meta.context_receipt && typeof meta.context_receipt === 'object'
+      ? (meta.context_receipt as ContextReceiptEvent)
+      : null
+    return { references: refs, artifacts: arts, progress: prog, contextReceipt: receipt }
   } catch {
-    return { references: [], artifacts: [], progress: [] }
+    return { references: [], artifacts: [], progress: [], contextReceipt: null }
   }
 }
 
@@ -174,6 +179,9 @@ export function ProjectChatMessage({
                 <MarkdownRenderer content={message.content} />
               </div>
             )}
+            {!isStreaming && meta.contextReceipt && (
+              <PersistentContextReceipt receipt={meta.contextReceipt} />
+            )}
             {!isStreaming && meta.references.length > 0 && <ReferenceChips refs={meta.references} />}
             {!isStreaming && (
               <AriaActionChips
@@ -186,6 +194,35 @@ export function ProjectChatMessage({
         )}
       </div>
     </div>
+  )
+}
+
+function PersistentContextReceipt({ receipt }: { receipt: ContextReceiptEvent }) {
+  const memoryLabel = {
+    not_applicable: '不依赖单项目记忆',
+    missing: '项目记忆缺失，使用当前项目原始信息',
+    stale: `项目记忆 v${receipt.memory.version} 待刷新`,
+    ready: `项目记忆 v${receipt.memory.version} 已同步`,
+  }[receipt.memory.status]
+  const skillLabel = receipt.skill.status === 'applied' && receipt.skill.name
+    ? `${receipt.skill.usage_mode === 'advisory' ? '专业问答' : '工作流'}：${receipt.skill.name}`
+    : receipt.skill.status === 'ambiguous'
+      ? `Skill 待选择：${(receipt.skill.candidates || []).map((item) => item.name).join(' / ')}`
+      : '未额外启用 Skill'
+  const evidenceCount = receipt.evidence.knowledge_reference_count
+    + receipt.evidence.attached_file_count
+  return (
+    <details style={{ marginTop: 8, fontSize: 11.5, color: 'var(--ink-mute)' }}>
+      <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
+        本轮依据 · {memoryLabel} · {skillLabel}
+      </summary>
+      <div style={{ marginTop: 4, paddingLeft: 14 }}>
+        {evidenceCount > 0 ? `${evidenceCount} 项文件/知识证据` : '未附加文件或知识证据'}
+        {receipt.evidence.history_message_count > 0
+          ? ` · ${receipt.evidence.history_message_count} 条近期对话`
+          : ''}
+      </div>
+    </details>
   )
 }
 

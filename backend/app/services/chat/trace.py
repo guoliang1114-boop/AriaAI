@@ -150,6 +150,7 @@ def build_chat_trace_payload(runtime: ChatRuntime, state: ChatSessionState) -> d
             "knowledge_evidence": knowledge_evidence_reference(
                 getattr(state, "knowledge_evidence", None)
             ),
+            "context_receipt": dict(getattr(state, "context_receipt", None) or {}),
         },
     }
 

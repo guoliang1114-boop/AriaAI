@@ -37,7 +37,7 @@ Phase 2T 先关闭这两个缺口，Phase 2U 进一步补上长对话状态和�
 | 中断与恢复 | Task abort、rollout reconstruction | 停止不是删掉结果；应保存部分输出、已执行副作用和可恢复状态 | 已完成用户中断、Rollout、恢复规划 | 前端提供“从中断点继续”而非只显示失败 |
 | 工具协议 | tool call/result pairing、registry、parallel lanes | 工具定义、权限、调度和回填必须共享同一事实源 | 已完成 Tool Capability Manifest、转录规范化、只读并行 | 增加面向用户的工具原因和影响说明 |
 | 审批边界 | approvals、sandboxing、exec policy | 技术可执行不等于产品允许；动作在执行前应重验 | 已完成三态策略、HITAS、审批信封 | 统一聊天页与项目页审批体验，增加批量影响摘要 |
-| 运行事件 | 结构化 turn/item/event 流 | 文本只是结果之一；步骤、工具、交付物、错误需要独立事件 | 已有 Product Run Event v1 和时间线 | 补充 Context/Skill receipt，并逐步淘汰旧 status 特例 |
+| 运行事件 | 结构化 turn/item/event 流 | 文本只是结果之一；步骤、工具、交付物、错误需要独立事件 | 已有 Product Run Event v1、Context Receipt 和时间线 | 逐步淘汰旧 status 特例 |
 | 完成裁决 | review evidence、structured findings | “模型说完成了”不能作为完成事实 | 已完成 Run Evaluation 和 Output Record | 建立任务类型专属 QA rubric 与失败修复入口 |
 | 回归评测 | Codex 测试套件的场景化不变量 | 真实交互质量要用固定场景和边界条件衡量 | 已有 router/Skill golden cases | 建立项目对话多轮 golden set、误触发集、长对话续接集 |
 
@@ -81,7 +81,7 @@ Agent Loop / Durable Task
         ↓
 Product Run Events
   ├─ 本轮理解回执
-  ├─ Skill / Context 回执
+  ├─ Skill / Context 回执（实际 Skill、记忆新鲜度、证据计数与告警）
   ├─ 计划、工具、审批、交付物
   └─ 完成 / 部分完成 / 失败 / 已中断
         ↓
@@ -99,6 +99,8 @@ Message + Rollout + Evaluation + Next-turn Capsule
 | “换个话题/另一个问题” | 不注入旧 Skill；允许匹配新任务 | 释放或切换 | 仅命中新 Skill 时展示 |
 | “不用这个 Skill/回到普通对话” | 强制停用且不自动重选 | 清除 | 后续按普通对话处理 |
 | 多个同分候选 | 不猜 | 不改变 | 后续应展示候选让用户选 |
+
+Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候选时自动加载咨询 Skill。它只增强回答所需的方法论提示：问题仍按 `direct_answer` 或 `read_only_tool` 处理，自动 Skill 不得把工具权限升级到 `write_allowed`。通用“为什么需要 PPT”之类的弱信号问题不会启用制作类 Skill；高分并列或近似候选会返回歧义回执，不静默猜测。
 
 关键不变量：
 
@@ -231,11 +233,18 @@ Message + Rollout + Evaluation + Next-turn Capsule
 - Receipt 只来自 Aria `TurnContract`，不包含系统提示词、隐藏推理、工具参数或 Provider 状态；Steering 绑定 Aria `run_id`，不启动、不导入、不连接 Codex；
 - 使用现有 `Message.metadata_json`、Assistant metadata、Activity Timeline 与 ChatTrace 完成审计，无数据库迁移。
 
-### Phase 2W：多轮项目对话 Evals
+### Phase 2W：项目问答、记忆与 Skill 质量门禁（已实施）
 
-- 建立项目对话、Skill 生命周期、话题切换、长对话续接和用户纠偏数据集；
-- CI 输出误触发率、释放正确率、约束保持率和虚假完成率；
-- 发布前对 Provider/模型变化做同集对比，不只看测试是否报错。
+- 专业问答不再一律跳过 Skill 自动匹配：舞弊、审计、税务、尽调、会议等高信号问题可启用唯一匹配的 Skill，普通项目问题和弱信号制作词仍保持普通问答；
+- 增加近似高分候选拒绝机制。存在歧义时不改变会话 Skill，并通过 Context Receipt 给出最多三个候选；
+- 自动命中的咨询 Skill 只提供 advisory 方法论，确定性测试保证其 action policy 仍为直接回答/只读，绝不因 Skill 自动匹配获得写权限；
+- 陈旧项目/客户记忆在模型上下文中被显式标为 `STALE`，要求优先采用更新的里程碑、待办、进展、文件与本轮输入，并在依赖陈旧综合结论时说明限制；
+- 新增隐私安全的 `context_receipt` Product Run Event，两个聊天入口展示项目记忆版本与新鲜度、实际 Skill 用法、知识引用/历史/文件等证据计数以及歧义或压缩告警；相同回执进入 Assistant metadata、Activity Timeline、ChatTrace 和 Run Evaluation，但不保存提示词、记忆正文、文件内容、工具参数或隐藏推理；
+- 新增 17 个确定性发布门禁案例，CI 输出 `skill_selection_accuracy`、`skill_lifecycle_accuracy`、`advisory_skill_safety_rate`、`memory_freshness_guard_rate` 和 `constraint_retention_rate`；任一指标低于 100% 即失败；
+- Eval 使用进程内临时 SQLite，不读取配置数据库，不调用 Provider；生产数据库仍只在备份后的隔离 E2E 中验证真实迁移和服务链路；
+- 使用现有项目记忆字段、消息 metadata、时间线与 Trace，无数据库迁移，不启动、不导入、不连接 Codex。
+
+边界说明：上述确定性门禁验证的是 Aria 的上下文、Skill 与权限控制层，不等价于证明任意 Provider 回答的事实正确率已经达到 100%。Provider/模型变更仍需在同一匿名化事实问答集上持续做答案质量、引用覆盖与幻觉率对比。
 
 ## 11. 官方资料与许可证
 

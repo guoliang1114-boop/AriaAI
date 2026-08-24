@@ -43,3 +43,48 @@ cases:
     expected_top_skill_id: 31
     expected_min_score: 82
     expected_tied: true
+
+  - id: fraud_advisory_question
+    content: "如何识别这个项目的舞弊红旗并评估舞弊风险？"
+    skills:
+      - id: 41
+        name: "舞弊风险评估"
+        description: "舞弊三角理论、红旗信号与反舞弊控制。"
+        category: "风险与合规"
+      - id: 42
+        name: "税务风险管理框架"
+        description: "税务风险识别、监控和报告体系。"
+        category: "税务"
+    expected_top_skill_id: 41
+    expected_min_score: 90
+    expected_tied: false
+
+  - id: vat_advisory_question
+    content: "留抵退税和进项税抵扣风险应该怎么分析？"
+    skills:
+      - id: 51
+        name: "增值税合规与优化"
+        description: "分析进项税、销项税和留抵退税。"
+        category: "税务"
+      - id: 52
+        name: "消费税与其他间接税"
+        description: "消费税、印花税和其他间接税。"
+        category: "税务"
+    expected_top_skill_id: 51
+    expected_min_score: 90
+    expected_tied: false
+
+  - id: audit_risk_advisory_question
+    content: "审计计划阶段如何识别重大错报风险？"
+    skills:
+      - id: 61
+        name: "审计计划与风险评估"
+        description: "基于 ISA 315 识别重大错报风险。"
+        category: "审计"
+      - id: 62
+        name: "实质性程序设计"
+        description: "设计细节测试和实质性分析程序。"
+        category: "审计"
+    expected_top_skill_id: 61
+    expected_min_score: 90
+    expected_tied: false

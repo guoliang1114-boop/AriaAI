@@ -36,6 +36,7 @@ class EventType:
 
     RUN_STARTED = "run_started"
     TURN_RECEIPT = "turn_receipt"
+    CONTEXT_RECEIPT = "context_receipt"
     STEERING_APPLIED = "steering_applied"
     STATUS = "status"
     TEXT_DELTA = "text_delta"
@@ -183,6 +184,20 @@ USER_FACING_MESSAGE_MAX_CHARS = 50
 
 TURN_RECEIPT_SUMMARY_MAX_CHARS = 240
 STEERING_PREVIEW_MAX_CHARS = 160
+CONTEXT_RECEIPT_MAX_CANDIDATES = 3
+
+_CONTEXT_SCOPES = frozenset({"chat", "project", "client_portfolio", "workspace"})
+_MEMORY_STATUSES = frozenset({"not_applicable", "missing", "stale", "ready"})
+_SKILL_RECEIPT_STATUSES = frozenset({"applied", "ambiguous", "not_used"})
+_SKILL_USAGE_MODES = frozenset({"none", "advisory", "workflow"})
+_CONTEXT_WARNING_CODES = frozenset(
+    {
+        "project_memory_missing",
+        "project_memory_stale",
+        "skill_match_ambiguous",
+        "context_compacted",
+    }
+)
 
 
 # ----------------------------------------------------------------------
@@ -302,6 +317,116 @@ def turn_receipt(
         "requires_confirmation": bool(requires_confirmation),
         "steering_supported": bool(steering_supported),
     }
+
+
+def context_receipt(
+    run_id: str,
+    *,
+    scope: str,
+    memory: dict,
+    skill: dict,
+    evidence: dict,
+    project: dict | None = None,
+    warnings: Iterable[str] = (),
+) -> dict:
+    """Privacy-safe receipt of the evidence and Skill used for this turn."""
+
+    normalized_scope = _require_in(str(scope or ""), _CONTEXT_SCOPES, "context_receipt.scope")
+    memory_status = _require_in(
+        str(memory.get("status") or ""),
+        _MEMORY_STATUSES,
+        "context_receipt.memory.status",
+    )
+    try:
+        memory_version = max(0, int(memory.get("version") or 0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("context_receipt.memory.version is invalid") from exc
+
+    skill_status = _require_in(
+        str(skill.get("status") or ""),
+        _SKILL_RECEIPT_STATUSES,
+        "context_receipt.skill.status",
+    )
+    usage_mode = _require_in(
+        str(skill.get("usage_mode") or "none"),
+        _SKILL_USAGE_MODES,
+        "context_receipt.skill.usage_mode",
+    )
+    normalized_skill: dict[str, Any] = {
+        "status": skill_status,
+        "usage_mode": usage_mode,
+        "reason": str(skill.get("reason") or "")[:160],
+        "confidence": max(0.0, min(1.0, float(skill.get("confidence") or 0.0))),
+    }
+    for key in ("id", "name", "source"):
+        value = str(skill.get(key) or "").strip()
+        if value:
+            normalized_skill[key] = value[:160]
+    candidates: list[dict[str, Any]] = []
+    for candidate in list(skill.get("candidates") or [])[:CONTEXT_RECEIPT_MAX_CANDIDATES]:
+        if not isinstance(candidate, dict):
+            continue
+        name = str(candidate.get("name") or candidate.get("skill_name") or "").strip()
+        if not name:
+            continue
+        payload: dict[str, Any] = {"name": name[:160]}
+        candidate_id = candidate.get("id") or candidate.get("skill_id")
+        if candidate_id is not None:
+            payload["id"] = str(candidate_id)[:80]
+        try:
+            payload["score"] = max(0, min(100, int(candidate.get("score") or 0)))
+        except (TypeError, ValueError):
+            payload["score"] = 0
+        candidates.append(payload)
+    if candidates:
+        normalized_skill["candidates"] = candidates
+
+    normalized_evidence: dict[str, Any] = {}
+    for key in (
+        "attached_file_count",
+        "knowledge_reference_count",
+        "history_message_count",
+    ):
+        try:
+            normalized_evidence[key] = max(0, int(evidence.get(key) or 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"context_receipt.evidence.{key} is invalid") from exc
+    for key in (
+        "workspace_context",
+        "conversation_capsule",
+        "user_preferences",
+        "compacted",
+    ):
+        normalized_evidence[key] = bool(evidence.get(key, False))
+
+    event: dict[str, Any] = {
+        "type": EventType.CONTEXT_RECEIPT,
+        "schema_version": 1,
+        "run_id": _require_run_id(run_id),
+        "scope": normalized_scope,
+        "memory": {
+            "status": memory_status,
+            "version": memory_version,
+            "raw_context_available": bool(memory.get("raw_context_available", False)),
+        },
+        "skill": normalized_skill,
+        "evidence": normalized_evidence,
+        "warnings": list(
+            dict.fromkeys(
+                _require_in(str(warning), _CONTEXT_WARNING_CODES, "context_receipt.warning")
+                for warning in warnings
+            )
+        ),
+    }
+    if project is not None:
+        project_id = project.get("id")
+        project_name = str(project.get("name") or "").strip()
+        if project_id is not None and project_name:
+            event["project"] = {
+                "id": str(project_id)[:80],
+                "name": project_name[:160],
+            }
+    return event
 
 
 def steering_applied(

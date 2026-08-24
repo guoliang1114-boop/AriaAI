@@ -7,7 +7,7 @@ import type {
   Message,
   ProjectDetail as ProjectDetailType,
 } from '../../../../types/api'
-import type { TurnReceiptEvent } from '../../../../types/productRunEvent'
+import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../../types/productRunEvent'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
 import { CxConfirmDialog, CxSkeleton } from '../../../../components/codex'
@@ -93,6 +93,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     statusMessage,
     capability,
     turnReceipt,
+    contextReceipt,
     activeRunId,
     streamingMessageId,
     send,
@@ -283,6 +284,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
               streamingMessageId={streamingMessageId}
               capability={capability}
               turnReceipt={turnReceipt}
+              contextReceipt={contextReceipt}
               canSteer={Boolean(activeRunId && turnReceipt?.steering_supported)}
               pendingActionBatches={pendingActions.batches}
               pendingActionKey={pendingActions.actingKey}
@@ -639,6 +641,7 @@ interface ThreadViewProps {
   streamingMessageId: number
   capability: ChatCapabilityFrame | null
   turnReceipt: TurnReceiptEvent | null
+  contextReceipt: ContextReceiptEvent | null
   canSteer: boolean
   pendingActionBatches: PendingActionBatch[]
   pendingActionKey: string | null
@@ -666,6 +669,7 @@ function ThreadView({
   streamingMessageId,
   capability,
   turnReceipt,
+  contextReceipt,
   canSteer,
   pendingActionBatches,
   pendingActionKey,
@@ -892,7 +896,9 @@ function ThreadView({
 
       {/* Composer */}
       <div style={{ padding: '0 56px 22px', width: '100%' }}>
-        {busy && turnReceipt && <TurnReceiptCard receipt={turnReceipt} />}
+        {busy && turnReceipt && (
+          <TurnReceiptCard receipt={turnReceipt} contextReceipt={contextReceipt} />
+        )}
         <Composer
           value={composerText}
           onChange={setComposerText}
@@ -1207,7 +1213,13 @@ function Composer({
   )
 }
 
-function TurnReceiptCard({ receipt }: { receipt: TurnReceiptEvent }) {
+function TurnReceiptCard({
+  receipt,
+  contextReceipt,
+}: {
+  receipt: TurnReceiptEvent
+  contextReceipt: ContextReceiptEvent | null
+}) {
   const modeLabel = {
     answer_only: '直接回答',
     plan_only: '只做规划',
@@ -1240,6 +1252,49 @@ function TurnReceiptCard({ receipt }: { receipt: TurnReceiptEvent }) {
         {receipt.requires_confirmation ? ' · 高风险动作会先征求确认' : ''}
         {receipt.steering_supported ? ' · 可在下方追加要求' : ''}
       </div>
+      {contextReceipt && <ProjectContextReceiptSummary receipt={contextReceipt} />}
+    </div>
+  )
+}
+
+function ProjectContextReceiptSummary({ receipt }: { receipt: ContextReceiptEvent }) {
+  const memoryLabel = {
+    not_applicable: '本轮不依赖单项目记忆',
+    missing: '项目记忆尚未生成，已使用当前项目原始信息',
+    stale: `项目记忆 v${receipt.memory.version} 待刷新，已优先使用较新的项目信号`,
+    ready: `项目记忆 v${receipt.memory.version} 已同步`,
+  }[receipt.memory.status]
+  const skillLabel = receipt.skill.status === 'applied' && receipt.skill.name
+    ? `${receipt.skill.usage_mode === 'advisory' ? '专业问答' : '工作流'}：${receipt.skill.name}`
+    : receipt.skill.status === 'ambiguous'
+      ? `Skill 候选有歧义：${(receipt.skill.candidates || []).map((item) => item.name).join(' / ')}`
+      : '未额外启用 Skill'
+  const evidenceBits = [
+    receipt.evidence.knowledge_reference_count > 0
+      ? `${receipt.evidence.knowledge_reference_count} 条知识证据`
+      : '',
+    receipt.evidence.attached_file_count > 0
+      ? `${receipt.evidence.attached_file_count} 个指定文件`
+      : '',
+    receipt.evidence.history_message_count > 0
+      ? `${receipt.evidence.history_message_count} 条近期对话`
+      : '',
+  ].filter(Boolean)
+  const hasWarning = receipt.warnings.some((warning) =>
+    ['project_memory_missing', 'project_memory_stale', 'skill_match_ambiguous'].includes(warning),
+  )
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        paddingTop: 6,
+        borderTop: '1px solid var(--line)',
+        color: hasWarning ? 'var(--warning, #a16207)' : 'var(--ink-mute)',
+        fontSize: 11,
+      }}
+    >
+      <div><strong>本轮依据</strong> · {memoryLabel} · {skillLabel}</div>
+      {evidenceBits.length > 0 && <div style={{ marginTop: 2 }}>{evidenceBits.join(' · ')}</div>}
     </div>
   )
 }

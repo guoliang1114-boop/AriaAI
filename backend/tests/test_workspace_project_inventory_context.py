@@ -168,6 +168,63 @@ class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
         self.assertIn("Useful source summary", context)
         self.assertNotIn("## Project File Contents", context)
 
+    def test_project_context_marks_stale_memory_and_receipt_freshness(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Stale Memory Project",
+                client="Client",
+                status="delivering",
+                memory_version=4,
+                memory_stale=True,
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Earlier project synthesis",
+                        "key_risks": ["Earlier risk"],
+                    }
+                ),
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            chat_context = build_chat_context(
+                session,
+                project_id=project.id,
+                knowledge_scope="project",
+                content="项目当前最大的风险是什么？",
+            )
+
+        self.assertIn("Structured Project Memory (STALE)", chat_context.project_context)
+        self.assertIn("prefer newer milestones", chat_context.project_context)
+        self.assertEqual(chat_context.context_receipt["scope"], "project")
+        self.assertEqual(chat_context.context_receipt["memory"]["status"], "stale")
+        self.assertEqual(chat_context.context_receipt["memory"]["version"], 4)
+
+    def test_project_context_receipt_marks_missing_memory_without_hiding_raw_context(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="New Project",
+                client="Client",
+                status="lead",
+                memory_version=0,
+                memory_stale=True,
+                description="Current raw project description",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            chat_context = build_chat_context(
+                session,
+                project_id=project.id,
+                knowledge_scope="project",
+                content="项目现在怎么样？",
+            )
+
+        self.assertEqual(chat_context.context_receipt["memory"]["status"], "missing")
+        self.assertTrue(chat_context.context_receipt["memory"]["raw_context_available"])
+        self.assertIn("Current raw project description", chat_context.project_context)
+
     def test_project_chat_exposes_office_generation_tool(self):
         with Session(self.engine) as session:
             project = Project(name="Deck Project", client="Client", status="active")

@@ -62,6 +62,7 @@ from app.services.agent_harness.turn_interrupt import (
     unregister_active_turn,
 )
 from app.services.agent_harness.turn_receipt import build_turn_receipt
+from app.services.agent_harness.context_receipt import build_context_receipt
 from app.services.agent_harness.knowledge_evidence import (
     resolve_runtime_knowledge_evidence,
 )
@@ -219,6 +220,8 @@ def _persist_interrupted_turn(
     }
     if state.turn_receipt:
         metadata["turn_receipt"] = dict(state.turn_receipt)
+    if state.context_receipt:
+        metadata["context_receipt"] = dict(state.context_receipt)
     if state.steering_inputs:
         metadata["steering_inputs"] = state.steering_audit_records()
     resolved_evidence, references = resolve_runtime_knowledge_evidence(
@@ -577,6 +580,8 @@ async def _stream_chat_events_impl(
         steering_supported=_steering_supported,
     )
     yield sse_event(state.turn_receipt)
+    state.context_receipt = build_context_receipt(state.run_id, runtime)
+    yield sse_event(state.context_receipt)
 
     if runtime.rag_sources:
         yield sse_event({"type": "references", "references": runtime.rag_sources})

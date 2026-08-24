@@ -8,6 +8,7 @@
  */
 import type {
   ArtifactType,
+  ContextReceiptEvent,
   ProductRunEvent,
   RunDisplayMode,
   RunFinalStatus,
@@ -78,6 +79,7 @@ export interface RunActivityTimeline {
   display_mode?: RunDisplayMode;
   skill?: { name: string; id?: string; source?: RunSkillSource };
   receipt?: TurnReceiptEvent;
+  context_receipt?: ContextReceiptEvent;
   steering: Array<{
     steering_id: string;
     sequence: number;
@@ -178,6 +180,9 @@ export function reduceRunActivity(
   switch (event.type) {
     case "turn_receipt":
       return { ...current, receipt: event };
+
+    case "context_receipt":
+      return { ...current, context_receipt: event };
 
     case "steering_applied":
       return {
