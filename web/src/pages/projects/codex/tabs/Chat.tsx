@@ -7,6 +7,7 @@ import type {
   Message,
   ProjectDetail as ProjectDetailType,
 } from '../../../../types/api'
+import type { TurnReceiptEvent } from '../../../../types/productRunEvent'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
 import { CxConfirmDialog, CxSkeleton } from '../../../../components/codex'
@@ -91,8 +92,11 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     streamingContent,
     statusMessage,
     capability,
+    turnReceipt,
+    activeRunId,
     streamingMessageId,
     send,
+    steer,
     stop,
   } = useChatStream({
     projectId,
@@ -278,11 +282,14 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
               streamStatusMessage={statusMessage}
               streamingMessageId={streamingMessageId}
               capability={capability}
+              turnReceipt={turnReceipt}
+              canSteer={Boolean(activeRunId && turnReceipt?.steering_supported)}
               pendingActionBatches={pendingActions.batches}
               pendingActionKey={pendingActions.actingKey}
               onConfirmAction={pendingActions.confirm}
               onRejectAction={pendingActions.reject}
               onSend={send}
+              onSteer={steer}
               onStop={stop}
               onOpenArtifact={setOpenArtifact}
               onDeleted={handleConversationDeleted}
@@ -631,11 +638,14 @@ interface ThreadViewProps {
   streamStatusMessage: string | null
   streamingMessageId: number
   capability: ChatCapabilityFrame | null
+  turnReceipt: TurnReceiptEvent | null
+  canSteer: boolean
   pendingActionBatches: PendingActionBatch[]
   pendingActionKey: string | null
   onConfirmAction: (batch: PendingActionBatch) => void
   onRejectAction: (batch: PendingActionBatch) => void
   onSend: (text: string) => Promise<void>
+  onSteer: (text: string) => Promise<boolean>
   onStop: () => void
   onOpenArtifact: (artifact: GeneratedArtifact) => void
   onDeleted: (conversationId: number) => Promise<void> | void
@@ -655,11 +665,14 @@ function ThreadView({
   streamStatusMessage,
   streamingMessageId,
   capability,
+  turnReceipt,
+  canSteer,
   pendingActionBatches,
   pendingActionKey,
   onConfirmAction,
   onRejectAction,
   onSend,
+  onSteer,
   onStop,
   onOpenArtifact,
   onDeleted,
@@ -879,6 +892,7 @@ function ThreadView({
 
       {/* Composer */}
       <div style={{ padding: '0 56px 22px', width: '100%' }}>
+        {busy && turnReceipt && <TurnReceiptCard receipt={turnReceipt} />}
         <Composer
           value={composerText}
           onChange={setComposerText}
@@ -886,8 +900,14 @@ function ThreadView({
             setComposerText('')
             await onSend(text)
           }}
+          onSteer={async (text) => {
+            const accepted = await onSteer(text)
+            if (accepted) setComposerText('')
+            return accepted
+          }}
           onStop={onStop}
-          disabled={busy}
+          busy={busy}
+          canSteer={canSteer}
           textareaRef={textareaRef}
         />
       </div>
@@ -1048,15 +1068,19 @@ function Composer({
   value,
   onChange,
   onSend,
+  onSteer,
   onStop,
-  disabled,
+  busy,
+  canSteer,
   textareaRef,
 }: {
   value: string
   onChange: (next: string) => void
   onSend: (text: string) => void | Promise<void>
+  onSteer: (text: string) => boolean | Promise<boolean>
   onStop: () => void
-  disabled: boolean
+  busy: boolean
+  canSteer: boolean
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
   const autosize = () => {
@@ -1075,7 +1099,11 @@ function Composer({
 
   const submit = () => {
     const text = value.trim()
-    if (!text || disabled) return
+    if (!text) return
+    if (busy) {
+      if (canSteer) void onSteer(text)
+      return
+    }
     void onSend(text)
   }
 
@@ -1086,7 +1114,7 @@ function Composer({
         border: '1px solid var(--line)',
         borderRadius: 'var(--r-md)',
         padding: '12px 14px',
-        opacity: disabled ? 0.85 : 1,
+        opacity: busy && !canSteer ? 0.85 : 1,
         transition: 'opacity 120ms',
       }}
     >
@@ -1100,9 +1128,15 @@ function Composer({
             submit()
           }
         }}
-        placeholder={disabled ? 'Aria 正在回复…' : '继续向 Aria 提问…'}
+        placeholder={
+          busy
+            ? canSteer
+              ? '追加对当前任务的要求，例如：控制在十页、改成董事会口径…'
+              : '当前执行阶段暂不接受追加要求…'
+            : '继续向 Aria 提问…'
+        }
         rows={1}
-        disabled={disabled}
+        disabled={busy && !canSteer}
         style={{
           width: '100%',
           minHeight: 24,
@@ -1129,36 +1163,82 @@ function Composer({
         }}
       >
         <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
-          Enter 发送 · Shift+Enter 换行
+          {busy ? 'Enter 追加 · Shift+Enter 换行' : 'Enter 发送 · Shift+Enter 换行'}
         </span>
-        <button
-          type="button"
-          onClick={disabled ? onStop : submit}
-          disabled={!disabled && !value.trim()}
-          style={{
-            padding: '5px 14px',
-            background: disabled ? 'var(--ink)' : 'var(--accent)',
-            color: 'var(--bg-elev)',
-            borderRadius: 'var(--r-sm)',
-            fontSize: 12.5,
-            fontWeight: 500,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 5,
-            opacity: !disabled && !value.trim() ? 0.5 : 1,
-            cursor: !disabled && !value.trim() ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {disabled ? (
-            <>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {busy && (
+            <button
+              type="button"
+              onClick={onStop}
+              style={{
+                padding: '5px 12px',
+                color: 'var(--ink-soft)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--r-sm)',
+                fontSize: 12.5,
+              }}
+            >
               停止 <CxIcon name="stop" size={10} stroke={1.8} />
-            </>
-          ) : (
-            <>
-              发送 <CxIcon name="arrow-right" size={11} stroke={1.8} />
-            </>
+            </button>
           )}
-        </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!value.trim() || (busy && !canSteer)}
+            style={{
+              padding: '5px 14px',
+              background: 'var(--accent)',
+              color: 'var(--bg-elev)',
+              borderRadius: 'var(--r-sm)',
+              fontSize: 12.5,
+              fontWeight: 500,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              opacity: !value.trim() || (busy && !canSteer) ? 0.5 : 1,
+              cursor: !value.trim() || (busy && !canSteer) ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {busy ? '追加到当前任务' : '发送'} <CxIcon name="arrow-right" size={11} stroke={1.8} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TurnReceiptCard({ receipt }: { receipt: TurnReceiptEvent }) {
+  const modeLabel = {
+    answer_only: '直接回答',
+    plan_only: '只做规划',
+    execute_now: '立即执行',
+    plan_then_execute: '规划后执行',
+  }[receipt.mode]
+  const scopeLabel = {
+    chat: '当前对话',
+    project: '当前项目',
+    workspace: '工作区',
+  }[receipt.target_scope]
+  return (
+    <div
+      style={{
+        marginBottom: 8,
+        padding: '8px 11px',
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-sm)',
+        background: 'var(--bg-tint)',
+        fontSize: 12,
+        color: 'var(--ink-soft)',
+        lineHeight: 1.55,
+      }}
+    >
+      <span style={{ color: 'var(--ink)', fontWeight: 600 }}>本轮理解</span>
+      <span> · {modeLabel} · {scopeLabel}</span>
+      <div style={{ marginTop: 3 }}>{receipt.summary}</div>
+      <div style={{ marginTop: 2, color: 'var(--ink-mute)', fontSize: 11 }}>
+        {receipt.write_allowed ? '允许在约定范围内写入' : '不会修改项目内容'}
+        {receipt.requires_confirmation ? ' · 高风险动作会先征求确认' : ''}
+        {receipt.steering_supported ? ' · 可在下方追加要求' : ''}
       </div>
     </div>
   )

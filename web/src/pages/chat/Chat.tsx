@@ -37,7 +37,7 @@ import {
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { exportConversationFile } from '../../api/chatExport'
-import { requestChatRunCancellation } from '../../api/chatRuns'
+import { requestChatRunCancellation, requestChatRunSteering } from '../../api/chatRuns'
 import { useToast } from '../../contexts/ToastContext'
 import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
@@ -45,6 +45,7 @@ import { PageTitle } from '../../components/PageTitle'
 import { CxSkeleton, CxStatus, CxTopProgress } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skill } from '../../types/api'
+import type { TurnReceiptEvent } from '../../types/productRunEvent'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../utils/knowledgeEvidence'
 import { describeRunSkill, normalizeRunSkill, type ActiveRunSkill } from '../../utils/chatRunSkill'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
@@ -315,6 +316,43 @@ function ChatStatusPill({ message }: { message?: string | null }) {
         style={{ color: 'var(--color-codex-accent)' }}
       />
       <span>{message || '正在与模型建立连接...'}</span>
+    </div>
+  )
+}
+
+function MainTurnReceiptCard({ receipt }: { receipt: TurnReceiptEvent }) {
+  const modeLabel = {
+    answer_only: '直接回答',
+    plan_only: '只做规划',
+    execute_now: '立即执行',
+    plan_then_execute: '规划后执行',
+  }[receipt.mode]
+  const scopeLabel = {
+    chat: '当前对话',
+    project: '当前项目',
+    workspace: '工作区',
+  }[receipt.target_scope]
+  return (
+    <div
+      className="mb-2"
+      style={{
+        padding: '8px 11px',
+        background: 'var(--color-codex-bg-tint)',
+        border: '1px solid var(--color-codex-line)',
+        borderRadius: 'var(--codex-r-sm, 3px)',
+        fontSize: 12,
+        color: 'var(--color-codex-ink-soft)',
+        lineHeight: 1.55,
+      }}
+    >
+      <span style={{ color: 'var(--color-codex-ink)', fontWeight: 600 }}>本轮理解</span>
+      <span> · {modeLabel} · {scopeLabel}</span>
+      <div style={{ marginTop: 3 }}>{receipt.summary}</div>
+      <div style={{ marginTop: 2, color: 'var(--color-codex-ink-mute)', fontSize: 11 }}>
+        {receipt.write_allowed ? '允许在约定范围内写入' : '不会修改项目内容'}
+        {receipt.requires_confirmation ? ' · 高风险动作会先征求确认' : ''}
+        {receipt.steering_supported ? ' · 可继续追加要求' : ''}
+      </div>
     </div>
   )
 }
@@ -1012,6 +1050,7 @@ export function Chat() {
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [liveStatusText, setLiveStatusText] = useState<string | null>(null)
+  const [turnReceipt, setTurnReceipt] = useState<TurnReceiptEvent | null>(null)
   const [progressSteps, setProgressSteps] = useState<ChatProgressStep[]>([])
   const [liveStageTimings, setLiveStageTimings] = useState<StageTimingEntry[]>([])
   const [skillRunActive, setSkillRunActive] = useState(false)
@@ -1521,8 +1560,54 @@ export function Chat() {
     }, 1500)
   }
 
+  const steerCurrentRun = async (content: string) => {
+    const runId = activeRunIdRef.current
+    const text = content.trim()
+    if (!runId || !text || !turnReceipt?.steering_supported) return
+    let accepted: Awaited<ReturnType<typeof requestChatRunSteering>> = null
+    try {
+      accepted = await requestChatRunSteering(runId, text)
+    } catch {
+      setErrorMsg('追加要求发送失败，请稍后重试。')
+      return
+    }
+    if (!accepted || accepted.run_id !== runId) {
+      setErrorMsg('当前运行已经进入不可追加阶段，请在本轮结束后发送新消息。')
+      return
+    }
+    setMessages(prev => [
+      ...prev,
+      {
+        id: accepted.message_id,
+        conversation_id: accepted.conversation_id,
+        role: 'user',
+        content: text,
+        metadata_json: JSON.stringify({
+          run_steering: {
+            schema_version: 'aria.run_steering.v1',
+            status: 'accepted',
+            run_id: accepted.run_id,
+            steering_id: accepted.steering_id,
+            sequence: accepted.sequence,
+          },
+        }),
+        created_at: new Date().toISOString(),
+      },
+    ])
+    setInput('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    setLiveStatusText('追加要求已接收，将在当前运行的安全边界生效…')
+    setTimeout(() => scrollToBottom(), 0)
+  }
+
   // ── Send message wrapper ──────────────────────────────────────────────────
-  const handleSend = () => sendMessage(input)
+  const handleSend = () => {
+    if (sending) {
+      void steerCurrentRun(input)
+      return
+    }
+    void sendMessage(input)
+  }
 
   // Prevent duplicate sends
   const isSendingRef = useRef(false)
@@ -1538,6 +1623,7 @@ export function Chat() {
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setErrorMsg(null)
+    setTurnReceipt(null)
     activeRunIdRef.current = null
     activeRunSkillRef.current = skillForThisMessage
       ? { id: skillForThisMessage, name: selectedSkillData?.name || 'Skill', source: 'explicit' }
@@ -1661,6 +1747,16 @@ export function Chat() {
             progressStepsRef.current = nextSteps
             setProgressSteps(nextSteps)
           }
+        } else if (
+          data.type === 'turn_receipt'
+          && typeof data.run_id === 'string'
+          && typeof data.summary === 'string'
+        ) {
+          const receipt = data as TurnReceiptEvent
+          setTurnReceipt(receipt)
+          setLiveStatusText(`本轮理解：${receipt.summary}`)
+        } else if (data.type === 'steering_applied' && data.content_preview) {
+          setLiveStatusText(`已应用追加要求：${data.content_preview}`)
         } else if ((data.type === 'text' || data.type === 'chunk') && data.content) {
           assistantContent += data.content
           streamingContentRef.current = assistantContent
@@ -1717,6 +1813,7 @@ export function Chat() {
           streamDone = true
           completedNormally = true
           activeRunIdRef.current = null
+          setTurnReceipt(null)
           stopRequestedRef.current = false
           if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
           flushUpdate()
@@ -1997,6 +2094,7 @@ export function Chat() {
       abortControllerRef.current = null
       activeRunIdRef.current = null
       activeRunSkillRef.current = null
+      setTurnReceipt(null)
       stopRequestedRef.current = false
     }
   }
@@ -2796,6 +2894,7 @@ export function Chat() {
           />
           <div className="mx-auto w-full">
             {selectedSkillData && <SkillRequirementsPanel skill={selectedSkillData} />}
+            {sending && turnReceipt && <MainTurnReceiptCard receipt={turnReceipt} />}
 
             {/* Composer box — textarea on top, toolbar with context pills + send at the bottom. */}
             <div
@@ -2814,8 +2913,14 @@ export function Chat() {
                 onCompositionStart={() => { isComposingRef.current = true }}
                 onCompositionEnd={() => { isComposingRef.current = false }}
                 onKeyDown={handleKeyDown}
-                placeholder={t('chat.placeholder')}
-                disabled={sending}
+                placeholder={
+                  sending
+                    ? turnReceipt?.steering_supported
+                      ? '追加对当前任务的要求，例如：控制在十页、调整表达口径…'
+                      : '当前执行阶段暂不接受追加要求…'
+                    : t('chat.placeholder')
+                }
+                disabled={sending && !turnReceipt?.steering_supported}
                 rows={1}
                 className="block w-full resize-none overflow-hidden bg-transparent outline-none disabled:opacity-50"
                 style={{
@@ -2981,23 +3086,41 @@ export function Chat() {
               </ContextPill>
                 </div>
                 {sending ? (
-                  <button
-                    onClick={handleStop}
-                    title={t('chat.stopGeneration')}
-                    className="inline-flex flex-shrink-0 items-center gap-1.5 transition-colors"
-                    style={{
-                      padding: '5px 14px',
-                      background: 'var(--color-codex-bg-tint)',
-                      color: 'var(--color-codex-ink-soft)',
-                      border: '1px solid var(--color-codex-line)',
-                      borderRadius: 'var(--codex-r-sm, 3px)',
-                      fontSize: 12.5,
-                      fontWeight: 500,
-                    }}
-                  >
-                    <Square className="h-3 w-3 fill-current" />
-                    停止
-                  </button>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    <button
+                      onClick={handleSend}
+                      disabled={!input.trim() || !turnReceipt?.steering_supported}
+                      className="inline-flex items-center gap-1.5 transition-all disabled:opacity-30"
+                      style={{
+                        padding: '5px 12px',
+                        background: 'var(--color-codex-accent)',
+                        color: 'var(--color-codex-bg-elev)',
+                        borderRadius: 'var(--codex-r-sm, 3px)',
+                        fontSize: 12.5,
+                        fontWeight: 500,
+                      }}
+                    >
+                      <Send className="h-3 w-3" />
+                      追加到当前任务
+                    </button>
+                    <button
+                      onClick={handleStop}
+                      title={t('chat.stopGeneration')}
+                      className="inline-flex items-center gap-1.5 transition-colors"
+                      style={{
+                        padding: '5px 12px',
+                        background: 'var(--color-codex-bg-tint)',
+                        color: 'var(--color-codex-ink-soft)',
+                        border: '1px solid var(--color-codex-line)',
+                        borderRadius: 'var(--codex-r-sm, 3px)',
+                        fontSize: 12.5,
+                        fontWeight: 500,
+                      }}
+                    >
+                      <Square className="h-3 w-3 fill-current" />
+                      停止
+                    </button>
+                  </div>
                 ) : (
                   <button
                     onClick={handleSend}

@@ -13,6 +13,7 @@ import type {
   RunFinalStatus,
   RunSkillSource,
   ToolProgressStatus,
+  TurnReceiptEvent,
 } from "../types/productRunEvent";
 
 export type StepStatus = ToolProgressStatus | "completed" | "failed";
@@ -76,6 +77,13 @@ export interface RunActivityTimeline {
   run_id: string;
   display_mode?: RunDisplayMode;
   skill?: { name: string; id?: string; source?: RunSkillSource };
+  receipt?: TurnReceiptEvent;
+  steering: Array<{
+    steering_id: string;
+    sequence: number;
+    content_preview: string;
+    message_id?: number;
+  }>;
   steps: ActivityStep[];
   artifacts: ActivityArtifact[];
   memory_candidates: ActivityMemoryCandidate[];
@@ -91,7 +99,7 @@ export interface RunActivityTimeline {
 }
 
 export function emptyTimeline(run_id = ""): RunActivityTimeline {
-  return { run_id, steps: [], artifacts: [], memory_candidates: [], text: "" };
+  return { run_id, steps: [], artifacts: [], memory_candidates: [], steering: [], text: "" };
 }
 
 function upsertStep(steps: ActivityStep[], index: number, patch: Partial<ActivityStep>): ActivityStep[] {
@@ -168,6 +176,23 @@ export function reduceRunActivity(
   if (event.run_id !== current.run_id) return current;
 
   switch (event.type) {
+    case "turn_receipt":
+      return { ...current, receipt: event };
+
+    case "steering_applied":
+      return {
+        ...current,
+        steering: [
+          ...current.steering.filter((item) => item.steering_id !== event.steering_id),
+          {
+            steering_id: event.steering_id,
+            sequence: event.sequence,
+            content_preview: event.content_preview,
+            message_id: event.message_id,
+          },
+        ].sort((a, b) => a.sequence - b.sequence),
+      };
+
     case "text_delta":
       return { ...current, text: current.text + event.content };
 

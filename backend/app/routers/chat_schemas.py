@@ -27,6 +27,13 @@ class SendMessageRequest(BaseModel):
     action_confirmations: List[str] = []
 
 
+class SteerChatRunRequest(BaseModel):
+    """Text-only addition bound to one exact active Aria run."""
+
+    expected_run_id: str = Field(min_length=5, max_length=80)
+    content: str = Field(min_length=1, max_length=8_000)
+
+
 class ConversationOut(BaseModel):
     id: int
     title: str

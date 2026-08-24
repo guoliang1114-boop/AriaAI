@@ -47,6 +47,11 @@ from app.services.agent_harness.tool_transcript import (
 )
 from app.services.agent_harness.tool_policy import PolicyDecision, evaluate_tool_policy
 from app.services.agent_harness.tool_execution_record import tool_event_is_failure
+from app.services.agent_harness.turn_interrupt import (
+    SteeringInput,
+    drain_active_turn_steering,
+    set_active_turn_stage,
+)
 from app.services.chat.agent_step import AgentStep, build_agent_step_event
 from app.services.chat.product_run_events import (
     StepCompletedStatus,
@@ -57,6 +62,7 @@ from app.services.chat.product_run_events import (
     step_completed as _step_completed_event,
     step_started as _step_started_event,
     text_delta as _text_delta_event,
+    steering_applied as _steering_applied_event,
     tool_progress as _tool_progress_event,
 )
 from app.services.chat.sse import iter_with_heartbeat, sse_event
@@ -77,6 +83,155 @@ _CONTINUATION_PROMPT = (
     "请从上一条回复被截断的位置继续，补齐后续内容和关键论证。"
     "不要重复已经写过的内容，不要调用工具。"
 )
+
+_STEERING_FRAME_HEADER = "## 用户对当前运行的追加要求"
+_STEERING_NO_EXECUTION_TERMS = (
+    "不要执行",
+    "先不要执行",
+    "不要写入",
+    "不要修改",
+    "只要计划",
+    "只做计划",
+    "仅分析",
+    "只分析",
+    "do not execute",
+    "don't execute",
+    "do not write",
+    "do not modify",
+    "plan only",
+)
+
+
+def _apply_restrictive_steering_policy(
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    steering: tuple[SteeringInput, ...],
+    *,
+    stage: str,
+) -> bool:
+    """Contract the active capability envelope; steering never expands it."""
+
+    restrictive = [
+        item
+        for item in steering
+        if any(term in item.content.lower() for term in _STEERING_NO_EXECUTION_TERMS)
+    ]
+    if not restrictive:
+        return False
+
+    previous_policy = str(
+        getattr(getattr(runtime, "action_policy", ""), "value", getattr(runtime, "action_policy", ""))
+        or ""
+    )
+    previous_tool_count = len(getattr(runtime, "tools", None) or [])
+    runtime.action_policy = "direct_answer"
+    runtime.tool_access_policy = "none"
+    runtime.tools = []
+    override_marker = "## Current Run Steering Safety Override"
+    if override_marker not in runtime.system:
+        runtime.system = (
+            f"{runtime.system.rstrip()}\n\n{override_marker}\n"
+            "- The user has restricted this active run to no execution or writes.\n"
+            "- Do not call tools or modify project/workspace state.\n"
+            "- Answer or plan only, following the latest steering text.\n"
+        )
+
+    latest = restrictive[-1].content
+    plan_only = any(
+        term in latest.lower()
+        for term in ("只要计划", "只做计划", "plan only")
+    )
+    if state.turn_receipt:
+        previous_summary = str(state.turn_receipt.get("summary") or "")
+        state.turn_receipt = {
+            **state.turn_receipt,
+            "summary": f"{previous_summary[:100]}；最新限制：{' '.join(latest.split())[:120]}"[:240],
+            "mode": "plan_only" if plan_only else "answer_only",
+            "execution_scope": "chat_only",
+            "expected_response": "plan_without_execution" if plan_only else "direct_answer",
+            "write_allowed": False,
+            "requires_confirmation": False,
+        }
+    state.record_trace_event(
+        "turn_steering_capability_restricted",
+        stage=stage,
+        previous_action_policy=previous_policy,
+        previous_tool_count=previous_tool_count,
+        effective_action_policy="direct_answer",
+        effective_tool_count=0,
+        steering_ids=[item.steering_id for item in restrictive],
+    )
+    return True
+
+
+def _drain_steering_boundary(
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    *,
+    stage: str,
+) -> tuple[tuple[SteeringInput, ...], list[str]]:
+    """Drain and audit additions at one safe model/tool boundary."""
+
+    conversation_id = int(getattr(runtime, "conv_id", 0) or 0)
+    if not state.run_id or conversation_id < 1:
+        return (), []
+    steering = drain_active_turn_steering(
+        state.run_id,
+        conversation_id=conversation_id,
+    )
+    if not steering:
+        return (), []
+
+    events: list[str] = []
+    if _apply_restrictive_steering_policy(runtime, state, steering, stage=stage):
+        if state.turn_receipt:
+            events.append(sse_event(dict(state.turn_receipt)))
+    for item in steering:
+        preview = " ".join(item.content.split())[:160]
+        record = {
+            "schema_version": "aria.run_steering.v1",
+            "steering_id": item.steering_id,
+            "run_id": item.run_id,
+            "sequence": item.sequence,
+            "content": item.content,
+            "content_preview": preview,
+            "content_sha256": item.content_sha256,
+            "message_id": item.message_id,
+            "applied_stage": stage,
+        }
+        state.steering_inputs.append(record)
+        state.record_trace_event(
+            "turn_steering_applied",
+            stage=stage,
+            steering_id=item.steering_id,
+            sequence=item.sequence,
+            content_sha256=item.content_sha256,
+            content_chars=len(item.content),
+            message_id=item.message_id,
+        )
+        events.append(
+            sse_event(
+                _steering_applied_event(
+                    state.run_id,
+                    steering_id=item.steering_id,
+                    sequence=item.sequence,
+                    content_preview=preview,
+                    message_id=item.message_id,
+                )
+            )
+        )
+    return steering, events
+
+
+def _append_steering_message(messages: list[dict], steering: tuple[SteeringInput, ...]) -> None:
+    if not steering:
+        return
+    lines = [
+        _STEERING_FRAME_HEADER,
+        "这些是用户刚刚绑定到本 Run 的最新要求；如与本轮较早要求冲突，以这里为准。",
+    ]
+    lines.extend(f"- [{item.sequence}] {item.content}" for item in steering)
+    messages.append({"role": "user", "content": "\n".join(lines)})
 
 
 # ----------------------------------------------------------------------
@@ -529,14 +684,19 @@ def _build_assistant_message(text: str, tool_calls: list[dict], reasoning: str) 
     return msg
 
 
-def _skipped_pending_result_block(tool_call: dict) -> dict:
-    """Construct a synthetic tool_result for tool calls skipped after confirmation gate."""
+def _skipped_pending_result_block(
+    tool_call: dict,
+    *,
+    status: str = "pending_confirmation",
+    reason: str = "前一个工具调用需要用户确认，本次未执行。",
+) -> dict:
+    """Construct a paired tool result for a planned call not executed."""
     payload = {
         "ok": False,
         "success": False,
         "skipped": True,
-        "status": "pending_confirmation",
-        "reason": "前一个工具调用需要用户确认，本次未执行。",
+        "status": status,
+        "reason": reason,
     }
     return {
         "type": "tool_result",
@@ -636,6 +796,20 @@ async def _run_agent_loop_impl(
 
     for step_index in range(budget.limits.max_steps):
         budget.start_step(phase=f"step_{step_index}")
+        boundary_steering, steering_events = _drain_steering_boundary(
+            runtime,
+            state,
+            stage=f"before_step_{step_index}",
+        )
+        _append_steering_message(messages, boundary_steering)
+        for event in steering_events:
+            yield event
+        if step_index == budget.limits.max_steps - 1:
+            set_active_turn_stage(
+                state.run_id,
+                stage="agent_loop_final_step",
+                steerable=False,
+            )
         step = AgentStep(index=step_index)
         state.steps.append(step)
         step_started_at = time.perf_counter()
@@ -668,6 +842,48 @@ async def _run_agent_loop_impl(
         tool_calls = result.tool_calls
         reasoning = result.reasoning
         truncated = result.truncated
+
+        # A user addition received while the provider was streaming supersedes
+        # any not-yet-executed tool plan. Keep already-rendered text visible,
+        # append a plain assistant transcript item, then re-plan next step with
+        # the new user requirement. This is the safe pre-tool commit barrier.
+        post_model_steering, steering_events = _drain_steering_boundary(
+            runtime,
+            state,
+            stage=f"after_step_{step_index}_model",
+        )
+        if post_model_steering:
+            if tool_calls:
+                state.record_trace_event(
+                    "planned_tools_superseded_by_steering",
+                    stage=f"step_{step_index}",
+                    planned_tool_count=len(tool_calls),
+                    tool_names=[str(item.get("name") or "") for item in tool_calls[:12]],
+                )
+            messages.append(_build_assistant_message(text, [], reasoning))
+            _append_steering_message(messages, post_model_steering)
+            step.model_text = text
+            step.reasoning = reasoning
+            step.truncated = truncated
+            step.tool_calls = []
+            accumulated_text = _append_text(accumulated_text, text)
+            state.full_text = accumulated_text
+            step.duration_ms = round((time.perf_counter() - step_started_at) * 1000)
+            step.status = "completed"
+            _checkpoint_step(state, step)
+            for event in steering_events:
+                yield event
+            if state.run_id:
+                yield sse_event(
+                    _step_completed_event(
+                        state.run_id,
+                        step_index + 1,
+                        StepCompletedStatus.COMPLETED,
+                        step.duration_ms,
+                        truncated=truncated,
+                    )
+                )
+            continue
 
         # ---------- truncation auto-continue (any step that ended on a cut-off
         # final answer, i.e. no tools emitted) ----------
@@ -739,6 +955,21 @@ async def _run_agent_loop_impl(
                         truncated=truncated,
                     )
                 )
+            # ``step_completed`` itself yields control to the HTTP endpoint.
+            # Drain once more after it so a last-moment addition cannot be
+            # acknowledged and then lost while this no-tool run closes.
+            late_steering, steering_events = _drain_steering_boundary(
+                runtime,
+                state,
+                stage=f"after_step_{step_index}_completed",
+            )
+            if late_steering:
+                messages.append(_build_assistant_message(text, [], reasoning))
+                _append_steering_message(messages, late_steering)
+                for event in steering_events:
+                    yield event
+                continue
+            set_active_turn_stage(state.run_id, stage="agent_loop_done", steerable=False)
             break
 
         # Reserve the complete normalized batch before executing its first
@@ -771,10 +1002,32 @@ async def _run_agent_loop_impl(
             **execution_plan.to_trace_dict(),
         )
         confirmation_index: int | None = None
+        processed_call_indexes: set[int] = set()
+        steering_after_tools: tuple[SteeringInput, ...] = ()
 
         for batch_number, batch in enumerate(execution_plan.batches, start=1):
             batch_started_at = time.perf_counter()
             indexed_calls = [(index, tool_calls[index]) for index in batch.indexes]
+            batch_requires_confirmation = any(
+                evaluate_tool_policy(
+                    runtime.action_policy,
+                    str(tool_call.get("name") or ""),
+                    tool_call.get("input")
+                    if isinstance(tool_call.get("input"), dict)
+                    else {},
+                ).decision
+                is PolicyDecision.PROMPT
+                for _, tool_call in indexed_calls
+            )
+            if batch_requires_confirmation:
+                # Once a confirmation-producing call starts, additions must be
+                # rejected rather than accepted into a run that is about to
+                # terminate at the approval barrier.
+                set_active_turn_stage(
+                    state.run_id,
+                    stage="confirmation_tool",
+                    steerable=False,
+                )
 
             # Emit every running event before a parallel batch begins. Terminal
             # events and model-visible results are still replayed in call order.
@@ -841,6 +1094,7 @@ async def _run_agent_loop_impl(
             )
 
             for (tc_index, tool_call), outcome in zip(indexed_calls, outcomes):
+                processed_call_indexes.add(tc_index)
                 for ev in outcome.events:
                     yield ev
 
@@ -906,7 +1160,49 @@ async def _run_agent_loop_impl(
                     tool_result_blocks.append(_skipped_pending_result_block(remaining))
                 break
 
+            if batch_requires_confirmation and step_index < budget.limits.max_steps - 1:
+                set_active_turn_stage(
+                    state.run_id,
+                    stage=f"step_{step_index}_tools",
+                    steerable=True,
+                )
+
+            # A boundary exists between deterministic execution batches. If a
+            # new instruction arrived while the current read/write call ran,
+            # preserve completed results, mark all later planned calls as
+            # skipped, and let the next model step re-plan from actual state.
+            batch_steering, steering_events = _drain_steering_boundary(
+                runtime,
+                state,
+                stage=f"after_step_{step_index}_tool_batch_{batch_number}",
+            )
+            if batch_steering:
+                steering_after_tools = batch_steering
+                remaining_calls = [
+                    call
+                    for index, call in enumerate(tool_calls)
+                    if index not in processed_call_indexes
+                ]
+                for remaining in remaining_calls:
+                    tool_result_blocks.append(
+                        _skipped_pending_result_block(
+                            remaining,
+                            status="superseded_by_steering",
+                            reason="用户追加了当前 Run 的新要求，旧工具计划已停止并等待重新规划。",
+                        )
+                    )
+                state.record_trace_event(
+                    "remaining_tools_superseded_by_steering",
+                    stage=f"step_{step_index}",
+                    completed_tool_count=len(processed_call_indexes),
+                    skipped_tool_count=len(remaining_calls),
+                )
+                for event in steering_events:
+                    yield event
+                break
+
         messages.append({"role": "user", "content": tool_result_blocks})
+        _append_steering_message(messages, steering_after_tools)
         state.tool_result_blocks = tool_result_blocks
         step.tool_results = tool_result_blocks
         step.duration_ms = round((time.perf_counter() - step_started_at) * 1000)
@@ -962,11 +1258,18 @@ async def _run_agent_loop_impl(
             )
 
         if state.confirmation_requested:
+            set_active_turn_stage(
+                state.run_id,
+                stage="waiting_confirmation",
+                steerable=False,
+            )
             break
     else:
+        set_active_turn_stage(state.run_id, stage="turn_budget_exhausted", steerable=False)
         raise budget.step_limit_exceeded(phase="agent_loop")
 
     state.full_text = accumulated_text
+    set_active_turn_stage(state.run_id, stage="agent_loop_done", steerable=False)
     state.stage_timings["agent_loop_ms"] = round((time.perf_counter() - loop_started_at) * 1000)
     yield sse_event(
         {"type": "timing", "key": "agent_loop_ms", "duration_ms": state.stage_timings["agent_loop_ms"]}

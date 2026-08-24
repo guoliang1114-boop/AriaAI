@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { requestChatRunCancellation } from '../../../api/chatRuns'
+import { requestChatRunCancellation, requestChatRunSteering } from '../../../api/chatRuns'
 import { getApiBaseUrl } from '../../../config/api'
 import i18n from '../../../i18n'
 import type {
@@ -9,6 +9,7 @@ import type {
   Reference,
 } from '../../../types/api'
 import { normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
+import type { TurnReceiptEvent } from '../../../types/productRunEvent'
 
 /** Project-chat-tab SSE streaming hook.
  *
@@ -71,6 +72,8 @@ interface UseChatStreamReturn {
    * conversation. Null until the first turn's capability event
    * lands. */
   capability: ChatCapabilityFrame | null
+  turnReceipt: TurnReceiptEvent | null
+  activeRunId: string | null
   /** Stable id assigned to THIS turn's assistant reply at send time.
    * The caller renders the in-flight reply as a draft message with
    * this id, and the final `onAssistantMessage` reuses it — so the
@@ -78,6 +81,7 @@ interface UseChatStreamReturn {
    * (no end-of-stream reformat flash). */
   streamingMessageId: number
   send: (content: string) => Promise<void>
+  steer: (content: string) => Promise<boolean>
   stop: () => void
 }
 
@@ -107,6 +111,15 @@ interface StreamEvent {
   // conversation_title event payload
   conversation_id?: number
   title?: string
+  summary?: string
+  mode?: TurnReceiptEvent['mode']
+  target_scope?: TurnReceiptEvent['target_scope']
+  execution_scope?: TurnReceiptEvent['execution_scope']
+  expected_response?: string
+  write_allowed?: boolean
+  requires_confirmation?: boolean
+  steering_supported?: boolean
+  content_preview?: string
 }
 
 function readApiError(err: unknown): string {
@@ -127,6 +140,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   const [streamingContent, setStreamingContent] = useState('')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [capability, setCapability] = useState<ChatCapabilityFrame | null>(null)
+  const [turnReceipt, setTurnReceipt] = useState<TurnReceiptEvent | null>(null)
+  const [activeRunId, setActiveRunId] = useState<string | null>(null)
   // Stable id for the current turn's assistant reply. State so the
   // caller re-renders the draft under the right key; ref mirror so the
   // done/stop handlers (in callbacks) read it without stale closures.
@@ -137,6 +152,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   const artifactsRef = useRef<GeneratedArtifact[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
   const activeRunIdRef = useRef<string | null>(null)
+  const turnReceiptRef = useRef<TurnReceiptEvent | null>(null)
   const stopRequestedRef = useRef(false)
 
   const reset = () => {
@@ -144,6 +160,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     artifactsRef.current = []
     setStreamingContent('')
     setStatusMessage(null)
+    setTurnReceipt(null)
+    turnReceiptRef.current = null
   }
 
   const stop = useCallback(() => {
@@ -197,6 +215,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     }
     abortControllerRef.current = null
     activeRunIdRef.current = null
+    setActiveRunId(null)
     stopRequestedRef.current = false
     setStatus('idle')
     reset()
@@ -215,6 +234,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       reset()
       stopRequestedRef.current = false
       activeRunIdRef.current = null
+      setActiveRunId(null)
       setStatus('sending')
       setStatusMessage('已收到，正在连接模型…')
 
@@ -287,6 +307,33 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       const handleEvent = (ev: StreamEvent) => {
         if (ev.type === 'run_started' && typeof ev.run_id === 'string') {
           activeRunIdRef.current = ev.run_id
+          setActiveRunId(ev.run_id)
+        } else if (
+          ev.type === 'turn_receipt'
+          && typeof ev.run_id === 'string'
+          && typeof ev.summary === 'string'
+          && ev.mode
+          && ev.target_scope
+          && ev.execution_scope
+          && typeof ev.expected_response === 'string'
+        ) {
+          const receipt: TurnReceiptEvent = {
+            type: 'turn_receipt',
+            run_id: ev.run_id,
+            summary: ev.summary,
+            mode: ev.mode,
+            target_scope: ev.target_scope,
+            execution_scope: ev.execution_scope,
+            expected_response: ev.expected_response,
+            write_allowed: Boolean(ev.write_allowed),
+            requires_confirmation: Boolean(ev.requires_confirmation),
+            steering_supported: Boolean(ev.steering_supported),
+          }
+          turnReceiptRef.current = receipt
+          setTurnReceipt(receipt)
+          setStatusMessage(`本轮理解：${receipt.summary}`)
+        } else if (ev.type === 'steering_applied' && ev.content_preview) {
+          setStatusMessage(`已应用追加要求：${ev.content_preview}`)
         } else if ((ev.type === 'text' || ev.type === 'chunk') && ev.content) {
           accumulatedRef.current += ev.content
           setStreamingContent(accumulatedRef.current)
@@ -325,6 +372,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         } else if (ev.type === 'done') {
           done = true
           activeRunIdRef.current = null
+          setActiveRunId(null)
           finalReferences = normalizeKnowledgeReferences(ev.references)
           finalKnowledgeEvidence = ev.knowledge_evidence
           finalArtifacts = ev.artifacts && ev.artifacts.length > 0 ? ev.artifacts : artifactsRef.current
@@ -380,6 +428,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         onError?.(streamErr)
         abortControllerRef.current = null
         activeRunIdRef.current = null
+        setActiveRunId(null)
         reset()
         return
       }
@@ -392,6 +441,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         onError?.('AI 没有返回任何内容')
         abortControllerRef.current = null
         activeRunIdRef.current = null
+        setActiveRunId(null)
         reset()
         return
       }
@@ -408,12 +458,14 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           tool_calls: finalToolCalls,
           skill_progress: finalSkillProgress,
           stage_timings: finalStageTimings,
+          turn_receipt: turnReceiptRef.current || undefined,
         }),
         created_at: new Date().toISOString(),
       }
       onAssistantMessage(assistantMsg)
       abortControllerRef.current = null
       activeRunIdRef.current = null
+      setActiveRunId(null)
       stopRequestedRef.current = false
       setStatus('idle')
       reset()
@@ -430,5 +482,50 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     ],
   )
 
-  return { status, streamingContent, statusMessage, capability, streamingMessageId, send, stop }
+  const steer = useCallback(
+    async (content: string): Promise<boolean> => {
+      const runId = activeRunIdRef.current
+      const text = content.trim()
+      if (!runId || !text || !turnReceiptRef.current?.steering_supported) return false
+      try {
+        const accepted = await requestChatRunSteering(runId, text)
+        if (!accepted || accepted.run_id !== runId) return false
+        onUserMessage({
+          id: accepted.message_id,
+          conversation_id: accepted.conversation_id,
+          role: 'user',
+          content: text,
+          metadata_json: JSON.stringify({
+            run_steering: {
+              schema_version: 'aria.run_steering.v1',
+              status: 'accepted',
+              run_id: accepted.run_id,
+              steering_id: accepted.steering_id,
+              sequence: accepted.sequence,
+            },
+          }),
+          created_at: new Date().toISOString(),
+        })
+        setStatusMessage('追加要求已接收，将在当前运行的安全边界生效…')
+        return true
+      } catch (err) {
+        onError?.(readApiError(err))
+        return false
+      }
+    },
+    [onError, onUserMessage],
+  )
+
+  return {
+    status,
+    streamingContent,
+    statusMessage,
+    capability,
+    turnReceipt,
+    activeRunId,
+    streamingMessageId,
+    send,
+    steer,
+    stop,
+  }
 }

@@ -41,6 +41,42 @@ describe("reduceRunActivity", () => {
     expect(t.text).toBe("Hello world!");
   });
 
+  it("captures the turn receipt and ordered steering acknowledgements", () => {
+    const t = fold([
+      { type: "run_started", run_id: "r", timestamp: "" },
+      {
+        type: "turn_receipt",
+        run_id: "r",
+        summary: "生成十页董事会汇报",
+        mode: "execute_now",
+        target_scope: "project",
+        execution_scope: "project_write",
+        expected_response: "pptx_deliverable",
+        write_allowed: true,
+        requires_confirmation: false,
+        steering_supported: true,
+      },
+      {
+        type: "steering_applied",
+        run_id: "r",
+        steering_id: "steer_2",
+        sequence: 2,
+        content_preview: "改成中文",
+      },
+      {
+        type: "steering_applied",
+        run_id: "r",
+        steering_id: "steer_1",
+        sequence: 1,
+        content_preview: "控制在十页",
+        message_id: 91,
+      },
+    ]);
+    expect(t.receipt?.summary).toBe("生成十页董事会汇报");
+    expect(t.steering.map((item) => item.sequence)).toEqual([1, 2]);
+    expect(t.steering[0].message_id).toBe(91);
+  });
+
   it("builds steps and groups tool_progress under the right step", () => {
     const t = fold([
       { type: "run_started", run_id: "r", timestamp: "" },

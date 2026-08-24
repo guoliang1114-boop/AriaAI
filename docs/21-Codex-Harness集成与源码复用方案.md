@@ -708,6 +708,16 @@ Phase 2S 把 Codex apply-patch 的“先冻结基线、写入前重新验证”�
 
 同时新增八层 `InstructionManifest v1`，固定平台规则 > 本轮用户要求 > 项目作用域 > 当前任务状态 > 有效 Skill > 用户偏好 > 工作区证据 > 历史 Capsule；Context Assembly、Message、ChatTrace 和 Run Evaluation 共享其无原文指纹清单与 Capsule 证据。实现复用现有 JSON 字段，不调用 Codex 或 Provider 专属远程压缩，不新增数据库迁移。完整交互规范见 `docs/22-项目对话与Skill交互全量优化方案.md`。
 
+### Phase 2V：运行中 Steering 与理解回执（已实施）
+
+参考候选：
+
+- `codex-rs/core/src/session/turn_input.rs`（上游提交 `83d1fe0e67b1323f71febc2925817732b449f1d9`）。
+
+已完成：新增 Aria 原生 `expected_run_id` 绑定的文本追加入口、受限 active-run mailbox、模型/工具批次安全边界注入和终止态拒绝；新要求在工具提交前到达时，旧的未执行工具计划会被配对标记并停止，下一模型步骤基于已完成事实重新规划。Steering 只能保持或收紧本 Run 权限，不能在运行中扩大能力；明确的“不执行/不写入/只做计划”会确定性移除后续工具与写入能力。追加消息、Assistant metadata、ChatTrace 和 Activity Timeline 共享 steering identity、序号与内容摘要。
+
+同时新增由 `TurnContract` 生成的 `turn_receipt`，在模型开始前向用户展示本轮目标、回答/规划/执行模式、作用范围、预期结果、写入与确认策略；两个对话入口运行中保留“追加到当前任务”和独立“停止”动作。实现不暴露提示词或隐藏推理，不运行、不导入、不连接 Codex，不新增数据库迁移。
+
 ## 8. 许可证与升级流程
 
 Aria 主项目继续使用 MIT License；从 Codex 改编的具体文件同时受 Apache License 2.0 的适用要求约束。

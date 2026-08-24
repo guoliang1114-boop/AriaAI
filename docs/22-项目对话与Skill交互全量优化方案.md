@@ -214,12 +214,22 @@ Message + Rollout + Evaluation + Next-turn Capsule
 - 已增加多轮约束保持、显式覆盖、跨项目隔离、工具失败恢复、隐私与篡改拒绝测试；
 - 复用现有 `ConversationState` 和 `Message.metadata_json`，无数据库迁移，也不调用 Provider 专属远程压缩。
 
-### Phase 2V：运行中 Steering 与理解回执
+### Phase 2V：运行中 Steering 与理解回执（已实施）
 
 - 支持绑定 `expected_run_id` 的追加要求；
 - 在模型开始前展示简洁 Turn Receipt；
 - 用户可修正范围、格式和交付物，不必终止并重开整个任务；
 - 错 Run、已终止 Run 或越权追加全部拒绝。
+
+实施结果：
+
+- 新增 `POST /chat/runs/{run_id}/steer`，正文必须同时携带相同的 `expected_run_id`；服务端先按当前 Run 的会话做写权限校验，再接受文本追加；
+- 追加内容作为普通 `Message(role=user)` 保存，并带 `aria.run_steering.v1` 审计元数据；当前 Agent Loop 只在模型请求或工具批次之间的安全边界取出，不修改正在进行的 Provider 流；
+- 新要求若在工具执行前到达，尚未执行的旧工具计划会被停止并由下一模型步骤重规划；已完成动作与真实结果不会被覆盖或伪装成未执行；
+- Steering 只能保持或收紧本 Run 的能力边界，不能扩大权限；“不要执行/不要写入/只做计划”等纠偏会确定性移除后续工具与写入能力，并刷新 Turn Receipt；
+- 新增 `turn_receipt` 与 `steering_applied` Product Run Event，两个聊天入口都展示本轮目标、模式、范围、写入/确认策略，并在可追加阶段保留输入框和独立停止按钮；
+- Receipt 只来自 Aria `TurnContract`，不包含系统提示词、隐藏推理、工具参数或 Provider 状态；Steering 绑定 Aria `run_id`，不启动、不导入、不连接 Codex；
+- 使用现有 `Message.metadata_json`、Assistant metadata、Activity Timeline 与 ChatTrace 完成审计，无数据库迁移。
 
 ### Phase 2W：多轮项目对话 Evals
 

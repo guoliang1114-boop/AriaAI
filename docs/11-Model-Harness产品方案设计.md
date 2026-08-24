@@ -567,6 +567,8 @@ Model Layer（外部推理服务）
 | event type | 用途 | 必填字段 | 选填字段 | 字段约束 |
 |---|---|---|---|---|
 | `run_started` | run 已开始，前端立即进入 loading | `run_id`, `timestamp` | `display_mode`, `skill` | `display_mode` 必须在 run 创建时提供；`skill` = `{name, id?}`，存在则 UI 渲染 Skill 横幅 |
+| `turn_receipt` | 模型开始前展示本轮理解 | `run_id`, `summary`, `mode`, `target_scope`, `execution_scope`, `expected_response`, `write_allowed`, `requires_confirmation`, `steering_supported` | - | 只允许来自 Turn Contract 的产品字段，不得包含提示词或隐藏推理 |
+| `steering_applied` | 运行中追加要求已进入安全边界 | `run_id`, `steering_id`, `sequence`, `content_preview` | `message_id` | 必须绑定已鉴权的同一 Run；preview ≤ 160 字 |
 | `status` | 产品级状态文案 | `run_id`, `message` | `display_mode`, `progress` | `message` 长度 ≤ 50 字，面向用户 |
 | `text_delta` | 模型文本增量 | `run_id`, `content` | - | `content` 为 UTF-8 文本片段，禁止在后端批量缓存后发送 |
 | `reference_delta` | 资料来源增量 | `run_id`, `source` | `url`, `title` | `source` 为文件/文档标识符 |
@@ -632,6 +634,8 @@ Event Harness 在 Phase 1 负责把现有内部事件映射为 Product Run Event
 | 内部事件 | 映射到 Product Run Event |
 |---|---|
 | 流开始 + `runtime.skill_name` | `run_started`（带 `skill`） |
+| Turn Contract 已解析 | `turn_receipt` |
+| active-run mailbox 在安全边界取出追加内容 | `steering_applied` |
 | `status` | `status`（按 display_mode 过滤） |
 | LLM text chunk | `text_delta` |
 | 进入一个新工具轮 | `step_started` |

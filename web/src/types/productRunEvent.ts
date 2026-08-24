@@ -10,6 +10,8 @@
 
 export type ProductRunEventType =
   | "run_started"
+  | "turn_receipt"
+  | "steering_applied"
   | "status"
   | "text_delta"
   | "reference_delta"
@@ -59,6 +61,33 @@ export interface RunStartedEvent {
   timestamp: string;
   display_mode?: RunDisplayMode;
   skill?: { name: string; id?: string; source?: RunSkillSource };
+}
+
+export interface TurnReceiptEvent {
+  type: "turn_receipt";
+  run_id: string;
+  summary: string;
+  mode: "answer_only" | "plan_only" | "execute_now" | "plan_then_execute";
+  target_scope: "chat" | "project" | "workspace";
+  execution_scope:
+    | "chat_only"
+    | "injected_project_context"
+    | "read_tools"
+    | "project_write"
+    | "workspace_write";
+  expected_response: string;
+  write_allowed: boolean;
+  requires_confirmation: boolean;
+  steering_supported: boolean;
+}
+
+export interface SteeringAppliedEvent {
+  type: "steering_applied";
+  run_id: string;
+  steering_id: string;
+  sequence: number;
+  content_preview: string;
+  message_id?: number;
 }
 
 export interface StatusEvent {
@@ -178,6 +207,8 @@ export interface RunFailedEvent {
 
 export type ProductRunEvent =
   | RunStartedEvent
+  | TurnReceiptEvent
+  | SteeringAppliedEvent
   | StatusEvent
   | TextDeltaEvent
   | ReferenceDeltaEvent
@@ -204,6 +235,8 @@ export function isProductRunEvent(value: unknown): value is ProductRunEvent {
 
 const PRODUCT_RUN_EVENT_TYPES = new Set<string>([
   "run_started",
+  "turn_receipt",
+  "steering_applied",
   "status",
   "text_delta",
   "reference_delta",

@@ -197,6 +197,28 @@ def build_activity_timeline(state: Any, runtime: Any, *, full_text: str = "") ->
         "text": full_text or str(getattr(state, "full_text", "") or ""),
     }
 
+    receipt = getattr(state, "turn_receipt", None)
+    if isinstance(receipt, dict) and receipt:
+        timeline["receipt"] = dict(receipt)
+    steering_inputs = getattr(state, "steering_inputs", None)
+    if isinstance(steering_inputs, list) and steering_inputs:
+        timeline["steering"] = [
+            {
+                key: item.get(key)
+                for key in (
+                    "steering_id",
+                    "sequence",
+                    "content_preview",
+                    "content_sha256",
+                    "message_id",
+                    "applied_stage",
+                )
+                if item.get(key) is not None
+            }
+            for item in steering_inputs
+            if isinstance(item, dict)
+        ]
+
     skill = _build_skill(runtime)
     if skill is not None:
         timeline["skill"] = skill

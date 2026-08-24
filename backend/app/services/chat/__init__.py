@@ -58,8 +58,10 @@ from app.services.agent_harness.turn_interrupt import (
     get_active_turn,
     interrupted_reply,
     register_active_turn,
+    set_active_turn_stage,
     unregister_active_turn,
 )
+from app.services.agent_harness.turn_receipt import build_turn_receipt
 from app.services.agent_harness.knowledge_evidence import (
     resolve_runtime_knowledge_evidence,
 )
@@ -215,6 +217,10 @@ def _persist_interrupted_turn(
             error_message=reason,
         ),
     }
+    if state.turn_receipt:
+        metadata["turn_receipt"] = dict(state.turn_receipt)
+    if state.steering_inputs:
+        metadata["steering_inputs"] = state.steering_audit_records()
     resolved_evidence, references = resolve_runtime_knowledge_evidence(
         runtime,
         full_text,
@@ -548,7 +554,29 @@ async def _stream_chat_events_impl(
             _run_started_skill["source"] = runtime.skill_activation_source
         if not _run_started_skill["name"]:
             _run_started_skill = None  # name is required by the builder
+    _prepare_metrics = runtime.prepare_metrics if isinstance(runtime.prepare_metrics, dict) else {}
+    _turn_contract = (
+        _prepare_metrics.get("turn_contract")
+        if isinstance(_prepare_metrics.get("turn_contract"), dict)
+        else {}
+    )
+    _policy_value = str(
+        getattr(runtime.action_policy, "value", runtime.action_policy) or ""
+    )
+    _steering_supported = _policy_value not in {"durable_task", "destructive_action"}
+    set_active_turn_stage(
+        state.run_id,
+        stage="agent_loop_pending" if _steering_supported else "non_steerable_execution",
+        steerable=_steering_supported,
+    )
     yield sse_event(run_started(state.run_id, skill=_run_started_skill))
+
+    state.turn_receipt = build_turn_receipt(
+        state.run_id,
+        _turn_contract,
+        steering_supported=_steering_supported,
+    )
+    yield sse_event(state.turn_receipt)
 
     if runtime.rag_sources:
         yield sse_event({"type": "references", "references": runtime.rag_sources})
@@ -574,7 +602,6 @@ async def _stream_chat_events_impl(
         "tools_granted_count": len(_capability_tool_names),
         "chat_mode": str(runtime.chat_mode or ""),
     }
-    _prepare_metrics = runtime.prepare_metrics if isinstance(runtime.prepare_metrics, dict) else {}
     if isinstance(_prepare_metrics.get("turn_contract"), dict):
         _capability_payload["turn_contract"] = _prepare_metrics["turn_contract"]
     logger.info(
@@ -677,6 +704,12 @@ async def _stream_chat_events_impl(
         ):
             yield event
         return
+    finally:
+        set_active_turn_stage(
+            state.run_id,
+            stage="persist",
+            steerable=False,
+        )
 
     # ==================================================================
     # Persist — final-text assembly, artifact persistence, HITAS, message

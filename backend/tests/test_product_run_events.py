@@ -21,11 +21,13 @@ from app.services.chat.product_run_events import (
     run_done,
     run_failed,
     run_started,
+    steering_applied,
     status,
     step_completed,
     step_started,
     task_update,
     text_delta,
+    turn_receipt,
     tool_progress,
 )
 
@@ -89,6 +91,36 @@ class StatusTest(unittest.TestCase):
     def test_empty_message_rejected(self):
         with self.assertRaises(ValueError):
             status(make_run_id(), "   ")
+
+
+class TurnReceiptAndSteeringTest(unittest.TestCase):
+    def test_turn_receipt_exposes_contract_without_internal_prompt(self):
+        event = turn_receipt(
+            make_run_id(),
+            summary="生成十页董事会汇报",
+            mode="execute_now",
+            target_scope="project",
+            execution_scope="project_write",
+            expected_response="pptx_deliverable",
+            write_allowed=True,
+            requires_confirmation=False,
+            steering_supported=True,
+        )
+        self.assertEqual(event["type"], EventType.TURN_RECEIPT)
+        self.assertTrue(event["steering_supported"])
+        self.assertNotIn("system_prompt", event)
+
+    def test_steering_applied_is_sequence_bound(self):
+        event = steering_applied(
+            make_run_id(),
+            steering_id="steer_abc",
+            sequence=2,
+            content_preview="控制在十页",
+            message_id=91,
+        )
+        self.assertEqual(event["type"], EventType.STEERING_APPLIED)
+        self.assertEqual(event["sequence"], 2)
+        self.assertEqual(event["message_id"], 91)
 
 
 class TextDeltaTest(unittest.TestCase):

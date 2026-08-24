@@ -1070,6 +1070,10 @@ async def run_persist(
             else {"status": "within_budget", "budget": turn_budget_snapshot}
         )
     metadata["run_evaluation"] = dict(state.run_evaluation)
+    if state.turn_receipt:
+        metadata["turn_receipt"] = dict(state.turn_receipt)
+    if state.steering_inputs:
+        metadata["steering_inputs"] = state.steering_audit_records()
     if cited_references:
         metadata["references"] = cited_references
     if resolved_evidence:
@@ -1228,11 +1232,21 @@ async def run_persist(
         )
 
     # Persist assistant message
+    effective_user_content = req.content
+    if state.steering_inputs:
+        effective_user_content = "\n\n".join(
+            [req.content]
+            + [
+                str(item.get("content") or "").strip()
+                for item in state.steering_inputs
+                if str(item.get("content") or "").strip()
+            ]
+        )
     need_title, assistant_message_id = persist_assistant_message(
         bind,
         runtime.conv_id,
         full_text,
-        req.content,
+        effective_user_content,
         metadata or None,
     )
     if pending_action_ids and assistant_message_id:

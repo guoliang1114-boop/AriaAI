@@ -62,10 +62,13 @@ with a Codex runtime. The adapted mechanisms currently cover:
   current-turn constraint supersession without remote compaction; and
 - stable instruction-layer identities and precedence adapted into a bounded,
   no-content manifest covering platform policy, current user requests, project
-  scope, active task state, Skills, preferences, evidence, and history.
+  scope, active task state, Skills, preferences, evidence, and history; and
+- expected-turn-bound active-run steering, text-only mailbox delivery, safe
+  model/tool boundary injection, stale planned-tool supersession, and concise
+  turn-understanding receipts without exposing prompts or hidden reasoning.
 
 Latest upstream audit baseline: commit `83d1fe0e67b1323f71febc2925817732b449f1d9`
-(2026-08-23). The specific upstream source path and Aria modification notice
+(2026-08-24). The specific upstream source path and Aria modification notice
 are recorded in each adapted Python module.
 
 OpenAI Codex is available under the Apache License 2.0:

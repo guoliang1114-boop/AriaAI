@@ -45,6 +45,8 @@ class ChatSessionState:
     context_manifest: dict[str, Any] = field(default_factory=dict)
     knowledge_evidence: dict[str, Any] = field(default_factory=dict)
     run_outputs: list[dict[str, Any]] = field(default_factory=list)
+    turn_receipt: dict[str, Any] = field(default_factory=dict)
+    steering_inputs: list[dict[str, Any]] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # User-visible text (assembled by the agent loop)
@@ -97,6 +99,25 @@ class ChatSessionState:
     def record_trace_event(self, event_type: str, **payload) -> None:
         """Record an internal decision for diagnostics without changing chat UI."""
         self.trace_events.append({"type": event_type, **payload})
+
+    def steering_audit_records(self) -> list[dict[str, Any]]:
+        """Return bounded steering references without duplicating user text."""
+
+        allowed = (
+            "schema_version",
+            "steering_id",
+            "run_id",
+            "sequence",
+            "content_preview",
+            "content_sha256",
+            "message_id",
+            "applied_stage",
+        )
+        return [
+            {key: item.get(key) for key in allowed if item.get(key) is not None}
+            for item in self.steering_inputs
+            if isinstance(item, dict)
+        ]
 
     def record_tool_execution(self, event: dict[str, Any]) -> dict[str, Any]:
         """Append one canonical, bounded ToolExecutionRecord v1."""

@@ -35,6 +35,8 @@ class EventType:
     """String constants for the Product Run Event v1 event types."""
 
     RUN_STARTED = "run_started"
+    TURN_RECEIPT = "turn_receipt"
+    STEERING_APPLIED = "steering_applied"
     STATUS = "status"
     TEXT_DELTA = "text_delta"
     REFERENCE_DELTA = "reference_delta"
@@ -179,6 +181,9 @@ _ERROR_CODES = frozenset(
 USER_FACING_MESSAGE_MAX_CHARS = 50
 """``status.message`` is shown to end users and must stay short."""
 
+TURN_RECEIPT_SUMMARY_MAX_CHARS = 240
+STEERING_PREVIEW_MAX_CHARS = 160
+
 
 # ----------------------------------------------------------------------
 # Helpers
@@ -245,6 +250,87 @@ def run_started(
             event["skill"]["id"] = str(skill["id"])
         if skill.get("source"):
             event["skill"]["source"] = _require_in(str(skill["source"]), _SKILL_SOURCES, "skill.source")
+    return event
+
+
+def turn_receipt(
+    run_id: str,
+    *,
+    summary: str,
+    mode: str,
+    target_scope: str,
+    execution_scope: str,
+    expected_response: str,
+    write_allowed: bool,
+    requires_confirmation: bool,
+    steering_supported: bool,
+) -> dict:
+    """Concise, user-visible acknowledgement of how Aria read the turn."""
+
+    normalized_summary = str(summary or "").strip()
+    if not normalized_summary or len(normalized_summary) > TURN_RECEIPT_SUMMARY_MAX_CHARS:
+        raise ValueError(
+            f"turn_receipt.summary must be 1–{TURN_RECEIPT_SUMMARY_MAX_CHARS} chars"
+        )
+    normalized_mode = str(mode or "").strip()
+    if normalized_mode not in {"answer_only", "plan_only", "execute_now", "plan_then_execute"}:
+        raise ValueError("turn_receipt.mode is invalid")
+    normalized_target = str(target_scope or "").strip()
+    if normalized_target not in {"chat", "project", "workspace"}:
+        raise ValueError("turn_receipt.target_scope is invalid")
+    normalized_execution = str(execution_scope or "").strip()
+    if normalized_execution not in {
+        "chat_only",
+        "injected_project_context",
+        "read_tools",
+        "project_write",
+        "workspace_write",
+    }:
+        raise ValueError("turn_receipt.execution_scope is invalid")
+    normalized_response = str(expected_response or "").strip()
+    if not normalized_response or len(normalized_response) > 80:
+        raise ValueError("turn_receipt.expected_response is invalid")
+    return {
+        "type": EventType.TURN_RECEIPT,
+        "run_id": _require_run_id(run_id),
+        "summary": normalized_summary,
+        "mode": normalized_mode,
+        "target_scope": normalized_target,
+        "execution_scope": normalized_execution,
+        "expected_response": normalized_response,
+        "write_allowed": bool(write_allowed),
+        "requires_confirmation": bool(requires_confirmation),
+        "steering_supported": bool(steering_supported),
+    }
+
+
+def steering_applied(
+    run_id: str,
+    *,
+    steering_id: str,
+    sequence: int,
+    content_preview: str,
+    message_id: int | None = None,
+) -> dict:
+    """One accepted addition has reached a safe Agent Loop boundary."""
+
+    normalized_id = str(steering_id or "").strip()
+    if not normalized_id.startswith("steer_"):
+        raise ValueError("steering_applied.steering_id is invalid")
+    normalized_preview = str(content_preview or "").strip()
+    if not normalized_preview or len(normalized_preview) > STEERING_PREVIEW_MAX_CHARS:
+        raise ValueError(
+            f"steering_applied.content_preview must be 1–{STEERING_PREVIEW_MAX_CHARS} chars"
+        )
+    event: dict[str, Any] = {
+        "type": EventType.STEERING_APPLIED,
+        "run_id": _require_run_id(run_id),
+        "steering_id": normalized_id,
+        "sequence": _require_positive_int(sequence, "sequence"),
+        "content_preview": normalized_preview,
+    }
+    if message_id is not None:
+        event["message_id"] = _require_positive_int(message_id, "message_id")
     return event
 
 
