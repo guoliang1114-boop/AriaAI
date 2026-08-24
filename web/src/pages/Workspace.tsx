@@ -272,37 +272,37 @@ export function Workspace() {
   const [quickUpdateText, setQuickUpdateText] = useState("");
   const [quickUpdateSubmitting, setQuickUpdateSubmitting] = useState(false);
   const [quickUpdateMessage, setQuickUpdateMessage] = useState<string | null>(null);
+  const [dashboardNow] = useState(() => Date.now());
 
-  const loadData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const [allProjects, allConversations, allSkills, allTodos] = await Promise.all([
-        api.get<DashboardProjectSummary[]>("/projects/meta/dashboard-summary"),
-        api.get<Conversation[]>("/chat/conversations"),
-        api.get<SkillSummary[]>("/skills/meta/summary"),
-        // Todos may not yet be available depending on permissions; soft-fail
-        // so the workspace still renders the rest of the page if 403/500.
-        api.get<MyProjectTodo[]>("/projects/todos/my").catch(() => [] as MyProjectTodo[]),
-      ]);
-      setProjects(allProjects);
-      setConversations(allConversations);
-      setSkills(allSkills);
-      setTodos(allTodos);
-    } catch (err) {
-      const apiError = err as AxiosError;
-      setError(
-        !apiError.response
-          ? isZh
-            ? "无法连接到服务器"
-            : "Unable to reach the server"
-          : isZh
-            ? "加载工作台失败"
-            : "Failed to load workspace",
-      );
-    } finally {
-      setLoading(false);
-    }
+  const loadData = useCallback(() => {
+    return Promise.all([
+      api.get<DashboardProjectSummary[]>("/projects/meta/dashboard-summary"),
+      api.get<Conversation[]>("/chat/conversations"),
+      api.get<SkillSummary[]>("/skills/meta/summary"),
+      // Todos may not yet be available depending on permissions; soft-fail
+      // so the workspace still renders the rest of the page if 403/500.
+      api.get<MyProjectTodo[]>("/projects/todos/my").catch(() => [] as MyProjectTodo[]),
+    ])
+      .then(([allProjects, allConversations, allSkills, allTodos]) => {
+        setProjects(allProjects);
+        setConversations(allConversations);
+        setSkills(allSkills);
+        setTodos(allTodos);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        const apiError = err as AxiosError;
+        setError(
+          !apiError.response
+            ? isZh
+              ? "无法连接到服务器"
+              : "Unable to reach the server"
+            : isZh
+              ? "加载工作台失败"
+              : "Failed to load workspace",
+        );
+      })
+      .finally(() => setLoading(false));
   }, [isZh]);
 
   useEffect(() => {
@@ -314,10 +314,10 @@ export function Workspace() {
     [projects],
   );
 
-  useEffect(() => {
-    if (quickUpdateProjectId || !activeProjects.length) return;
-    setQuickUpdateProjectId(activeProjects[0].id);
-  }, [activeProjects, quickUpdateProjectId]);
+  const effectiveQuickUpdateProjectId =
+    activeProjects.some((project) => project.id === quickUpdateProjectId)
+      ? quickUpdateProjectId
+      : activeProjects[0]?.id ?? null;
 
   const recentConversations = useMemo(
     () =>
@@ -334,7 +334,7 @@ export function Workspace() {
   // Today's todos = anything undone that is either overdue or due in the
   // next ~24 hours. Sorted by due date so the most urgent floats up.
   const todayTodos = useMemo(() => {
-    const now = Date.now();
+    const now = dashboardNow;
     const endOfTomorrow = now + 36 * 60 * 60 * 1000;
     return todos
       .filter((todo) => !todo.is_done && todo.due_date)
@@ -347,13 +347,13 @@ export function Workspace() {
           parseAppDateTime(a.due_date as string).getTime() -
           parseAppDateTime(b.due_date as string).getTime(),
       );
-  }, [todos]);
+  }, [dashboardNow, todos]);
 
   // "Upcoming this week" = undone, due in (~36h … 7d]. Mirrors the prototype's
   // 即将里程碑 panel; without a backend "my milestones" endpoint we surface
   // upcoming-due todos which carry the same "what's around the corner" intent.
   const upcomingTodos = useMemo(() => {
-    const now = Date.now();
+    const now = dashboardNow;
     const startOfNext = now + 36 * 60 * 60 * 1000;
     const endOfWeek = now + 7 * 24 * 60 * 60 * 1000;
     return todos
@@ -367,7 +367,7 @@ export function Workspace() {
           parseAppDateTime(a.due_date as string).getTime() -
           parseAppDateTime(b.due_date as string).getTime(),
       );
-  }, [todos]);
+  }, [dashboardNow, todos]);
 
   const highPriorityTodayCount = todayTodos.filter(
     (todo) => todo.priority === "high",
@@ -441,11 +441,11 @@ export function Workspace() {
   const handleQuickUpdateSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const content = quickUpdateText.trim();
-    if (!quickUpdateProjectId || !content) return;
+    if (!effectiveQuickUpdateProjectId || !content) return;
     try {
       setQuickUpdateSubmitting(true);
       setQuickUpdateMessage(null);
-      await api.post(`/projects/${quickUpdateProjectId}/progress-updates`, {
+      await api.post(`/projects/${effectiveQuickUpdateProjectId}/progress-updates`, {
         content,
         next_step: "",
         risk: "",
@@ -739,7 +739,7 @@ export function Workspace() {
                     {isZh ? "快速更新状态" : "Quick status update"}
                   </div>
                   <select
-                    value={quickUpdateProjectId ?? ""}
+                    value={effectiveQuickUpdateProjectId ?? ""}
                     onChange={(event) => setQuickUpdateProjectId(Number(event.target.value) || null)}
                     disabled={!activeProjects.length || quickUpdateSubmitting}
                     style={{
@@ -788,17 +788,17 @@ export function Workspace() {
                     </span>
                     <button
                       type="submit"
-                      disabled={!quickUpdateProjectId || !quickUpdateText.trim() || quickUpdateSubmitting}
+                      disabled={!effectiveQuickUpdateProjectId || !quickUpdateText.trim() || quickUpdateSubmitting}
                       className="inline-flex items-center gap-1.5"
                       style={{
                         padding: "7px 11px",
                         fontSize: 12,
                         background:
-                          !quickUpdateProjectId || !quickUpdateText.trim() || quickUpdateSubmitting
+                          !effectiveQuickUpdateProjectId || !quickUpdateText.trim() || quickUpdateSubmitting
                             ? "var(--color-codex-bg-tint)"
                             : "var(--color-codex-ink)",
                         color:
-                          !quickUpdateProjectId || !quickUpdateText.trim() || quickUpdateSubmitting
+                          !effectiveQuickUpdateProjectId || !quickUpdateText.trim() || quickUpdateSubmitting
                             ? "var(--color-codex-ink-mute)"
                             : "var(--color-codex-bg-elev)",
                         borderRadius: "var(--codex-r-sm, 3px)",

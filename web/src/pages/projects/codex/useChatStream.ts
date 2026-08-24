@@ -10,6 +10,12 @@ import type {
 } from '../../../types/api'
 import { normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../types/productRunEvent'
+import {
+  parseChatStreamEvent,
+  toContextReceiptEvent,
+  toTurnReceiptEvent,
+  type ChatStreamEvent,
+} from '../../../types/chatStreamEvent'
 
 /** Project-chat-tab SSE streaming hook.
  *
@@ -84,50 +90,6 @@ interface UseChatStreamReturn {
   send: (content: string) => Promise<void>
   steer: (content: string) => Promise<boolean>
   stop: () => void
-}
-
-interface StreamEvent {
-  type: string
-  schema_version?: number
-  run_id?: string
-  content?: string
-  message?: string
-  references?: Reference[]
-  knowledge_evidence?: KnowledgeEvidenceManifest
-  artifacts?: GeneratedArtifact[]
-  tool_calls?: unknown[]
-  skill_progress?: unknown[]
-  stage_timings?: Record<string, number>
-  duration_ms?: number
-  key?: string
-  tool_name?: string
-  error?: string
-  action_policy?: string
-  tool_access_policy?: string
-  intent_reason?: string
-  intent_method?: string
-  tools_granted?: string[]
-  tools_granted_count?: number
-  chat_mode?: string
-  turn_contract?: Record<string, unknown>
-  // conversation_title event payload
-  conversation_id?: number
-  title?: string
-  summary?: string
-  mode?: TurnReceiptEvent['mode']
-  target_scope?: TurnReceiptEvent['target_scope']
-  execution_scope?: TurnReceiptEvent['execution_scope']
-  expected_response?: string
-  write_allowed?: boolean
-  requires_confirmation?: boolean
-  steering_supported?: boolean
-  content_preview?: string
-  scope?: ContextReceiptEvent['scope']
-  project?: ContextReceiptEvent['project']
-  memory?: ContextReceiptEvent['memory']
-  skill?: ContextReceiptEvent['skill']
-  evidence?: ContextReceiptEvent['evidence']
-  warnings?: ContextReceiptEvent['warnings']
 }
 
 function readApiError(err: unknown): string {
@@ -316,54 +278,19 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       let done = false
       let streamErr: string | null = null
 
-      const handleEvent = (ev: StreamEvent) => {
+      const handleEvent = (ev: ChatStreamEvent) => {
         if (ev.type === 'run_started' && typeof ev.run_id === 'string') {
           activeRunIdRef.current = ev.run_id
           setActiveRunId(ev.run_id)
-        } else if (
-          ev.type === 'turn_receipt'
-          && typeof ev.run_id === 'string'
-          && typeof ev.summary === 'string'
-          && ev.mode
-          && ev.target_scope
-          && ev.execution_scope
-          && typeof ev.expected_response === 'string'
-        ) {
-          const receipt: TurnReceiptEvent = {
-            type: 'turn_receipt',
-            run_id: ev.run_id,
-            summary: ev.summary,
-            mode: ev.mode,
-            target_scope: ev.target_scope,
-            execution_scope: ev.execution_scope,
-            expected_response: ev.expected_response,
-            write_allowed: Boolean(ev.write_allowed),
-            requires_confirmation: Boolean(ev.requires_confirmation),
-            steering_supported: Boolean(ev.steering_supported),
-          }
+        } else if (ev.type === 'turn_receipt') {
+          const receipt = toTurnReceiptEvent(ev)
+          if (!receipt) return
           turnReceiptRef.current = receipt
           setTurnReceipt(receipt)
           setStatusMessage(`本轮理解：${receipt.summary}`)
-        } else if (
-          ev.type === 'context_receipt'
-          && typeof ev.run_id === 'string'
-          && ev.scope
-          && ev.memory
-          && ev.skill
-          && ev.evidence
-          && Array.isArray(ev.warnings)
-        ) {
-          const receipt: ContextReceiptEvent = {
-            type: 'context_receipt',
-            schema_version: 1,
-            run_id: ev.run_id,
-            scope: ev.scope,
-            project: ev.project,
-            memory: ev.memory,
-            skill: ev.skill,
-            evidence: ev.evidence,
-            warnings: ev.warnings,
-          }
+        } else if (ev.type === 'context_receipt') {
+          const receipt = toContextReceiptEvent(ev)
+          if (!receipt) return
           contextReceiptRef.current = receipt
           setContextReceipt(receipt)
         } else if (ev.type === 'steering_applied' && ev.content_preview) {
@@ -428,7 +355,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
             .find((l) => l.startsWith('data: '))
           if (!line) continue
           try {
-            handleEvent(JSON.parse(line.replace(/^data:\s*/, '')))
+            const parsed = parseChatStreamEvent(JSON.parse(line.replace(/^data:\s*/, '')))
+            if (parsed) handleEvent(parsed)
           } catch (parseErr) {
             console.error('Failed to parse stream event:', parseErr)
           }

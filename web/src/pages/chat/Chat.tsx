@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   Paperclip,
   FolderKanban,
@@ -46,12 +47,19 @@ import { CxSkeleton, CxStatus, CxTopProgress } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skill } from '../../types/api'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../types/productRunEvent'
+import {
+  parseChatStreamEvent,
+  toContextReceiptEvent,
+  toTurnReceiptEvent,
+  type ChatStreamEvent,
+} from '../../types/chatStreamEvent'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../utils/knowledgeEvidence'
 import { describeRunSkill, normalizeRunSkill, type ActiveRunSkill } from '../../utils/chatRunSkill'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
 import { formatDateOnly, formatDatePartsKey, formatTimeOnly, parseAppDateTime } from '../../utils/timezone'
 
 const PAGE_SIZE = 20
+let nextOptimisticId = -1
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -72,6 +80,34 @@ function getInitialChar(name: string, fallback: string): string {
   return Array.from(trimmed)[0] ?? fallback
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function createOptimisticMessageId(): number {
+  const id = nextOptimisticId
+  nextOptimisticId -= 1
+  return id
+}
+
+function errorName(error: unknown): string {
+  if (error instanceof Error) return error.name
+  return isRecord(error) && typeof error.name === 'string' ? error.name : ''
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return isRecord(error) && typeof error.message === 'string' ? error.message : ''
+}
+
 function formatTime(dateStr: string, timeZone?: string) {
   // Backend timestamps are tz-naive UTC ("2026-05-28T13:22:00", no Z); plain
   // ``new Date(...)`` would treat them as browser-local and skew by the local
@@ -89,7 +125,7 @@ function formatTime(dateStr: string, timeZone?: string) {
   return formatDateOnly(d, { year: 'numeric', month: '2-digit', day: '2-digit' }, timeZone)
 }
 
-function groupConversations(conversations: Conversation[], t: any, timeZone?: string) {
+function groupConversations(conversations: Conversation[], t: TFunction, timeZone?: string) {
   const now = new Date()
   const today: Conversation[] = []
   const yesterdayItems: Conversation[] = []
@@ -127,6 +163,40 @@ interface PromptCard {
   icon: React.ElementType
   label: string
   prompt: string
+}
+
+interface SkillTemplateData {
+  skill: Skill
+  variables: { name: string; value: string }[]
+  preview: string
+}
+
+function buildSkillTemplateData(skill: Skill): SkillTemplateData | null {
+  if (!skill.user_template) return null
+  const template = skill.user_template
+  const variablePattern = /\[([^\]]+)\]|\{\{([^}]+)\}\}/g
+  const names: string[] = []
+  let match: RegExpExecArray | null
+
+  while ((match = variablePattern.exec(template)) !== null) {
+    const name = (match[1] || match[2] || '').trim()
+    if (name && !names.includes(name)) names.push(name)
+  }
+
+  if (names.length === 0) {
+    for (const line of template.split('\n')) {
+      const trimmed = line.trim()
+      const colonMatch = trimmed.match(/^(?:[-•]\s*)?(.+?)[：:]\s*$/)
+      const name = colonMatch?.[1]?.trim()
+      if (name && name.length < 50 && !names.includes(name)) names.push(name)
+    }
+  }
+
+  return {
+    skill,
+    variables: names.map(name => ({ name, value: '' })),
+    preview: template,
+  }
 }
 
 type ProgressStatus = 'pending' | 'active' | 'done'
@@ -177,9 +247,9 @@ function mergeStageTimingEntries(entries: StageTimingEntry[], next: StageTimingE
   return entries.map((item, index) => index === existingIndex ? next : item)
 }
 
-function stageTimingEntriesFromMeta(meta: any): StageTimingEntry[] {
-  const raw = meta?.stage_timings
-  if (!raw || typeof raw !== 'object') return []
+function stageTimingEntriesFromMeta(meta: unknown): StageTimingEntry[] {
+  if (!isRecord(meta) || !isRecord(meta.stage_timings)) return []
+  const raw = meta.stage_timings
   return Object.entries(raw)
     .filter(([, value]) => typeof value === 'number')
     .map(([key, value]) => ({
@@ -278,19 +348,37 @@ function completeChatLoadingSteps(steps: ChatProgressStep[]): ChatProgressStep[]
   }))
 }
 
-function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
-  if (Array.isArray(meta?.skill_progress) && meta.skill_progress.length > 0) return meta.skill_progress
-  if (meta?.stage_timings && !meta?.skill_id) return []
-  const toolCalls = Array.isArray(meta?.tool_calls) ? meta.tool_calls : []
-  const artifacts = Array.isArray(meta?.artifacts) ? meta.artifacts : []
-  const hasSkillSignals = toolCalls.length > 0 || artifacts.length > 0 || meta?.skill_id
+function isChatProgressStep(value: unknown): value is ChatProgressStep {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.key === 'string'
+    && typeof value.label === 'string'
+    && typeof value.description === 'string'
+    && (value.status === 'pending' || value.status === 'active' || value.status === 'done')
+    && Array.isArray(value.logs)
+    && value.logs.every(item => typeof item === 'string')
+  )
+}
+
+function buildProgressFromMetadata(meta: unknown): ChatProgressStep[] {
+  if (!isRecord(meta)) return []
+  if (Array.isArray(meta.skill_progress) && meta.skill_progress.length > 0) {
+    return meta.skill_progress.filter(isChatProgressStep)
+  }
+  if (meta.stage_timings && !meta.skill_id) return []
+  const toolCalls = Array.isArray(meta.tool_calls) ? meta.tool_calls.filter(isRecord) : []
+  const artifacts = Array.isArray(meta.artifacts) ? meta.artifacts : []
+  const hasSkillSignals = toolCalls.length > 0 || artifacts.length > 0 || !!meta.skill_id
   if (!hasSkillSignals) return []
 
   const steps = completeProgressSteps(createProgressSteps())
   steps[0].logs = ['已准备会话、项目与 Skill 上下文。']
   steps[1].logs = ['模型已完成需求理解与执行规划。']
   steps[2].logs = toolCalls.length
-    ? toolCalls.map((item: any) => `${item.status === 'completed' ? '完成' : '失败'}: ${item.summary || item.message || item.tool_name || '工具执行'}`)
+    ? toolCalls.map((item) => {
+        const label = stringValue(item.summary) || stringValue(item.message) || stringValue(item.tool_name) || '工具执行'
+        return `${item.status === 'completed' ? '完成' : '失败'}: ${label}`
+      })
     : ['本次未调用文件生成工具，模型直接生成正文结果。']
   steps[3].logs = ['已汇总工具结果并形成最终回复。']
   steps[4].logs = ['回复已保存，执行完成。']
@@ -972,23 +1060,26 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
   )
 }
 
-function artifactFromToolResult(result: any): GeneratedArtifact | null {
-  const source = result?.file_path || result?.path ? result : result?.output
+function artifactFromToolResult(result: unknown): GeneratedArtifact | null {
+  if (!isRecord(result)) return null
+  const source = result.file_path || result.path
+    ? result
+    : isRecord(result.output) ? result.output : null
   if (!source) return null
-  const path = source.file_path || source.path
-  const name = source.file_name || source.name
-  const fileType = source.file_type
+  const path = stringValue(source.file_path) || stringValue(source.path)
+  const name = stringValue(source.file_name) || stringValue(source.name)
+  const fileType = stringValue(source.file_type)
   if (!path || !name || !fileType) return null
   return {
-    id: source.id,
-    conversation_id: source.conversation_id,
-    project_id: source.project_id,
+    id: numberValue(source.id),
+    conversation_id: numberValue(source.conversation_id),
+    project_id: source.project_id === null ? null : numberValue(source.project_id),
     name,
     file_type: fileType,
     path,
-    size_bytes: source.size_bytes,
-    description: source.note || source.message || source.description || '',
-    created_at: source.created_at,
+    size_bytes: numberValue(source.size_bytes),
+    description: stringValue(source.note) || stringValue(source.message) || stringValue(source.description) || '',
+    created_at: stringValue(source.created_at),
   }
 }
 
@@ -1090,13 +1181,23 @@ export function Chat() {
   const [input, setInput] = useState(prefilledQ || '')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
-  const [conversation, setConversation] = useState<Conversation | null>(null)
+  const [conversationState, setConversation] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [selectedProject, setSelectedProject] = useState<number | null>(projectId ? parseInt(projectId) : null)
   const [selectedSkill, setSelectedSkill] = useState<number | null>(skillId ? parseInt(skillId) : null)
+  const [skillArmed, setSkillArmed] = useState(!!skillId)
+  const selectedSkillData = skills.find(s => s.id === selectedSkill)
+  const validConversationId = conversationIdFromQuery !== null && !Number.isNaN(conversationIdFromQuery)
+    ? conversationIdFromQuery
+    : null
+  const conversation = useMemo(() => {
+    if (validConversationId === null) return null
+    if (conversationState?.id === validConversationId) return conversationState
+    return conversations.find(item => item.id === validConversationId) ?? null
+  }, [conversationState, conversations, validConversationId])
   const [streamingContent, setStreamingContent] = useState('')
   const [isThinking, setIsThinking] = useState(false)
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
@@ -1124,12 +1225,7 @@ export function Chat() {
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [isLoadingConversations, setIsLoadingConversations] = useState(true)
   const [showSkillTemplateModal, setShowSkillTemplateModal] = useState(false)
-  const [skillTemplateData, setSkillTemplateData] = useState<{
-    skill: Skill
-    variables: { name: string; value: string }[]
-    preview: string
-  } | null>(null)
-  const processedSkillRef = useRef<number | null>(null)
+  const [skillTemplateData, setSkillTemplateData] = useState<SkillTemplateData | null>(null)
   // Track streaming state for recovery after navigation
   const streamingConvIdRef = useRef<number | null>(null)
   // Debounce timer for streaming content updates — kept as ref so navigation can cancel it
@@ -1149,7 +1245,6 @@ export function Chat() {
   const isStreamingRef = useRef(false)
   const skillRunActiveRef = useRef(false)
   const activeRunSkillRef = useRef<ActiveRunSkill | null>(null)
-  const skillArmedRef = useRef(!!skillId)
   const scrollHeightBeforeLoadRef = useRef<number>(0)
   const isNearBottomRef = useRef(true)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -1163,6 +1258,74 @@ export function Chat() {
   const justLoadedRef = useRef(false)
   // prevent loadConversation from firing when sendMessage triggers navigate to the new conv
   const skipNextConvLoadRef = useRef(false)
+  const isSendingRef = useRef(false)
+  const initialDataRequestedRef = useRef(false)
+  const initialSkillIdRef = useRef(selectedSkill)
+  // Track if we've already loaded this conversation to prevent double-load in StrictMode
+  const loadedConvIdRef = useRef<number | null>(null)
+
+  const fetchInitialData = useCallback(() => {
+    void api
+      .get<Conversation[]>('/chat/conversations?standalone=true')
+      .then((convsData) => setConversations(convsData))
+      .catch((err: unknown) => console.error('Failed to fetch conversations:', err))
+      .finally(() => setIsLoadingConversations(false))
+    void api
+      .get<Project[]>('/projects')
+      .then((projectsData) => setProjects(projectsData))
+      .catch((err: unknown) => console.error('Failed to fetch projects:', err))
+    void api
+      .get<Skill[]>('/skills')
+      .then((skillsData) => {
+        setSkills(skillsData)
+        const initialSkill = skillsData.find(item => item.id === initialSkillIdRef.current)
+        const templateData = initialSkill ? buildSkillTemplateData(initialSkill) : null
+        if (templateData) {
+          setSkillTemplateData(templateData)
+          setShowSkillTemplateModal(true)
+        }
+      })
+      .catch((err: unknown) => console.error('Failed to fetch skills:', err))
+  }, [])
+
+  const loadConversation = useCallback(async (id: number, beforeId?: number) => {
+    try {
+      if (beforeId) {
+        setLoadingMore(true)
+        const container = messagesContainerRef.current
+        if (container) scrollHeightBeforeLoadRef.current = container.scrollHeight
+      } else {
+        setLoading(true)
+        setMessages([])
+        setHasMore(false)
+        setErrorMsg(null)
+      }
+
+      const url = beforeId
+        ? `/chat/conversations/${id}/messages?before_id=${beforeId}&limit=${PAGE_SIZE}`
+        : `/chat/conversations/${id}/messages?limit=${PAGE_SIZE}`
+      const data = await api.get<Message[]>(url)
+
+      if (beforeId) {
+        setMessages(prev => [...data, ...prev])
+      } else {
+        setMessages(data)
+        justLoadedRef.current = true
+      }
+      setHasMore(data.length === PAGE_SIZE)
+    } catch (err: unknown) {
+      console.error('Failed to load conversation:', err)
+    } finally {
+      setLoading(false)
+      setLoadingMore(false)
+    }
+  }, [])
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
+      messagesEndRef.current.scrollIntoView({ behavior })
+    }
+  }, [])
 
   useEffect(() => {
     progressStepsRef.current = progressSteps
@@ -1183,7 +1346,11 @@ export function Chat() {
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────
-  useEffect(() => { fetchInitialData() }, [])
+  useEffect(() => {
+    if (initialDataRequestedRef.current) return
+    initialDataRequestedRef.current = true
+    fetchInitialData()
+  }, [fetchInitialData])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 768px)')
@@ -1206,26 +1373,15 @@ export function Chat() {
         navigate(`/chat?conversation=${convId}`, { replace: true })
       }
     }
-  }, [])
-
-  // Once conversations list loads, backfill conversation info if not yet set
-  useEffect(() => {
-    if (conversationId && conversations.length > 0 && !conversation) {
-      const found = conversations.find(c => c.id === parseInt(conversationId))
-      if (found) setConversation(found)
-    }
-  }, [conversations])
-
-  // Track if we've already loaded this conversation to prevent double-load in StrictMode
-  const loadedConvIdRef = useRef<number | null>(null)
+  }, [conversationId, navigate])
   
   useEffect(() => {
-    if (conversationId) {
+    if (validConversationId !== null) {
       if (skipNextConvLoadRef.current) {
         skipNextConvLoadRef.current = false
         return
       }
-      const convId = parseInt(conversationId)
+      const convId = validConversationId
       
       // Check if we need to force refresh this conversation
       const pendingId = sessionStorage.getItem('pendingStreamingConvId')
@@ -1233,16 +1389,18 @@ export function Chat() {
       
       // Prevent loading the same conversation twice (React StrictMode).
       // But always refresh if we're recovering from a navigation.
-      if (loadedConvIdRef.current === convId && messages.length > 0 && !needRefresh) {
+      if (loadedConvIdRef.current === convId && !needRefresh) {
         return
       }
 
       if (needRefresh) sessionStorage.removeItem('pendingStreamingConvId')
 
       loadedConvIdRef.current = convId
-      loadConversation(convId)
+      void loadConversation(convId)
+    } else {
+      loadedConvIdRef.current = null
     }
-  }, [conversationId])
+  }, [loadConversation, validConversationId])
 
   // close dropdowns on outside click
   useEffect(() => {
@@ -1310,70 +1468,6 @@ export function Chat() {
     }
   }, [])
 
-  // ── Data fetch ────────────────────────────────────────────────────────────
-  //
-  // Previously this awaited Promise.all([conversations, projects, skills])
-  // before clearing ``isLoadingConversations``, so the sidebar skeleton
-  // stayed up until the slowest of the three arrived. The sidebar only
-  // actually needs the conversation list to render — ``projects`` and
-  // ``skills`` feed dropdowns the user only opens on demand — so we let
-  // those resolve in the background.
-  const fetchInitialData = async () => {
-    void api
-      .get<Conversation[]>('/chat/conversations?standalone=true')
-      .then((convsData) => setConversations(convsData))
-      .catch((err) => console.error('Failed to fetch conversations:', err))
-      .finally(() => setIsLoadingConversations(false))
-    void api
-      .get<Project[]>('/projects')
-      .then((projectsData) => setProjects(projectsData))
-      .catch((err) => console.error('Failed to fetch projects:', err))
-    void api
-      .get<Skill[]>('/skills')
-      .then((skillsData) => setSkills(skillsData))
-      .catch((err) => console.error('Failed to fetch skills:', err))
-  }
-
-  const loadConversation = async (id: number, beforeId?: number) => {
-    try {
-      if (beforeId) {
-        setLoadingMore(true)
-        const container = messagesContainerRef.current
-        if (container) scrollHeightBeforeLoadRef.current = container.scrollHeight
-      } else {
-        setLoading(true)
-        setMessages([])
-        setHasMore(false)
-        setErrorMsg(null)
-      }
-
-      // Set conv info from cached list (list may not be loaded yet on first render)
-      if (!beforeId) {
-        const cached = conversations.find(c => c.id === id)
-        if (cached) setConversation(cached)
-      }
-
-      const url = beforeId
-        ? `/chat/conversations/${id}/messages?before_id=${beforeId}&limit=${PAGE_SIZE}`
-        : `/chat/conversations/${id}/messages?limit=${PAGE_SIZE}`
-      const data = await api.get<Message[]>(url)
-
-      if (beforeId) {
-        setMessages(prev => [...data, ...prev])
-      } else {
-        setMessages(data)
-        // Mark as just loaded so we can jump to bottom without animation
-        justLoadedRef.current = true
-      }
-      setHasMore(data.length === PAGE_SIZE)
-    } catch (err) {
-      console.error('Failed to load conversation:', err)
-    } finally {
-      setLoading(false)
-      setLoadingMore(false)
-    }
-  }
-
   const recoverConversationMessages = async (id: number, attempts = 8) => {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
@@ -1403,7 +1497,7 @@ export function Chat() {
     const oldestId = messages[0]?.id
     if (!oldestId) return
     await loadConversation(parseInt(conversationId), oldestId)
-  }, [conversationId, loadingMore, hasMore, messages])
+  }, [conversationId, loadingMore, hasMore, messages, loadConversation])
 
   // ── Scroll events ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1439,67 +1533,29 @@ export function Chat() {
       // Use setTimeout to ensure DOM has updated before scrolling
       setTimeout(() => scrollToBottom(behavior), 0)
     }
-  }, [messages])
+  }, [messages, scrollToBottom])
 
   // auto-scroll while streaming
   useEffect(() => {
     if (streamingContent && isNearBottomRef.current) scrollToBottom('auto')
-  }, [streamingContent])
+  }, [streamingContent, scrollToBottom])
 
   // ── Skill Template Modal ─────────────────────────────────────────────────
-  // Auto-open template modal when skill with user_template is selected
-  useEffect(() => {
-    if (selectedSkill && !showSkillTemplateModal && processedSkillRef.current !== selectedSkill) {
-      const skill = skills.find(s => s.id === selectedSkill)
-      if (skill?.user_template) {
-        // Extract variables from template
-        // Format 1: [变量名] or {{变量名}}
-        // Format 2: 变量名： or 变量名: (lines ending with colon)
-        const template = skill.user_template
-        const varRegex = /\[([^\]]+)\]|\{\{([^}]+)\}\}/g
-        const matches: string[] = []
-        let match
-        
-        // Check for [variable] or {{variable}} format (skip [ ] checkboxes)
-        while ((match = varRegex.exec(template)) !== null) {
-          const varName = (match[1] || match[2] || '').trim()
-          if (varName && !matches.includes(varName)) {
-            matches.push(varName)
-          }
-        }
-
-        // If no named placeholders found, extract lines that END with a colon as editable fields
-        if (matches.length === 0) {
-          const lines = template.split('\n')
-          lines.forEach((line) => {
-            const trimmed = line.trim()
-            // Only match lines where colon is at the very end (field label without a value)
-            const colonMatch = trimmed.match(/^(?:[-•]\s*)?(.+?)：\s*$/) || trimmed.match(/^(?:[-•]\s*)?(.+?):\s*$/)
-            if (colonMatch && colonMatch[1].trim()) {
-              const varName = colonMatch[1].trim()
-              if (!matches.includes(varName) && varName.length < 50) {
-                matches.push(varName)
-              }
-            }
-          })
-        }
-        
-        setSkillTemplateData({
-          skill,
-          variables: matches.map(name => ({ name, value: '' })),
-          preview: template
-        })
-        setShowSkillTemplateModal(true)
-        // Mark this skill as processed to prevent reopening
-        processedSkillRef.current = selectedSkill
-      }
+  const handleSelectSkill = (skill: Skill) => {
+    setSelectedSkill(skill.id)
+    setSkillArmed(true)
+    setShowSkillDropdown(false)
+    const templateData = buildSkillTemplateData(skill)
+    if (templateData) {
+      setSkillTemplateData(templateData)
+      setShowSkillTemplateModal(true)
     }
-  }, [selectedSkill, skills, showSkillTemplateModal])
+  }
 
   const handleApplyTemplate = async (filledTemplate: string) => {
     setShowSkillTemplateModal(false)
     setSkillTemplateData(null)
-    skillArmedRef.current = true
+    setSkillArmed(true)
     // Auto-send with the filled template content
     await sendMessage(filledTemplate)
   }
@@ -1508,17 +1564,7 @@ export function Chat() {
     setShowSkillTemplateModal(false)
     setSkillTemplateData(null)
     setSelectedSkill(null)
-    skillArmedRef.current = false
-    // Mark as processed so it doesn't reopen
-    if (selectedSkill) {
-      processedSkillRef.current = selectedSkill
-    }
-  }
-
-  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
-    if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
-      messagesEndRef.current.scrollIntoView({ behavior })
-    }
+    setSkillArmed(false)
   }
 
   // ── Conversation actions ──────────────────────────────────────────────────
@@ -1536,8 +1582,7 @@ export function Chat() {
     setProgressSteps([])
     resetSkillProgress()
     setSelectedSkill(null)
-    skillArmedRef.current = false
-    processedSkillRef.current = null
+    setSkillArmed(false)
     navigate('/chat', { replace: true })
   }
 
@@ -1665,13 +1710,10 @@ export function Chat() {
     void sendMessage(input)
   }
 
-  // Prevent duplicate sends
-  const isSendingRef = useRef(false)
-  
   // ── Send message (internal implementation) ─────────────────────────────────
   const sendMessage = async (msgText: string) => {
     if (!msgText.trim() || sending || isSendingRef.current) return
-    const forceSkillForThisMessage = !!selectedSkill && skillArmedRef.current
+    const forceSkillForThisMessage = !!selectedSkill && skillArmed
     const skillForThisMessage = (forceSkillForThisMessage || shouldRunSkillForMessage(msgText, selectedSkillData)) ? selectedSkill : null
     
     isSendingRef.current = true
@@ -1734,7 +1776,7 @@ export function Chat() {
       }
 
       const userMsg: Message = {
-        id: Date.now(),
+        id: createOptimisticMessageId(),
         conversation_id: currentConvId,
         role: 'user',
         content: msgText,
@@ -1786,7 +1828,7 @@ export function Chat() {
         }
       }
 
-      const handleStreamEvent = async (data: any) => {
+      const handleStreamEvent = async (data: ChatStreamEvent) => {
         if (data.type === 'run_started' && typeof data.run_id === 'string') {
           activeRunIdRef.current = data.run_id
           const runSkill = normalizeRunSkill(data.skill)
@@ -1805,24 +1847,14 @@ export function Chat() {
             progressStepsRef.current = nextSteps
             setProgressSteps(nextSteps)
           }
-        } else if (
-          data.type === 'turn_receipt'
-          && typeof data.run_id === 'string'
-          && typeof data.summary === 'string'
-        ) {
-          const receipt = data as TurnReceiptEvent
+        } else if (data.type === 'turn_receipt') {
+          const receipt = toTurnReceiptEvent(data)
+          if (!receipt) return
           setTurnReceipt(receipt)
           setLiveStatusText(`本轮理解：${receipt.summary}`)
-        } else if (
-          data.type === 'context_receipt'
-          && typeof data.run_id === 'string'
-          && data.scope
-          && data.memory
-          && data.skill
-          && data.evidence
-          && Array.isArray(data.warnings)
-        ) {
-          resolvedContextReceipt = data as ContextReceiptEvent
+        } else if (data.type === 'context_receipt') {
+          resolvedContextReceipt = toContextReceiptEvent(data)
+          if (!resolvedContextReceipt) return
           setContextReceipt(resolvedContextReceipt)
         } else if (data.type === 'steering_applied' && data.content_preview) {
           setLiveStatusText(`已应用追加要求：${data.content_preview}`)
@@ -1866,16 +1898,18 @@ export function Chat() {
         } else if (data.type === 'tool_result') {
           activateSkillProgress()
           setToolStatus(null)
-          const result = data.result || {}
+          const result = isRecord(data.result) ? data.result : {}
           const artifact = artifactFromToolResult(result)
           if (artifact) {
             collectedArtifacts = mergeArtifacts(collectedArtifacts, artifact)
             setStreamArtifacts(prev => mergeArtifacts(prev, artifact))
           }
-          const resultMessage = result.file_name
-            ? `工具完成，已生成 ${result.file_name}`
-            : result.error
-              ? `工具执行失败：${result.error}`
+          const resultFileName = stringValue(result.file_name)
+          const resultError = stringValue(result.error)
+          const resultMessage = resultFileName
+            ? `工具完成，已生成 ${resultFileName}`
+            : resultError
+              ? `工具执行失败：${resultError}`
               : '工具已完成，正在整理输出...'
           setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), 3, '工具已完成，正在整理输出...', resultMessage))
         } else if (data.type === 'done') {
@@ -1912,7 +1946,7 @@ export function Chat() {
           )
           const completedProgressSteps = hasSkillProgress ? completeProgressSteps(progressStepsRef.current) : []
           const assistantMsg: Message = {
-            id: Date.now() + 1,
+            id: createOptimisticMessageId(),
             conversation_id: currentConvId!,
             role: 'assistant',
             content: assistantContent,
@@ -1946,8 +1980,7 @@ export function Chat() {
           setProgressSteps(hasSkillProgress ? completedProgressSteps : completeChatLoadingSteps(progressStepsRef.current))
           if (skillForThisMessage) {
             setSelectedSkill(null)
-            skillArmedRef.current = false
-            processedSkillRef.current = null
+            setSkillArmed(false)
           }
           if (!hasSkillProgress) {
             setTimeout(() => setProgressSteps([]), 1200)
@@ -2011,7 +2044,8 @@ export function Chat() {
             .find((item) => item.startsWith('data: '))
           if (!line) continue
           try {
-            await handleStreamEvent(JSON.parse(line.replace(/^data:\s*/, '')))
+            const parsed = parseChatStreamEvent(JSON.parse(line.replace(/^data:\s*/, '')))
+            if (parsed) await handleStreamEvent(parsed)
           } catch (error) {
             console.error('Failed to parse stream event:', error)
           }
@@ -2051,7 +2085,7 @@ export function Chat() {
           ? '（本轮已停止，正在保存中断状态。）'
           : '（连接中断，以上为已收到的部分内容。）'
         const partialMsg: Message = {
-          id: Date.now() + 1,
+          id: createOptimisticMessageId(),
           conversation_id: currentConvId!,
           role: 'assistant',
           content: assistantContent
@@ -2072,8 +2106,8 @@ export function Chat() {
       if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
       isStreamingRef.current = false
       setIsThinking(false)
-    } catch (err: any) {
-      if (err?.name === 'AbortError' || completedNormally) {
+    } catch (err: unknown) {
+      if (errorName(err) === 'AbortError' || completedNormally) {
         if (stopRequestedRef.current && !completedNormally) {
           const partialContent = streamingContentRef.current.trim()
           if (
@@ -2081,7 +2115,7 @@ export function Chat() {
             && currentConvIdRef.current === String(currentConvIdForCleanup)
           ) {
             const partialMsg: Message = {
-              id: Date.now() + 1,
+              id: createOptimisticMessageId(),
               conversation_id: currentConvIdForCleanup,
               role: 'assistant',
               content: partialContent
@@ -2109,8 +2143,7 @@ export function Chat() {
           setProgressSteps(prev => skillRunActiveRef.current ? completeProgressSteps(prev) : completeChatLoadingSteps(prev))
           if (skillForThisMessage) {
             setSelectedSkill(null)
-            skillArmedRef.current = false
-            processedSkillRef.current = null
+            setSkillArmed(false)
           }
           resetSkillProgress()
           sessionStorage.removeItem('pendingStreamingConvId')
@@ -2120,7 +2153,7 @@ export function Chat() {
         const partialContent = streamingContentRef.current.trim()
         if (partialContent && currentConvIdForCleanup && currentConvIdRef.current === String(currentConvIdForCleanup)) {
           const partialMsg: Message = {
-            id: Date.now() + 1,
+            id: createOptimisticMessageId(),
             conversation_id: currentConvIdForCleanup,
             role: 'assistant',
             content: `${partialContent}\n\n（连接中断，以上为已收到的部分内容。）`,
@@ -2129,7 +2162,7 @@ export function Chat() {
           }
           setMessages(prev => [...prev, partialMsg])
         }
-        const rawMessage = typeof err?.message === 'string' ? err.message : ''
+        const rawMessage = errorMessage(err)
         const isGenericNetworkError = !rawMessage || /failed to fetch|network|body stream|load failed/i.test(rawMessage)
         const friendlyMessage = streamErrorMessage
           || (isGenericNetworkError
@@ -2173,7 +2206,6 @@ export function Chat() {
 
   // ── Derived values ────────────────────────────────────────────────────────
   const selectedProjectData = projects.find(p => p.id === selectedProject)
-  const selectedSkillData = skills.find(s => s.id === selectedSkill)
   const activeConversationId =
     conversation?.id ??
     (conversationIdFromQuery !== null && !Number.isNaN(conversationIdFromQuery) ? conversationIdFromQuery : null)
@@ -2194,6 +2226,24 @@ export function Chat() {
     ? (progressSteps.length ? progressSteps : (skillRunActive ? createProgressSteps() : createChatLoadingSteps()))
     : []
   const liveProgressTitle = skillRunActive ? 'Skill 执行清单' : 'Aria 正在处理'
+  const skillCategories = useMemo(
+    () => ['all', ...Array.from(new Set(skills.map(skill => skill.category)))],
+    [skills],
+  )
+  const filteredSkills = useMemo(
+    () => skillCategoryFilter === 'all'
+      ? skills
+      : skills.filter(skill => skill.category === skillCategoryFilter),
+    [skillCategoryFilter, skills],
+  )
+  const groupedSkills = useMemo(
+    () => filteredSkills.reduce<Record<string, Skill[]>>((groups, skill) => {
+      if (!groups[skill.category]) groups[skill.category] = []
+      groups[skill.category].push(skill)
+      return groups
+    }, {}),
+    [filteredSkills],
+  )
 
   // Memoize the conversation filter + grouping. Without this they
   // run on every render (62 hooks tick on every state change in this
@@ -3060,53 +3110,41 @@ export function Chat() {
               >
                 {showSkillDropdown && (
                   <DropdownMenu wide>
-                    <DropdownItem onClick={() => { setSelectedSkill(null); skillArmedRef.current = false; setSkillCategoryFilter('all'); setShowSkillDropdown(false) }} muted>
+                    <DropdownItem onClick={() => { setSelectedSkill(null); setSkillArmed(false); setSkillCategoryFilter('all'); setShowSkillDropdown(false) }} muted>
                       {t('skills.clearSelection') || 'Clear selection'}
                     </DropdownItem>
-                    {(() => {
-                      const categories = ['all', ...Array.from(new Set(skills.map(s => s.category)))]
-                      return (
-                        <div
-                          className="px-3 py-2"
-                          style={{ borderBottom: '1px solid var(--color-codex-line-soft)' }}
-                        >
-                          <div className="flex flex-wrap gap-1">
-                            {categories.map(cat => {
-                              const isActive = skillCategoryFilter === cat
-                              return (
-                                <button
-                                  key={cat}
-                                  onClick={e => { e.stopPropagation(); setSkillCategoryFilter(cat) }}
-                                  className="px-2 py-0.5 transition-colors"
-                                  style={{
-                                    fontSize: 11,
-                                    background: isActive
-                                      ? 'var(--color-codex-accent)'
-                                      : 'var(--color-codex-bg-tint)',
-                                    color: isActive
-                                      ? 'var(--color-codex-bg-elev)'
-                                      : 'var(--color-codex-ink-soft)',
-                                    borderRadius: 'var(--codex-r-sm, 3px)',
-                                  }}
-                                >
-                                  {cat === 'all' ? (t('skills.allCategories') || '全部') : cat}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )
-                    })()}
+                    <div
+                      className="px-3 py-2"
+                      style={{ borderBottom: '1px solid var(--color-codex-line-soft)' }}
+                    >
+                      <div className="flex flex-wrap gap-1">
+                        {skillCategories.map(cat => {
+                          const isActive = skillCategoryFilter === cat
+                          return (
+                            <button
+                              key={cat}
+                              onClick={e => { e.stopPropagation(); setSkillCategoryFilter(cat) }}
+                              className="px-2 py-0.5 transition-colors"
+                              style={{
+                                fontSize: 11,
+                                background: isActive
+                                  ? 'var(--color-codex-accent)'
+                                  : 'var(--color-codex-bg-tint)',
+                                color: isActive
+                                  ? 'var(--color-codex-bg-elev)'
+                                  : 'var(--color-codex-ink-soft)',
+                                borderRadius: 'var(--codex-r-sm, 3px)',
+                              }}
+                            >
+                              {cat === 'all' ? (t('skills.allCategories') || '全部') : cat}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
                     <div className="max-h-60 overflow-y-auto">
-                      {(() => {
-                        const filteredSkills = skillCategoryFilter === 'all' ? skills : skills.filter(s => s.category === skillCategoryFilter)
-                        if (skillCategoryFilter === 'all') {
-                          const grouped = filteredSkills.reduce((acc, s) => {
-                            if (!acc[s.category]) acc[s.category] = []
-                            acc[s.category].push(s)
-                            return acc
-                          }, {} as Record<string, Skill[]>)
-                          return Object.entries(grouped).map(([category, categorySkills]) => (
+                      {skillCategoryFilter === 'all'
+                        ? Object.entries(groupedSkills).map(([category, categorySkills]) => (
                             <div key={category}>
                               <div
                                 className="px-4 py-1.5 font-mono"
@@ -3121,7 +3159,7 @@ export function Chat() {
                                 {category}
                               </div>
                               {categorySkills.map(s => (
-                                <DropdownItem key={s.id} onClick={() => { setSelectedSkill(s.id); skillArmedRef.current = true; setShowSkillDropdown(false) }}>
+                                <DropdownItem key={s.id} onClick={() => handleSelectSkill(s)}>
                                   <div className="flex flex-col">
                                     <span>{s.name}</span>
                                     {s.estimated_time && (
@@ -3137,9 +3175,8 @@ export function Chat() {
                               ))}
                             </div>
                           ))
-                        }
-                        return filteredSkills.map(s => (
-                          <DropdownItem key={s.id} onClick={() => { setSelectedSkill(s.id); skillArmedRef.current = true; setShowSkillDropdown(false) }}>
+                        : filteredSkills.map(s => (
+                          <DropdownItem key={s.id} onClick={() => handleSelectSkill(s)}>
                             <div className="flex flex-col">
                               <span>{s.name}</span>
                               {s.estimated_time && (
@@ -3152,8 +3189,7 @@ export function Chat() {
                               )}
                             </div>
                           </DropdownItem>
-                        ))
-                      })()}
+                        ))}
                     </div>
                   </DropdownMenu>
                 )}
