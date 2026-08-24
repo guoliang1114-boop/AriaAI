@@ -333,7 +333,9 @@ def build_project_memory_evidence(project: Project, query: str = "") -> dict[str
         f"mode={retrieval_mode}; facets={', '.join(facets)}; "
         f"selected_slots={', '.join(selected_slots)}.",
         "- Citation contract: factual claims based on structured project memory "
-        "must cite the matching [M*] key. Never invent a memory citation key. "
+        "must cite the matching [M*] key in the same sentence. Use the exact ASCII "
+        "square-bracket form [M1], not full-width brackets or a separate source list. "
+        "Never invent a memory citation key. "
         "If selected memory is insufficient, say so and rely on newer raw project evidence.",
     ]
     if project.memory_stale:

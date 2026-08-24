@@ -254,6 +254,7 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - Context Receipt 展示 `focused/overview/full`、命中切面、选中槽位数、记忆证据数与截断告警，但不暴露记忆正文、Prompt 或隐藏推理。
 - 确定性质量门禁扩展到 22 个场景，新增 `memory_retrieval_precision_rate`，发布前必须为 100%。
 - 新增独立手动工作流 `Provider Grounded QA Eval`，在已部署后使用当前配置的真实 Provider/模型运行 4 组合成项目事实问答，评分 `factual_accuracy`、`citation_coverage`、`unsupported_claim_rate` 和 `abstention_accuracy`。
+- 引用合约要求每个事实在同一行/句内使用 ASCII `[E*]`（生产中为 `[K*]` / `[M*]`）；全角括号、独立来源列表或与对应事实分离的引用不计入覆盖率。评分器允许等价语序/表达，但不放宽来源绑定。
 - Provider 评测不读取生产项目正文、不写数据库，报告只保存答案 SHA-256、字符数、指标和 finding；与自动部署解耦，避免第三方 Provider 短暂故障阻断发布。
 - 这一阶段复用 Aria 现有项目 JSON 记忆、消息 metadata、Trace 和 Provider adapter，无数据库迁移，不启动、不导入、不连接 Codex。
 

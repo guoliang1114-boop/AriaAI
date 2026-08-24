@@ -54,3 +54,19 @@ def test_grounded_grader_detects_invalid_citation_and_hallucination():
     assert result["correctly_cited_claim_count"] == 0
     assert result["invalid_citations"] == ["E9"]
     assert result["forbidden_hits"] == ["虚构事实"]
+
+
+def test_grounded_grader_accepts_equivalent_fact_order_but_rejects_full_width_citation():
+    case = {
+        "id": "paraphrase",
+        "evidence": (("E1", "李敏是客户 CFO。"),),
+        "claims": ({"variants": ("客户cfo李敏",), "citation": "E1"},),
+        "forbidden": (),
+    }
+
+    result = grade_grounded_answer(case, "- 客户 CFO 李敏是决策人【E1】")
+
+    assert result["present_claim_count"] == 1
+    assert result["correctly_cited_claim_count"] == 0
+    assert result["observed_citation_count"] == 0
+    assert result["citation_format_mismatch_count"] == 1

@@ -18,8 +18,9 @@ ProviderComplete = Callable[[str, str, int], Awaitable[str]]
 
 GROUNDED_QA_SYSTEM = """You are Aria's grounded project Q&A assistant.
 Use only the evidence supplied in the user message. Do not add outside facts or assumptions.
-For every concrete factual claim, copy the critical fact accurately and place its supporting [E*] citation immediately after the claim.
-Never invent a citation key. If the requested fact is absent, explicitly say that the provided evidence is insufficient and do not guess.
+Write every requested supported fact as a separate bullet. End that same bullet with exactly one matching ASCII citation token such as [E1].
+Use the literal ASCII square-bracket form [E1]; do not use full-width brackets, a separate source list, or citations on the next line.
+Never invent a citation key. Cover every fact type explicitly requested by the question. If a requested fact is absent, explicitly say that the provided evidence is insufficient and do not guess.
 Answer concisely in Chinese."""
 
 _CASES: tuple[dict[str, Any], ...] = (
@@ -31,6 +32,7 @@ _CASES: tuple[dict[str, Any], ...] = (
             ("E2", "第二次迁移演练已延迟 7 天。"),
             ("E3", "下一步是在 2026-09-05 前指定对账签字负责人。"),
         ),
+        "required_fact_types": ("核心依赖风险", "延期天数", "下一步动作与日期"),
         "claims": (
             {"variants": ("atlas供应商", "atlas 供应商"), "citation": "E1"},
             {"variants": ("延迟7天", "延迟 7 天"), "citation": "E2"},
@@ -40,30 +42,54 @@ _CASES: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "project_financial_status",
-        "question": "概括项目合同与回款状态，并指出最近的收款节点。",
+        "question": "请分别说明合同总额、未收款金额，以及最近一笔收款的到期日期。",
         "evidence": (
             ("E1", "合同总额 120 万元，已收款 80 万元，未收款 40 万元。"),
             ("E2", "下一笔 20 万元款项计划于 2026-09-15 到期。"),
         ),
         "claims": (
             {"variants": ("合同总额120万元", "合同总额 120 万元"), "citation": "E1"},
-            {"variants": ("未收款40万元", "未收款 40 万元"), "citation": "E1"},
+            {
+                "variants": (
+                    "未收款40万元",
+                    "未收款 40 万元",
+                    "尚有40万元未回款",
+                    "尚有 40 万元未回款",
+                    "剩余40万元未收",
+                    "40万元未回款",
+                ),
+                "citation": "E1",
+            },
             {"variants": ("2026-09-15", "2026年9月15日"), "citation": "E2"},
         ),
+        "required_fact_types": ("合同总额", "未收款金额", "下一笔收款到期日期"),
         "forbidden": ("合同总额150万元", "未收款70万元", "2026-10-15"),
     },
     {
         "id": "project_stakeholder_preference",
-        "question": "谁是关键决策人，应当如何与她沟通？",
+        "question": "请分别说明关键决策人的姓名与职务，以及沟通频率和沟通形式。",
         "evidence": (
             ("E1", "李敏是客户 CFO，也是本项目的最终业务决策人。"),
             ("E2", "李敏要求每周五收到书面进度更新，不接受只做口头汇报。"),
         ),
         "claims": (
-            {"variants": ("李敏是客户cfo", "李敏是客户 CFO", "李敏是cfo"), "citation": "E1"},
+            {
+                "variants": (
+                    "李敏是客户cfo",
+                    "李敏是客户 CFO",
+                    "李敏是cfo",
+                    "客户cfo李敏",
+                    "客户 CFO 李敏",
+                    "cfo李敏",
+                    "最终业务决策人是李敏",
+                    "最终决策人是李敏",
+                ),
+                "citation": "E1",
+            },
             {"variants": ("每周五", "周五"), "citation": "E2"},
             {"variants": ("书面进度更新", "书面更新"), "citation": "E2"},
         ),
+        "required_fact_types": ("决策人姓名与职务", "沟通频率", "沟通形式"),
         "forbidden": ("王敏", "每周一", "只需口头汇报"),
     },
     {
@@ -75,11 +101,15 @@ _CASES: tuple[dict[str, Any], ...] = (
         ),
         "claims": (),
         "must_abstain": True,
+        "required_fact_types": ("预算上限；证据缺失时明确拒答",),
         "forbidden": ("预算上限为500万元", "预算上限为300万元", "预算是500万元"),
     },
 )
 
 _CITATION_PATTERN = re.compile(r"\[E([1-9][0-9]{0,2})\]")
+_LOOSE_CITATION_PATTERN = re.compile(
+    r"(?:\[|【|（|\()\s*E([1-9][0-9]{0,2})\s*(?:\]|】|）|\))"
+)
 _ABSTENTION_MARKERS = (
     "证据不足",
     "信息不足",
@@ -124,6 +154,8 @@ def _render_case_prompt(case: dict[str, Any]) -> str:
         *[f"[{key}] {content}" for key, content in case["evidence"]],
         "",
         f"用户问题：{case['question']}",
+        "必须逐项覆盖的事实类型：" + "、".join(case.get("required_fact_types") or ()),
+        "输出格式：每个有证据支持的事实单独一条项目符号，并在同一行句末写唯一对应的 ASCII [E*]；证据缺失的事实明确拒答。",
     ]
     return "\n".join(blocks)
 
@@ -152,6 +184,9 @@ def grade_grounded_answer(case: dict[str, Any], answer: str) -> dict[str, Any]:
     ]
     valid_keys = {key for key, _ in case["evidence"]}
     observed_keys = list(dict.fromkeys(f"E{item}" for item in _CITATION_PATTERN.findall(answer)))
+    loosely_observed_keys = list(
+        dict.fromkeys(f"E{item}" for item in _LOOSE_CITATION_PATTERN.findall(answer))
+    )
     invalid_citations = [key for key in observed_keys if key not in valid_keys]
     must_abstain = bool(case.get("must_abstain", False))
     abstained = any(marker in answer.lower() for marker in _ABSTENTION_MARKERS)
@@ -165,6 +200,10 @@ def grade_grounded_answer(case: dict[str, Any], answer: str) -> dict[str, Any]:
         "correctly_cited_claim_count": sum(int(item["correctly_cited"]) for item in claims),
         "forbidden_hits": forbidden_hits,
         "invalid_citations": invalid_citations,
+        "observed_citation_count": len(observed_keys),
+        "citation_format_mismatch_count": len(
+            [key for key in loosely_observed_keys if key not in observed_keys]
+        ),
         "must_abstain": must_abstain,
         "abstained": abstained,
         "passed_abstention": (not must_abstain) or (abstained and not forbidden_hits),
@@ -239,6 +278,10 @@ async def run_grounded_provider_eval(
                 "uncited_claims": item["required_claim_count"] - item["correctly_cited_claim_count"],
                 "forbidden_hits": item["forbidden_hits"],
                 "invalid_citations": item["invalid_citations"],
+                "observed_citation_count": item["observed_citation_count"],
+                "citation_format_mismatch_count": item[
+                    "citation_format_mismatch_count"
+                ],
                 "abstention_failed": item["must_abstain"] and not item["passed_abstention"],
             }
             for item in results
