@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 from app.services.agent_harness.grounded_provider_eval import (
     grade_grounded_answer,
@@ -85,3 +86,52 @@ def test_forbidden_weekday_does_not_false_match_once_per_week():
 
     assert once["forbidden_hits"] == []
     assert monday["forbidden_hits"] == ["每周一"]
+
+
+def test_grounded_provider_eval_retries_transient_overload_only():
+    attempts = 0
+
+    async def flaky_provider(system: str, prompt: str, max_tokens: int) -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("Kimi HTTP 429: engine_overloaded_error")
+        return await _passing_provider(system, prompt, max_tokens)
+
+    with patch("app.services.agent_harness.grounded_provider_eval.asyncio.sleep", new=AsyncMock()):
+        report = asyncio.run(
+            run_grounded_provider_eval(
+                flaky_provider,
+                provider="test",
+                model="test-model",
+            )
+        )
+
+    assert report["release_gate_passed"] is True
+    assert report["cases"][0]["provider_retry_count"] == 1
+    assert attempts == 5
+
+
+def test_grounded_provider_eval_does_not_retry_non_transient_errors():
+    attempts = 0
+
+    async def broken_provider(_system: str, _prompt: str, _max_tokens: int) -> str:
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("No API key configured")
+
+    with patch("app.services.agent_harness.grounded_provider_eval.asyncio.sleep", new=AsyncMock()):
+        try:
+            asyncio.run(
+                run_grounded_provider_eval(
+                    broken_provider,
+                    provider="test",
+                    model="test-model",
+                )
+            )
+        except RuntimeError as exc:
+            assert "No API key" in str(exc)
+        else:  # pragma: no cover
+            raise AssertionError("expected provider configuration error")
+
+    assert attempts == 1

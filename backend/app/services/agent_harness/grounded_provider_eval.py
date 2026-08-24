@@ -7,6 +7,7 @@ and abstention when evidence is missing.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -15,6 +16,8 @@ from typing import Any, Awaitable, Callable
 
 
 ProviderComplete = Callable[[str, str, int], Awaitable[str]]
+PROVIDER_EVAL_MAX_ATTEMPTS = 3
+PROVIDER_EVAL_RETRY_DELAYS_SECONDS = (2.0, 5.0)
 
 GROUNDED_QA_SYSTEM = """You are Aria's grounded project Q&A assistant.
 Use only the evidence supplied in the user message. Do not add outside facts or assumptions.
@@ -239,6 +242,43 @@ def _ratio(passed: int, total: int) -> float:
     return round(passed / total, 4) if total else 1.0
 
 
+def _is_transient_provider_error(exc: BaseException) -> bool:
+    message = str(exc or "").lower()
+    return any(
+        marker in message
+        for marker in (
+            "http 429",
+            "rate limit",
+            "overloaded",
+            "temporarily unavailable",
+            "timeout",
+            "timed out",
+            "http 502",
+            "http 503",
+            "http 504",
+        )
+    )
+
+
+async def _complete_with_bounded_retry(
+    complete: ProviderComplete,
+    system: str,
+    prompt: str,
+    max_tokens: int,
+) -> tuple[str, int]:
+    retries = 0
+    for attempt in range(PROVIDER_EVAL_MAX_ATTEMPTS):
+        try:
+            return await complete(system, prompt, max_tokens), retries
+        except Exception as exc:
+            is_last_attempt = attempt + 1 >= PROVIDER_EVAL_MAX_ATTEMPTS
+            if is_last_attempt or not _is_transient_provider_error(exc):
+                raise
+            retries += 1
+            await asyncio.sleep(PROVIDER_EVAL_RETRY_DELAYS_SECONDS[attempt])
+    raise RuntimeError("provider evaluation retry loop exhausted")  # pragma: no cover
+
+
 async def run_grounded_provider_eval(
     complete: ProviderComplete,
     *,
@@ -251,12 +291,14 @@ async def run_grounded_provider_eval(
     started = time.perf_counter()
     for case in _CASES:
         case_started = time.perf_counter()
-        answer = await complete(
+        answer, provider_retry_count = await _complete_with_bounded_retry(
+            complete,
             GROUNDED_QA_SYSTEM,
             _render_case_prompt(case),
             700,
         )
         result = grade_grounded_answer(case, str(answer or ""))
+        result["provider_retry_count"] = provider_retry_count
         result["duration_ms"] = round((time.perf_counter() - case_started) * 1000)
         results.append(result)
 
