@@ -96,6 +96,8 @@ def build_context_receipt(run_id: str, runtime: Any) -> dict[str, Any]:
         warnings.append("project_memory_missing")
     elif memory_status == "stale":
         warnings.append("project_memory_stale")
+    if bool(memory.get("truncated", False)):
+        warnings.append("memory_retrieval_truncated")
     if skill_status == "ambiguous":
         warnings.append("skill_match_ambiguous")
     if evidence["compacted"]:

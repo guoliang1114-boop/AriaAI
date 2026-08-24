@@ -33,6 +33,10 @@ from app.services.agent_harness.knowledge_evidence import (
     knowledge_evidence_reference,
     resolve_runtime_knowledge_evidence,
 )
+from app.services.agent_harness.project_memory_evidence import (
+    project_memory_evidence_reference,
+    resolve_runtime_project_memory_evidence,
+)
 from app.services.agent_harness.conversation_capsule import (
     advance_conversation_capsule,
 )
@@ -1031,6 +1035,20 @@ async def run_persist(
             stage="completion_evaluation",
             **evidence_ref,
         )
+    resolved_memory_evidence, cited_memory_references = (
+        resolve_runtime_project_memory_evidence(runtime, full_text)
+    )
+    if resolved_memory_evidence:
+        state.project_memory_evidence = resolved_memory_evidence
+        memory_evidence_ref = project_memory_evidence_reference(
+            resolved_memory_evidence
+        )
+        state.record_trace_event(
+            "project_memory_citations_resolved",
+            stage="completion_evaluation",
+            **memory_evidence_ref,
+        )
+        cited_references = [*cited_memory_references, *cited_references]
 
     # Deterministic completion evidence gate. Unlike a model reviewer this is
     # stable across providers and only consumes bounded Aria audit summaries.
@@ -1080,6 +1098,8 @@ async def run_persist(
         metadata["references"] = cited_references
     if resolved_evidence:
         metadata["knowledge_evidence"] = resolved_evidence
+    if resolved_memory_evidence:
+        metadata["project_memory_evidence"] = resolved_memory_evidence
     if state.tool_call_events:
         metadata["tool_calls"] = state.tool_call_events
     if pending_action_ids:

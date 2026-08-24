@@ -66,6 +66,9 @@ from app.services.agent_harness.context_receipt import build_context_receipt
 from app.services.agent_harness.knowledge_evidence import (
     resolve_runtime_knowledge_evidence,
 )
+from app.services.agent_harness.project_memory_evidence import (
+    resolve_runtime_project_memory_evidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +234,13 @@ def _persist_interrupted_turn(
     if resolved_evidence:
         state.knowledge_evidence = resolved_evidence
         metadata["knowledge_evidence"] = resolved_evidence
+    resolved_memory_evidence, memory_references = (
+        resolve_runtime_project_memory_evidence(runtime, full_text)
+    )
+    if resolved_memory_evidence:
+        state.project_memory_evidence = resolved_memory_evidence
+        metadata["project_memory_evidence"] = resolved_memory_evidence
+        references = [*memory_references, *references]
     if references:
         metadata["references"] = references
 
@@ -318,6 +328,13 @@ def _persist_phase_error_events(
     if resolved_evidence:
         state.knowledge_evidence = resolved_evidence
         metadata["knowledge_evidence"] = resolved_evidence
+    resolved_memory_evidence, memory_references = (
+        resolve_runtime_project_memory_evidence(runtime, full_text)
+    )
+    if resolved_memory_evidence:
+        state.project_memory_evidence = resolved_memory_evidence
+        metadata["project_memory_evidence"] = resolved_memory_evidence
+        references = [*memory_references, *references]
     if references:
         metadata["references"] = references
 
@@ -425,6 +442,9 @@ async def stream_chat_events(
         context_manifest=dict(getattr(runtime, "context_manifest", None) or {}),
         knowledge_evidence=dict(
             getattr(runtime, "knowledge_evidence_manifest", None) or {}
+        ),
+        project_memory_evidence=dict(
+            getattr(runtime, "project_memory_evidence_manifest", None) or {}
         ),
     )
     state.run_id = make_run_id()

@@ -16,6 +16,9 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.models.db import Project, Skill
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.mode_registry import ActionPolicy, ToolAccessPolicy
+from app.services.agent_harness.project_memory_evidence import (
+    select_project_memory_slots,
+)
 from app.services.context_builder.memory_formatters import (
     _format_project_memory_for_prompt,
 )
@@ -52,6 +55,21 @@ _LIFECYCLE_CASES = (
     ("不用这个技能，回到普通对话", False, True),
     ("换个话题，另一个问题", False, True),
     ("这个项目目前最大的交付风险是什么？", False, True),
+)
+
+_MEMORY_EVAL_ALL_SLOTS = (
+    "project_brief",
+    "current_stage",
+    "current_objective",
+    "recent_progress",
+    "key_risks",
+    "open_questions",
+    "next_actions",
+    "important_documents",
+    "financial_status",
+    "delivery_signals",
+    "stakeholder_notes",
+    "client_stakeholders",
 )
 
 
@@ -191,6 +209,31 @@ def _memory_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _memory_retrieval_results() -> tuple[int, int, list[dict[str, Any]]]:
+    cases = (
+        ("项目风险、阻塞和下一步是什么？", {"key_risks", "open_questions", "next_actions"}, {"financial_status", "client_stakeholders"}),
+        ("合同回款、预算和现金流怎么样？", {"financial_status"}, {"client_stakeholders", "important_documents"}),
+        ("关键干系人的诉求和沟通偏好是什么？", {"client_stakeholders", "stakeholder_notes"}, {"financial_status", "important_documents"}),
+        ("应该优先阅读哪些项目文档？", {"important_documents"}, {"financial_status", "client_stakeholders"}),
+        ("全面盘点项目所有方面", set(_MEMORY_EVAL_ALL_SLOTS), set()),
+    )
+    details: list[dict[str, Any]] = []
+    for content, required, forbidden in cases:
+        mode, facets, slots = select_project_memory_slots(content)
+        slot_set = set(slots)
+        passed = required.issubset(slot_set) and not (forbidden & slot_set)
+        details.append(
+            {
+                "content": content,
+                "mode": mode,
+                "facets": list(facets),
+                "selected_slots": list(slots),
+                "passed": passed,
+            }
+        )
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def _constraint_results() -> tuple[int, int, list[dict[str, Any]]]:
     cases = (
         (
@@ -226,6 +269,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "skill_lifecycle_accuracy": _lifecycle_results(),
         "advisory_skill_safety_rate": _advisory_safety_results(),
         "memory_freshness_guard_rate": _memory_results(),
+        "memory_retrieval_precision_rate": _memory_retrieval_results(),
         "constraint_retention_rate": _constraint_results(),
     }
     metrics = {

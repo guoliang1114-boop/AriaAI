@@ -1,6 +1,6 @@
 import type { Reference } from '../types/api'
 
-const CITATION_KEY_PATTERN = /^K[1-9][0-9]{0,2}$/
+const CITATION_KEY_PATTERN = /^(?:K|M)[1-9][0-9]{0,2}$/
 
 export function knowledgeReferenceLabel(reference: Reference, index: number): string {
   const citationKey = String(reference.citation_key || '').trim()
@@ -15,7 +15,7 @@ export function normalizeKnowledgeReferences(value: unknown): Reference[] {
     const type = String(item.type || '')
     const id = Number(item.id)
     const title = String(item.title || '').trim()
-    if (!['skill', 'doc', 'file', 'milestone'].includes(type)) return []
+    if (!['skill', 'doc', 'file', 'milestone', 'memory'].includes(type)) return []
     if (!Number.isInteger(id) || id < 0 || !title) return []
     const citationKey = String(item.citation_key || '').trim()
     return [{
@@ -27,6 +27,8 @@ export function normalizeKnowledgeReferences(value: unknown): Reference[] {
       ...(Number.isInteger(Number(item.chunk_index)) ? { chunk_index: Number(item.chunk_index) } : {}),
       ...(typeof item.score === 'number' ? { score: item.score } : {}),
       ...(typeof item.content_sha256 === 'string' ? { content_sha256: item.content_sha256 } : {}),
+      ...(Number.isInteger(Number(item.memory_version)) ? { memory_version: Number(item.memory_version) } : {}),
+      ...(typeof item.memory_slot === 'string' ? { memory_slot: item.memory_slot } : {}),
       ...(item.schema_version === 1 ? { schema_version: 1 as const } : {}),
     }]
   }).slice(0, 12)

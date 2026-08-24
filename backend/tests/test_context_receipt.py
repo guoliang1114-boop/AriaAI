@@ -12,6 +12,14 @@ def _runtime(**overrides):
                 "status": "stale",
                 "version": 3,
                 "raw_context_available": True,
+                "retrieval_mode": "focused",
+                "query_facets": ["risk"],
+                "selected_slots": ["key_risks", "open_questions", "next_actions"],
+                "selected_slot_count": 3,
+                "available_slot_count": 8,
+                "omitted_slot_count": 5,
+                "selected_item_count": 6,
+                "truncated": False,
             },
             "evidence": {
                 "workspace_context": True,
@@ -42,11 +50,11 @@ def test_build_context_receipt_reports_advisory_skill_and_stale_memory():
 
     assert event["schema_version"] == 1
     assert event["scope"] == "project"
-    assert event["memory"] == {
-        "status": "stale",
-        "version": 3,
-        "raw_context_available": True,
-    }
+    assert event["memory"]["status"] == "stale"
+    assert event["memory"]["version"] == 3
+    assert event["memory"]["raw_context_available"] is True
+    assert event["memory"]["retrieval_mode"] == "focused"
+    assert event["memory"]["selected_item_count"] == 6
     assert event["skill"]["status"] == "applied"
     assert event["skill"]["usage_mode"] == "advisory"
     assert event["evidence"]["knowledge_reference_count"] == 1

@@ -199,6 +199,10 @@ class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
         self.assertEqual(chat_context.context_receipt["scope"], "project")
         self.assertEqual(chat_context.context_receipt["memory"]["status"], "stale")
         self.assertEqual(chat_context.context_receipt["memory"]["version"], 4)
+        self.assertEqual(chat_context.context_receipt["memory"]["retrieval_mode"], "focused")
+        self.assertIn("key_risks", chat_context.context_receipt["memory"]["selected_slots"])
+        self.assertNotIn("financial_status", chat_context.context_receipt["memory"]["selected_slots"])
+        self.assertTrue(chat_context.project_memory_evidence_manifest)
 
     def test_project_context_receipt_marks_missing_memory_without_hiding_raw_context(self):
         with Session(self.engine) as session:

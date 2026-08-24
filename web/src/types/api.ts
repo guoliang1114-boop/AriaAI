@@ -821,7 +821,7 @@ export interface Message {
 }
 
 export interface Reference {
-  type: 'skill' | 'doc' | 'file' | 'milestone'
+  type: 'skill' | 'doc' | 'file' | 'milestone' | 'memory'
   id: number
   title: string
   schema_version?: 1
@@ -830,6 +830,8 @@ export interface Reference {
   chunk_index?: number
   score?: number
   content_sha256?: string
+  memory_version?: number
+  memory_slot?: string
 }
 
 export interface KnowledgeEvidenceManifest {

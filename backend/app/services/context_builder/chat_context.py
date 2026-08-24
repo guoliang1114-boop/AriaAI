@@ -4,6 +4,9 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from app.models.db import ClientRecord, Project
+from app.services.agent_harness.project_memory_evidence import (
+    build_project_memory_evidence,
+)
 from app.services.context_builder.assembly import ContextSourceInput
 from app.services.context_builder.memory_formatters import _format_client_memory_for_prompt
 from app.services.context_builder.project_context import build_project_context
@@ -29,6 +32,7 @@ class ChatContext:
         rag_context: str = "",
         rag_sources: Optional[list] = None,
         knowledge_evidence_manifest: Optional[dict] = None,
+        project_memory_evidence_manifest: Optional[dict] = None,
         tools: Optional[list] = None,
         max_tokens: int = 4096,
         context_sources: Optional[list[ContextSourceInput]] = None,
@@ -39,6 +43,7 @@ class ChatContext:
         self.rag_context = rag_context
         self.rag_sources = rag_sources or []
         self.knowledge_evidence_manifest = knowledge_evidence_manifest or {}
+        self.project_memory_evidence_manifest = project_memory_evidence_manifest or {}
         self.tools = tools
         self.max_tokens = max_tokens
         self.context_sources = tuple(context_sources or ())
@@ -101,14 +106,33 @@ def build_chat_context(
         workspace_inventory_context = build_workspace_project_inventory_context(
             session, content, force=force_inventory, accessible_project_ids=accessible_project_ids
         )
+    project_memory_bundle = (
+        build_project_memory_evidence(project, content)
+        if project is not None and not portfolio_context and not workspace_inventory_context
+        else {"prompt": "", "manifest": {}, "selection": {}}
+    )
     if current_project_only and project_id:
-        project_context = build_project_context(session, project_id, file_ids, content=content, mention_context=mention_context)
+        project_context = build_project_context(
+            session,
+            project_id,
+            file_ids,
+            content=content,
+            mention_context=mention_context,
+            memory_evidence_bundle=project_memory_bundle,
+        )
     elif portfolio_context:
         project_context = portfolio_context
     elif workspace_inventory_context:
         project_context = workspace_inventory_context
     elif project_id:
-        project_context = build_project_context(session, project_id, file_ids, content=content, mention_context=mention_context)
+        project_context = build_project_context(
+            session,
+            project_id,
+            file_ids,
+            content=content,
+            mention_context=mention_context,
+            memory_evidence_bundle=project_memory_bundle,
+        )
     else:
         project_context = build_lightweight_workspace_context(session, accessible_project_ids)
 
@@ -173,6 +197,7 @@ def build_chat_context(
             "status": memory_status,
             "version": memory_version,
             "raw_context_available": bool(project_context.strip()),
+            **dict(project_memory_bundle.get("selection") or {}),
         },
         "evidence": {
             "workspace_context": bool(project_context.strip()),
@@ -187,6 +212,7 @@ def build_chat_context(
         rag_context=rag_data["text"],
         rag_sources=rag_data["sources"],
         knowledge_evidence_manifest=rag_data.get("evidence_manifest") or {},
+        project_memory_evidence_manifest=project_memory_bundle.get("manifest") or {},
         tools=_merge_project_chat_tools(skill_ctx.tools, project_id),
         max_tokens=skill_ctx.max_tokens or default_max_tokens,
         context_receipt=context_receipt,
@@ -210,6 +236,7 @@ def build_chat_context(
                     "context_scope": context_scope,
                     "memory_status": memory_status,
                     "memory_version": memory_version,
+                    "memory_retrieval": dict(project_memory_bundle.get("selection") or {}),
                 },
             ),
             ContextSourceInput(

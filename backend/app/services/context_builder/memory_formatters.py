@@ -1,75 +1,25 @@
 """Memory formatters for context builder."""
+from __future__ import annotations
+
 import json
 
 from app.models.db import ClientRecord, Project
-from app.services.project_contexts import get_project_memory_payload
+from app.services.agent_harness.project_memory_evidence import (
+    build_project_memory_evidence,
+)
 from app.services.stakeholder_contexts import format_client_stakeholders_for_prompt
 
 
-def _format_project_memory_for_prompt(project: Project) -> str:
-    memory = get_project_memory_payload(project)
-    if not memory or (project.memory_version or 0) <= 0:
-        return ""
+def _format_project_memory_for_prompt(
+    project: Project,
+    query: str = "",
+    *,
+    evidence_bundle: dict | None = None,
+) -> str:
+    """Render only the structured-memory slots relevant to this question."""
 
-    lines: list[str] = []
-    if project.memory_stale:
-        lines.append(
-            "- Memory freshness: STALE. Treat this synthesized memory as provisional; "
-            "prefer newer milestones, todos, progress updates, files, and current user input. "
-            "If the answer materially depends on a stale item, disclose that limitation."
-        )
-    if memory.get("project_brief"):
-        lines.append(f"- Project brief: {memory['project_brief']}")
-    if memory.get("current_stage"):
-        lines.append(f"- Current stage: {memory['current_stage']}")
-    if memory.get("current_objective"):
-        lines.append(f"- Current objective: {memory['current_objective']}")
-
-    for key, label in (
-        ("recent_progress", "Recent progress"),
-        ("key_risks", "Key risks"),
-        ("open_questions", "Open questions"),
-        ("next_actions", "Next actions"),
-    ):
-        items = [str(item).strip() for item in (memory.get(key) or []) if str(item).strip()]
-        if items:
-            lines.append(f"- {label}: " + "; ".join(items[:4]))
-
-    important_documents = memory.get("important_documents") or []
-    document_bits: list[str] = []
-    for document in important_documents[:4]:
-        if isinstance(document, dict):
-            name = str(document.get("name") or "").strip()
-            summary = str(document.get("summary") or "").strip()
-            if name and summary:
-                document_bits.append(f"{name}: {summary}")
-            elif name:
-                document_bits.append(name)
-        elif document:
-            document_bits.append(str(document).strip())
-    if document_bits:
-        lines.append("- Important documents: " + "; ".join(document_bits))
-
-    if memory.get("financial_status"):
-        lines.append(f"- Financial status: {memory['financial_status']}")
-
-    structured = memory.get("client_stakeholders") or []
-    if isinstance(structured, list):
-        structured_context = format_client_stakeholders_for_prompt(
-            [item for item in structured if isinstance(item, dict)],
-            title="Client stakeholders",
-        )
-        if structured_context:
-            lines.append(structured_context)
-
-    if not lines:
-        return ""
-    heading = (
-        "**Structured Project Memory (STALE):**"
-        if project.memory_stale
-        else "**Structured Project Memory:**"
-    )
-    return heading + "\n" + "\n".join(lines)
+    bundle = evidence_bundle or build_project_memory_evidence(project, query)
+    return str(bundle.get("prompt") or "")
 
 
 def _format_client_memory_for_prompt(client: ClientRecord) -> str:

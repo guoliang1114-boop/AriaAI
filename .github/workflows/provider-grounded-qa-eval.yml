@@ -1,0 +1,35 @@
+name: Provider Grounded QA Eval
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: provider-grounded-qa-eval
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  provider-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Run grounded project QA against configured provider
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          command_timeout: 15m
+          script: |
+            set -eu
+            BACKEND_DIR="/www/wwwroot/AriaAI/backend"
+            cd "$BACKEND_DIR"
+            PYTHON=".venv/bin/python3"
+            if [ ! -x "$PYTHON" ]; then
+              PYTHON=".venv/bin/python"
+            fi
+            "$PYTHON" scripts/grounded_provider_eval.py --enforce

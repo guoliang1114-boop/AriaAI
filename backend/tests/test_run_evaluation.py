@@ -19,6 +19,11 @@ from app.services.agent_harness.knowledge_evidence import (
     build_knowledge_evidence_manifest,
     resolve_knowledge_citations,
 )
+from app.services.agent_harness.project_memory_evidence import (
+    build_project_memory_evidence,
+    resolve_project_memory_citations,
+)
+from app.models.db import Project
 from app.services.chat.agent_step import AgentStep
 from app.services.chat.mode_registry import ActionPolicy
 from app.services.chat.persist import run_persist
@@ -95,6 +100,39 @@ def test_uncited_knowledge_evidence_is_a_non_blocking_warning() -> None:
     assert [finding.code for finding in evaluation.findings] == [
         "KNOWLEDGE_EVIDENCE_UNCITED"
     ]
+
+
+def test_valid_project_memory_citation_passes_completion_evidence() -> None:
+    project = Project(
+        id=9,
+        name="Synthetic project",
+        client="Synthetic client",
+        status="delivering",
+        memory_version=2,
+        context_memory_json='{"key_risks":{"ai":["Vendor dependency"],"pinned":[]}}',
+    )
+    manifest = build_project_memory_evidence(project, "项目风险是什么？")["manifest"]
+    citation_key = next(
+        entry["citation_key"]
+        for entry in manifest["entries"]
+        if entry["slot"] == "key_risks"
+    )
+    answer = f"供应商依赖 [{citation_key}]"
+    resolved, _ = resolve_project_memory_citations(manifest, answer)
+    state = ChatSessionState(
+        project_memory_evidence=resolved,
+        steps=[AgentStep(index=0, model_text="answer", status="completed")],
+    )
+
+    evaluation = evaluate_run_completion(
+        _runtime(),
+        state,
+        full_text=answer,
+    )
+
+    assert evaluation.verdict is CompletionVerdict.COMPLETED
+    assert evaluation.checks["project_memory_evidence"] == "passed"
+    assert evaluation.evidence["project_memory_evidence"]["cited_count"] == 1
 
 
 def test_missing_required_artifact_is_a_failed_verdict() -> None:

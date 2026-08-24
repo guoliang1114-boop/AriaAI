@@ -31,6 +31,9 @@ from app.services.agent_harness.context_budget import (
 )
 from app.services.agent_harness.tool_transcript import normalize_tool_transcript
 from app.services.agent_harness.knowledge_evidence import knowledge_evidence_reference
+from app.services.agent_harness.project_memory_evidence import (
+    project_memory_evidence_reference,
+)
 from app.services.agent_harness.conversation_capsule import (
     build_conversation_capsule,
     conversation_capsule_reference,
@@ -1122,6 +1125,9 @@ def prepare_chat_runtime(
     prepare_metrics["knowledge_evidence"] = knowledge_evidence_reference(
         chat_ctx.knowledge_evidence_manifest
     )
+    prepare_metrics["project_memory_evidence"] = project_memory_evidence_reference(
+        chat_ctx.project_memory_evidence_manifest
+    )
     prepare_metrics["history_message_count"] = len(api_messages)
     prepare_metrics["history_summarized_message_count"] = context_assembly.budget_report.summarized_messages
     prepare_metrics["intent_frame"] = intent_frame
@@ -1152,6 +1158,7 @@ def prepare_chat_runtime(
         api_messages=api_messages,
         rag_sources=chat_ctx.rag_sources,
         knowledge_evidence_manifest=chat_ctx.knowledge_evidence_manifest,
+        project_memory_evidence_manifest=chat_ctx.project_memory_evidence_manifest,
         tools=runtime_tools,
         max_tokens=runtime_max_tokens,
         temperature=temperature,

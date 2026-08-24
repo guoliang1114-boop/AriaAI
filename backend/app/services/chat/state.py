@@ -14,6 +14,9 @@ from app.services.agent_harness.run_output_record import (
     normalize_run_output_records,
 )
 from app.services.agent_harness.knowledge_evidence import knowledge_evidence_reference
+from app.services.agent_harness.project_memory_evidence import (
+    project_memory_evidence_reference,
+)
 from app.services.chat.agent_step import AgentStep
 from app.tools.capabilities import (
     TOOL_CAPABILITY_MANIFEST_VERSION,
@@ -44,6 +47,7 @@ class ChatSessionState:
     run_evaluation: dict[str, Any] = field(default_factory=dict)
     context_manifest: dict[str, Any] = field(default_factory=dict)
     knowledge_evidence: dict[str, Any] = field(default_factory=dict)
+    project_memory_evidence: dict[str, Any] = field(default_factory=dict)
     run_outputs: list[dict[str, Any]] = field(default_factory=list)
     turn_receipt: dict[str, Any] = field(default_factory=dict)
     context_receipt: dict[str, Any] = field(default_factory=dict)
@@ -154,6 +158,11 @@ class ChatSessionState:
         evidence_ref = knowledge_evidence_reference(self.knowledge_evidence)
         if evidence_ref["evidence_count"]:
             record["knowledge_evidence"] = evidence_ref
+        memory_evidence_ref = project_memory_evidence_reference(
+            self.project_memory_evidence
+        )
+        if memory_evidence_ref["evidence_count"]:
+            record["project_memory_evidence"] = memory_evidence_ref
         stored = append_run_output_record(self.run_outputs, record)
         payload = dict(artifact)
         payload["output_id"] = stored["output_id"]

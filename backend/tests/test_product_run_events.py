@@ -130,7 +130,18 @@ class ContextReceiptTest(unittest.TestCase):
             make_run_id(),
             scope="project",
             project={"id": 26, "name": "Transformation"},
-            memory={"status": "stale", "version": 4, "raw_context_available": True},
+            memory={
+                "status": "stale",
+                "version": 4,
+                "raw_context_available": True,
+                "retrieval_mode": "focused",
+                "query_facets": ["risk"],
+                "selected_slots": ["key_risks", "open_questions", "next_actions"],
+                "selected_slot_count": 3,
+                "available_slot_count": 8,
+                "omitted_slot_count": 5,
+                "selected_item_count": 6,
+            },
             skill={
                 "status": "applied",
                 "usage_mode": "advisory",
@@ -154,6 +165,8 @@ class ContextReceiptTest(unittest.TestCase):
 
         self.assertEqual(event["type"], EventType.CONTEXT_RECEIPT)
         self.assertEqual(event["memory"]["version"], 4)
+        self.assertEqual(event["memory"]["retrieval_mode"], "focused")
+        self.assertEqual(event["memory"]["selected_item_count"], 6)
         self.assertEqual(event["skill"]["usage_mode"], "advisory")
         self.assertEqual(event["evidence"]["knowledge_reference_count"], 2)
         self.assertNotIn("prompt", event)
@@ -188,6 +201,16 @@ class ContextReceiptTest(unittest.TestCase):
                 skill={"status": "not_used", "usage_mode": "none"},
                 evidence={},
                 warnings=["raw_prompt_exposed"],
+            )
+
+    def test_context_receipt_rejects_unknown_memory_retrieval_mode(self):
+        with self.assertRaises(ValueError):
+            context_receipt(
+                make_run_id(),
+                scope="project",
+                memory={"status": "ready", "version": 1, "retrieval_mode": "guess"},
+                skill={"status": "not_used", "usage_mode": "none"},
+                evidence={},
             )
 
 

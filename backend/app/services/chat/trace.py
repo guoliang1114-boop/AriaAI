@@ -24,6 +24,9 @@ from app.services.agent_harness.tool_execution_record import (
     tool_event_is_omission_marker,
 )
 from app.services.agent_harness.knowledge_evidence import knowledge_evidence_reference
+from app.services.agent_harness.project_memory_evidence import (
+    project_memory_evidence_reference,
+)
 from app.services.agent_harness.conversation_capsule import conversation_capsule_reference
 from app.services.agent_harness.instruction_manifest import instruction_manifest_reference
 from app.services.chat.state import ChatSessionState
@@ -149,6 +152,9 @@ def build_chat_trace_payload(runtime: ChatRuntime, state: ChatSessionState) -> d
             ),
             "knowledge_evidence": knowledge_evidence_reference(
                 getattr(state, "knowledge_evidence", None)
+            ),
+            "project_memory_evidence": project_memory_evidence_reference(
+                getattr(state, "project_memory_evidence", None)
             ),
             "context_receipt": dict(getattr(state, "context_receipt", None) or {}),
         },

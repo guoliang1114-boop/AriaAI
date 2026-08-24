@@ -376,6 +376,9 @@ function MainContextReceiptSummary({ receipt }: { receipt: ContextReceiptEvent }
     : receipt.skill.status === 'ambiguous'
       ? `Skill 候选有歧义：${(receipt.skill.candidates || []).map((item) => item.name).join(' / ')}`
       : '未额外启用 Skill'
+  const memoryRetrievalLabel = receipt.memory.selected_item_count > 0
+    ? `${receipt.memory.retrieval_mode === 'full' ? '全量' : '按问题'}召回 ${receipt.memory.selected_item_count} 条记忆 / ${receipt.memory.selected_slot_count} 个槽位`
+    : ''
   const evidenceBits = [
     receipt.evidence.knowledge_reference_count > 0
       ? `${receipt.evidence.knowledge_reference_count} 条知识证据`
@@ -400,7 +403,10 @@ function MainContextReceiptSummary({ receipt }: { receipt: ContextReceiptEvent }
         fontSize: 11,
       }}
     >
-      <div><strong>本轮依据</strong> · {memoryLabel} · {skillLabel}</div>
+      <div>
+        <strong>本轮依据</strong> · {memoryLabel}
+        {memoryRetrievalLabel ? ` · ${memoryRetrievalLabel}` : ''} · {skillLabel}
+      </div>
       {evidenceBits.length > 0 && <div style={{ marginTop: 2 }}>{evidenceBits.join(' · ')}</div>}
     </div>
   )

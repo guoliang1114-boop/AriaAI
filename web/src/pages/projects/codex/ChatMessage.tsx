@@ -211,10 +211,13 @@ function PersistentContextReceipt({ receipt }: { receipt: ContextReceiptEvent })
       : '未额外启用 Skill'
   const evidenceCount = receipt.evidence.knowledge_reference_count
     + receipt.evidence.attached_file_count
+  const retrievalLabel = receipt.memory.selected_item_count > 0
+    ? ` · ${receipt.memory.retrieval_mode === 'full' ? '全量' : '按问题'}召回 ${receipt.memory.selected_item_count} 条记忆`
+    : ''
   return (
     <details style={{ marginTop: 8, fontSize: 11.5, color: 'var(--ink-mute)' }}>
       <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
-        本轮依据 · {memoryLabel} · {skillLabel}
+        本轮依据 · {memoryLabel}{retrievalLabel} · {skillLabel}
       </summary>
       <div style={{ marginTop: 4, paddingLeft: 14 }}>
         {evidenceCount > 0 ? `${evidenceCount} 项文件/知识证据` : '未附加文件或知识证据'}

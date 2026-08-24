@@ -128,6 +128,13 @@ query embedding
 
 RAG 不直接决定答案。它只是 context builder 的一个上下文层。
 
+当前对话已将两类可核验证据分开建模：
+
+- `[K*]` 表示知识库/RAG 文档片段，由 `KnowledgeEvidenceManifest v1` 校验。
+- `[M*]` 表示当轮按问题召回的项目记忆，由 `Project Memory Evidence Manifest v1` 校验。
+
+两类正文都只进入当次 Provider 上下文；持久化消息、Trace 和交付物只保存来源元数据、内容摘要和实际被回指的合法引用。这使得文档证据与记忆证据可以在同一答案中同时展示，但不会混淆来源语义。
+
 对话装配顺序应遵循：
 
 1. 身份和模式 prompt。

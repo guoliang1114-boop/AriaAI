@@ -83,6 +83,7 @@ def build_project_context(
     file_ids: Optional[list[int]] = None,
     content: str = "",
     mention_context: Optional[dict] = None,
+    memory_evidence_bundle: Optional[dict] = None,
 ) -> str:
     """Build context for a specific project including files, milestones, financials."""
     project = session.get(Project, project_id)
@@ -146,7 +147,11 @@ def build_project_context(
                 lines.append(f"\n{focus_context}")
 
     # Prefer structured project memory over legacy free-form summary
-    memory_context = _format_project_memory_for_prompt(project)
+    memory_context = _format_project_memory_for_prompt(
+        project,
+        content,
+        evidence_bundle=memory_evidence_bundle,
+    )
     if memory_context:
         lines.append(f"\n{memory_context}")
     elif project.context_summary:

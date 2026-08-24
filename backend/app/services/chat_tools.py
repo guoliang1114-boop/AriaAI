@@ -53,6 +53,9 @@ class ChatRuntime:
     # retained as the frontend-safe compatibility view; retrieved chunk text
     # exists only inside ``system`` while the provider request is assembled.
     knowledge_evidence_manifest: dict | None = None
+    # Query-aware Project Memory Evidence v1. The manifest retains only slot
+    # identities and content digests; selected memory text stays in ``system``.
+    project_memory_evidence_manifest: dict | None = None
     intent_prepared_async: bool = False
     # Per-turn context budgeting. Production runtime construction always sets
     # these values; zero keeps direct test/recovery constructors backward

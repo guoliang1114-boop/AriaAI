@@ -89,6 +89,7 @@ export type ContextSkillUsageMode = "none" | "advisory" | "workflow";
 export type ContextWarningCode =
   | "project_memory_missing"
   | "project_memory_stale"
+  | "memory_retrieval_truncated"
   | "skill_match_ambiguous"
   | "context_compacted";
 
@@ -102,6 +103,14 @@ export interface ContextReceiptEvent {
     status: ContextMemoryStatus;
     version: number;
     raw_context_available: boolean;
+    retrieval_mode: "none" | "overview" | "focused" | "full";
+    query_facets: string[];
+    selected_slots: string[];
+    selected_slot_count: number;
+    available_slot_count: number;
+    omitted_slot_count: number;
+    selected_item_count: number;
+    truncated: boolean;
   };
   skill: {
     status: ContextSkillStatus;

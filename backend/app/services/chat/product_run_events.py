@@ -188,12 +188,14 @@ CONTEXT_RECEIPT_MAX_CANDIDATES = 3
 
 _CONTEXT_SCOPES = frozenset({"chat", "project", "client_portfolio", "workspace"})
 _MEMORY_STATUSES = frozenset({"not_applicable", "missing", "stale", "ready"})
+_MEMORY_RETRIEVAL_MODES = frozenset({"none", "overview", "focused", "full"})
 _SKILL_RECEIPT_STATUSES = frozenset({"applied", "ambiguous", "not_used"})
 _SKILL_USAGE_MODES = frozenset({"none", "advisory", "workflow"})
 _CONTEXT_WARNING_CODES = frozenset(
     {
         "project_memory_missing",
         "project_memory_stale",
+        "memory_retrieval_truncated",
         "skill_match_ambiguous",
         "context_compacted",
     }
@@ -341,6 +343,32 @@ def context_receipt(
         memory_version = max(0, int(memory.get("version") or 0))
     except (TypeError, ValueError) as exc:
         raise ValueError("context_receipt.memory.version is invalid") from exc
+    memory_retrieval_mode = _require_in(
+        str(memory.get("retrieval_mode") or "none"),
+        _MEMORY_RETRIEVAL_MODES,
+        "context_receipt.memory.retrieval_mode",
+    )
+    selected_slots = [
+        str(slot).strip()[:80]
+        for slot in list(memory.get("selected_slots") or [])[:12]
+        if str(slot).strip()
+    ]
+    query_facets = [
+        str(facet).strip()[:40]
+        for facet in list(memory.get("query_facets") or [])[:5]
+        if str(facet).strip()
+    ]
+    memory_counts: dict[str, int] = {}
+    for key in (
+        "selected_slot_count",
+        "available_slot_count",
+        "omitted_slot_count",
+        "selected_item_count",
+    ):
+        try:
+            memory_counts[key] = max(0, int(memory.get(key) or 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"context_receipt.memory.{key} is invalid") from exc
 
     skill_status = _require_in(
         str(skill.get("status") or ""),
@@ -408,6 +436,11 @@ def context_receipt(
             "status": memory_status,
             "version": memory_version,
             "raw_context_available": bool(memory.get("raw_context_available", False)),
+            "retrieval_mode": memory_retrieval_mode,
+            "query_facets": query_facets,
+            "selected_slots": selected_slots,
+            **memory_counts,
+            "truncated": bool(memory.get("truncated", False)),
         },
         "skill": normalized_skill,
         "evidence": normalized_evidence,

@@ -244,7 +244,20 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - Eval 使用进程内临时 SQLite，不读取配置数据库，不调用 Provider；生产数据库仍只在备份后的隔离 E2E 中验证真实迁移和服务链路；
 - 使用现有项目记忆字段、消息 metadata、时间线与 Trace，无数据库迁移，不启动、不导入、不连接 Codex。
 
-边界说明：上述确定性门禁验证的是 Aria 的上下文、Skill 与权限控制层，不等价于证明任意 Provider 回答的事实正确率已经达到 100%。Provider/模型变更仍需在同一匿名化事实问答集上持续做答案质量、引用覆盖与幻觉率对比。
+边界说明：上述确定性门禁验证的是 Aria 的上下文、Skill 与权限控制层，不等价于证明任意 Provider 回答的事实正确率已经达到 100%。
+
+### Phase 2X：按问题项目记忆证据与 Provider 质量评测（已实施）
+
+- 项目记忆不再无条件全量注入；根据风险、交付、财务、干系人、文档和概览等问题切面精选槽位，用户明确要求全量时才切换到 `full`。
+- 建立 `Project Memory Evidence Manifest v1`：记忆正文只进入当次 Provider 上下文，消息、Trace、Artifact 和评测只保存项目/版本/槽位/索引/SHA 及稳定 `[M*]` 引用键。
+- 最终回答只显示实际回指且校验通过的记忆来源；无引用、非法引用或 Manifest 被篡改会进入 Run Evaluation finding。
+- Context Receipt 展示 `focused/overview/full`、命中切面、选中槽位数、记忆证据数与截断告警，但不暴露记忆正文、Prompt 或隐藏推理。
+- 确定性质量门禁扩展到 22 个场景，新增 `memory_retrieval_precision_rate`，发布前必须为 100%。
+- 新增独立手动工作流 `Provider Grounded QA Eval`，在已部署后使用当前配置的真实 Provider/模型运行 4 组合成项目事实问答，评分 `factual_accuracy`、`citation_coverage`、`unsupported_claim_rate` 和 `abstention_accuracy`。
+- Provider 评测不读取生产项目正文、不写数据库，报告只保存答案 SHA-256、字符数、指标和 finding；与自动部署解耦，避免第三方 Provider 短暂故障阻断发布。
+- 这一阶段复用 Aria 现有项目 JSON 记忆、消息 metadata、Trace 和 Provider adapter，无数据库迁移，不启动、不导入、不连接 Codex。
+
+边界说明：真实 Provider 评测是固定小样本的上线后冒烟与模型对比基线，不是对所有项目、所有问法或所有 Provider 的 100% 正确性保证。真实生产问题仍应先匿名化为 golden case，再持续扩展回归集。
 
 ## 11. 官方资料与许可证
 

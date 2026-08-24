@@ -37,6 +37,10 @@ from app.services.agent_harness.knowledge_evidence import (
     knowledge_evidence_reference,
     validate_knowledge_evidence_manifest,
 )
+from app.services.agent_harness.project_memory_evidence import (
+    project_memory_evidence_reference,
+    validate_project_memory_evidence_manifest,
+)
 from app.services.agent_harness.conversation_capsule import (
     conversation_capsule_reference,
     validate_conversation_capsule,
@@ -246,6 +250,10 @@ def evaluate_run_completion(
     confirmation_requested = bool(getattr(state, "confirmation_requested", False))
     knowledge_evidence = getattr(state, "knowledge_evidence", None)
     knowledge_evidence_ref = knowledge_evidence_reference(knowledge_evidence)
+    project_memory_evidence = getattr(state, "project_memory_evidence", None)
+    project_memory_evidence_ref = project_memory_evidence_reference(
+        project_memory_evidence
+    )
     # Dedicated checks below provide more actionable findings for these
     # synthetic harness events, so exclude them from the generic tool finding.
     generic_unresolved = [
@@ -377,6 +385,63 @@ def evaluate_run_completion(
             )
     else:
         checks["knowledge_evidence"] = "not_used"
+
+    if project_memory_evidence:
+        memory_valid, memory_reason = validate_project_memory_evidence_manifest(
+            project_memory_evidence
+        )
+        memory_status = str(project_memory_evidence_ref.get("status") or "")
+        if not memory_valid:
+            checks["project_memory_evidence"] = "failed"
+            findings.append(
+                _finding(
+                    "PROJECT_MEMORY_EVIDENCE_INVALID",
+                    FindingSeverity.ERROR,
+                    "项目记忆证据清单未通过完整性校验。",
+                    validation_reason=memory_reason,
+                )
+            )
+        elif not project_memory_evidence_ref["evidence_count"]:
+            checks["project_memory_evidence"] = "not_used"
+        elif memory_status == "cited":
+            checks["project_memory_evidence"] = "passed"
+        elif memory_status == "partial":
+            checks["project_memory_evidence"] = "warning"
+            findings.append(
+                _finding(
+                    "PROJECT_MEMORY_CITATION_PARTIAL",
+                    FindingSeverity.WARNING,
+                    "回答包含有效项目记忆引用，但同时出现未知记忆引用标记。",
+                    cited_count=project_memory_evidence_ref["cited_count"],
+                    invalid_citation_count=project_memory_evidence_ref[
+                        "invalid_citation_count"
+                    ],
+                )
+            )
+        elif memory_status == "invalid":
+            checks["project_memory_evidence"] = "warning"
+            findings.append(
+                _finding(
+                    "PROJECT_MEMORY_CITATION_INVALID",
+                    FindingSeverity.WARNING,
+                    "回答包含无法回指到本轮项目记忆的引用标记。",
+                    invalid_citation_count=project_memory_evidence_ref[
+                        "invalid_citation_count"
+                    ],
+                )
+            )
+        else:
+            checks["project_memory_evidence"] = "warning"
+            findings.append(
+                _finding(
+                    "PROJECT_MEMORY_EVIDENCE_UNCITED",
+                    FindingSeverity.WARNING,
+                    "本轮使用了结构化项目记忆，但回答没有回指有效记忆证据。",
+                    evidence_count=project_memory_evidence_ref["evidence_count"],
+                )
+            )
+    else:
+        checks["project_memory_evidence"] = "not_used"
 
     if bool(getattr(state, "budget_exhausted", False)):
         checks["turn_budget"] = "failed"
@@ -583,6 +648,7 @@ def evaluate_run_completion(
             "CONTEXT_ASSEMBLY_INVALID": "模型上下文清单校验失败，本轮未达到可验证完成状态。",
             "OUTPUT_PERSISTENCE_FAILED": "产物持久化证据未通过校验，本轮不会声称文件已经保存。",
             "KNOWLEDGE_EVIDENCE_INVALID": "知识证据清单校验失败，本轮未达到可验证完成状态。",
+            "PROJECT_MEMORY_EVIDENCE_INVALID": "项目记忆证据清单校验失败，本轮未达到可验证完成状态。",
             "CONVERSATION_CAPSULE_INVALID": "多轮对话状态胶囊校验失败，本轮未达到可验证完成状态。",
             "INSTRUCTION_MANIFEST_INVALID": "指令优先级清单校验失败，本轮未达到可验证完成状态。",
         }
@@ -614,6 +680,7 @@ def evaluate_run_completion(
         "conversation_capsule": conversation_capsule_ref,
         "instruction_manifest": instruction_manifest_ref,
         "knowledge_evidence": knowledge_evidence_ref,
+        "project_memory_evidence": project_memory_evidence_ref,
     }
     return RunCompletionEvaluation(
         verdict=verdict,

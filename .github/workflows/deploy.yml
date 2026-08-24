@@ -160,12 +160,14 @@ jobs:
                 tests/test_context_receipt.py \
                 tests/test_conversation_capsule.py \
                 tests/test_database_extended.py \
+                tests/test_grounded_provider_eval.py \
                 tests/test_instruction_manifest.py \
                 tests/test_knowledge_evidence.py \
                 tests/test_knowledge_job_recovery.py \
                 tests/test_knowledge_legacy_migration.py \
                 tests/test_product_run_events.py \
                 tests/test_project_chat_quality_eval.py \
+                tests/test_project_memory_evidence.py \
                 tests/test_run_evaluation.py \
                 tests/test_run_output_record.py \
                 tests/test_run_rollout.py \
