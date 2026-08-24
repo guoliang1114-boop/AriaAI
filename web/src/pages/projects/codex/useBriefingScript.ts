@@ -75,7 +75,7 @@ export function useBriefingScript(): BriefingScriptHookValue {
     try {
       const base = getApiBaseUrl().replace(/\/+$/, '')
       url = `${base}/projects/${projectId}/briefing/refine/stream`
-    } catch (err) {
+    } catch {
       setState((s) => ({ ...s, streaming: false, finished: true, error: 'API base URL unavailable' }))
       return
     }

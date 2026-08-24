@@ -15,6 +15,7 @@
 - **项目对话非真流式 + 回复闪现**：`agent_loop._consume_stream` 由"攒完一轮批量返回"改为 async generator 边解析边 `yield`。
 - **任务进度 4 步罐头模板**：改为按真实工具调用渲染步骤。
 - **用户菜单退出登录字号 16px**：`button` reset 由无层移入 `@layer base`，恢复 Tailwind 工具类优先级。
+- **前端对话状态重复实现**：移除了从未被页面订阅的 `chatStore` / `chatStreamStore` / `runActivityStore`，以及只有死代码消费的重复 SSE 类型、未接线干系人 hook 和失效特性开关。当前对话页面直接消费 Product Run Event 回执，纯 `runActivityReducer` 作为已测试的事件折叠合约保留。
 - **【V0.0.4】§2 `api_base_url` 等敏感全局配置可被任意成员改写**：通配 `PUT /settings/{key}` 对 `api_base_url`/`ai_model`/`selected_model`/`llm_provider`/`temperature`/`max_tokens`/`top_p`/`presence_penalty`/`frequency_penalty` 加 admin 门；偏好类（timezone/theme/language/font_size）保持普通用户可写。读端点继续开放（不含密钥）。对应 docs/13 §6 C1。
 - **【V0.0.4】§5 切会话 loading 卡住**：`useProjectChatComposer.ts` 的 `finally` 改为只看 `requestId === streamRequestSeqRef.current`，与 conversation 匹配解耦。对应 docs/13 §6 C3。
 
@@ -34,13 +35,6 @@
 ### 2. ~~全局配置可被任意成员改写（含 `api_base_url`）~~
 
 > **状态**：✅ 已在 V0.0.4 修复（commit `7c08815`，对应 docs/13 §6 C1）。LLM 配置类 + `api_base_url`/`ai_model` 改为 admin-only；偏好类(timezone/theme/language/font_size)保持普通用户可写。详见上方"已修复"。
-
-### 3. 前端 `agent_step` 事件未接线（死代码，非 bug）
-
-> **状态**：V0.0.4 进行中——将由 docs/13 §4.1 / §4.2 主干 A 自然消化（Run Activity Timeline 上线后 `streamingSteps` 不再是死代码）。
-
-- **现象**：后端 agent loop 发 `agent_step` 汇总事件，前端 `useProjectChatComposer.ts` 无对应分支；store 的 `streamingSteps`/`upsertStep`/`setStreamingSteps` 与 `AgentStepView` 未被使用。
-- **结论**：**不是可见 bug**。流式过程中工具进度已由 `tool_executing`/`tool_result` → `streamingToolCalls` 实时显示，`agent_step` 与之重复。Phase 1 活动时间线会消费 `agent_step` 作为步骤边界。
 
 ### 4. markdown 正文可能重复显示（低频，模型行为）
 

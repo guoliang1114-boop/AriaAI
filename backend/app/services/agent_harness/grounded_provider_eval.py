@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import re
 import time
 from typing import Any, Awaitable, Callable
@@ -362,9 +361,3 @@ async def run_grounded_provider_eval(
         ],
         "cases": results,
     }
-
-
-def compact_provider_eval_report(report: dict[str, Any]) -> str:
-    """Stable JSON for logs without raw provider answers or prompts."""
-
-    return json.dumps(report, ensure_ascii=False, sort_keys=True)

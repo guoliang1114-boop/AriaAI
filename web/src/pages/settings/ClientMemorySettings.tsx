@@ -518,7 +518,7 @@ export function ClientMemorySettings() {
         </div>
       </header>
 
-      {isGeneratingMissing && autoGenerateMissingTriggeredRef.current ? (
+      {isGeneratingMissing ? (
         <div
           style={{
             marginBottom: 12,

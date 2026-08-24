@@ -282,7 +282,10 @@ export function useConversationMessages(conversationId: number | null): Messages
   // Guards against a stale response from a previous conversation
   // overwriting the current one when the user switches quickly.
   const activeConvRef = useRef<number | null>(conversationId)
-  activeConvRef.current = conversationId
+
+  useEffect(() => {
+    activeConvRef.current = conversationId
+  }, [conversationId])
 
   const refetch = useCallback(async () => {
     if (conversationId == null) {

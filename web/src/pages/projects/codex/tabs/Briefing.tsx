@@ -53,7 +53,6 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
   const { i18n } = useTranslation()
   const [rebuilding, setRebuilding] = useState(false)
   const streamingScript = useBriefingScript()
-  const script = streamingScript.content || null
   const refining = streamingScript.streaming
 
   // Persist the last successfully-streamed script per memory_version
@@ -76,28 +75,6 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
         content?: string
       }
       if (
-        parsed.memory_version === currentMemoryVersion &&
-        parsed.language === i18n.language &&
-        typeof parsed.content === 'string' &&
-        !streamingScript.streaming &&
-        !streamingScript.content
-      ) {
-        // Replay stored content into the streaming hook so the rest of
-        // the component (which treats streamingScript.content as the
-        // source of truth) sees it without firing the network call.
-        streamingScript.reset()
-        // Use a microtask so React applies the reset before we set the
-        // content — otherwise the immediate setState gets clobbered.
-        Promise.resolve().then(() => {
-          // The hook is pure state; cheaply mutate via start() with
-          // seed=cached content would re-fire the network, so we just
-          // simulate a finished stream by writing to localStorage and
-          // letting persistOnFinish path pick it up. Simpler: set
-          // streaming-script's local state via a no-op fetch is overkill.
-          // Instead just mutate storage and rely on the next user click;
-          // here we display the cached value via a parallel state.
-        })
-      } else if (
         parsed.memory_version !== currentMemoryVersion &&
         typeof parsed.memory_version === 'number'
       ) {
@@ -107,7 +84,6 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
     } catch {
       // Bad JSON in storage — ignore.
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scriptStorageKey, currentMemoryVersion, i18n.language])
 
   // Persist when the stream finishes successfully.
@@ -931,7 +907,7 @@ function parseScriptSections(markdown: string): { ordered: ParsedSection[]; tail
   const lines = markdown.split('\n')
   const buckets: Record<string, string[]> = {}
   let activeKey: string | null = null
-  let tailLines: string[] = []
+  const tailLines: string[] = []
 
   const matchHeader = (line: string): string | null => {
     const m = /^#{2,3}\s+(.*?)\s*$/.exec(line)

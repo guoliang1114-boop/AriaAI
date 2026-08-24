@@ -372,7 +372,6 @@ export function ApiLimitsSettings() {
   }, [failurePage, failurePageSize])
 
   const retryingJobs = retryingJobsTotal || jobs.filter((job) => (job.retry_count ?? 0) > 0).length
-  const rateLimitFailures = useMemo(() => recentFailures.filter(isRateLimitFailure), [recentFailures])
   const modelPressureFailures = useMemo(() => recentFailures.filter(isModelPressureFailure), [recentFailures])
   const latestFailures = recentFailures
   const failurePageCount = Math.max(1, Math.ceil(failureTotal / failurePageSize))

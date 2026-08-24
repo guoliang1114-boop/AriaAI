@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ArrowRight, Building2, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
@@ -112,37 +112,6 @@ function healthCopy(health: ClientHealth, isZh: boolean): { label: string; tone:
   if (health === "active") return { label: isZh ? "活跃" : "Active", tone: "good" };
   if (health === "watch") return { label: isZh ? "关注" : "Watch", tone: "warn" };
   return { label: isZh ? "沉睡" : "Dormant", tone: "mute" };
-}
-
-function matchesClient(client: Client, query: string, isZh: boolean) {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return true;
-
-  return [
-    client.name,
-    getClientShortName(client.name),
-    client.industry,
-    inferRegion(client, isZh),
-    client.contact,
-    client.notes,
-    ...client.project_names,
-  ]
-    .filter(Boolean)
-    .some((value) => value.toLowerCase().includes(normalizedQuery));
-}
-
-function sortClients(left: Client, right: Client) {
-  const healthRank: Record<ClientHealth, number> = { active: 3, watch: 2, dormant: 1 };
-  const healthDiff = healthRank[getClientHealth(right)] - healthRank[getClientHealth(left)];
-  if (healthDiff !== 0) return healthDiff;
-
-  const projectDiff = right.project_names.length - left.project_names.length;
-  if (projectDiff !== 0) return projectDiff;
-
-  const docDiff = right.document_count - left.document_count;
-  if (docDiff !== 0) return docDiff;
-
-  return left.name.localeCompare(right.name);
 }
 
 export function Clients() {

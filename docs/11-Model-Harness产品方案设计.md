@@ -245,7 +245,7 @@ Aria 可以在底层吸收 Agent SDK、Managed Agents 或自研 Harness 的成�
 | 普通工具回合 | 实时工具卡 + 思考转圈 | 工具卡零散堆叠，无"第几步"结构 | [`ProjectChatMessages.tsx`](../web/src/pages/projects/ProjectChatMessages.tsx)、[`ProjectChatToolCallCard.tsx`](../web/src/pages/projects/ProjectChatToolCallCard.tsx) |
 | 调用 Skill | 项目对话**完全不显示**用了哪个 Skill、也没有 Skill 步骤 | 漂亮的 5 步 `skill_progress` 只在独立聊天页渲染 | [`Chat.tsx`](../web/src/pages/chat/Chat.tsx)（`metadata.skill_progress`）；项目对话无对应消费者 |
 | 复杂/后台任务 | 对话仅显示"已转入后台,任务记录 #X" | 真实 4 步（收集上下文→生成大纲→生成保存→整理交付）只在「任务」面板，需跳出去看 | [`useProjectChatComposer.ts`](../web/src/pages/projects/useProjectChatComposer.ts)（"已转入后台执行"）、`task_orchestrator.py` |
-| 步骤边界 | 后端发的 `agent_step` 被前端丢弃 | `streamingSteps` / `upsertStep` / `AgentStepView` 全是死代码 | [`chatStreamStore.ts`](../web/src/stores/chatStreamStore.ts)、[`agent_loop.py`](../backend/app/services/chat/agent_loop.py) `build_agent_step_event` |
+| 步骤边界 | 项目对话已消费 run 标识、回执与状态，完整步骤时间线尚未接入 UI | 旧 `streamingSteps` Zustand 壳已移除；保留经测试的 Product Run Event 纯 reducer，避免继续维护并行状态源 | [`useChatStream.ts`](../web/src/pages/projects/codex/useChatStream.ts)、[`runActivityReducer.ts`](../web/src/stores/runActivityReducer.ts) |
 | PPT 与对话大纲无关 | 凡说"ppt"被规则路由器丢给 `generate_client_ppt` 流水线 | 流水线无视对话大纲；本轮已修：引用大纲时改走对话模型 | [`intent_router.py`](../backend/app/services/intent_router.py)（`rule:pptx_from_prior_outline`） |
 
 这些**都不是模型问题**，而是 Harness 边界不清的体现：底层事件直接到 UI、无统一 run 生命周期、Skill 身份/步骤未作为产品级信号、不同流水线各自维护自己的进度。

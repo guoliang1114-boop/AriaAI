@@ -119,45 +119,6 @@ function formatLastContact(stakeholder: ClientStakeholder, isZh: boolean) {
   })
 }
 
-function isRecentContact(stakeholder: ClientStakeholder) {
-  if (!hasDirectContact(stakeholder)) return false
-  const date = getActivityDate(stakeholder)
-  if (!date) return false
-  return Date.now() - date.getTime() <= 1000 * 60 * 60 * 24 * 7
-}
-
-function matchesContact(record: ContactRecord, search: string) {
-  const keyword = search.trim().toLowerCase()
-  if (!keyword) return true
-  return [
-    record.stakeholder.name,
-    record.stakeholder.role,
-    record.stakeholder.contact,
-    record.stakeholder.organization_level,
-    record.stakeholder.influence_type,
-    record.stakeholder.communication_preference,
-    record.stakeholder.note,
-    record.stakeholder.last_action,
-    record.client.name,
-    record.client.industry,
-    ...(record.client.project_names || []),
-  ]
-    .filter(Boolean)
-    .some((value) => value.toLowerCase().includes(keyword))
-}
-
-function sortContacts(left: ContactRecord, right: ContactRecord) {
-  const levelRank: Record<ContactLevel, number> = { decision: 3, influence: 2, execution: 1 }
-  const levelDiff = levelRank[getContactLevel(right.stakeholder)] - levelRank[getContactLevel(left.stakeholder)]
-  if (levelDiff !== 0) return levelDiff
-
-  const leftDate = getActivityDate(left.stakeholder)?.getTime() || 0
-  const rightDate = getActivityDate(right.stakeholder)?.getTime() || 0
-  if (rightDate !== leftDate) return rightDate - leftDate
-
-  return left.stakeholder.name.localeCompare(right.stakeholder.name)
-}
-
 export function Contacts() {
   const navigate = useNavigate()
   const { i18n } = useTranslation()

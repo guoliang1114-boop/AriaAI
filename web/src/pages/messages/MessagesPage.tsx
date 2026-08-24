@@ -130,9 +130,6 @@ export function MessagesPage() {
     if (activeId == null) return
     const active = messages.find((m) => m.id === activeId)
     if (active && !active.is_read) void markRead(activeId)
-    // markRead is stable across renders (no React deps); we only want to
-    // fire when the selected message changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, messages])
 
   const markRead = async (messageId: number) => {

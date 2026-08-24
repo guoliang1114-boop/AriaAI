@@ -846,7 +846,10 @@ export function Knowledge() {
   const failedCount = statusCountMap.failed || 0
   const selectedDocumentCount = selectedDocumentIds.length
   const fetchDataRef = useRef(fetchData)
-  fetchDataRef.current = fetchData
+
+  useEffect(() => {
+    fetchDataRef.current = fetchData
+  }, [fetchData])
 
   useEffect(() => {
     if (!hasLoaded || apiMode !== 'v005' || processingCount === 0) return undefined

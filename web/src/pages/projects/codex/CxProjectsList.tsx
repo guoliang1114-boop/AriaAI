@@ -87,7 +87,6 @@ export function CxProjectsList() {
   const navigate = useNavigate()
   const { data, loading, error } = useProjectsList()
   const { data: clients } = useClientsList()
-  const rawProjects = data ?? []
 
   // Click-outside handler for the client filter dropdown.
   useEffect(() => {
@@ -103,7 +102,7 @@ export function CxProjectsList() {
 
   const projects = useMemo(() => {
     const term = search.trim().toLowerCase()
-    return rawProjects.filter((p) => {
+    return (data ?? []).filter((p) => {
       if (clientFilter && p.client !== clientFilter) return false
       if (!term) return true
       return (
@@ -111,7 +110,7 @@ export function CxProjectsList() {
         (p.client || '').toLowerCase().includes(term)
       )
     })
-  }, [rawProjects, search, clientFilter])
+  }, [data, search, clientFilter])
 
   // Filtered client options ranked alphabetically + search-filtered.
   const filteredClients = useMemo(() => {

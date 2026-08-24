@@ -23,10 +23,8 @@ import { useToast } from '../../contexts/ToastContext'
 import { formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
 import type {
   ClientMemoryJob,
-  ClientMemoryJobsResponse,
   MemoryOperationsSummaryResponse,
   ProjectMemoryJob,
-  ProjectMemoryJobsResponse,
 } from '../../types/api'
 
 type CombinedJob = ({ scope: 'project' } & ProjectMemoryJob) | ({ scope: 'client' } & ClientMemoryJob)

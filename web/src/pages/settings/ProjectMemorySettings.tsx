@@ -572,7 +572,7 @@ export function ProjectMemorySettings() {
         </div>
       </header>
 
-      {isGeneratingMissing && autoGenerateMissingTriggeredRef.current ? (
+      {isGeneratingMissing ? (
         <div
           style={{
             marginBottom: 12,

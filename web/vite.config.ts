@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 // Read version from package.json
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
-const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'))
+const pkg = JSON.parse(readFileSync(resolve(import.meta.dirname, 'package.json'), 'utf-8'))
 
 export default defineConfig({
   plugins: [react()],

@@ -113,7 +113,6 @@ export function MigrationSettings() {
       const data = await api.get<MigrationGovernance>("/health/db/migrations");
       setGovernance(data);
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error("Failed to load migration governance:", err);
       const detail =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;

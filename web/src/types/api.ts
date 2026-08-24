@@ -883,19 +883,6 @@ export interface ToolCallEvent {
   recovery_of_tool_use_id?: string
 }
 
-/**
- * One iteration of the backend agent loop. Emitted as ``{"type": "agent_step", ...}``
- * after the agent finishes executing the tools it planned in that turn. The
- * frontend uses this to render a faithful "Step N — used K tools" timeline
- * that replaces the brittle 4-stage hardcoded progress strip.
- */
-export interface AgentStepView {
-  index: number
-  tool_names: string[]
-  duration_ms: number
-  truncated: boolean
-}
-
 export interface PendingChatActionResponse {
   can_confirm: boolean
   source_content: string
@@ -1235,29 +1222,6 @@ export interface ChatPlanResponse {
   execution_mode: string
   requires_confirmation: boolean
   expected_output: string
-}
-
-export interface StreamEvent {
-  type: 'conversation_id' | 'chunk' | 'text' | 'status' | 'references' | 'tool_executing' | 'tool_result' | 'task_run' | 'truncated' | 'done' | 'error'
-  id?: number
-  content?: string
-  stage?: string
-  references?: Reference[]
-  tool_name?: string
-  message?: string
-  step_index?: number
-  step_total?: number
-  step_title?: string
-  step_status?: ToolCallEvent['status']
-  total?: number
-  current?: number
-  result?: Record<string, unknown>
-  task?: TaskRun
-  artifacts?: GeneratedArtifact[]
-  task_run_id?: number
-  task_type?: string
-  error?: string
-  can_continue?: boolean
 }
 
 // Knowledge Base

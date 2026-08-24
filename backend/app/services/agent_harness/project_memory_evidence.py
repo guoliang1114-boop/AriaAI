@@ -542,13 +542,6 @@ def project_memory_evidence_reference(manifest: Any) -> dict[str, Any]:
     }
 
 
-def project_memory_references(manifest: Any) -> list[dict[str, Any]]:
-    valid, _ = validate_project_memory_evidence_manifest(manifest)
-    if not valid:
-        return []
-    return [project_memory_reference(entry) for entry in manifest.get("entries", [])]
-
-
 def resolve_runtime_project_memory_evidence(
     runtime: Any,
     output_text: str,

@@ -32,21 +32,7 @@ import { CxPagination, CxSkeleton, CxTopProgress } from "../../components/codex"
 import { PageTitle } from "../../components/PageTitle";
 import type { Skill, SkillSummary } from "../../types/api";
 
-type SkillTypeFilter = "all" | "quick" | "deep";
-
-type SkillCategory = {
-  id: string;
-  label: string;
-  count: number;
-};
-
 const SKILLS_PAGE_SIZE = 10;
-
-const extractMinutes = (estimatedTime?: string) => {
-  if (!estimatedTime) return 0;
-  const match = estimatedTime.match(/(\d+)/);
-  return match ? parseInt(match[1], 10) : 0;
-};
 
 const normalizeCategory = (value: string) => value.replace(/\?/g, "").trim();
 
@@ -186,23 +172,23 @@ const categoryOrder = [
   "other",
 ];
 
-const getCategoryIcon = (category: string) => {
+function SkillCategoryIcon({ category }: { category: string }) {
   const key = getCategoryKey(category);
-  if (key === "strategy") return TrendingUp;
-  if (key === "market") return Target;
-  if (key === "finance") return DollarSign;
-  if (key === "risk") return Shield;
-  if (key === "digital") return Cpu;
-  if (key.startsWith("consulting_") || key === "common") return FileText;
-  if (key === "operations") return Briefcase;
-  if (key === "org") return Users;
-  if (key === "manda") return BarChart3;
-  if (key === "data") return BarChart3;
-  if (key === "audit") return ClipboardList;
-  if (key === "assurance") return CheckCircle2;
-  if (key === "tax") return Calculator;
-  return Brain;
-};
+  const props = { className: "h-5 w-5", strokeWidth: 1.5 };
+  if (key === "strategy") return <TrendingUp {...props} />;
+  if (key === "market") return <Target {...props} />;
+  if (key === "finance") return <DollarSign {...props} />;
+  if (key === "risk") return <Shield {...props} />;
+  if (key === "digital") return <Cpu {...props} />;
+  if (key.startsWith("consulting_") || key === "common") return <FileText {...props} />;
+  if (key === "operations") return <Briefcase {...props} />;
+  if (key === "org") return <Users {...props} />;
+  if (key === "manda" || key === "data") return <BarChart3 {...props} />;
+  if (key === "audit") return <ClipboardList {...props} />;
+  if (key === "assurance") return <CheckCircle2 {...props} />;
+  if (key === "tax") return <Calculator {...props} />;
+  return <Brain {...props} />;
+}
 
 const getCategoryLabel = (category: string, isZh: boolean) => {
   const key = getCategoryKey(category);
@@ -278,7 +264,6 @@ const GENERAL_LINE_META: PracticeLineMeta = {
 };
 
 const PRACTICE_LINE_IDS = ["audit-assurance", "tax", "consulting", "general"] as const;
-const CORE_PRACTICE_LINE_IDS = ["audit-assurance", "tax", "consulting"] as const;
 type PracticeLineId = (typeof PRACTICE_LINE_IDS)[number];
 
 /** 每个业务线内部分组定义 */
@@ -305,32 +290,6 @@ const PRACTICE_LINE_GROUPS: Record<string, PracticeGroup[]> = {
   ],
 };
 
-/** Category ID → Practice Line ID */
-const CATEGORY_TO_PRACTICE_LINE: Record<string, string> = {
-  // 审计鉴证
-  audit: "audit-assurance",
-  assurance: "audit-assurance",
-  consulting_review: "audit-assurance",
-  consulting_learning: "audit-assurance",
-  // 税务
-  tax: "tax",
-  finance: "tax",
-  // 咨询
-  strategy: "consulting",
-  manda: "consulting",
-  market: "consulting",
-  org: "consulting",
-  digital: "consulting",
-  data: "consulting",
-  operations: "consulting",
-  risk: "consulting",
-};
-
-/** 通用能力业务线元数据 */
-const getPracticeLineId = (categoryId: string): string | null => {
-  return CATEGORY_TO_PRACTICE_LINE[categoryId] || null;
-};
-
 const isPracticeLineId = (value: string | null): value is PracticeLineId => {
   return Boolean(value && (PRACTICE_LINE_IDS as readonly string[]).includes(value));
 };
@@ -339,25 +298,11 @@ const getPracticeLineMeta = (lineId: PracticeLineId): PracticeLineMeta => {
   return lineId === "general" ? GENERAL_LINE_META : PRACTICE_LINE_META[lineId];
 };
 
-const safeDecode = (value?: string) => {
-  try {
-    return decodeURIComponent(value || "all");
-  } catch {
-    return "all";
-  }
-};
-
 const buildSkillsPath = (searchParams: URLSearchParams) => {
   const params = new URLSearchParams(searchParams);
   params.delete("line");
   const query = params.toString();
   return `/skills${query ? `?${query}` : ""}`;
-};
-
-const buildSkillDetailPath = (skillId: number, searchParams: URLSearchParams) => {
-  const params = new URLSearchParams(searchParams);
-  const query = params.toString();
-  return `/skills/item/${skillId}${query ? `?${query}` : ""}`;
 };
 
 const buildSkillChatPath = (skillId: number, searchParams: URLSearchParams) => {
@@ -369,30 +314,6 @@ const buildSkillChatPath = (skillId: number, searchParams: URLSearchParams) => {
   if (targetProjectId) nextParams.set("project", targetProjectId);
   if (prefilledPrompt) nextParams.set("q", prefilledPrompt);
   return targetProjectId ? `/projects/${targetProjectId}/chat?${nextParams.toString()}` : `/chat?${nextParams.toString()}`;
-};
-
-const buildCategories = (skills: SkillSummary[], allLabel: string, isZh: boolean) => {
-  const categoryMap = new Map<string, SkillCategory>();
-  skills.forEach((skill) => {
-    const id = getSkillCategoryKey(skill);
-    const current = categoryMap.get(id);
-    categoryMap.set(id, {
-      id,
-      label: getCategoryLabel(id, isZh),
-      count: (current?.count ?? 0) + 1,
-    });
-  });
-
-  const sorted = Array.from(categoryMap.values()).sort((a, b) => {
-    const aOrder = categoryOrder.indexOf(getCategoryKey(a.id));
-    const bOrder = categoryOrder.indexOf(getCategoryKey(b.id));
-    const safeAOrder = aOrder === -1 ? categoryOrder.length : aOrder;
-    const safeBOrder = bOrder === -1 ? categoryOrder.length : bOrder;
-    if (safeAOrder !== safeBOrder) return safeAOrder - safeBOrder;
-    return b.count - a.count;
-  });
-
-  return [{ id: "all", label: allLabel, count: skills.length }, ...sorted];
 };
 
 interface SkillCategoryCount {
@@ -1214,7 +1135,6 @@ export function SkillDetailPage() {
   const outputHints = useMemo(() => buildOutputHints(skill, isZh), [isZh, skill]);
   const usageSteps = useMemo(() => buildUsageSteps(skill, isZh), [isZh, skill]);
   const skillCategoryKey = skill ? getSkillCategoryKey(skill) : "other";
-  const Icon = skill ? getCategoryIcon(skillCategoryKey) : Brain;
   const categoryLabel = skill ? getCategoryLabel(skillCategoryKey, isZh) : "";
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
@@ -1376,7 +1296,7 @@ export function SkillDetailPage() {
                   color: "var(--color-codex-accent)",
                 }}
               >
-                <Icon className="h-5 w-5" strokeWidth={1.5} />
+                <SkillCategoryIcon category={skillCategoryKey} />
               </span>
               <div style={{ minWidth: 0 }}>
                 <h1
