@@ -153,3 +153,39 @@ export function selectedProjectMentionsToContext(
   }
   return Object.values(context).some((ids) => ids.length > 0) ? context : undefined
 }
+
+export function restoreProjectMentionsFromContext(
+  options: ProjectMentionOption[],
+  context: MentionContext | undefined,
+): { selected: SelectedProjectMention[]; requestedCount: number; missingCount: number } {
+  const requested = new Set<string>()
+  for (const id of context?.file_ids || []) requested.add(`file:${id}`)
+  for (const id of context?.stakeholder_ids || []) requested.add(`stakeholder:${id}`)
+  for (const id of context?.milestone_ids || []) requested.add(`milestone:${id}`)
+  const selected = options
+    .filter((option) => option.kind !== 'skill' && requested.has(`${option.kind}:${option.id}`))
+    .map((option) => ({
+      ...option,
+      token: `@「${option.label.replace(/[「」]/gu, '')}」`,
+    }))
+  return {
+    selected,
+    requestedCount: requested.size,
+    missingCount: Math.max(0, requested.size - selected.length),
+  }
+}
+
+export function rebaseProjectMentionTokens(
+  content: string,
+  restored: SelectedProjectMention[],
+  hadStructuredReferences: boolean,
+): string {
+  if (!hadStructuredReferences) return content
+  const withoutHistoricalTokens = content
+    .replace(/@「[^」]{1,200}」/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  return [withoutHistoricalTokens, ...restored.map((mention) => mention.token)]
+    .filter(Boolean)
+    .join(' ')
+}

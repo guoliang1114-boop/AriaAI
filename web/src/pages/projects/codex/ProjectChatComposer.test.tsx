@@ -44,6 +44,11 @@ function ComposerHarness() {
       onSelectedMentionsChange={setSelectedMentions}
       turnBriefDraft={turnBriefDraft}
       onTurnBriefDraftChange={setTurnBriefDraft}
+      recentTurnBriefs={[{
+        key: 'recent-1',
+        label: '复盘项目风险',
+        draft: { goal: '复盘项目风险', constraintsText: '使用正式专业语气' },
+      }]}
       textareaRef={textareaRef}
     />
   )
@@ -76,5 +81,17 @@ describe('ProjectChatComposer', () => {
 
     expect(screen.getByLabelText('本轮 Brief 预览')).toHaveTextContent('目标 · 识别三项关键风险')
     expect(screen.getByLabelText('本轮 Brief 预览')).toHaveTextContent('只分析，不修改项目内容')
+  })
+
+  it('applies built-in and recently used Briefs without retyping', () => {
+    render(<ComposerHarness />)
+
+    fireEvent.click(screen.getByRole('button', { name: /本轮 Brief/ }))
+    fireEvent.click(screen.getByRole('button', { name: '应用 Brief 模板 只读分析' }))
+    expect(screen.getByLabelText('本轮 Brief 预览')).toHaveTextContent('只分析，不修改项目内容')
+
+    fireEvent.click(screen.getByRole('button', { name: '使用最近 Brief 复盘项目风险' }))
+    expect(screen.getByLabelText('本轮 Brief 预览')).toHaveTextContent('目标 · 复盘项目风险')
+    expect(screen.getByLabelText('本轮 Brief 预览')).toHaveTextContent('使用正式专业语气')
   })
 })

@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { CxIcon } from './CxIcons'
 import {
   EMPTY_PROJECT_TURN_BRIEF,
+  PROJECT_TURN_BRIEF_TEMPLATES,
+  applyProjectTurnBriefTemplate,
   normalizeTurnBriefConstraints,
   normalizeTurnBriefGoal,
+  type ProjectTurnBriefHistoryItem,
   type ProjectTurnBriefDraft,
 } from './turnBrief'
 
@@ -18,6 +21,7 @@ interface ProjectTurnBriefControlProps {
   draft: ProjectTurnBriefDraft
   onChange: (draft: ProjectTurnBriefDraft) => void
   referenceCount: number
+  recentBriefs?: ProjectTurnBriefHistoryItem[]
   disabled?: boolean
 }
 
@@ -25,6 +29,7 @@ export function ProjectTurnBriefControl({
   draft,
   onChange,
   referenceCount,
+  recentBriefs = [],
   disabled = false,
 }: ProjectTurnBriefControlProps) {
   const [open, setOpen] = useState(false)
@@ -101,6 +106,9 @@ export function ProjectTurnBriefControl({
             left: 0,
             bottom: 'calc(100% + 7px)',
             width: 380,
+            maxWidth: 'min(380px, calc(100vw - 32px))',
+            maxHeight: 'min(620px, calc(100vh - 120px))',
+            overflowY: 'auto',
             padding: 14,
             background: 'var(--bg-elev)',
             border: '1px solid var(--line-strong)',
@@ -113,6 +121,73 @@ export function ProjectTurnBriefControl({
           <div style={{ marginTop: 3, fontSize: 10.5, color: 'var(--ink-faint)' }}>
             可选；目标仅用于本轮。明确约束进入对话记忆，并可在后续覆盖。
           </div>
+          <div style={{ marginTop: 12, fontSize: 11, color: 'var(--ink-mute)' }}>常用模板</div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 6,
+              marginTop: 6,
+            }}
+          >
+            {PROJECT_TURN_BRIEF_TEMPLATES.map((template) => {
+              const current = normalizeTurnBriefConstraints(draft.constraintsText)
+              const applied = template.constraints.every((item) => current.includes(item))
+              return (
+                <button
+                  key={template.id}
+                  type="button"
+                  aria-label={`应用 Brief 模板 ${template.label}`}
+                  onClick={() => onChange(applyProjectTurnBriefTemplate(draft, template))}
+                  style={{
+                    padding: '7px 8px',
+                    textAlign: 'left',
+                    color: applied ? 'var(--accent)' : 'var(--ink-soft)',
+                    background: applied ? 'var(--accent-bg)' : 'var(--bg-tint)',
+                    border: '1px solid var(--line)',
+                    borderRadius: 'var(--r-sm)',
+                  }}
+                >
+                  <span style={{ display: 'block', fontSize: 11.5, fontWeight: 500 }}>
+                    {applied ? '✓ ' : ''}{template.label}
+                  </span>
+                  <span style={{ display: 'block', marginTop: 2, color: 'var(--ink-faint)', fontSize: 9.5, lineHeight: 1.4 }}>
+                    {template.description}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          {recentBriefs.length > 0 && (
+            <>
+              <div style={{ marginTop: 11, fontSize: 11, color: 'var(--ink-mute)' }}>最近使用</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
+                {recentBriefs.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    aria-label={`使用最近 Brief ${item.label}`}
+                    title={item.label}
+                    onClick={() => onChange(item.draft)}
+                    style={{
+                      maxWidth: 170,
+                      padding: '4px 7px',
+                      overflow: 'hidden',
+                      color: 'var(--ink-soft)',
+                      background: 'var(--bg-elev)',
+                      border: '1px solid var(--line)',
+                      borderRadius: 'var(--r-sm)',
+                      fontSize: 10.5,
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    ↺ {item.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           <label style={{ display: 'block', marginTop: 12, fontSize: 11, color: 'var(--ink-mute)' }}>
             本轮目标
             <input

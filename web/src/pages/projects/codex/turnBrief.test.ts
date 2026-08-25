@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  PROJECT_TURN_BRIEF_TEMPLATES,
+  applyProjectTurnBriefTemplate,
+  collectRecentProjectTurnBriefs,
   normalizeTurnBriefConstraints,
+  parseProjectTurnMetadata,
   projectTurnBriefToInput,
 } from './turnBrief'
 
@@ -25,5 +29,59 @@ describe('project turn brief', () => {
       goal: '识别 风险',
       constraints: ['只分析', '输出为 Markdown'],
     })
+  })
+
+  it('applies a template while preserving the current goal and constraints', () => {
+    const template = PROJECT_TURN_BRIEF_TEMPLATES.find((item) => item.id === 'read_only_analysis')!
+    const applied = applyProjectTurnBriefTemplate(
+      { goal: '评估方案', constraintsText: '输出为 Markdown' },
+      template,
+    )
+
+    expect(applied.goal).toBe('评估方案')
+    expect(normalizeTurnBriefConstraints(applied.constraintsText)).toEqual([
+      '输出为 Markdown',
+      '只分析，不修改项目内容',
+      '区分事实、判断与建议',
+    ])
+  })
+
+  it('never displaces explicit constraints when applying a template at the limit', () => {
+    const template = PROJECT_TURN_BRIEF_TEMPLATES.find((item) => item.id === 'executive_answer')!
+    const existing = Array.from({ length: 8 }, (_, index) => `用户约束 ${index + 1}`)
+
+    const applied = applyProjectTurnBriefTemplate(
+      { goal: '', constraintsText: existing.join('\n') },
+      template,
+    )
+
+    expect(normalizeTurnBriefConstraints(applied.constraintsText)).toEqual(existing)
+  })
+
+  it('parses a historical Brief with bounded exact IDs and Skill selection', () => {
+    const parsed = parseProjectTurnMetadata(JSON.stringify({
+      turn_brief: { goal: '复盘风险', constraints: ['只分析', '只分析'] },
+      mention_context: { file_ids: [11, 11, -1, '12'], milestone_ids: [13] },
+      skill_id: 7,
+    }))
+
+    expect(parsed).toMatchObject({
+      source: 'brief',
+      draft: { goal: '复盘风险', constraintsText: '只分析' },
+      mentionContext: { file_ids: [11], stakeholder_ids: [], milestone_ids: [13] },
+      skillId: 7,
+    })
+  })
+
+  it('collects recent unique user Briefs in reverse chronological order', () => {
+    const recent = collectRecentProjectTurnBriefs([
+      { id: 1, role: 'user', metadata_json: JSON.stringify({ turn_brief: { goal: '旧目标' } }) },
+      { id: 2, role: 'assistant', metadata_json: JSON.stringify({ turn_contract: { user_goal: '忽略助手契约' } }) },
+      { id: 3, role: 'user', metadata_json: JSON.stringify({ turn_brief: { goal: '最新目标', constraints: ['只分析'] } }) },
+      { id: 4, role: 'user', metadata_json: JSON.stringify({ turn_brief: { goal: '最新目标', constraints: ['只分析'] } }) },
+    ])
+
+    expect(recent.map((item) => item.label)).toEqual(['最新目标', '旧目标'])
+    expect(collectRecentProjectTurnBriefs([], 0)).toEqual([])
   })
 })

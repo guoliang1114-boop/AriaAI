@@ -37,7 +37,10 @@ import {
   EMPTY_PROJECT_TURN_BRIEF,
   normalizeTurnBriefConstraints,
   normalizeTurnBriefGoal,
+  collectRecentProjectTurnBriefs,
   projectTurnBriefToInput,
+  type ProjectTurnBriefHistoryItem,
+  type ProjectTurnReusePayload,
   type ProjectTurnBriefDraft,
 } from '../turnBrief'
 import { SkillCandidateButtons } from '../SkillCandidateButtons'
@@ -49,6 +52,8 @@ import {
   PROJECT_MENTION_KIND_LABEL,
   pruneSelectedProjectMentions,
   replaceActiveProjectMention,
+  rebaseProjectMentionTokens,
+  restoreProjectMentionsFromContext,
   selectedProjectMentionsToContext,
   type ActiveProjectMention,
   type ProjectMentionOption,
@@ -770,10 +775,40 @@ function ThreadView({
     () => buildProjectMentionOptions(skills, mentionables),
     [mentionables, skills],
   )
+  const recentTurnBriefs = useMemo(
+    () => collectRecentProjectTurnBriefs(messages),
+    [messages],
+  )
 
   const selectSkillForNextTurn = (skillId: number, name: string) => {
     setSkillSelection({ mode: 'explicit', skillId, name })
     textareaRef.current?.focus()
+  }
+
+  const reuseHistoricalTurn = (payload: ProjectTurnReusePayload) => {
+    const restored = restoreProjectMentionsFromContext(mentionOptions, payload.mentionContext)
+    const selectedSkill = payload.skillId != null
+      ? skills.find((skill) => skill.id === payload.skillId)
+      : undefined
+    setTurnBriefDraft(payload.draft)
+    setSelectedMentions(restored.selected)
+    setSkillSelection(selectedSkill
+      ? { mode: 'explicit', skillId: selectedSkill.id, name: selectedSkill.name }
+      : { mode: 'auto' })
+    setComposerText(rebaseProjectMentionTokens(
+      payload.content,
+      restored.selected,
+      restored.requestedCount > 0,
+    ))
+    if (restored.missingCount > 0 || (payload.skillId != null && !selectedSkill)) {
+      toast.warning({
+        title: '已恢复 Brief，部分引用已失效',
+        description: '失效对象不会按名称降级匹配，请在发送前重新选择。',
+      })
+    } else {
+      toast.success({ title: '已恢复到输入框，可修订后发送' })
+    }
+    window.requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
   // Auto-scroll while a reply is streaming. Cheap to do every
@@ -960,6 +995,7 @@ function ThreadView({
               isStreaming={busy && m.id === streamingMessageId}
               streamingStatus={streamStatusMessage}
               onSkillSelect={selectSkillForNextTurn}
+              onTurnBriefReuse={reuseHistoricalTurn}
             />
           ))}
 
@@ -1026,6 +1062,7 @@ function ThreadView({
           onSelectedMentionsChange={setSelectedMentions}
           turnBriefDraft={turnBriefDraft}
           onTurnBriefDraftChange={setTurnBriefDraft}
+          recentTurnBriefs={recentTurnBriefs}
           textareaRef={textareaRef}
         />
       </div>
@@ -1197,6 +1234,7 @@ export function ProjectChatComposer({
   onSelectedMentionsChange,
   turnBriefDraft,
   onTurnBriefDraftChange,
+  recentTurnBriefs,
   textareaRef,
 }: {
   value: string
@@ -1214,6 +1252,7 @@ export function ProjectChatComposer({
   onSelectedMentionsChange: (mentions: SelectedProjectMention[]) => void
   turnBriefDraft: ProjectTurnBriefDraft
   onTurnBriefDraftChange: (draft: ProjectTurnBriefDraft) => void
+  recentTurnBriefs: ProjectTurnBriefHistoryItem[]
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
   const [activeMention, setActiveMention] = useState<ActiveProjectMention | null>(null)
@@ -1493,6 +1532,7 @@ export function ProjectChatComposer({
             draft={turnBriefDraft}
             onChange={onTurnBriefDraftChange}
             referenceCount={selectedMentions.length}
+            recentBriefs={recentTurnBriefs}
             disabled={busy}
           />
           <span style={{ fontSize: 11, color: 'var(--ink-faint)', whiteSpace: 'nowrap' }}>

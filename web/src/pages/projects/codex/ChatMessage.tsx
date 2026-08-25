@@ -12,6 +12,11 @@ import type { ContextReceiptEvent } from '../../../types/productRunEvent'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 import { CxIcon } from './CxIcons'
 import { SkillCandidateButtons } from './SkillCandidateButtons'
+import {
+  parseProjectTurnMetadata,
+  type ParsedProjectTurnMetadata,
+  type ProjectTurnReusePayload,
+} from './turnBrief'
 import { formatUpdatedRelative } from './useProjectsApi'
 
 /** Project-chat-tab message bubble.
@@ -19,12 +24,14 @@ import { formatUpdatedRelative } from './useProjectsApi'
  * We deliberately keep this isolated from the global `/chat` page's
  * `MessageBubble` (which is ~150 LOC entangled with live-streaming
  * state) and instead reimplement a leaner, read-only version here.
- * Three structured pieces parsed out of `metadata_json` get rendered
+ * Structured evidence, run controls, and outputs parsed from `metadata_json`
+ * are rendered
  * around the markdown body:
  *
  *   - skill_progress[]   → compact "执行清单" pill (collapsed by default)
  *   - artifacts[]        → file-style cards with size / type badge
  *   - references[]       → canonical [K*] / legacy [N] citation chips
+ *   - turn_brief / turn_contract → visible, reusable turn boundary
  *
  * Bottom of each Aria message: hover-only action chips. Just two —
  * 复制 and 沉淀到项目记忆.
@@ -43,10 +50,12 @@ interface ParsedMeta {
   artifacts: GeneratedArtifact[]
   progress: ProgressStep[]
   contextReceipt: ContextReceiptEvent | null
+  turn: ParsedProjectTurnMetadata | undefined
 }
 
 function parseMeta(raw: string | undefined): ParsedMeta {
-  if (!raw) return { references: [], artifacts: [], progress: [], contextReceipt: null }
+  const empty = { references: [], artifacts: [], progress: [], contextReceipt: null, turn: undefined }
+  if (!raw) return empty
   try {
     const meta = JSON.parse(raw) as Record<string, unknown>
     const refs = normalizeKnowledgeReferences(meta.references)
@@ -55,9 +64,15 @@ function parseMeta(raw: string | undefined): ParsedMeta {
     const receipt = meta.context_receipt && typeof meta.context_receipt === 'object'
       ? (meta.context_receipt as ContextReceiptEvent)
       : null
-    return { references: refs, artifacts: arts, progress: prog, contextReceipt: receipt }
+    return {
+      references: refs,
+      artifacts: arts,
+      progress: prog,
+      contextReceipt: receipt,
+      turn: parseProjectTurnMetadata(meta),
+    }
   } catch {
-    return { references: [], artifacts: [], progress: [], contextReceipt: null }
+    return empty
   }
 }
 
@@ -73,6 +88,7 @@ interface MessageBubbleProps {
   isStreaming?: boolean
   streamingStatus?: string | null
   onSkillSelect?: (skillId: number, name: string) => void
+  onTurnBriefReuse?: (payload: ProjectTurnReusePayload) => void
 }
 
 export function ProjectChatMessage({
@@ -82,6 +98,7 @@ export function ProjectChatMessage({
   isStreaming = false,
   streamingStatus = null,
   onSkillSelect,
+  onTurnBriefReuse,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const meta = useMemo(() => parseMeta(message.metadata_json), [message.metadata_json])
@@ -150,18 +167,28 @@ export function ProjectChatMessage({
         </div>
 
         {isUser ? (
-          <p
-            style={{
-              margin: 0,
-              fontSize: 14,
-              lineHeight: 1.7,
-              color: 'var(--ink)',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-            }}
-          >
-            {message.content}
-          </p>
+          <>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 14,
+                lineHeight: 1.7,
+                color: 'var(--ink)',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {message.content}
+            </p>
+            {meta.turn && (
+              <HistoricalTurnContract
+                turn={meta.turn}
+                isUser
+                messageContent={message.content}
+                onReuse={onTurnBriefReuse}
+              />
+            )}
+          </>
         ) : (
           <>
             {!isStreaming && meta.progress.length > 0 && <SkillProgressPill steps={meta.progress} />}
@@ -182,6 +209,14 @@ export function ProjectChatMessage({
                 <MarkdownRenderer content={message.content} />
               </div>
             )}
+            {!isStreaming && meta.turn && (
+              <HistoricalTurnContract
+                turn={meta.turn}
+                isUser={false}
+                messageContent={message.content}
+                onReuse={onTurnBriefReuse}
+              />
+            )}
             {!isStreaming && meta.contextReceipt && (
               <PersistentContextReceipt
                 receipt={meta.contextReceipt}
@@ -200,6 +235,89 @@ export function ProjectChatMessage({
         )}
       </div>
     </div>
+  )
+}
+
+function HistoricalTurnContract({
+  turn,
+  isUser,
+  messageContent,
+  onReuse,
+}: {
+  turn: ParsedProjectTurnMetadata
+  isUser: boolean
+  messageContent: string
+  onReuse?: (payload: ProjectTurnReusePayload) => void
+}) {
+  const constraints = turn.draft.constraintsText.split('\n').filter(Boolean)
+  const modeLabel = {
+    answer_only: '直接回答',
+    plan_only: '只做规划',
+    execute_now: '立即执行',
+    plan_then_execute: '规划后执行',
+  }[turn.mode || '']
+  const summary = isUser
+    ? `本轮 Brief${constraints.length > 0 ? ` · ${constraints.length} 项约束` : ''}`
+    : `本轮执行契约${modeLabel ? ` · ${modeLabel}` : ''}${turn.writeAllowed === true ? ' · 可写入' : turn.writeAllowed === false ? ' · 只读' : ''}`
+  return (
+    <details
+      aria-label={isUser ? '历史本轮 Brief' : '历史本轮执行契约'}
+      style={{
+        marginTop: 8,
+        maxWidth: 720,
+        padding: '5px 8px',
+        color: 'var(--ink-mute)',
+        background: 'var(--bg-tint)',
+        border: '1px solid var(--line-soft)',
+        borderRadius: 'var(--r-sm)',
+        fontSize: 11,
+      }}
+    >
+      <summary style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--ink-soft)' }}>
+        {summary}
+      </summary>
+      <div style={{ marginTop: 6, lineHeight: 1.55 }}>
+        <div>
+          <span style={{ color: 'var(--ink-faint)' }}>目标 · </span>
+          {turn.draft.goal || '使用消息正文作为本轮目标'}
+        </div>
+        {constraints.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 5 }}>
+            {constraints.map((constraint) => (
+              <span
+                key={constraint}
+                style={{ padding: '2px 6px', color: 'var(--accent-ink)', background: 'var(--accent-bg)', borderRadius: 'var(--r-sm)' }}
+              >
+                {constraint}
+              </span>
+            ))}
+          </div>
+        )}
+        {onReuse && (
+          <button
+            type="button"
+            aria-label={isUser ? '复用此历史 Brief' : '基于此执行契约修订并重试'}
+            onClick={() => onReuse({
+              content: isUser ? messageContent : turn.draft.goal,
+              draft: turn.draft,
+              mentionContext: turn.mentionContext,
+              skillId: turn.skillId,
+            })}
+            style={{
+              marginTop: 7,
+              padding: '3px 8px',
+              color: 'var(--accent)',
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--r-sm)',
+              fontSize: 10.5,
+            }}
+          >
+            {isUser ? '复用到输入框' : '修订并重试'}
+          </button>
+        )}
+      </div>
+    </details>
   )
 }
 
