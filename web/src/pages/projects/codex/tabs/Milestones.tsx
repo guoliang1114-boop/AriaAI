@@ -20,14 +20,16 @@ import {
 import {
   CxMilestoneDeleteDialog,
   CxMilestoneFormDialog,
-  toggleMilestoneDone,
 } from '../CxMilestoneActions'
 import {
   CxTodoDeleteDialog,
   CxTodoFormDialog,
-  promoteTodoToWeekly,
-  toggleTodoDone,
 } from '../CxTodoActions'
+import {
+  promoteTodoToWeekly,
+  toggleMilestoneDone,
+  toggleTodoDone,
+} from '../projectActionMutations'
 import { CxProgressUpdateDialog } from '../CxProgressUpdateActions'
 
 interface MilestonesProps {

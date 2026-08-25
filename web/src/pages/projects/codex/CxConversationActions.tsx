@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { api } from '../../../api/client'
 import { CxDialog } from '../../../components/codex'
 import { useToast } from '../../../contexts/ToastContext'
@@ -34,16 +34,28 @@ interface RenameDialogProps {
 export function CxConversationRenameDialog({
   open,
   conversation,
+  ...props
+}: RenameDialogProps) {
+  if (!open || !conversation) return null
+  return (
+    <ConversationRenameDialogContent
+      key={conversation.id}
+      open={open}
+      conversation={conversation}
+      {...props}
+    />
+  )
+}
+
+function ConversationRenameDialogContent({
+  open,
+  conversation,
   onClose,
   onSaved,
 }: RenameDialogProps) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
-  const [title, setTitle] = useState('')
-
-  useEffect(() => {
-    if (open) setTitle(conversation?.title ?? '')
-  }, [open, conversation?.id, conversation?.title])
+  const [title, setTitle] = useState(conversation?.title ?? '')
 
   if (!conversation) return null
 
@@ -123,8 +135,9 @@ export function CxConversationRenameDialog({
       }
     >
       <form id="cx-conv-rename-form" onSubmit={submit}>
-        <label style={LABEL_STYLE}>标题</label>
+        <label htmlFor="cx-conv-rename-title" style={LABEL_STYLE}>标题</label>
         <input
+          id="cx-conv-rename-title"
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}

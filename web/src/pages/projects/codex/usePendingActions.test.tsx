@@ -31,6 +31,14 @@ const pendingAction: PendingToolAction = {
   created_at: '2026-06-04T00:00:00',
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
 describe('usePendingActions', () => {
   beforeEach(() => {
     vi.mocked(api.get).mockReset()
@@ -78,5 +86,27 @@ describe('usePendingActions', () => {
     expect(actionPolls).toBe(1)
     expect(onResolved).toHaveBeenCalledTimes(1)
     expect(result.current.actingKey).toBeNull()
+  })
+
+  it('keeps approvals scoped to the newest selected conversation', async () => {
+    const oldRequest = deferred<{ items: PendingToolAction[]; has_pending: boolean }>()
+    const newRequest = deferred<{ items: PendingToolAction[]; has_pending: boolean }>()
+    vi.mocked(api.get)
+      .mockReturnValueOnce(oldRequest.promise)
+      .mockReturnValueOnce(newRequest.promise)
+
+    const onResolved = vi.fn()
+    const { result, rerender } = renderHook(
+      ({ conversationId }) => usePendingActions(conversationId, onResolved),
+      { initialProps: { conversationId: 7 } },
+    )
+    rerender({ conversationId: 8 })
+
+    const newestAction = { ...pendingAction, id: 88, conversation_id: 8, title: 'Newest approval' }
+    await act(async () => newRequest.resolve({ items: [newestAction], has_pending: true }))
+    await waitFor(() => expect(result.current.batches[0]?.actions[0]?.id).toBe(88))
+
+    await act(async () => oldRequest.resolve({ items: [pendingAction], has_pending: true }))
+    expect(result.current.batches[0]?.actions[0]?.id).toBe(88)
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { api } from '../../../api/client'
 import { CxDialog } from '../../../components/codex'
 import { useToast } from '../../../contexts/ToastContext'
@@ -53,7 +53,12 @@ interface StakeholderCreateDialogProps {
   onCreated: () => void | Promise<void>
 }
 
-export function CxStakeholderCreateDialog({
+export function CxStakeholderCreateDialog(props: StakeholderCreateDialogProps) {
+  if (!props.open || props.clientId == null) return null
+  return <StakeholderCreateDialogContent key={props.clientId} {...props} />
+}
+
+function StakeholderCreateDialogContent({
   open,
   clientId,
   clientName,
@@ -69,18 +74,6 @@ export function CxStakeholderCreateDialog({
     relationship_status: 'unknown',
     concerns: '',
   })
-
-  useEffect(() => {
-    if (open) {
-      setForm({
-        name: '',
-        role: '',
-        organization_level: '',
-        relationship_status: 'unknown',
-        concerns: '',
-      })
-    }
-  }, [open])
 
   const update =
     (k: keyof typeof form) =>

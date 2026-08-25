@@ -90,6 +90,22 @@ async function triggerDownload(
 }
 
 export function ChatArtifactPreview({
+  artifact,
+  projectId,
+  ...props
+}: PreviewProps) {
+  const previewKey = `${projectId}:${artifact.project_file_id ?? artifact.name}:${artifact.file_type}`
+  return (
+    <ChatArtifactPreviewContent
+      key={previewKey}
+      artifact={artifact}
+      projectId={projectId}
+      {...props}
+    />
+  )
+}
+
+function ChatArtifactPreviewContent({
   projectId,
   artifact,
   onClose,
@@ -103,10 +119,12 @@ export function ChatArtifactPreview({
   const fileId = artifact.project_file_id ?? null
 
   const [doc, setDoc] = useState<DocumentPayload | null>(null)
-  const [docLoading, setDocLoading] = useState(false)
+  const [docLoading, setDocLoading] = useState(kind === 'md' && fileId != null)
   const [docError, setDocError] = useState<string | null>(null)
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
-  const [blobLoading, setBlobLoading] = useState(false)
+  const [blobLoading, setBlobLoading] = useState(
+    (kind === 'pdf' || kind === 'image') && fileId != null,
+  )
   const [blobError, setBlobError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [resizing, setResizing] = useState(false)
@@ -142,10 +160,7 @@ export function ChatArtifactPreview({
   // document endpoint that returns parsed JSON {content, ...}.
   useEffect(() => {
     let cancelled = false
-    setDoc(null)
-    setDocError(null)
     if (kind !== 'md' || fileId == null) return
-    setDocLoading(true)
     api
       .get<DocumentPayload>(`/projects/${projectId}/documents/${fileId}`)
       .then((data) => {
@@ -170,14 +185,9 @@ export function ChatArtifactPreview({
   // so we pull as a blob and hand the iframe an object URL.
   useEffect(() => {
     let cancelled = false
-    setBlobUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return null
-    })
-    setBlobError(null)
     if ((kind !== 'pdf' && kind !== 'image') || fileId == null) return
-    setBlobLoading(true)
     const controller = new AbortController()
+    let objectUrl: string | null = null
     void (async () => {
       try {
         const raw = await fetchFileBlob(projectId, fileId, controller.signal)
@@ -187,6 +197,7 @@ export function ChatArtifactPreview({
             : raw.type || `image/${ext.toLowerCase()}`
         const typed = new Blob([raw], { type: mime })
         const url = URL.createObjectURL(typed)
+        objectUrl = url
         if (cancelled) {
           URL.revokeObjectURL(url)
           return
@@ -202,16 +213,9 @@ export function ChatArtifactPreview({
     return () => {
       cancelled = true
       controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [projectId, fileId, kind, ext])
-
-  // Revoke the object URL on unmount.
-  useEffect(
-    () => () => {
-      if (blobUrl) URL.revokeObjectURL(blobUrl)
-    },
-    [blobUrl],
-  )
 
   const handleDownload = async () => {
     if (downloading || fileId == null) return

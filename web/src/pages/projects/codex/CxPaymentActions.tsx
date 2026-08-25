@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { api } from '../../../api/client'
 import { CxDialog, CxConfirmDialog } from '../../../components/codex'
 import { useToast } from '../../../contexts/ToastContext'
@@ -48,7 +48,12 @@ function todayISO() {
   return `${d.getFullYear()}-${m}-${day}`
 }
 
-export function CxPaymentFormDialog({
+export function CxPaymentFormDialog(props: PaymentFormDialogProps) {
+  if (!props.open) return null
+  return <PaymentFormDialogContent key={props.projectId} {...props} />
+}
+
+function PaymentFormDialogContent({
   open,
   projectId,
   onClose,
@@ -67,12 +72,6 @@ export function CxPaymentFormDialog({
     payment_type: 'received',
     note: '',
   })
-
-  useEffect(() => {
-    if (open) {
-      setForm({ amount: 0, payment_date: todayISO(), payment_type: 'received', note: '' })
-    }
-  }, [open])
 
   const update =
     (k: keyof typeof form) =>

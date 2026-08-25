@@ -40,7 +40,12 @@ interface SimpleUser {
   display_name: string
 }
 
-export function CxTodoFormDialog({
+export function CxTodoFormDialog(props: TodoFormDialogProps) {
+  if (!props.open) return null
+  return <TodoFormDialogContent key={props.todo?.id ?? `new:${props.projectId}`} {...props} />
+}
+
+function TodoFormDialogContent({
   open,
   projectId,
   todo,
@@ -56,30 +61,24 @@ export function CxTodoFormDialog({
     assigned_to_user_id: todo?.assigned_to_user_id ?? null,
   })
 
-  useEffect(() => {
-    if (open) {
-      setForm({
-        content: todo?.content ?? '',
-        due_date: todo?.due_date ?? '',
-        assigned_to_user_id: todo?.assigned_to_user_id ?? null,
-      })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-
-  // Lazy-load the user picker options the first time the dialog opens
-  // (so closing-with-no-load doesn't burn a request, and reopening
-  // doesn't re-fetch). Uses /auth/users/simple — the same lightweight
-  // endpoint the member invite dialog hits.
+  // Lazy-load the user picker options only while this dialog session is
+  // mounted. Uses /auth/users/simple — the same lightweight endpoint the
+  // member invite dialog hits.
   useEffect(() => {
     if (!open) return
     if (users.length > 0) return
+    let active = true
     void api
       .get<SimpleUser[]>('/auth/users/simple')
-      .then((rows) => setUsers(rows))
+      .then((rows) => {
+        if (active) setUsers(rows)
+      })
       .catch(() => {
         // Silently fall back — the field just stays as "未指派".
       })
+    return () => {
+      active = false
+    }
   }, [open, users.length])
 
   const update =
@@ -268,22 +267,4 @@ export function CxTodoDeleteDialog({
       busy={busy}
     />
   )
-}
-
-/** Toggle is_done — one-shot, no dialog. */
-export async function toggleTodoDone(
-  projectId: number,
-  todo: ProjectTodo,
-): Promise<void> {
-  await api.patch<ProjectTodo>(`/projects/${projectId}/todos/${todo.id}`, {
-    is_done: !todo.is_done,
-  })
-}
-
-/** Promote a todo into this week's focus ("设为本周重点"). Idempotent per
- * (todo, week) — a repeat call returns ``created: false``. */
-export async function promoteTodoToWeekly(
-  todo: ProjectTodo,
-): Promise<{ created: boolean }> {
-  return api.post<{ created: boolean }>(`/weekly/from-todo`, { todo_id: todo.id })
 }

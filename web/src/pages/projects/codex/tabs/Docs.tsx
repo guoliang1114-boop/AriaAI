@@ -148,9 +148,9 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
     if (groups[0]) m[groups[0].id] = true
     return m
   })
-  const [sel, setSel] = useState<{ folder: number; file: number }>({
+  const [sel, setSel] = useState<{ folder: number; fileId: number | null }>({
     folder: initialFolderId,
-    file: 0,
+    fileId: groups[0]?.files[0]?.id ?? null,
   })
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [creatingMarkdown, setCreatingMarkdown] = useState(false)
@@ -160,23 +160,25 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
   const [editingFileId, setEditingFileId] = useState<number | null>(null)
 
   const toggle = (id: number) => setExpanded((e) => ({ ...e, [id]: !e[id] }))
-  const cur = groups.find((g) => g.id === sel.folder) ?? groups[0]
-  const selectedFile = sel.file >= 0 ? cur?.files[sel.file] ?? null : null
+  const effectiveSelection = useMemo(() => {
+    const requestedGroup = groups.find((group) => group.id === sel.folder) ?? groups[0]
+    const requestedFile = sel.fileId == null
+      ? null
+      : requestedGroup?.files.find((file) => file.id === sel.fileId) ?? null
+    if (sel.fileId == null || requestedFile || groups.length === 0) {
+      return { group: requestedGroup, file: requestedFile }
+    }
+    const fallbackGroup = groups.find((group) => group.files.length > 0) ?? requestedGroup
+    return {
+      group: fallbackGroup,
+      file: fallbackGroup?.files[0] ?? null,
+    }
+  }, [groups, sel.fileId, sel.folder])
+  const cur = effectiveSelection.group
+  const selectedFile = effectiveSelection.file
   const selectedPreviewKind = selectedFile ? getPreviewKind(selectedFile) : null
   const isEditingMarkdown =
     selectedFile != null && selectedPreviewKind === 'markdown' && editingFileId === selectedFile.id
-
-  useEffect(() => {
-    if (sel.file < 0 || selectedFile || groups.length === 0) return
-    const firstGroupWithFile = groups.find((g) => g.files.length > 0)
-    if (firstGroupWithFile) {
-      setSel({ folder: firstGroupWithFile.id, file: 0 })
-    }
-  }, [groups, sel.file, selectedFile])
-
-  useEffect(() => {
-    setEditingFileId(null)
-  }, [selectedFile?.id])
 
   return (
     <CxProjectShell activeTab="docs" projectId={projectId} project={project}>
@@ -256,7 +258,7 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
           <div style={{ padding: '0 14px 8px' }}>
             <CxUploadDropzone
               projectId={projectId}
-              folderId={sel.folder === UNFILED_ID ? null : sel.folder}
+              folderId={cur?.id == null || cur.id === UNFILED_ID ? null : cur.id}
               onUploaded={refetch}
             />
           </div>
@@ -284,21 +286,25 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
                     iconColor="var(--ink-mute)"
                     label={g.name}
                     badge={g.files.length}
-                    active={sel.folder === g.id && sel.file === -1}
+                    active={cur?.id === g.id && selectedFile == null}
                     onClick={() => {
                       toggle(g.id)
-                      setSel({ folder: g.id, file: -1 })
+                      setEditingFileId(null)
+                      setSel({ folder: g.id, fileId: null })
                     }}
                   />
                   {expanded[g.id] &&
-                    g.files.map((d, i) => (
+                    g.files.map((d) => (
                       <FileRow
                         key={d.id}
                         depth={2}
                         ext={extOf(d)}
                         label={d.name}
-                        active={sel.folder === g.id && sel.file === i}
-                        onClick={() => setSel({ folder: g.id, file: i })}
+                        active={selectedFile?.id === d.id}
+                        onClick={() => {
+                          setEditingFileId(null)
+                          setSel({ folder: g.id, fileId: d.id })
+                        }}
                       />
                     ))}
                 </span>
@@ -413,6 +419,7 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
           </div>
 
           <FilePreviewPane
+            key={selectedFile?.id ?? 'empty'}
             projectId={projectId}
             file={selectedFile}
             currentFolder={cur}
@@ -435,7 +442,7 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
       <CxMarkdownCreateDialog
         open={creatingMarkdown}
         projectId={projectId}
-        folderId={sel.folder === UNFILED_ID ? null : sel.folder}
+        folderId={cur?.id == null || cur.id === UNFILED_ID ? null : cur.id}
         onClose={() => setCreatingMarkdown(false)}
         onSaved={async () => {
           await refetch()
@@ -488,6 +495,14 @@ interface PreviewState {
   message?: string
 }
 
+function initialPreviewState(file: ProjectFile | null): PreviewState {
+  if (!file) return { status: 'idle' }
+  const kind = getPreviewKind(file)
+  return kind === 'unsupported'
+    ? { status: 'ready', kind }
+    : { status: 'loading', kind }
+}
+
 function FilePreviewPane({
   projectId,
   file,
@@ -503,32 +518,19 @@ function FilePreviewPane({
   onCancelEdit?: () => void
   onSaved?: () => void | Promise<void>
 }) {
-  const toast = useToast()
-  const [preview, setPreview] = useState<PreviewState>({ status: 'idle' })
-  const [draft, setDraft] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState('')
+  const [preview, setPreview] = useState<PreviewState>(() => initialPreviewState(file))
 
   useEffect(() => {
-    if (!file) {
-      setPreview({ status: 'idle' })
-      setDraft('')
-      setSaveError('')
-      return
-    }
+    if (!file) return
 
     const kind = getPreviewKind(file)
-    if (kind === 'unsupported') {
-      setPreview({ status: 'ready', kind })
-      return
-    }
+    if (kind === 'unsupported') return
 
     let objectUrl: string | undefined
     let disposed = false
     const controller = new AbortController()
 
     const load = async () => {
-      setPreview({ status: 'loading', kind })
       try {
         if (kind === 'markdown') {
           const data = await api.get<ProjectMarkdownPayload>(`/projects/${projectId}/documents/${file.id}`)
@@ -579,39 +581,7 @@ function FilePreviewPane({
       controller.abort()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [file?.id, projectId])
-
-  useEffect(() => {
-    if (preview.status === 'ready' && preview.kind === 'markdown' && !editing) {
-      setDraft(preview.text || '')
-      setSaveError('')
-    }
-  }, [editing, preview.kind, preview.status, preview.text])
-
-  useEffect(() => {
-    if (editing && preview.status === 'ready' && preview.kind === 'markdown') {
-      setDraft(preview.text || '')
-      setSaveError('')
-    }
-  }, [editing, file?.id, preview.kind, preview.status])
-
-  const handleSaveMarkdown = async () => {
-    if (!file || preview.kind !== 'markdown') return
-    setSaving(true)
-    setSaveError('')
-    try {
-      await api.patch<ProjectMarkdownPayload>(`/projects/${projectId}/documents/${file.id}`, {
-        content: draft,
-      })
-      setPreview({ status: 'ready', kind: 'markdown', text: draft })
-      toast.success({ title: '文档已保存' })
-      await onSaved?.()
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : '保存失败，请稍后再试。')
-    } finally {
-      setSaving(false)
-    }
-  }
+  }, [file, projectId])
 
   if (!file) {
     return (
@@ -777,13 +747,16 @@ function FilePreviewPane({
           </div>
         )}
         {preview.status === 'ready' && preview.kind === 'markdown' && editing && (
-          <MarkdownEditor
-            value={draft}
-            saving={saving}
-            error={saveError}
-            onChange={setDraft}
+          <MarkdownEditorSession
+            key={file.id}
+            projectId={projectId}
+            fileId={file.id}
+            initialValue={preview.text ?? ''}
             onCancel={onCancelEdit}
-            onSave={() => void handleSaveMarkdown()}
+            onCommitted={(content) => {
+              setPreview({ status: 'ready', kind: 'markdown', text: content })
+            }}
+            onSaved={onSaved}
           />
         )}
         {preview.status === 'ready' && preview.kind === 'markdown' && !editing && (
@@ -962,6 +935,56 @@ function MenuButton({
       <CxIcon name={icon} size={13} />
       <span>{label}</span>
     </button>
+  )
+}
+
+function MarkdownEditorSession({
+  projectId,
+  fileId,
+  initialValue,
+  onCancel,
+  onCommitted,
+  onSaved,
+}: {
+  projectId: number
+  fileId: number
+  initialValue: string
+  onCancel?: () => void
+  onCommitted: (content: string) => void
+  onSaved?: () => void | Promise<void>
+}) {
+  const toast = useToast()
+  const [draft, setDraft] = useState(initialValue)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSave = async () => {
+    if (saving) return
+    setSaving(true)
+    setError('')
+    try {
+      await api.patch<ProjectMarkdownPayload>(`/projects/${projectId}/documents/${fileId}`, {
+        content: draft,
+      })
+      onCommitted(draft)
+      toast.success({ title: '文档已保存' })
+      await onSaved?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败，请稍后再试。')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <MarkdownEditor
+      value={draft}
+      saving={saving}
+      error={error}
+      onChange={setDraft}
+      onCancel={onCancel}
+      onSave={() => void handleSave()}
+    />
   )
 }
 

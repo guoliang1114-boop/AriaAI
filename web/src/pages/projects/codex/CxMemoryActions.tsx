@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { api } from '../../../api/client'
 import { CxDialog } from '../../../components/codex'
 import { useToast } from '../../../contexts/ToastContext'
@@ -16,12 +16,6 @@ import { useToast } from '../../../contexts/ToastContext'
  * three risk-y slots, via the pinned array. We expose that as an
  * "锚点管理" dialog with separate AI-suggestion and user-pinned
  * sections (see CxMemoryAnchorsDialog below). */
-
-export const EDITABLE_SLOT_KEYS = new Set([
-  'key_risks',
-  'open_questions',
-  'stakeholder_notes',
-])
 
 interface RebuildButtonProps {
   projectId: number
@@ -98,7 +92,12 @@ interface AnchorsDialogProps {
  * suggestions read-only with a "固定" button per item, and the
  * user-pinned list with inline edit / delete / add. Save sends the
  * whole new pinned array to PATCH /memory/slots/:name. */
-export function CxMemoryAnchorsDialog({
+export function CxMemoryAnchorsDialog(props: AnchorsDialogProps) {
+  if (!props.open || !props.slotKey) return null
+  return <MemoryAnchorsDialogContent key={props.slotKey} {...props} />
+}
+
+function MemoryAnchorsDialogContent({
   open,
   projectId,
   slotKey,
@@ -111,15 +110,8 @@ export function CxMemoryAnchorsDialog({
 }: AnchorsDialogProps) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
-  const [draft, setDraft] = useState<string[]>([])
+  const [draft, setDraft] = useState<string[]>(() => [...pinnedItems])
   const [newItem, setNewItem] = useState('')
-
-  useEffect(() => {
-    if (open) {
-      setDraft([...pinnedItems])
-      setNewItem('')
-    }
-  }, [open, pinnedItems])
 
   if (!slotKey) return null
 

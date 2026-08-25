@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
 import type {
@@ -12,8 +12,8 @@ import { CxPanel, CxStatus } from '../CxPrimitives'
 import {
   CxMemoryAnchorsDialog,
   CxMemoryRebuildButton,
-  EDITABLE_SLOT_KEYS,
 } from '../CxMemoryActions'
+import { EDITABLE_SLOT_KEYS } from '../projectActionMutations'
 import { formatUpdatedRelative, useProjectConversations } from '../useProjectsApi'
 
 interface MemoryProps {
@@ -339,17 +339,25 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
   }, [files, milestones, slots, memory, project.memory_updated_at])
 
   const toast = useToast()
+  const memoryCandidatesRequestIdRef = useRef(0)
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([])
   const [candidateBusyId, setCandidateBusyId] = useState<number | null>(null)
-  const loadMemoryCandidates = useCallback(async () => {
-    try {
-      const response = await api.get<MemoryCandidateListResponse>('/memory-candidates', {
+  const loadMemoryCandidates = useCallback(() => {
+    const requestId = ++memoryCandidatesRequestIdRef.current
+    return api
+      .get<MemoryCandidateListResponse>('/memory-candidates', {
         params: { scope: 'project', project_id: projectId, status: 'pending' },
       })
-      setMemoryCandidates(response.items)
-    } catch (error) {
-      console.error('Failed to load memory candidates:', error)
-    }
+      .then((response) => {
+        if (requestId === memoryCandidatesRequestIdRef.current) {
+          setMemoryCandidates(response.items)
+        }
+      })
+      .catch((error: unknown) => {
+        if (requestId === memoryCandidatesRequestIdRef.current) {
+          console.error('Failed to load memory candidates:', error)
+        }
+      })
   }, [projectId])
 
   useEffect(() => {

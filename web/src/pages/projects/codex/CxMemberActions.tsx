@@ -49,7 +49,12 @@ interface InviteDialogProps {
   onInvited: () => void | Promise<void>
 }
 
-export function CxMemberInviteDialog({
+export function CxMemberInviteDialog(props: InviteDialogProps) {
+  if (!props.open) return null
+  return <MemberInviteDialogContent key={props.projectId} {...props} />
+}
+
+function MemberInviteDialogContent({
   open,
   projectId,
   existingMemberIds,
@@ -59,20 +64,27 @@ export function CxMemberInviteDialog({
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [users, setUsers] = useState<SimpleUser[]>([])
-  const [loadingUsers, setLoadingUsers] = useState(false)
+  const [loadingUsers, setLoadingUsers] = useState(true)
   const [userId, setUserId] = useState<number | null>(null)
   const [role, setRole] = useState('editor')
 
   useEffect(() => {
     if (!open) return
-    setUserId(null)
-    setRole('editor')
-    setLoadingUsers(true)
+    let active = true
     api
       .get<SimpleUser[]>('/auth/users/simple')
-      .then((rows) => setUsers(rows))
-      .catch(() => setUsers([]))
-      .finally(() => setLoadingUsers(false))
+      .then((rows) => {
+        if (active) setUsers(rows)
+      })
+      .catch(() => {
+        if (active) setUsers([])
+      })
+      .finally(() => {
+        if (active) setLoadingUsers(false)
+      })
+    return () => {
+      active = false
+    }
   }, [open])
 
   const candidates = users.filter((u) => !existingMemberIds.has(u.id))

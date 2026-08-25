@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { api } from '../../../api/client'
 import { CxDialog } from '../../../components/codex'
 import { useToast } from '../../../contexts/ToastContext'
@@ -30,7 +30,12 @@ interface ProgressUpdateDialogProps {
   onSaved: () => void | Promise<void>
 }
 
-export function CxProgressUpdateDialog({
+export function CxProgressUpdateDialog(props: ProgressUpdateDialogProps) {
+  if (!props.open) return null
+  return <ProgressUpdateDialogContent key={props.projectId} {...props} />
+}
+
+function ProgressUpdateDialogContent({
   open,
   projectId,
   onClose,
@@ -43,11 +48,6 @@ export function CxProgressUpdateDialog({
     next_step: '',
     risk: '',
   })
-
-  useEffect(() => {
-    if (!open) return
-    setForm({ content: '', next_step: '', risk: '' })
-  }, [open])
 
   const update =
     (k: 'content' | 'next_step' | 'risk') =>

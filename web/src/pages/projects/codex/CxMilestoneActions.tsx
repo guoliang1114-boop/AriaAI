@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { api } from '../../../api/client'
 import { CxDialog, CxConfirmDialog } from '../../../components/codex'
 import { useToast } from '../../../contexts/ToastContext'
@@ -41,7 +41,17 @@ interface MilestoneFormDialogProps {
   onSaved: () => void | Promise<void>
 }
 
-export function CxMilestoneFormDialog({
+export function CxMilestoneFormDialog(props: MilestoneFormDialogProps) {
+  if (!props.open) return null
+  return (
+    <MilestoneFormDialogContent
+      key={props.milestone?.id ?? `new:${props.projectId}`}
+      {...props}
+    />
+  )
+}
+
+function MilestoneFormDialogContent({
   open,
   projectId,
   milestone,
@@ -55,20 +65,6 @@ export function CxMilestoneFormDialog({
     priority: milestone?.priority ?? 'medium',
     due_date: milestone?.due_date ?? '',
   })
-
-  // Re-init form on open so opening "edit" on a different row after
-  // closing previous one starts from that row's values, but in-flight
-  // edits aren't blown away while the dialog is open.
-  useEffect(() => {
-    if (open) {
-      setForm({
-        title: milestone?.title ?? '',
-        priority: milestone?.priority ?? 'medium',
-        due_date: milestone?.due_date ?? '',
-      })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
 
   const update =
     (k: keyof typeof form) =>
@@ -250,15 +246,4 @@ export function CxMilestoneDeleteDialog({
       busy={busy}
     />
   )
-}
-
-/** Toggle is_done — one-shot PATCH, no dialog. Returns the promise so
- * callers can refetch when it resolves. */
-export async function toggleMilestoneDone(
-  projectId: number,
-  milestone: Milestone,
-): Promise<void> {
-  await api.patch<Milestone>(`/projects/${projectId}/milestones/${milestone.id}`, {
-    is_done: !milestone.is_done,
-  })
 }

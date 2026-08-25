@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../../api/client'
 import type {
   ConfirmActionResponse,
@@ -99,32 +99,39 @@ export function usePendingActions(
   onResolved: () => void | Promise<void>,
   onError?: (message: string) => void,
 ): UsePendingActionsReturn {
-  const [batches, setBatches] = useState<PendingActionBatch[]>([])
-  const [loading, setLoading] = useState(false)
+  const requestIdRef = useRef(0)
+  const [batchState, setBatchState] = useState<{
+    conversationId: number | null
+    batches: PendingActionBatch[]
+  }>({ conversationId: null, batches: [] })
+  const [loadedConversationId, setLoadedConversationId] = useState<number | null>(null)
   const [actingKey, setActingKey] = useState<string | null>(null)
+  const batches = batchState.conversationId === conversationId ? batchState.batches : []
+  const loading = conversationId != null && loadedConversationId !== conversationId
 
-  const refetch = useCallback(async () => {
-    if (conversationId == null) {
-      setBatches([])
-      return
-    }
-    setLoading(true)
-    try {
-      const res = await api.get<PendingActionsResponse>(
+  const refetch = useCallback(() => {
+    const requestId = ++requestIdRef.current
+    if (conversationId == null) return Promise.resolve()
+    return api
+      .get<PendingActionsResponse>(
         `/chat/conversations/${conversationId}/pending-actions`,
       )
-      setBatches(groupByBatch(res.items || []))
-    } catch {
-      // Non-fatal: leave the last known state. A failed poll shouldn't
-      // wipe a card the user is mid-decision on.
-    } finally {
-      setLoading(false)
-    }
+      .then((res) => {
+        if (requestId !== requestIdRef.current) return
+        setBatchState({ conversationId, batches: groupByBatch(res.items || []) })
+      })
+      .catch(() => {
+        // Non-fatal: leave the last known state. A failed poll shouldn't
+        // wipe a card the user is mid-decision on.
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setLoadedConversationId(conversationId)
+      })
   }, [conversationId])
 
-  // Reset + fetch when the selected conversation changes.
+  // The visible state is keyed by conversation, so an old conversation's
+  // approvals disappear immediately without a synchronous reset effect.
   useEffect(() => {
-    setBatches([])
     void refetch()
   }, [refetch])
 

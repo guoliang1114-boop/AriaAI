@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { api } from '../../../api/client'
 import { CxDialog, CxConfirmDialog } from '../../../components/codex'
 import { useToast } from '../../../contexts/ToastContext'
@@ -32,7 +32,12 @@ interface FolderCreateDialogProps {
   onSaved: () => void | Promise<void>
 }
 
-export function CxFolderCreateDialog({
+export function CxFolderCreateDialog(props: FolderCreateDialogProps) {
+  if (!props.open) return null
+  return <FolderCreateDialogContent key={props.projectId} {...props} />
+}
+
+function FolderCreateDialogContent({
   open,
   projectId,
   onClose,
@@ -41,10 +46,6 @@ export function CxFolderCreateDialog({
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState('')
-
-  useEffect(() => {
-    if (open) setName('')
-  }, [open])
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -144,7 +145,12 @@ interface MarkdownCreateDialogProps {
 /** Create a new empty Markdown (.md) file in the project space. The backend
  * (POST /projects/:id/documents) appends the .md suffix and writes the file;
  * it can then be edited inline with the existing Markdown editor. */
-export function CxMarkdownCreateDialog({
+export function CxMarkdownCreateDialog(props: MarkdownCreateDialogProps) {
+  if (!props.open) return null
+  return <MarkdownCreateDialogContent key={`${props.projectId}:${props.folderId ?? 'root'}`} {...props} />
+}
+
+function MarkdownCreateDialogContent({
   open,
   projectId,
   folderId,
@@ -154,10 +160,6 @@ export function CxMarkdownCreateDialog({
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState('')
-
-  useEffect(() => {
-    if (open) setName('')
-  }, [open])
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -361,7 +363,12 @@ interface FileMoveDialogProps {
   onMoved: () => void | Promise<void>
 }
 
-export function CxFileMoveDialog({
+export function CxFileMoveDialog(props: FileMoveDialogProps) {
+  if (!props.open || !props.file) return null
+  return <FileMoveDialogContent key={props.file.id} {...props} />
+}
+
+function FileMoveDialogContent({
   open,
   projectId,
   file,
@@ -371,12 +378,9 @@ export function CxFileMoveDialog({
 }: FileMoveDialogProps) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
-  const [folderId, setFolderId] = useState('unfiled')
-
-  useEffect(() => {
-    if (!open || !file) return
-    setFolderId(file.folder_id == null ? 'unfiled' : String(file.folder_id))
-  }, [file, open])
+  const [folderId, setFolderId] = useState(
+    file?.folder_id == null ? 'unfiled' : String(file.folder_id),
+  )
 
   if (!file) return null
 

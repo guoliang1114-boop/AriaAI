@@ -60,13 +60,16 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     removeLocal: removeConversationLocal,
   } = useProjectConversations(projectId)
 
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [requestedSelectedId, setRequestedSelectedId] = useState<number | null>(null)
   const [view, setView] = useState<'chats' | 'space'>('chats')
   const [creating, setCreating] = useState(false)
   const [openArtifact, setOpenArtifact] = useState<GeneratedArtifact | null>(null)
   // Preview pane width is user-resizable via a drag handle on its
   // left edge. Per-session only — we don't bother persisting it.
   const [previewWidth, setPreviewWidth] = useState(380)
+  const selectedId = conversations.some((conversation) => conversation.id === requestedSelectedId)
+    ? requestedSelectedId
+    : conversations[0]?.id ?? null
 
   // Conversation messages — lifted out of ThreadView so the 空间
   // tree can list 「本会话产出」 without a duplicate fetch. Pending
@@ -78,13 +81,16 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     error: msgsError,
     refetch: refetchMessages,
   } = useConversationMessages(selectedId)
-  const [pending, setPending] = useState<Message[]>([])
-  useEffect(() => {
-    setPending([])
-  }, [selectedId])
+  const [pendingState, setPendingState] = useState<{
+    conversationId: number | null
+    messages: Message[]
+  }>({ conversationId: null, messages: [] })
   const allMessages = useMemo(
-    () => (pending.length ? [...serverMessages, ...pending] : serverMessages),
-    [serverMessages, pending],
+    () => {
+      const pending = pendingState.conversationId === selectedId ? pendingState.messages : []
+      return pending.length ? [...serverMessages, ...pending] : serverMessages
+    },
+    [pendingState, selectedId, serverMessages],
   )
 
   const {
@@ -102,8 +108,18 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
   } = useChatStream({
     projectId,
     conversationId: selectedId,
-    onUserMessage: (m) => setPending((prev) => [...prev, m]),
-    onAssistantMessage: (m) => setPending((prev) => [...prev, m]),
+    onUserMessage: (message) => setPendingState((current) => ({
+      conversationId: selectedId,
+      messages: current.conversationId === selectedId
+        ? [...current.messages, message]
+        : [message],
+    })),
+    onAssistantMessage: (message) => setPendingState((current) => ({
+      conversationId: selectedId,
+      messages: current.conversationId === selectedId
+        ? [...current.messages, message]
+        : [message],
+    })),
     onConversationTitle: () => {
       // Backend pushed the in-band auto-title via the SSE
       // ``conversation_title`` event. Refetching the convs list is
@@ -124,7 +140,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     selectedId,
     async () => {
       await Promise.all([refetchMessages(), refetch?.()])
-      setPending([])
+      setPendingState({ conversationId: selectedId, messages: [] })
     },
     (msg) => {
       toast.error({
@@ -149,30 +165,6 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     }
   }, [streamStatus, refetchPendingActions])
 
-  // Auto-select the most recently-updated conversation when the
-  // list arrives or refreshes. Don't overwrite the user's pick.
-  useEffect(() => {
-    if (selectedId != null) return
-    if (conversations.length > 0) setSelectedId(conversations[0].id)
-  }, [conversations, selectedId])
-
-  // Guard against stale selection — if selectedId points at a
-  // conversation that's no longer in the list (deleted in another
-  // tab, deleted before this mount finished, etc.), reset to null
-  // so the auto-select effect above can pick a fresh row instead
-  // of letting useConversationMessages 404 forever.
-  useEffect(() => {
-    if (selectedId == null) return
-    if (convsLoading) return
-    if (conversations.length === 0) {
-      setSelectedId(null)
-      return
-    }
-    if (!conversations.some((c) => c.id === selectedId)) {
-      setSelectedId(null)
-    }
-  }, [conversations, convsLoading, selectedId])
-
   // Recovery — if the messages fetch 404s (conversation was
   // deleted on the server but still cached in the list, or some
   // other race), drop the selection and refetch the list so the
@@ -180,7 +172,6 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
   useEffect(() => {
     if (!msgsError) return
     if (!msgsError.includes('404')) return
-    setSelectedId(null)
     void refetchConvs()
   }, [msgsError, refetchConvs])
 
@@ -192,7 +183,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
         project_id: projectId,
       })
       await refetchConvs()
-      setSelectedId(conv.id)
+      setRequestedSelectedId(conv.id)
     } catch (err) {
       toast.error({
         title: '创建失败',
@@ -212,9 +203,9 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     const nextConversation =
       conversations[deletedIndex + 1] ?? conversations[deletedIndex - 1] ?? remaining[0] ?? null
     removeConversationLocal(deletedId)
-    setPending([])
+    setPendingState({ conversationId: selectedId, messages: [] })
     setOpenArtifact(null)
-    setSelectedId((current) => (current === deletedId ? nextConversation?.id ?? null : current))
+    setRequestedSelectedId((current) => (current === deletedId ? nextConversation?.id ?? null : current))
     void refetchConvs()
   }
 
@@ -253,7 +244,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
               error={convsError}
               conversations={conversations}
               selectedId={selectedId}
-              onSelect={setSelectedId}
+              onSelect={setRequestedSelectedId}
               onNew={handleNewConversation}
             />
           ) : (
