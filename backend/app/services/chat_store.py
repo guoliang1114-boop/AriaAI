@@ -192,6 +192,7 @@ def build_message_metadata(
     skill_id: Optional[int] = None,
     rag_doc_ids: Optional[list[int]] = None,
     file_ids: Optional[list[int]] = None,
+    mention_context: Optional[dict] = None,
 ) -> dict:
     metadata = {}
     if skill_id:
@@ -202,6 +203,8 @@ def build_message_metadata(
         metadata["file_ids"] = file_ids
     if project_id:
         metadata["project_id"] = project_id
+    if mention_context and any(mention_context.values()):
+        metadata["mention_context"] = mention_context
     return metadata
 
 

@@ -792,6 +792,7 @@ def prepare_chat_runtime(
         skill_id=effective_skill_id,
         rag_doc_ids=req.rag_doc_ids,
         file_ids=req.file_ids,
+        mention_context=req.mention_context.model_dump() if req.mention_context else None,
     )
     step_started_at = time.perf_counter()
     if persist_user and conv_id:

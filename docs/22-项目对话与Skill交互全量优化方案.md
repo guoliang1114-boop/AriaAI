@@ -23,10 +23,10 @@ Phase 2T 先关闭这两个缺口，Phase 2U 进一步补上长对话状态和�
 
 | 能力层 | Codex 参考路径/机制 | 值得借鉴的原则 | Aria 当前状态 | Aria 后续动作 |
 |---|---|---|---|---|
-| 本轮输入边界 | `core/src/session/turn_input.rs`、`session/turn.rs` | 每轮输入是新的决策边界；追加上下文、纠偏和开始新轮次必须可区分 | 已有 `SendMessageRequest`、Turn Contract | 增加结构化“本轮目标/约束/引用对象”输入，不依赖纯文本猜测 |
+| 本轮输入边界 | `core/src/session/turn_input.rs`、`session/turn.rs` | 每轮输入是新的决策边界；追加上下文、纠偏和开始新轮次必须可区分 | Phase 2Z 已把文件、干系人、里程碑引用作为精确 ID 随本轮发送 | 后续增加结构化“本轮目标/约束”输入，不依赖纯文本猜测 |
 | 项目指令层级 | `codex-home/src/instructions/mod.rs` | 全局、项目、目录指令按明确层级加载，越近的规则越具体 | Phase 2U 已建立显式 `InstructionManifest v1` | 后续把简化冲突回执开放给前端，持续扩充跨层冲突评测 |
 | Skill 发现 | `skills/src/loading.rs`、`parser.rs` | 先发现元数据，命中后再加载完整内容；坏包隔离 | 已完成 Skill Root 快照、发布态目录、解析校验 | 增加作者预览、依赖校验、样例输入和质量评分 |
-| Skill 本轮选择 | `skills/src/mentions.rs`、`selection.rs` | 只解析本轮结构化输入和显式提及；去重后注入本轮 | Phase 2Y 已补齐自动/指定/禁用三态与歧义候选确认 | 后续增加输入框内的结构化对象引用与键盘检索 |
+| Skill 本轮选择 | `skills/src/mentions.rs`、`selection.rs` | 只解析本轮结构化输入和显式提及；去重后注入本轮 | Phase 2Z 已补齐统一 `@` 检索、键盘选择和精确 ID 去重 | 后续增加多对象组合的目标与约束预览 |
 | Skill 续用/释放 | Codex 的 per-turn selection boundary | Skill 不是会话永久所有者；是否续用应由本轮相关性决定 | Phase 2T 已实现相关追问续用、无关话题释放、显式退出 | 用真实匿名交互数据持续校准续用词与误触发率 |
 | Skill 可见性 | Turn 内 Skill 注入项 + 运行事件 | 用户应知道本轮实际加载了什么能力 | Phase 2Y 已支持项目内选择、歧义点选和一键关闭/切换 | 持续把内部匹配原因翻译为更具体的业务说明 |
 | 项目世界状态 | `core/src/context/world_state/` | 把工作目录、规则和环境变化建模为基线与差异，不把所有内容反复塞入 Prompt | 已有项目/客户结构化上下文与 Context Assembly Manifest | 增加项目状态版本、变化摘要和陈旧证据提示 |
@@ -268,6 +268,14 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - Context Receipt 的歧义候选不再只是说明文字：流式回执和历史 Assistant 消息均提供“下一轮使用”按钮，用户点选后直接绑定候选 ID，无需猜测 Skill 名称或提示词写法。
 - 项目聊天通过发布态 `/skills/meta/summary` 目录展示 Skill 名称、类别和适用说明；目录加载失败只退回自动模式，不阻断普通问答。
 - 前端发送契约、选择器、历史候选动作与后端冲突优先级均增加确定性回归测试；发布质量门禁扩展为 24 场景并新增 `skill_control_accuracy` 指标；不新增数据库迁移，不启动、不导入、不连接 Codex。
+
+### Phase 2Z：统一 @ 检索与结构化项目对象引用（已实施）
+
+- 参考 Codex `skills/src/mentions.rs` 与 `selection.rs` 的“结构化选择优先、名称仅用于交互、精确身份去重、本轮重新决策”机制，在 Aria 原生 React/FastAPI 架构内实现，不引入 Codex 运行时或通信依赖。
+- 项目对话输入框输入 `@` 后统一检索发布态 Skill、当前项目文件、当前客户干系人和当前项目里程碑；支持名称、说明、类别与角色检索，并支持 `↑/↓`、Enter、Esc 完整键盘操作。
+- Skill 选择写入下一轮显式 `skill_id`；项目对象选择写入已有 `mention_context` 的精确 ID 数组，文件正文、重点干系人和重点里程碑继续由 Aria 原生上下文构建器按项目权限装配，不靠名称猜测。
+- 已选项目对象显示为可移除引用标签，删除输入中的闭合引用令牌会同步撤销结构化选择；同类型同 ID 去重，空查询按对象类型均衡展示，项目切换期间不会短暂复用上一项目候选。
+- 用户消息元数据持久化本轮 `mention_context`，便于历史审计和恢复；发布质量门禁扩展为 26 场景并新增 `structured_reference_accuracy` 指标。本阶段不新增数据库迁移。
 
 ## 11. 官方资料与许可证
 

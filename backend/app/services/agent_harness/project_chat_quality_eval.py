@@ -17,6 +17,7 @@ from app.models.db import Project, Skill
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.mode_registry import ActionPolicy, ToolAccessPolicy
 from app.services.chat.runtime import _resolve_effective_skill
+from app.services.chat_store import build_message_metadata
 from app.services.agent_harness.project_memory_evidence import (
     select_project_memory_slots,
 )
@@ -217,6 +218,32 @@ def _skill_control_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _structured_reference_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Project object choices remain exact IDs and empty choices stay absent."""
+
+    mention_context = {
+        "file_ids": [11],
+        "stakeholder_ids": [12],
+        "milestone_ids": [13],
+    }
+    metadata = build_message_metadata(project_id=26, mention_context=mention_context)
+    empty_metadata = build_message_metadata(
+        project_id=26,
+        mention_context={"file_ids": [], "stakeholder_ids": [], "milestone_ids": []},
+    )
+    details = [
+        {
+            "case": "structured_project_references_preserve_exact_ids",
+            "passed": metadata.get("mention_context") == mention_context,
+        },
+        {
+            "case": "empty_project_references_are_omitted",
+            "passed": "mention_context" not in empty_metadata,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def _memory_results() -> tuple[int, int, list[dict[str, Any]]]:
     stale = Project(
         name="Stale",
@@ -309,6 +336,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "skill_lifecycle_accuracy": _lifecycle_results(),
         "advisory_skill_safety_rate": _advisory_safety_results(),
         "skill_control_accuracy": _skill_control_results(),
+        "structured_reference_accuracy": _structured_reference_results(),
         "memory_freshness_guard_rate": _memory_results(),
         "memory_retrieval_precision_rate": _memory_retrieval_results(),
         "constraint_retention_rate": _constraint_results(),

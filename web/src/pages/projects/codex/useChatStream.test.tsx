@@ -53,6 +53,29 @@ describe('useChatStream Skill control', () => {
     expect(callbacks.onError).not.toHaveBeenCalled()
   })
 
+  it('sends exact project-object references and mirrors them into the optimistic message', async () => {
+    const onUserMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage: vi.fn(),
+    }))
+    const mentionContext = {
+      file_ids: [11],
+      stakeholder_ids: [12],
+      milestone_ids: [13],
+    }
+
+    await act(async () => result.current.send('分析这些明确对象', { mentionContext }))
+
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(init.body))).toMatchObject({ mention_context: mentionContext })
+    expect(JSON.parse(onUserMessage.mock.calls[0][0].metadata_json)).toMatchObject({
+      mention_context: mentionContext,
+    })
+  })
+
   it('admits only one send before React has committed the busy state', async () => {
     let resolveResponse!: (response: Response) => void
     vi.mocked(fetch).mockImplementation(() => new Promise<Response>((resolve) => {

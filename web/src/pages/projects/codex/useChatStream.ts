@@ -6,6 +6,7 @@ import type {
   GeneratedArtifact,
   KnowledgeEvidenceManifest,
   Message,
+  MentionContext,
   Reference,
 } from '../../../types/api'
 import { normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
@@ -51,9 +52,10 @@ export interface ChatCapabilityFrame {
   turn_contract?: Record<string, unknown>
 }
 
-export interface ProjectChatSkillControl {
+export interface ProjectChatTurnControl {
   skillId?: number
   disableSkill?: boolean
+  mentionContext?: MentionContext
 }
 
 interface UseChatStreamArgs {
@@ -90,7 +92,7 @@ interface UseChatStreamReturn {
    * same React node updates in place at `done` instead of remounting
    * (no end-of-stream reformat flash). */
   streamingMessageId: number
-  send: (content: string, skillControl?: ProjectChatSkillControl) => Promise<void>
+  send: (content: string, turnControl?: ProjectChatTurnControl) => Promise<void>
   steer: (content: string) => Promise<boolean>
   stop: () => void
 }
@@ -201,7 +203,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   }, [conversationId, onAssistantMessage])
 
   const send = useCallback(
-    async (content: string, skillControl: ProjectChatSkillControl = {}) => {
+    async (content: string, turnControl: ProjectChatTurnControl = {}) => {
       const text = content.trim()
       if (!text) return
       if (conversationId == null) {
@@ -228,7 +230,10 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         conversation_id: conversationId,
         role: 'user',
         content: text,
-        metadata_json: '{}',
+        metadata_json: JSON.stringify({
+          ...(turnControl.skillId != null ? { skill_id: turnControl.skillId } : {}),
+          ...(turnControl.mentionContext ? { mention_context: turnControl.mentionContext } : {}),
+        }),
         created_at: new Date().toISOString(),
       }
       onUserMessage(userMsg)
@@ -245,12 +250,13 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
             conversation_id: conversationId,
             content: text,
             project_id: projectId,
-            skill_id: skillControl.skillId ?? null,
-            force_skill: skillControl.skillId != null,
-            disable_skill: skillControl.disableSkill === true,
+            skill_id: turnControl.skillId ?? null,
+            force_skill: turnControl.skillId != null,
+            disable_skill: turnControl.disableSkill === true,
             rag_doc_ids: [],
             file_ids: [],
             language: i18n.language || 'zh-CN',
+            mention_context: turnControl.mentionContext,
           }),
           signal: controller.signal,
         })

@@ -1162,6 +1162,12 @@ export interface MentionContext {
   milestone_ids?: number[]
 }
 
+export interface ProjectMentionables {
+  files: Array<{ id: number; name: string; file_type: string }>
+  stakeholders: Array<{ id: number; name: string; role: string }>
+  milestones: Array<{ id: number; title: string; due_date: string | null; is_done: boolean }>
+}
+
 export interface SendMessageRequest {
   conversation_id?: number
   content: string

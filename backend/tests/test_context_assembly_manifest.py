@@ -5,7 +5,10 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine
 
+from app.models.db import Milestone, Project
 from app.services.agent_harness.run_evaluation import (
     CompletionVerdict,
     evaluate_run_completion,
@@ -17,6 +20,7 @@ from app.services.chat.working_memory import WorkingMemory
 from app.services.chat.state import ChatSessionState
 from app.services.chat.trace import build_chat_trace_payload
 from app.services.chat.agent_loop import run_agent_loop
+from app.services.chat_store import build_message_metadata
 from app.services.chat_tools import ChatRuntime
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.context_builder.assembly import (
@@ -26,6 +30,7 @@ from app.services.context_builder.assembly import (
     validate_context_assembly_manifest,
     validate_context_assembly_request,
 )
+from app.services.context_builder.project_context import build_project_context
 
 
 def _assembly(*, oversized: bool = False):
@@ -100,6 +105,65 @@ def test_context_assembly_manifest_is_bounded_private_and_matches_request() -> N
         messages=changed_messages,
         tools=assembly.tools,
     ) == (False, "messages_request_mismatch")
+
+
+def test_message_metadata_preserves_structured_project_mentions_for_audit() -> None:
+    mention_context = {
+        "file_ids": [11],
+        "stakeholder_ids": [12],
+        "milestone_ids": [13],
+    }
+
+    metadata = build_message_metadata(project_id=3, mention_context=mention_context)
+
+    assert metadata["project_id"] == 3
+    assert metadata["mention_context"] == mention_context
+    assert "mention_context" not in build_message_metadata(
+        project_id=3,
+        mention_context={"file_ids": [], "stakeholder_ids": [], "milestone_ids": []},
+    )
+
+
+def test_structured_milestone_reference_is_prioritized_without_cross_project_leakage() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            project = Project(name="Current", client="Client A")
+            other_project = Project(name="Other", client="Client B")
+            session.add(project)
+            session.add(other_project)
+            session.commit()
+            session.refresh(project)
+            session.refresh(other_project)
+
+            ordinary = Milestone(project_id=project.id, title="普通里程碑")
+            focused = Milestone(project_id=project.id, title="重点里程碑")
+            foreign = Milestone(project_id=other_project.id, title="其他项目机密里程碑")
+            session.add(ordinary)
+            session.add(focused)
+            session.add(foreign)
+            session.commit()
+            session.refresh(focused)
+            session.refresh(foreign)
+
+            context = build_project_context(
+                session,
+                project.id,
+                content="分析重点里程碑",
+                mention_context={"milestone_ids": [focused.id, foreign.id]},
+            )
+
+        assert context.index("重点里程碑") < context.index("普通里程碑")
+        assert "重点里程碑 **[User Mentioned]**" in context
+        assert "其他项目机密里程碑" not in context
+    finally:
+        SQLModel.metadata.drop_all(engine)
+        engine.dispose()
 
 
 def test_context_assembly_compacts_before_fingerprinting_final_request() -> None:

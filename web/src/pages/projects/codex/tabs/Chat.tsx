@@ -6,6 +6,7 @@ import type {
   GeneratedArtifact,
   Message,
   ProjectDetail as ProjectDetailType,
+  ProjectMentionables,
   SkillSummary,
 } from '../../../../types/api'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../../types/productRunEvent'
@@ -24,7 +25,7 @@ import { ChatSpaceTree } from '../ChatSpaceTree'
 import {
   useChatStream,
   type ChatCapabilityFrame,
-  type ProjectChatSkillControl,
+  type ProjectChatTurnControl,
   type ChatStreamStatus,
 } from '../useChatStream'
 import {
@@ -32,6 +33,19 @@ import {
   type ProjectSkillSelection,
 } from '../ProjectSkillControl'
 import { SkillCandidateButtons } from '../SkillCandidateButtons'
+import { ProjectMentionMenu } from '../ProjectMentionMenu'
+import {
+  buildProjectMentionOptions,
+  filterProjectMentionOptions,
+  findActiveProjectMention,
+  PROJECT_MENTION_KIND_LABEL,
+  pruneSelectedProjectMentions,
+  replaceActiveProjectMention,
+  selectedProjectMentionsToContext,
+  type ActiveProjectMention,
+  type ProjectMentionOption,
+  type SelectedProjectMention,
+} from '../projectMentions'
 import {
   formatUpdatedRelative,
   useConversationMessages,
@@ -45,6 +59,12 @@ interface ChatProps {
    * after a HITAS confirm so a deleted/modified file drops out of the
    * 空间 tree immediately instead of waiting for a manual refresh. */
   refetch?: () => Promise<void>
+}
+
+const EMPTY_MENTIONABLES: ProjectMentionables = {
+  files: [],
+  stakeholders: [],
+  milestones: [],
 }
 
 /** Project chat tab — full two-way chat in the project shell.
@@ -71,6 +91,13 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
   const [view, setView] = useState<'chats' | 'space'>('chats')
   const [creating, setCreating] = useState(false)
   const [skills, setSkills] = useState<SkillSummary[]>([])
+  const [mentionablesState, setMentionablesState] = useState<{
+    projectId: number
+    items: ProjectMentionables
+  }>({ projectId, items: EMPTY_MENTIONABLES })
+  const mentionables = mentionablesState.projectId === projectId
+    ? mentionablesState.items
+    : EMPTY_MENTIONABLES
   const [openArtifact, setOpenArtifact] = useState<GeneratedArtifact | null>(null)
   // Preview pane width is user-resizable via a drag handle on its
   // left edge. Per-session only — we don't bother persisting it.
@@ -93,6 +120,21 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
       active = false
     }
   }, [])
+
+  useEffect(() => {
+    let active = true
+    api
+      .get<ProjectMentionables>('/chat/mentionables', { params: { project_id: projectId } })
+      .then((items) => {
+        if (active) setMentionablesState({ projectId, items })
+      })
+      .catch(() => {
+        if (active) setMentionablesState({ projectId, items: EMPTY_MENTIONABLES })
+      })
+    return () => {
+      active = false
+    }
+  }, [projectId])
 
   // Conversation messages — lifted out of ThreadView so the 空间
   // tree can list 「本会话产出」 without a duplicate fetch. Pending
@@ -300,6 +342,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
               turnReceipt={turnReceipt}
               contextReceipt={contextReceipt}
               skills={skills}
+              mentionables={mentionables}
               canSteer={Boolean(activeRunId && turnReceipt?.steering_supported)}
               pendingActionBatches={pendingActions.batches}
               pendingActionKey={pendingActions.actingKey}
@@ -658,12 +701,13 @@ interface ThreadViewProps {
   turnReceipt: TurnReceiptEvent | null
   contextReceipt: ContextReceiptEvent | null
   skills: SkillSummary[]
+  mentionables: ProjectMentionables
   canSteer: boolean
   pendingActionBatches: PendingActionBatch[]
   pendingActionKey: string | null
   onConfirmAction: (batch: PendingActionBatch) => void
   onRejectAction: (batch: PendingActionBatch) => void
-  onSend: (text: string, skillControl?: ProjectChatSkillControl) => Promise<void>
+  onSend: (text: string, turnControl?: ProjectChatTurnControl) => Promise<void>
   onSteer: (text: string) => Promise<boolean>
   onStop: () => void
   onOpenArtifact: (artifact: GeneratedArtifact) => void
@@ -687,6 +731,7 @@ function ThreadView({
   turnReceipt,
   contextReceipt,
   skills,
+  mentionables,
   canSteer,
   pendingActionBatches,
   pendingActionKey,
@@ -710,7 +755,12 @@ function ThreadView({
   // seed it. Cleared on send.
   const [composerText, setComposerText] = useState('')
   const [skillSelection, setSkillSelection] = useState<ProjectSkillSelection>({ mode: 'auto' })
+  const [selectedMentions, setSelectedMentions] = useState<SelectedProjectMention[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const mentionOptions = useMemo(
+    () => buildProjectMentionOptions(skills, mentionables),
+    [mentionables, skills],
+  )
 
   const selectSkillForNextTurn = (skillId: number, name: string) => {
     setSkillSelection({ mode: 'explicit', skillId, name })
@@ -927,20 +977,25 @@ function ThreadView({
             onSkillSelect={selectSkillForNextTurn}
           />
         )}
-        <Composer
+        <ProjectChatComposer
           value={composerText}
           onChange={setComposerText}
           onSend={async (text) => {
             const selectionForTurn = skillSelection
+            const mentionContext = selectedProjectMentionsToContext(selectedMentions)
             setComposerText('')
             setSkillSelection({ mode: 'auto' })
+            setSelectedMentions([])
             await onSend(
               text,
-              selectionForTurn.mode === 'explicit'
-                ? { skillId: selectionForTurn.skillId }
-                : selectionForTurn.mode === 'off'
-                  ? { disableSkill: true }
-                  : undefined,
+              {
+                ...(selectionForTurn.mode === 'explicit'
+                  ? { skillId: selectionForTurn.skillId }
+                  : selectionForTurn.mode === 'off'
+                    ? { disableSkill: true }
+                    : {}),
+                ...(mentionContext ? { mentionContext } : {}),
+              },
             )
           }}
           onSteer={async (text) => {
@@ -954,6 +1009,9 @@ function ThreadView({
           skills={skills}
           skillSelection={skillSelection}
           onSkillSelectionChange={setSkillSelection}
+          mentionOptions={mentionOptions}
+          selectedMentions={selectedMentions}
+          onSelectedMentionsChange={setSelectedMentions}
           textareaRef={textareaRef}
         />
       </div>
@@ -1109,7 +1167,7 @@ function ConversationMenu({ onRename, onDelete, onOpenInChat, deleting }: Conver
  * flight. The project-scoped Skill control is intentionally one-shot:
  * each explicit choice applies to the next turn, then returns to auto.
  * ──────────────────────────────────────────────────────────────── */
-function Composer({
+export function ProjectChatComposer({
   value,
   onChange,
   onSend,
@@ -1120,6 +1178,9 @@ function Composer({
   skills,
   skillSelection,
   onSkillSelectionChange,
+  mentionOptions,
+  selectedMentions,
+  onSelectedMentionsChange,
   textareaRef,
 }: {
   value: string
@@ -1132,8 +1193,18 @@ function Composer({
   skills: SkillSummary[]
   skillSelection: ProjectSkillSelection
   onSkillSelectionChange: (selection: ProjectSkillSelection) => void
+  mentionOptions: ProjectMentionOption[]
+  selectedMentions: SelectedProjectMention[]
+  onSelectedMentionsChange: (mentions: SelectedProjectMention[]) => void
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
+  const [activeMention, setActiveMention] = useState<ActiveProjectMention | null>(null)
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0)
+  const filteredMentionOptions = useMemo(
+    () => filterProjectMentionOptions(mentionOptions, activeMention?.query || ''),
+    [activeMention?.query, mentionOptions],
+  )
+
   const autosize = () => {
     const el = textareaRef.current
     if (!el) return
@@ -1158,9 +1229,77 @@ function Composer({
     void onSend(text)
   }
 
+  const syncActiveMention = (next: string, caret: number) => {
+    if (busy) {
+      setActiveMention(null)
+      return
+    }
+    const active = findActiveProjectMention(next, caret)
+    setActiveMention(active)
+    setMentionActiveIndex(0)
+    const retained = pruneSelectedProjectMentions(next, selectedMentions)
+    if (retained.length !== selectedMentions.length) onSelectedMentionsChange(retained)
+  }
+
+  const selectMention = (option: ProjectMentionOption) => {
+    if (!activeMention) return
+    if (option.kind === 'skill') {
+      const next = `${value.slice(0, activeMention.start)}${value.slice(activeMention.end)}`
+      onChange(next)
+      onSkillSelectionChange({ mode: 'explicit', skillId: option.id, name: option.label })
+      setActiveMention(null)
+      window.requestAnimationFrame(() => {
+        textareaRef.current?.focus()
+        textareaRef.current?.setSelectionRange(activeMention.start, activeMention.start)
+      })
+      return
+    }
+    const existing = selectedMentions.find(
+      (mention) => mention.kind === option.kind && mention.id === option.id,
+    )
+    if (existing && value.includes(existing.token)) {
+      const next = `${value.slice(0, activeMention.start)}${value.slice(activeMention.end)}`
+      onChange(next)
+      setActiveMention(null)
+      window.requestAnimationFrame(() => {
+        textareaRef.current?.focus()
+        textareaRef.current?.setSelectionRange(activeMention.start, activeMention.start)
+      })
+      return
+    }
+    const replacement = replaceActiveProjectMention(value, activeMention, option)
+    onChange(replacement.value)
+    onSelectedMentionsChange([
+      ...selectedMentions.filter(
+        (mention) => mention.kind !== replacement.selected.kind || mention.id !== replacement.selected.id,
+      ),
+      replacement.selected,
+    ])
+    setActiveMention(null)
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(replacement.caret, replacement.caret)
+    })
+  }
+
+  const removeSelectedMention = (mention: SelectedProjectMention) => {
+    const next = value
+      .replace(mention.token, '')
+      .replace(/ {2,}/gu, ' ')
+      .trimStart()
+    onChange(next)
+    onSelectedMentionsChange(
+      selectedMentions.filter(
+        (selected) => selected.kind !== mention.kind || selected.id !== mention.id,
+      ),
+    )
+    textareaRef.current?.focus()
+  }
+
   return (
     <div
       style={{
+        position: 'relative',
         background: 'var(--bg-elev)',
         border: '1px solid var(--line)',
         borderRadius: 'var(--r-md)',
@@ -1169,11 +1308,53 @@ function Composer({
         transition: 'opacity 120ms',
       }}
     >
+      {activeMention && (
+        <ProjectMentionMenu
+          id="project-chat-mention-menu"
+          options={filteredMentionOptions}
+          activeIndex={mentionActiveIndex}
+          onActiveIndexChange={setMentionActiveIndex}
+          onSelect={selectMention}
+        />
+      )}
       <textarea
         ref={textareaRef}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => {
+          onChange(event.target.value)
+          syncActiveMention(event.target.value, event.target.selectionStart)
+        }}
+        onClick={(event) => syncActiveMention(event.currentTarget.value, event.currentTarget.selectionStart)}
+        onBlur={() => setActiveMention(null)}
+        aria-autocomplete="list"
+        aria-controls={activeMention ? 'project-chat-mention-menu' : undefined}
+        aria-expanded={Boolean(activeMention)}
+        aria-activedescendant={
+          activeMention && filteredMentionOptions.length > 0
+            ? `project-chat-mention-menu-option-${mentionActiveIndex}`
+            : undefined
+        }
         onKeyDown={(e) => {
+          if (activeMention && e.key === 'Escape') {
+            e.preventDefault()
+            setActiveMention(null)
+            return
+          }
+          if (activeMention && filteredMentionOptions.length > 0) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault()
+              const direction = e.key === 'ArrowDown' ? 1 : -1
+              setMentionActiveIndex((current) => (
+                current + direction + filteredMentionOptions.length
+              ) % filteredMentionOptions.length)
+              return
+            }
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              selectMention(filteredMentionOptions[mentionActiveIndex] || filteredMentionOptions[0])
+              return
+            }
+          }
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
             submit()
@@ -1203,6 +1384,35 @@ function Composer({
           fontFamily: 'inherit',
         }}
       />
+      {selectedMentions.length > 0 && (
+        <div
+          aria-label="本轮结构化引用"
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 7 }}
+        >
+          {selectedMentions.map((mention) => (
+            <button
+              key={`${mention.kind}:${mention.id}`}
+              type="button"
+              aria-label={`移除${PROJECT_MENTION_KIND_LABEL[mention.kind]}引用 ${mention.label}`}
+              onClick={() => removeSelectedMention(mention)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '3px 7px',
+                color: 'var(--accent-ink)',
+                background: 'var(--accent-bg)',
+                border: '1px solid color-mix(in oklch, var(--accent) 22%, var(--line))',
+                borderRadius: 'var(--r-sm)',
+                fontSize: 10.5,
+              }}
+            >
+              {PROJECT_MENTION_KIND_LABEL[mention.kind]} · {mention.label}
+              <span aria-hidden="true" style={{ color: 'var(--ink-faint)' }}>×</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div
         style={{
           display: 'flex',
@@ -1231,7 +1441,7 @@ function Composer({
             disabled={busy}
           />
           <span style={{ fontSize: 11, color: 'var(--ink-faint)', whiteSpace: 'nowrap' }}>
-            {busy ? 'Enter 追加 · Shift+Enter 换行' : 'Enter 发送 · Shift+Enter 换行'}
+            {busy ? 'Enter 追加 · Shift+Enter 换行' : '输入 @ 引用 · Enter 发送'}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
