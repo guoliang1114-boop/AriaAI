@@ -38,6 +38,7 @@ describe('chat receipt normalization', () => {
       write_allowed: false,
       requires_confirmation: false,
       steering_supported: true,
+      user_constraints: ['只分析', '只分析', '输出为 Markdown'],
     })
     const incomplete = parseChatStreamEvent({ type: 'turn_receipt', run_id: 'run_2' })
 
@@ -45,6 +46,7 @@ describe('chat receipt normalization', () => {
       run_id: 'run_1',
       target_scope: 'project',
       steering_supported: true,
+      user_constraints: ['只分析', '输出为 Markdown'],
     })
     expect(incomplete && toTurnReceiptEvent(incomplete)).toBeNull()
   })

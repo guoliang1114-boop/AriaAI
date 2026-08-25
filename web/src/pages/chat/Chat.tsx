@@ -442,6 +442,24 @@ function MainTurnReceiptCard({
       <span style={{ color: 'var(--color-codex-ink)', fontWeight: 600 }}>本轮理解</span>
       <span> · {modeLabel} · {scopeLabel}</span>
       <div style={{ marginTop: 3 }}>{receipt.summary}</div>
+      {receipt.user_constraints.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {receipt.user_constraints.map((constraint) => (
+            <span
+              key={constraint}
+              style={{
+                padding: '2px 6px',
+                color: 'var(--color-codex-accent)',
+                background: 'var(--color-codex-accent-bg)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+                fontSize: 10.5,
+              }}
+            >
+              {constraint}
+            </span>
+          ))}
+        </div>
+      )}
       <div style={{ marginTop: 2, color: 'var(--color-codex-ink-mute)', fontSize: 11 }}>
         {receipt.write_allowed ? '允许在约定范围内写入' : '不会修改项目内容'}
         {receipt.requires_confirmation ? ' · 高风险动作会先征求确认' : ''}

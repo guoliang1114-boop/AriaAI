@@ -193,6 +193,7 @@ def build_message_metadata(
     rag_doc_ids: Optional[list[int]] = None,
     file_ids: Optional[list[int]] = None,
     mention_context: Optional[dict] = None,
+    turn_brief: Optional[dict] = None,
 ) -> dict:
     metadata = {}
     if skill_id:
@@ -205,6 +206,17 @@ def build_message_metadata(
         metadata["project_id"] = project_id
     if mention_context and any(mention_context.values()):
         metadata["mention_context"] = mention_context
+    if turn_brief:
+        goal = re.sub(r"\s+", " ", str(turn_brief.get("goal") or "")).strip()[:240]
+        constraints: list[str] = []
+        for item in list(turn_brief.get("constraints") or []):
+            normalized = re.sub(r"\s+", " ", str(item or "")).strip()[:160]
+            if normalized and normalized not in constraints:
+                constraints.append(normalized)
+            if len(constraints) >= 8:
+                break
+        if goal or constraints:
+            metadata["turn_brief"] = {"goal": goal, "constraints": constraints}
     return metadata
 
 

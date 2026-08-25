@@ -8,6 +8,7 @@ import type {
   Message,
   MentionContext,
   Reference,
+  TurnBriefInput,
 } from '../../../types/api'
 import { normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../types/productRunEvent'
@@ -56,6 +57,7 @@ export interface ProjectChatTurnControl {
   skillId?: number
   disableSkill?: boolean
   mentionContext?: MentionContext
+  turnBrief?: TurnBriefInput
 }
 
 interface UseChatStreamArgs {
@@ -233,6 +235,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         metadata_json: JSON.stringify({
           ...(turnControl.skillId != null ? { skill_id: turnControl.skillId } : {}),
           ...(turnControl.mentionContext ? { mention_context: turnControl.mentionContext } : {}),
+          ...(turnControl.turnBrief ? { turn_brief: turnControl.turnBrief } : {}),
         }),
         created_at: new Date().toISOString(),
       }
@@ -257,6 +260,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
             file_ids: [],
             language: i18n.language || 'zh-CN',
             mention_context: turnControl.mentionContext,
+            turn_brief: turnControl.turnBrief,
           }),
           signal: controller.signal,
         })

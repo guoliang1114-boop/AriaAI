@@ -1168,6 +1168,11 @@ export interface ProjectMentionables {
   milestones: Array<{ id: number; title: string; due_date: string | null; is_done: boolean }>
 }
 
+export interface TurnBriefInput {
+  goal?: string
+  constraints?: string[]
+}
+
 export interface SendMessageRequest {
   conversation_id?: number
   content: string
@@ -1180,6 +1185,7 @@ export interface SendMessageRequest {
   file_ids?: number[]
   model?: string
   mention_context?: MentionContext
+  turn_brief?: TurnBriefInput
   action_confirmations?: string[]
 }
 
@@ -1206,6 +1212,7 @@ export interface PlannedStep {
 export interface TurnContract {
   mode: 'answer_only' | 'plan_only' | 'execute_now' | 'plan_then_execute' | string
   user_goal: string
+  user_constraints: string[]
   needs_tools: boolean
   needs_artifact: boolean
   artifact_type?: string | null

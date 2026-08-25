@@ -279,6 +279,16 @@ def test_constraint_merge_preserves_unrelated_dimensions_and_retires_superseded_
     assert merged == ["不用正式语气", "改成简洁口语", "输出为 Markdown"]
 
 
+def test_structured_constraints_are_retained_without_keyword_guessing() -> None:
+    merged = merge_user_constraints(
+        ["使用口语", "输出为 Markdown"],
+        "继续分析",
+        structured_constraints=["使用正式专业语气", "沿用董事会风险分级"],
+    )
+
+    assert merged == ["使用正式专业语气", "沿用董事会风险分级", "输出为 Markdown"]
+
+
 def test_persist_finalizes_capsule_and_saves_instruction_manifest() -> None:
     capsule = build_conversation_capsule(
         conversation_id=4,

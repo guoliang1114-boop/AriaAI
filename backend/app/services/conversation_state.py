@@ -92,6 +92,7 @@ def merge_user_constraints(
     existing: list[Any] | None,
     current_content: str,
     *,
+    structured_constraints: list[Any] | None = None,
     limit: int = 12,
 ) -> list[str]:
     """Merge durable user constraints while retiring explicitly superseded ones.
@@ -110,7 +111,16 @@ def merge_user_constraints(
         split_items = _extract_constraints(str(item))
         normalized_existing.extend(split_items or [str(item).strip()])
 
-    current_constraints = _extract_constraints(current_content)
+    explicit_constraints: list[str] = []
+    for item in list(structured_constraints or []):
+        normalized = _compact(str(item or ""), 160)
+        if normalized and normalized.lower() != "none" and normalized not in explicit_constraints:
+            explicit_constraints.append(normalized)
+
+    current_constraints = list(dict.fromkeys([
+        *explicit_constraints,
+        *_extract_constraints(current_content),
+    ]))
     if not current_constraints:
         return list(dict.fromkeys(normalized_existing))[: max(1, limit)]
 
@@ -190,9 +200,16 @@ def upsert_conversation_state_from_metadata(
         active_file_ids.insert(0, file_id)
         active_file_ids = active_file_ids[:12]
 
+    turn_contract = metadata.get("turn_contract")
+    structured_constraints = (
+        turn_contract.get("user_constraints")
+        if isinstance(turn_contract, dict) and isinstance(turn_contract.get("user_constraints"), list)
+        else None
+    )
     constraints = merge_user_constraints(
         _loads(state.user_constraints_json, []),
         user_content,
+        structured_constraints=structured_constraints,
     )
 
     decisions = _loads(state.decisions_json, [])

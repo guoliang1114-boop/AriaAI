@@ -29,4 +29,9 @@ def build_turn_receipt(
         write_allowed=bool(contract.get("write_allowed", False)),
         requires_confirmation=bool(contract.get("requires_confirmation", False)),
         steering_supported=steering_supported,
+        user_constraints=(
+            contract.get("user_constraints", [])
+            if isinstance(contract.get("user_constraints"), list)
+            else []
+        ),
     )

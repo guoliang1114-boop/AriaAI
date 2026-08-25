@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from copy import deepcopy
 from types import SimpleNamespace
@@ -20,6 +21,8 @@ from app.services.chat.working_memory import WorkingMemory
 from app.services.chat.state import ChatSessionState
 from app.services.chat.trace import build_chat_trace_payload
 from app.services.chat.agent_loop import run_agent_loop
+from app.services.chat.durable_task import run_durable_task
+from app.services.chat.persist import _runtime_artifact_contract
 from app.services.chat_store import build_message_metadata
 from app.services.chat_tools import ChatRuntime
 from app.routers.chat_schemas import SendMessageRequest
@@ -122,6 +125,44 @@ def test_message_metadata_preserves_structured_project_mentions_for_audit() -> N
         project_id=3,
         mention_context={"file_ids": [], "stakeholder_ids": [], "milestone_ids": []},
     )
+
+
+def test_message_metadata_preserves_bounded_turn_brief_for_audit() -> None:
+    metadata = build_message_metadata(
+        project_id=3,
+        turn_brief={
+            "goal": "  评估   三项风险  ",
+            "constraints": ["只分析", "只分析", "输出为 Markdown"],
+        },
+    )
+
+    assert metadata["turn_brief"] == {
+        "goal": "评估 三项风险",
+        "constraints": ["只分析", "输出为 Markdown"],
+    }
+    assert "turn_brief" not in build_message_metadata(turn_brief={"goal": "", "constraints": []})
+
+
+def test_plan_only_turn_brief_blocks_durable_and_artifact_fallback_paths() -> None:
+    runtime = SimpleNamespace(
+        prepare_metrics={"turn_contract": {"mode": "plan_only"}},
+        artifact_contract=object(),
+    )
+    req = SendMessageRequest(content="保存为项目报告", project_id=26)
+
+    async def collect_events():
+        return [
+            event
+            async for event in run_durable_task(
+                runtime,
+                req,
+                bind=None,
+                state=SimpleNamespace(),
+            )
+        ]
+
+    assert asyncio.run(collect_events()) == []
+    assert _runtime_artifact_contract(runtime) is None
 
 
 def test_structured_milestone_reference_is_prioritized_without_cross_project_leakage() -> None:

@@ -7,6 +7,7 @@ execution truth checks speak the same language.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -14,6 +15,8 @@ from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPo
 
 
 TURN_MODES = {"answer_only", "plan_only", "execute_now", "plan_then_execute"}
+MAX_TURN_BRIEF_CONSTRAINTS = 8
+MAX_TURN_BRIEF_CONSTRAINT_CHARS = 160
 
 _PLAN_ONLY_TERMS = (
     "先给我计划",
@@ -23,6 +26,11 @@ _PLAN_ONLY_TERMS = (
     "不要执行",
     "先不要执行",
     "不执行",
+    "只分析",
+    "只回答",
+    "不要修改",
+    "不修改项目",
+    "不要写入",
     "plan only",
     "do not execute",
     "don't execute",
@@ -41,6 +49,7 @@ class TurnContract:
     user_goal: str
     needs_tools: bool
     needs_artifact: bool
+    user_constraints: tuple[str, ...] = field(default_factory=tuple)
     artifact_type: str | None = None
     target_scope: str = "chat"
     execution_scope: str = "chat_only"
@@ -56,6 +65,7 @@ class TurnContract:
         return {
             "mode": self.mode,
             "user_goal": self.user_goal,
+            "user_constraints": list(self.user_constraints),
             "needs_tools": self.needs_tools,
             "needs_artifact": self.needs_artifact,
             "artifact_type": self.artifact_type,
@@ -78,6 +88,39 @@ def _policy_value(item: Any) -> str:
 def _coerce_turn_mode(value: Any) -> str:
     normalized = str(value or "").strip().lower()
     return normalized if normalized in TURN_MODES else ""
+
+
+def _compact_text(value: Any, limit: int) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
+
+
+def _turn_brief_values(req) -> tuple[str, tuple[str, ...]]:
+    brief = getattr(req, "turn_brief", None)
+    explicit_goal = _compact_text(getattr(brief, "goal", ""), 240)
+    constraints: list[str] = []
+    for item in list(getattr(brief, "constraints", None) or []):
+        normalized = _compact_text(item, MAX_TURN_BRIEF_CONSTRAINT_CHARS)
+        if normalized and normalized not in constraints:
+            constraints.append(normalized)
+        if len(constraints) >= MAX_TURN_BRIEF_CONSTRAINTS:
+            break
+    goal = explicit_goal or _compact_text(getattr(req, "content", ""), 240)
+    return goal, tuple(constraints)
+
+
+def format_turn_user_request(req) -> str:
+    """Compose the model/context-facing request without changing policy input."""
+
+    content = str(getattr(req, "content", "") or "").strip()
+    brief = getattr(req, "turn_brief", None)
+    explicit_goal = _compact_text(getattr(brief, "goal", ""), 240)
+    _, constraints = _turn_brief_values(req)
+    sections = [content]
+    if explicit_goal and explicit_goal not in content:
+        sections.append(f"明确本轮目标：{explicit_goal}")
+    if constraints:
+        sections.append("明确本轮约束：\n" + "\n".join(f"- {item}" for item in constraints))
+    return "\n\n".join(section for section in sections if section)
 
 
 def _infer_turn_mode(content: str, *, write_allowed: bool, delivery_required: bool) -> str:
@@ -108,12 +151,22 @@ def build_turn_contract(
     mode = getattr(intent_decision, "chat_mode", ChatMode.STANDALONE_QA)
     write_allowed = access == ToolAccessPolicy.WRITE_ALLOWED or _policy_value(access) == ToolAccessPolicy.WRITE_ALLOWED.value
     has_tools = bool(tools)
+    user_goal, user_constraints = _turn_brief_values(req)
     explicit_mode = _coerce_turn_mode(getattr(intent_decision, "turn_mode", ""))
-    turn_mode = explicit_mode or _infer_turn_mode(
-        getattr(req, "content", ""),
+    turn_text = "\n".join([
+        str(getattr(req, "content", "") or ""),
+        user_goal,
+        *user_constraints,
+    ])
+    restrictive_plan_only = any(term in turn_text.lower() for term in _PLAN_ONLY_TERMS)
+    inferred_mode = _infer_turn_mode(
+        turn_text,
         write_allowed=write_allowed,
         delivery_required=delivery_required,
     )
+    turn_mode = "plan_only" if restrictive_plan_only else explicit_mode or inferred_mode
+    if turn_mode == "plan_only":
+        write_allowed = False
 
     if mode == ChatMode.TASK_ORCHESTRATION or _policy_value(mode) == ChatMode.TASK_ORCHESTRATION.value:
         expected_response = "artifact_with_progress"
@@ -147,19 +200,23 @@ def build_turn_contract(
     else:
         execution_scope = "chat_only"
 
-    requires_confirmation = policy in {
-        ActionPolicy.MODIFY_EXISTING_FILE,
-        ActionPolicy.DESTRUCTIVE_ACTION,
-    } or _policy_value(policy) in {
-        ActionPolicy.MODIFY_EXISTING_FILE.value,
-        ActionPolicy.DESTRUCTIVE_ACTION.value,
-    }
+    requires_confirmation = turn_mode != "plan_only" and (
+        policy in {
+            ActionPolicy.MODIFY_EXISTING_FILE,
+            ActionPolicy.DESTRUCTIVE_ACTION,
+        }
+        or _policy_value(policy) in {
+            ActionPolicy.MODIFY_EXISTING_FILE.value,
+            ActionPolicy.DESTRUCTIVE_ACTION.value,
+        }
+    )
 
     return TurnContract(
         mode=turn_mode,
-        user_goal=str(getattr(req, "content", "") or "").strip()[:240],
+        user_goal=user_goal,
+        user_constraints=user_constraints,
         needs_tools=has_tools,
-        needs_artifact=delivery_required,
+        needs_artifact=delivery_required and turn_mode != "plan_only",
         artifact_type=artifact_type,
         target_scope=target_scope,
         execution_scope=execution_scope,

@@ -5,6 +5,7 @@ import type { ProjectMentionables, SkillSummary } from '../../../types/api'
 import { ProjectChatComposer } from './tabs/Chat'
 import type { ProjectSkillSelection } from './ProjectSkillControl'
 import { buildProjectMentionOptions, type SelectedProjectMention } from './projectMentions'
+import { EMPTY_PROJECT_TURN_BRIEF, type ProjectTurnBriefDraft } from './turnBrief'
 
 const skills: SkillSummary[] = [{
   id: 7,
@@ -24,6 +25,7 @@ function ComposerHarness() {
   const [value, setValue] = useState('')
   const [skillSelection, setSkillSelection] = useState<ProjectSkillSelection>({ mode: 'auto' })
   const [selectedMentions, setSelectedMentions] = useState<SelectedProjectMention[]>([])
+  const [turnBriefDraft, setTurnBriefDraft] = useState<ProjectTurnBriefDraft>(EMPTY_PROJECT_TURN_BRIEF)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   return (
     <ProjectChatComposer
@@ -40,6 +42,8 @@ function ComposerHarness() {
       mentionOptions={buildProjectMentionOptions(skills, mentionables)}
       selectedMentions={selectedMentions}
       onSelectedMentionsChange={setSelectedMentions}
+      turnBriefDraft={turnBriefDraft}
+      onTurnBriefDraftChange={setTurnBriefDraft}
       textareaRef={textareaRef}
     />
   )
@@ -59,5 +63,18 @@ describe('ProjectChatComposer', () => {
     expect(textbox).toHaveValue('分析 @「访谈纪要.docx」')
     expect(screen.getByRole('button', { name: '移除项目文件引用 访谈纪要.docx' })).toBeInTheDocument()
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('edits and previews the next-turn goal and constraints', () => {
+    render(<ComposerHarness />)
+
+    fireEvent.click(screen.getByRole('button', { name: /本轮 Brief/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: '本轮目标' }), {
+      target: { value: '识别三项关键风险' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '+ 只分析，不修改项目内容' }))
+
+    expect(screen.getByLabelText('本轮 Brief 预览')).toHaveTextContent('目标 · 识别三项关键风险')
+    expect(screen.getByLabelText('本轮 Brief 预览')).toHaveTextContent('只分析，不修改项目内容')
   })
 })

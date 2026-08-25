@@ -68,6 +68,7 @@ export interface TurnReceiptEvent {
   type: "turn_receipt";
   run_id: string;
   summary: string;
+  user_constraints: string[];
   mode: "answer_only" | "plan_only" | "execute_now" | "plan_then_execute";
   target_scope: "chat" | "project" | "workspace";
   execution_scope:

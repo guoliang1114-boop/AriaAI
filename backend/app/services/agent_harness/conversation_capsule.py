@@ -318,6 +318,11 @@ def build_conversation_capsule(
     constraints = merge_user_constraints(
         list(historical_constraints),
         current_content,
+        structured_constraints=(
+            turn_contract.get("user_constraints")
+            if isinstance(turn_contract.get("user_constraints"), list)
+            else None
+        ),
         limit=MAX_CAPSULE_CONSTRAINTS,
     )
     decisions = _bounded_decisions(getattr(working_memory, "decisions", None) or [])

@@ -66,7 +66,7 @@ from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.chat_tools import ChatRuntime
 from app.services.chat.intent_contract import build_chat_intent_contract
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, MODE_CONFIG, ToolAccessPolicy
-from app.services.chat.turn_contract import build_turn_contract
+from app.services.chat.turn_contract import build_turn_contract, format_turn_user_request
 from app.services.chat.working_memory import (
     build_working_memory,
     should_continue_current_artifact,
@@ -643,6 +643,7 @@ def _append_turn_contract_frame(system: str, turn_contract: dict) -> str:
     for key in (
         "mode",
         "user_goal",
+        "user_constraints",
         "needs_tools",
         "needs_artifact",
         "artifact_type",
@@ -793,6 +794,7 @@ def prepare_chat_runtime(
         rag_doc_ids=req.rag_doc_ids,
         file_ids=req.file_ids,
         mention_context=req.mention_context.model_dump() if req.mention_context else None,
+        turn_brief=req.turn_brief.model_dump() if req.turn_brief else None,
     )
     step_started_at = time.perf_counter()
     if persist_user and conv_id:
@@ -848,6 +850,7 @@ def prepare_chat_runtime(
         context_file_ids = list(dict.fromkeys(context_file_ids))
 
     step_started_at = time.perf_counter()
+    current_turn_request = format_turn_user_request(req)
     chat_ctx = build_chat_context(
         session=session,
         skill_id=effective_skill_id,
@@ -855,7 +858,7 @@ def prepare_chat_runtime(
         knowledge_scope=req.knowledge_scope,
         rag_doc_ids=req.rag_doc_ids if req.rag_doc_ids else None,
         file_ids=context_file_ids if context_file_ids else None,
-        content=req.content,
+        content=current_turn_request,
         default_max_tokens=max_tokens,
         mention_context=req.mention_context.model_dump() if req.mention_context else None,
         context_mode=context_mode,
@@ -911,6 +914,14 @@ def prepare_chat_runtime(
         tools=runtime_tools,
         skill_applied=bool(effective_skill),
     )
+    if turn_contract.mode == "plan_only" and runtime_tools:
+        runtime_tools = []
+        turn_contract = build_turn_contract(
+            intent_decision,
+            req,
+            tools=runtime_tools,
+            skill_applied=bool(effective_skill),
+        )
     prepare_metrics["turn_contract"] = turn_contract.to_dict()
     system = _append_turn_contract_frame(system, turn_contract.to_dict())
     system = _append_capability_frame(system, intent_decision, runtime_tools)
@@ -975,7 +986,7 @@ def prepare_chat_runtime(
     instruction_manifest = build_instruction_manifest(
         layers={
             "platform_policy": platform_policy_layer,
-            "current_user_request": req.content,
+            "current_user_request": current_turn_request,
             "project_scope": chat_ctx.project_context,
             "active_task_state": active_task_layer,
             "effective_skill": chat_ctx.skill_prompt,

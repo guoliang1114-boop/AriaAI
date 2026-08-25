@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 
 import yaml
@@ -8,7 +9,7 @@ import yaml
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.intent_contract import build_chat_intent_contract
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
-from app.services.chat.turn_contract import build_turn_contract
+from app.services.chat.turn_contract import build_turn_contract, format_turn_user_request
 from app.services.intent_router import classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_access, filter_tools_for_policy, policy_allows_tool
 from app.services.tool_descriptions import tool_description
@@ -119,6 +120,66 @@ def test_turn_contract_honors_plan_only_language():
     assert contract.mode == "plan_only"
     assert contract.expected_response == "plan_without_execution"
     assert contract.write_allowed is False
+
+
+def test_turn_brief_overrides_goal_and_can_only_shrink_execution():
+    req = SendMessageRequest(
+        content="请更新项目 Markdown 报告并保存。",
+        project_id=26,
+        turn_brief={
+            "goal": "先评估报告结构是否完整",
+            "constraints": ["只分析，不修改项目内容", "使用正式专业语气"],
+        },
+    )
+    decision = classify_chat_intent(req)
+    contract = build_turn_contract(
+        decision,
+        req,
+        tools=[{"name": "update_project_markdown_document"}],
+    )
+
+    assert contract.user_goal == "先评估报告结构是否完整"
+    assert contract.user_constraints == ("只分析，不修改项目内容", "使用正式专业语气")
+    assert contract.mode == "plan_only"
+    assert contract.expected_response == "plan_without_execution"
+    assert contract.needs_artifact is False
+    assert contract.write_allowed is False
+    assert contract.requires_confirmation is False
+
+
+def test_restrictive_turn_brief_overrides_an_explicit_execute_mode():
+    req = SendMessageRequest(
+        content="生成并保存报告",
+        project_id=26,
+        turn_brief={"constraints": ["不要执行，只给分析结论"]},
+    )
+    decision = replace(classify_chat_intent(req), turn_mode="execute_now")
+
+    contract = build_turn_contract(
+        decision,
+        req,
+        tools=[{"name": "update_project_markdown_document"}],
+    )
+
+    assert contract.mode == "plan_only"
+    assert contract.write_allowed is False
+
+
+def test_turn_brief_goal_and_constraints_join_context_request_without_changing_content():
+    req = SendMessageRequest(
+        content="分析当前方案",
+        turn_brief={
+            "goal": "识别三项关键风险",
+            "constraints": ["只分析，不修改项目内容", "输出为 Markdown"],
+        },
+    )
+
+    context_request = format_turn_user_request(req)
+
+    assert req.content == "分析当前方案"
+    assert "明确本轮目标：识别三项关键风险" in context_request
+    assert "- 只分析，不修改项目内容" in context_request
+    assert "- 输出为 Markdown" in context_request
 
 
 def test_turn_contract_marks_explicit_artifact_as_execute_now():

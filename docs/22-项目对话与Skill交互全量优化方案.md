@@ -1,6 +1,6 @@
 # 项目对话与 Skill 交互全量优化方案
 
-> 更新日期：2026-08-25
+> 更新日期：2026-08-26
 > 对照基线：OpenAI Codex `83d1fe0e67b1323f71febc2925817732b449f1d9`
 > 产品边界：只吸收源码机制，不运行、不调用、不连接 Codex。
 
@@ -23,16 +23,16 @@ Phase 2T 先关闭这两个缺口，Phase 2U 进一步补上长对话状态和�
 
 | 能力层 | Codex 参考路径/机制 | 值得借鉴的原则 | Aria 当前状态 | Aria 后续动作 |
 |---|---|---|---|---|
-| 本轮输入边界 | `core/src/session/turn_input.rs`、`session/turn.rs` | 每轮输入是新的决策边界；追加上下文、纠偏和开始新轮次必须可区分 | Phase 2Z 已把文件、干系人、里程碑引用作为精确 ID 随本轮发送 | 后续增加结构化“本轮目标/约束”输入，不依赖纯文本猜测 |
+| 本轮输入边界 | `core/src/session/turn_input.rs`、`session/turn.rs` | 每轮输入是新的决策边界；追加上下文、纠偏和开始新轮次必须可区分 | Phase 3A 已把目标、约束与引用组成显式 Turn Brief | 增加 Brief 模板、历史复用和真实交互效果评测 |
 | 项目指令层级 | `codex-home/src/instructions/mod.rs` | 全局、项目、目录指令按明确层级加载，越近的规则越具体 | Phase 2U 已建立显式 `InstructionManifest v1` | 后续把简化冲突回执开放给前端，持续扩充跨层冲突评测 |
 | Skill 发现 | `skills/src/loading.rs`、`parser.rs` | 先发现元数据，命中后再加载完整内容；坏包隔离 | 已完成 Skill Root 快照、发布态目录、解析校验 | 增加作者预览、依赖校验、样例输入和质量评分 |
-| Skill 本轮选择 | `skills/src/mentions.rs`、`selection.rs` | 只解析本轮结构化输入和显式提及；去重后注入本轮 | Phase 2Z 已补齐统一 `@` 检索、键盘选择和精确 ID 去重 | 后续增加多对象组合的目标与约束预览 |
+| Skill 本轮选择 | `skills/src/mentions.rs`、`selection.rs` | 只解析本轮结构化输入和显式提及；去重后注入本轮 | Phase 3A 已补齐 Skill/对象引用与目标、约束的组合预览 | 增加常用 Brief 与 Skill 的业务场景模板 |
 | Skill 续用/释放 | Codex 的 per-turn selection boundary | Skill 不是会话永久所有者；是否续用应由本轮相关性决定 | Phase 2T 已实现相关追问续用、无关话题释放、显式退出 | 用真实匿名交互数据持续校准续用词与误触发率 |
 | Skill 可见性 | Turn 内 Skill 注入项 + 运行事件 | 用户应知道本轮实际加载了什么能力 | Phase 2Y 已支持项目内选择、歧义点选和一键关闭/切换 | 持续把内部匹配原因翻译为更具体的业务说明 |
 | 项目世界状态 | `core/src/context/world_state/` | 把工作目录、规则和环境变化建模为基线与差异，不把所有内容反复塞入 Prompt | 已有项目/客户结构化上下文与 Context Assembly Manifest | 增加项目状态版本、变化摘要和陈旧证据提示 |
 | 对话历史治理 | `core/src/context_manager/history.rs` | 保持工具调用/结果配对，压缩时保留任务状态和恢复边界 | Phase 2U 已用结构化 Capsule 绑定目标、约束、工具结果、阻塞和来源消息 | 扩大真实长对话集，并在压缩前后自动比较状态保持率 |
 | 长对话压缩 | Context compaction 与状态续接 | 压缩结果必须保留目标、已完成动作、假设、标识、工具结果、阻塞与下一步 | Phase 2U 已建立 Provider-neutral `Conversation Capsule v1`，仍使用确定性本地预算压缩 | 先积累 Provider 对比数据，再决定是否按模型启用官方 Compaction API |
-| 计划与执行 | `session/turn.rs` 的 turn loop、任务状态 | 计划、执行、反馈和完成应有状态边界，用户纠偏可进入当前轮次 | 已有 Intent/Turn/Artifact Contract、Agent Loop、Durable Task | 给用户展示简洁执行契约，并支持“只改计划、不重开任务” |
+| 计划与执行 | `session/turn.rs` 的 turn loop、任务状态 | 计划、执行、反馈和完成应有状态边界，用户纠偏可进入当前轮次 | Phase 3A 已将显式 Brief 接入 Turn Contract、Receipt 与全部执行短路 | 增加从回执一键修订并重发 Brief |
 | Steering | `session/turn_input.rs` 的 steer + expected turn id | 用户追加要求必须绑定正确运行，防止发给已经结束或另一个 Run | 已有 stop/cancel 和 run id，普通追加仍是新消息 | 增加运行中追加指令队列与 expected run id 校验 |
 | 中断与恢复 | Task abort、rollout reconstruction | 停止不是删掉结果；应保存部分输出、已执行副作用和可恢复状态 | 已完成用户中断、Rollout、恢复规划 | 前端提供“从中断点继续”而非只显示失败 |
 | 工具协议 | tool call/result pairing、registry、parallel lanes | 工具定义、权限、调度和回填必须共享同一事实源 | 已完成 Tool Capability Manifest、转录规范化、只读并行 | 增加面向用户的工具原因和影响说明 |
@@ -276,6 +276,16 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - Skill 选择写入下一轮显式 `skill_id`；项目对象选择写入已有 `mention_context` 的精确 ID 数组，文件正文、重点干系人和重点里程碑继续由 Aria 原生上下文构建器按项目权限装配，不靠名称猜测。
 - 已选项目对象显示为可移除引用标签，删除输入中的闭合引用令牌会同步撤销结构化选择；同类型同 ID 去重，空查询按对象类型均衡展示，项目切换期间不会短暂复用上一项目候选。
 - 用户消息元数据持久化本轮 `mention_context`，便于历史审计和恢复；发布质量门禁扩展为 26 场景并新增 `structured_reference_accuracy` 指标。本阶段不新增数据库迁移。
+
+### Phase 3A：结构化 Turn Brief 与全路径执行收敛（已实施）
+
+- 参考 Codex 的 per-turn input boundary，将“本轮目标、明确约束、结构化引用”组合为 Aria 原生 Turn Brief；项目对话可在发送前编辑、查看预览，发送后自动清空本轮草稿。
+- 目标不再只能等于消息正文；Turn Contract、模型可见执行帧和 Turn Receipt 使用同一个显式目标，回执同步展示最多八项去重、限长后的用户约束。
+- 用户消息元数据保存 `turn_brief`，Assistant 元数据保存完整 `turn_contract`；明确约束进入 Conversation Capsule 和 ConversationState，未知业务约束不再依赖关键词猜测，同维度新约束确定性覆盖旧约束。
+- Brief 只能保持或收紧权限，不能扩大 Intent Router 已授予的能力。“不要执行、只分析、只回答、不要修改、不要写入”等限制会切换为 plan-only，清空普通工具，并短路 Durable Task、Markdown/PPT 缺失交付物补偿和写入确认。
+- `needs_artifact` 按当前轮次的实际模式计算；plan-only 即使正文描述了最终交付物，也只返回方案，不会因原 Artifact Contract 在持久化阶段被误判为交付失败或触发补偿写入。
+- 前后端增加 Turn Brief 规范化、编辑预览、发送契约、乐观消息、回执、权限收敛、旁路短路、审计与记忆保持测试；确定性发布质量门禁扩展为 29 场景并新增 `turn_brief_accuracy` 指标。
+- 全部能力复用现有请求模型、消息 metadata、ConversationState、Capsule 和 Product Run Event，无数据库迁移，不运行、不调用、不连接 Codex。
 
 ## 11. 官方资料与许可证
 

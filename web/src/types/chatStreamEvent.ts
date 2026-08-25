@@ -43,6 +43,7 @@ export interface ChatStreamEvent {
   conversation_id?: number
   title?: string
   summary?: string
+  user_constraints?: unknown[]
   mode?: TurnReceiptEvent['mode']
   target_scope?: TurnReceiptEvent['target_scope']
   execution_scope?: TurnReceiptEvent['execution_scope']
@@ -98,10 +99,19 @@ export function toTurnReceiptEvent(event: ChatStreamEvent): TurnReceiptEvent | n
     || typeof event.expected_response !== 'string'
   ) return null
 
+  const userConstraints = Array.isArray(event.user_constraints)
+    ? event.user_constraints
+      .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+      .map((item) => item.replace(/\s+/gu, ' ').trim().slice(0, 160))
+      .filter((item, index, items) => items.indexOf(item) === index)
+      .slice(0, 8)
+    : []
+
   return {
     type: 'turn_receipt',
     run_id: event.run_id,
     summary: event.summary,
+    user_constraints: userConstraints,
     mode: event.mode,
     target_scope: event.target_scope,
     execution_scope: event.execution_scope,

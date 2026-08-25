@@ -104,6 +104,21 @@ from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
 logger = logging.getLogger(__name__)
 
 
+def _runtime_turn_contract(runtime: ChatRuntime) -> dict:
+    prepare_metrics = getattr(runtime, "prepare_metrics", None)
+    if not isinstance(prepare_metrics, dict):
+        return {}
+    turn_contract = prepare_metrics.get("turn_contract")
+    return dict(turn_contract) if isinstance(turn_contract, dict) else {}
+
+
+def _attach_turn_contract_metadata(metadata: dict, runtime: ChatRuntime) -> dict:
+    turn_contract = _runtime_turn_contract(runtime)
+    if turn_contract:
+        metadata["turn_contract"] = turn_contract
+    return metadata
+
+
 def _revision_prompt(existing: str, instruction: str, file_name: str) -> str:
     return (
         "你正在更新一个项目 Markdown 文件。请基于用户最新要求，直接输出完整的新版 Markdown 正文。\n"
@@ -314,6 +329,7 @@ async def _handle_markdown_artifact_continuation(
             metadata["tool_calls"] = state.tool_call_events
             state.full_text = full_text
             yield sse_event({"type": "text", "content": full_text})
+            _attach_turn_contract_metadata(metadata, runtime)
             _, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
             state.assistant_message_id = assistant_message_id
             yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
@@ -386,6 +402,7 @@ async def _handle_markdown_artifact_continuation(
                 },
             }
         )
+        _attach_turn_contract_metadata(metadata, runtime)
         need_title, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
         _attach_pending_action_message(bind, action_id, assistant_message_id)
         state.need_title = need_title
@@ -483,6 +500,10 @@ async def run_durable_task(
     Yields SSE events.  If a durable task is started, sets
     ``state.durable_task_completed = True`` so the orchestrator can return early.
     """
+    turn_contract = _runtime_turn_contract(runtime)
+    if turn_contract.get("mode") == "plan_only":
+        return
+
     stream_started_at = time.perf_counter()
     memory = getattr(runtime, "working_memory", None) or {}
     if isinstance(memory, dict) and memory.get("continuation_requested") and memory.get("current_artifact"):
@@ -562,6 +583,7 @@ async def run_durable_task(
                     "duration_ms": metadata["stage_timings"]["total_stream_ms"],
                 }
             )
+            _attach_turn_contract_metadata(metadata, runtime)
             need_title, assistant_message_id = persist_assistant_message(
                 bind,
                 runtime.conv_id,
@@ -622,9 +644,23 @@ async def run_durable_task(
             contract = runtime.artifact_contract if getattr(runtime.artifact_contract, "delivery_required", False) else None
             contract_title = str(getattr(contract, "title", "") or "").strip()
             task_title = contract_title or task_route.title or req.content[:80]
+            task_goal = str(turn_contract.get("user_goal") or req.content).strip() or req.content
+            user_constraints = [
+                str(item).strip()
+                for item in list(turn_contract.get("user_constraints") or [])
+                if str(item).strip()
+            ][:8]
+            if user_constraints:
+                task_goal = f"{task_goal}\n\n明确约束：\n" + "\n".join(
+                    f"- {item}" for item in user_constraints
+                )
             task_input = {
                 "title": task_title,
                 "source": "project_chat",
+                "turn_brief": {
+                    "goal": str(turn_contract.get("user_goal") or ""),
+                    "constraints": user_constraints,
+                },
                 "router": {
                     "confidence": task_route.confidence,
                     "reason": task_route.reason,
@@ -641,7 +677,7 @@ async def run_durable_task(
                 task_session,
                 project_id=req.project_id,
                 task_type=durable_task_type,
-                goal=req.content,
+                goal=task_goal,
                 input_data=task_input,
                 plan_steps=list(task_route.plan_steps),
                 conversation_id=runtime.conv_id,
@@ -676,6 +712,7 @@ async def run_durable_task(
                     task_type=durable_task_type,
                     reason=confirmation_reason,
                 )
+                _attach_turn_contract_metadata(metadata, runtime)
                 need_title, assistant_message_id = persist_assistant_message(
                     bind,
                     runtime.conv_id,
@@ -796,6 +833,7 @@ async def run_durable_task(
             state.artifacts = artifacts
         state.stage_timings.update(metadata["stage_timings"])
 
+        _attach_turn_contract_metadata(metadata, runtime)
         need_title, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
         state.need_title = need_title
         state.assistant_message_id = assistant_message_id

@@ -113,6 +113,15 @@ _PPT_GENERATION_TOOL_NAME = "generate_ppt_from_skill"
 
 
 def _runtime_artifact_contract(runtime: ChatRuntime) -> ArtifactContract | None:
+    prepare_metrics = getattr(runtime, "prepare_metrics", None)
+    turn_contract = (
+        prepare_metrics.get("turn_contract")
+        if isinstance(prepare_metrics, dict)
+        and isinstance(prepare_metrics.get("turn_contract"), dict)
+        else {}
+    )
+    if turn_contract.get("mode") == "plan_only":
+        return None
     contract = getattr(runtime, "artifact_contract", None)
     if isinstance(contract, ArtifactContract) and contract.delivery_required:
         return contract
@@ -1080,6 +1089,11 @@ async def run_persist(
 
     # Build metadata
     metadata: dict = {}
+    runtime_prepare_metrics = getattr(runtime, "prepare_metrics", {})
+    if isinstance(runtime_prepare_metrics, dict):
+        turn_contract_metadata = runtime_prepare_metrics.get("turn_contract")
+        if isinstance(turn_contract_metadata, dict) and turn_contract_metadata:
+            metadata["turn_contract"] = dict(turn_contract_metadata)
     if state.turn_budget is not None:
         turn_budget_snapshot = state.turn_budget.snapshot()
         metadata["turn_budget"] = (

@@ -76,6 +76,28 @@ describe('useChatStream Skill control', () => {
     })
   })
 
+  it('sends the structured Turn Brief and mirrors it into the optimistic message', async () => {
+    const onUserMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage: vi.fn(),
+    }))
+    const turnBrief = {
+      goal: '识别三项关键风险',
+      constraints: ['只分析，不修改项目内容'],
+    }
+
+    await act(async () => result.current.send('分析当前方案', { turnBrief }))
+
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(init.body))).toMatchObject({ turn_brief: turnBrief })
+    expect(JSON.parse(onUserMessage.mock.calls[0][0].metadata_json)).toMatchObject({
+      turn_brief: turnBrief,
+    })
+  })
+
   it('admits only one send before React has committed the busy state', async () => {
     let resolveResponse!: (response: Response) => void
     vi.mocked(fetch).mockImplementation(() => new Promise<Response>((resolve) => {

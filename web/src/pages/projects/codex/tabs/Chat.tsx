@@ -32,6 +32,14 @@ import {
   ProjectSkillControl,
   type ProjectSkillSelection,
 } from '../ProjectSkillControl'
+import { ProjectTurnBriefControl } from '../ProjectTurnBriefControl'
+import {
+  EMPTY_PROJECT_TURN_BRIEF,
+  normalizeTurnBriefConstraints,
+  normalizeTurnBriefGoal,
+  projectTurnBriefToInput,
+  type ProjectTurnBriefDraft,
+} from '../turnBrief'
 import { SkillCandidateButtons } from '../SkillCandidateButtons'
 import { ProjectMentionMenu } from '../ProjectMentionMenu'
 import {
@@ -756,6 +764,7 @@ function ThreadView({
   const [composerText, setComposerText] = useState('')
   const [skillSelection, setSkillSelection] = useState<ProjectSkillSelection>({ mode: 'auto' })
   const [selectedMentions, setSelectedMentions] = useState<SelectedProjectMention[]>([])
+  const [turnBriefDraft, setTurnBriefDraft] = useState<ProjectTurnBriefDraft>(EMPTY_PROJECT_TURN_BRIEF)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mentionOptions = useMemo(
     () => buildProjectMentionOptions(skills, mentionables),
@@ -983,9 +992,11 @@ function ThreadView({
           onSend={async (text) => {
             const selectionForTurn = skillSelection
             const mentionContext = selectedProjectMentionsToContext(selectedMentions)
+            const turnBrief = projectTurnBriefToInput(turnBriefDraft)
             setComposerText('')
             setSkillSelection({ mode: 'auto' })
             setSelectedMentions([])
+            setTurnBriefDraft(EMPTY_PROJECT_TURN_BRIEF)
             await onSend(
               text,
               {
@@ -995,6 +1006,7 @@ function ThreadView({
                     ? { disableSkill: true }
                     : {}),
                 ...(mentionContext ? { mentionContext } : {}),
+                ...(turnBrief ? { turnBrief } : {}),
               },
             )
           }}
@@ -1012,6 +1024,8 @@ function ThreadView({
           mentionOptions={mentionOptions}
           selectedMentions={selectedMentions}
           onSelectedMentionsChange={setSelectedMentions}
+          turnBriefDraft={turnBriefDraft}
+          onTurnBriefDraftChange={setTurnBriefDraft}
           textareaRef={textareaRef}
         />
       </div>
@@ -1181,6 +1195,8 @@ export function ProjectChatComposer({
   mentionOptions,
   selectedMentions,
   onSelectedMentionsChange,
+  turnBriefDraft,
+  onTurnBriefDraftChange,
   textareaRef,
 }: {
   value: string
@@ -1196,6 +1212,8 @@ export function ProjectChatComposer({
   mentionOptions: ProjectMentionOption[]
   selectedMentions: SelectedProjectMention[]
   onSelectedMentionsChange: (mentions: SelectedProjectMention[]) => void
+  turnBriefDraft: ProjectTurnBriefDraft
+  onTurnBriefDraftChange: (draft: ProjectTurnBriefDraft) => void
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
   const [activeMention, setActiveMention] = useState<ActiveProjectMention | null>(null)
@@ -1204,6 +1222,8 @@ export function ProjectChatComposer({
     () => filterProjectMentionOptions(mentionOptions, activeMention?.query || ''),
     [activeMention?.query, mentionOptions],
   )
+  const briefGoal = normalizeTurnBriefGoal(turnBriefDraft.goal)
+  const briefConstraints = normalizeTurnBriefConstraints(turnBriefDraft.constraintsText)
 
   const autosize = () => {
     const el = textareaRef.current
@@ -1413,6 +1433,35 @@ export function ProjectChatComposer({
           ))}
         </div>
       )}
+      {(briefGoal || briefConstraints.length > 0) && (
+        <div
+          aria-label="本轮 Brief 预览"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 5,
+            marginTop: 7,
+            padding: '6px 8px',
+            color: 'var(--ink-soft)',
+            background: 'var(--bg-tint)',
+            borderLeft: '2px solid var(--accent)',
+            borderRadius: '0 var(--r-sm) var(--r-sm) 0',
+            fontSize: 10.5,
+          }}
+        >
+          <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Brief</span>
+          {briefGoal && <span>目标 · {briefGoal}</span>}
+          {briefConstraints.map((constraint) => (
+            <span
+              key={constraint}
+              style={{ padding: '2px 6px', background: 'var(--bg-elev)', borderRadius: 'var(--r-sm)' }}
+            >
+              {constraint}
+            </span>
+          ))}
+        </div>
+      )}
       <div
         style={{
           display: 'flex',
@@ -1438,6 +1487,12 @@ export function ProjectChatComposer({
             skills={skills}
             selection={skillSelection}
             onChange={onSkillSelectionChange}
+            disabled={busy}
+          />
+          <ProjectTurnBriefControl
+            draft={turnBriefDraft}
+            onChange={onTurnBriefDraftChange}
+            referenceCount={selectedMentions.length}
             disabled={busy}
           />
           <span style={{ fontSize: 11, color: 'var(--ink-faint)', whiteSpace: 'nowrap' }}>
@@ -1522,6 +1577,18 @@ function TurnReceiptCard({
       <span style={{ color: 'var(--ink)', fontWeight: 600 }}>本轮理解</span>
       <span> · {modeLabel} · {scopeLabel}</span>
       <div style={{ marginTop: 3 }}>{receipt.summary}</div>
+      {receipt.user_constraints.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 5 }}>
+          {receipt.user_constraints.map((constraint) => (
+            <span
+              key={constraint}
+              style={{ padding: '2px 6px', color: 'var(--accent-ink)', background: 'var(--accent-bg)', borderRadius: 'var(--r-sm)', fontSize: 10.5 }}
+            >
+              {constraint}
+            </span>
+          ))}
+        </div>
+      )}
       <div style={{ marginTop: 2, color: 'var(--ink-mute)', fontSize: 11 }}>
         {receipt.write_allowed ? '允许在约定范围内写入' : '不会修改项目内容'}
         {receipt.requires_confirmation ? ' · 高风险动作会先征求确认' : ''}

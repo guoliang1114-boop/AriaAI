@@ -183,6 +183,8 @@ USER_FACING_MESSAGE_MAX_CHARS = 50
 """``status.message`` is shown to end users and must stay short."""
 
 TURN_RECEIPT_SUMMARY_MAX_CHARS = 240
+TURN_RECEIPT_MAX_CONSTRAINTS = 8
+TURN_RECEIPT_CONSTRAINT_MAX_CHARS = 160
 STEERING_PREVIEW_MAX_CHARS = 160
 CONTEXT_RECEIPT_MAX_CANDIDATES = 3
 
@@ -281,6 +283,7 @@ def turn_receipt(
     write_allowed: bool,
     requires_confirmation: bool,
     steering_supported: bool,
+    user_constraints: Iterable[str] = (),
 ) -> dict:
     """Concise, user-visible acknowledgement of how Aria read the turn."""
 
@@ -307,6 +310,13 @@ def turn_receipt(
     normalized_response = str(expected_response or "").strip()
     if not normalized_response or len(normalized_response) > 80:
         raise ValueError("turn_receipt.expected_response is invalid")
+    normalized_constraints: list[str] = []
+    for item in user_constraints:
+        normalized = " ".join(str(item or "").split())[:TURN_RECEIPT_CONSTRAINT_MAX_CHARS]
+        if normalized and normalized not in normalized_constraints:
+            normalized_constraints.append(normalized)
+        if len(normalized_constraints) >= TURN_RECEIPT_MAX_CONSTRAINTS:
+            break
     return {
         "type": EventType.TURN_RECEIPT,
         "run_id": _require_run_id(run_id),
@@ -318,6 +328,7 @@ def turn_receipt(
         "write_allowed": bool(write_allowed),
         "requires_confirmation": bool(requires_confirmation),
         "steering_supported": bool(steering_supported),
+        "user_constraints": normalized_constraints,
     }
 
 

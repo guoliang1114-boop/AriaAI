@@ -17,6 +17,7 @@ from app.models.db import Project, Skill
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.mode_registry import ActionPolicy, ToolAccessPolicy
 from app.services.chat.runtime import _resolve_effective_skill
+from app.services.chat.turn_contract import build_turn_contract
 from app.services.chat_store import build_message_metadata
 from app.services.agent_harness.project_memory_evidence import (
     select_project_memory_slots,
@@ -328,6 +329,57 @@ def _constraint_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _turn_brief_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Explicit goal/constraints are bounded, auditable, and permission-shrinking."""
+
+    req = SendMessageRequest(
+        content="请更新项目 Markdown 报告并保存。",
+        project_id=26,
+        turn_brief={
+            "goal": "先评估报告结构是否完整",
+            "constraints": ["只分析，不修改项目内容", "使用正式专业语气"],
+        },
+    )
+    decision = classify_chat_intent(req)
+    contract = build_turn_contract(
+        decision,
+        req,
+        tools=[{"name": "update_project_markdown_document"}],
+    )
+    metadata = build_message_metadata(
+        project_id=26,
+        turn_brief=req.turn_brief.model_dump() if req.turn_brief else None,
+    )
+    constraints = merge_user_constraints(
+        ["使用口语", "输出为 Markdown"],
+        "继续分析",
+        structured_constraints=["使用正式专业语气", "沿用董事会风险分级"],
+    )
+    details = [
+        {
+            "case": "turn_brief_goal_and_constraints_enter_contract",
+            "passed": (
+                contract.user_goal == "先评估报告结构是否完整"
+                and list(contract.user_constraints)
+                == ["只分析，不修改项目内容", "使用正式专业语气"]
+            ),
+        },
+        {
+            "case": "turn_brief_can_only_shrink_execution",
+            "passed": contract.mode == "plan_only" and contract.write_allowed is False,
+        },
+        {
+            "case": "turn_brief_is_audited_and_persisted_without_keyword_guessing",
+            "passed": (
+                metadata.get("turn_brief", {}).get("goal") == "先评估报告结构是否完整"
+                and constraints
+                == ["使用正式专业语气", "沿用董事会风险分级", "输出为 Markdown"]
+            ),
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -340,6 +392,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "memory_freshness_guard_rate": _memory_results(),
         "memory_retrieval_precision_rate": _memory_retrieval_results(),
         "constraint_retention_rate": _constraint_results(),
+        "turn_brief_accuracy": _turn_brief_results(),
     }
     metrics = {
         name: {

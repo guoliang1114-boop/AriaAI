@@ -12,6 +12,11 @@ class MentionContext(BaseModel):
     milestone_ids: List[int] = Field(default_factory=list)
 
 
+class TurnBriefInput(BaseModel):
+    goal: str = Field(default="", max_length=240)
+    constraints: List[str] = Field(default_factory=list, max_length=8)
+
+
 class SendMessageRequest(BaseModel):
     conversation_id: Optional[int] = None
     content: str
@@ -25,6 +30,7 @@ class SendMessageRequest(BaseModel):
     model: Optional[str] = None
     language: Optional[str] = None
     mention_context: Optional[MentionContext] = None
+    turn_brief: Optional[TurnBriefInput] = None
     action_confirmations: List[str] = []
 
 

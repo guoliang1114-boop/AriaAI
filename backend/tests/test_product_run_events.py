@@ -106,9 +106,14 @@ class TurnReceiptAndSteeringTest(unittest.TestCase):
             write_allowed=True,
             requires_confirmation=False,
             steering_supported=True,
+            user_constraints=["只分析，不修改项目内容", "输出为 Markdown"],
         )
         self.assertEqual(event["type"], EventType.TURN_RECEIPT)
         self.assertTrue(event["steering_supported"])
+        self.assertEqual(
+            event["user_constraints"],
+            ["只分析，不修改项目内容", "输出为 Markdown"],
+        )
         self.assertNotIn("system_prompt", event)
 
     def test_steering_applied_is_sequence_bound(self):
