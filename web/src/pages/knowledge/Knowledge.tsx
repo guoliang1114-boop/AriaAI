@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -686,6 +686,23 @@ async function fetchKnowledgeV005({
   }
 }
 
+async function fetchKnowledgeData(params: {
+  category: string
+  fileType: string
+  page: number
+  pageSize: number
+  query: string
+  status: string
+  viewMode: KnowledgeViewMode
+}): Promise<KnowledgeLoadResult> {
+  try {
+    return await fetchKnowledgeV005(params)
+  } catch (v005Error) {
+    if (!isHttpStatus(v005Error, 404) && !isHttpStatus(v005Error, 405)) throw v005Error
+    return fetchKnowledgeLegacy(params)
+  }
+}
+
 export function Knowledge() {
   const { i18n } = useTranslation()
   const toast = useToast()
@@ -723,95 +740,77 @@ export function Knowledge() {
   const [legacyMigration, setLegacyMigration] = useState<LegacyMigrationPreview | null>(null)
   const [startingMigration, setStartingMigration] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const fetchRequestIdRef = useRef(0)
 
-  const fetchData = async ({ silent = false }: { silent?: boolean } = {}) => {
-    const isInitialLoad = !silent && !hasLoaded
-    if (silent) {
-      setRefreshing(true)
-    } else if (isInitialLoad) {
-      setLoading(true)
-    } else {
-      setDocumentListLoading(true)
-    }
-    setError(null)
-    try {
-      let result: KnowledgeLoadResult
-      try {
-        result = await fetchKnowledgeV005({
-          category: selectedCategory,
-          fileType: selectedFileType,
-          page: documentPage,
-          pageSize: documentPageSize,
-          query: searchQuery,
-          status: selectedStatus,
-          viewMode,
-        })
-      } catch (v005Error) {
-        if (!isHttpStatus(v005Error, 404) && !isHttpStatus(v005Error, 405)) throw v005Error
-        result = await fetchKnowledgeLegacy({
-          category: selectedCategory,
-          fileType: selectedFileType,
-          page: documentPage,
-          pageSize: documentPageSize,
-          query: searchQuery,
-          status: selectedStatus,
-        })
-      }
-      const docsData = result.data
-      setDocuments(docsData.items)
-      setApiMode(result.mode)
-      setSources(result.sources || [])
-      setDocumentTotal(docsData.total)
-      setCategoryCounts(docsData.categories)
-      setStatusCounts(docsData.status_counts || [])
-      setFileTypeCounts(docsData.file_type_counts || [])
-      setRecentDocuments(docsData.recent)
-      setIndexedCount(docsData.indexed_count)
-      setTotalSize(docsData.total_size)
-      setStats(result.stats)
-      setHasLoaded(true)
-    } catch (err) {
-      console.error('Failed to fetch knowledge data:', err)
-      setError(isZh ? '知识库加载失败' : 'Failed to load knowledge base')
-    } finally {
-      if (isInitialLoad) {
-        setLoading(false)
-      } else {
-        setDocumentListLoading(false)
-      }
-      setRefreshing(false)
-    }
-  }
+  const fetchData = useCallback(() => {
+    const requestId = ++fetchRequestIdRef.current
+    return fetchKnowledgeData({
+      category: selectedCategory,
+      fileType: selectedFileType,
+      page: documentPage,
+      pageSize: documentPageSize,
+      query: searchQuery,
+      status: selectedStatus,
+      viewMode,
+    })
+      .then((result) => {
+        if (requestId !== fetchRequestIdRef.current) return
+        const docsData = result.data
+        setDocuments(docsData.items)
+        setApiMode(result.mode)
+        setSources(result.sources || [])
+        setDocumentTotal(docsData.total)
+        setCategoryCounts(docsData.categories)
+        setStatusCounts(docsData.status_counts || [])
+        setFileTypeCounts(docsData.file_type_counts || [])
+        setRecentDocuments(docsData.recent)
+        setIndexedCount(docsData.indexed_count)
+        setTotalSize(docsData.total_size)
+        setStats(result.stats)
+        setSelectedDocumentIds((ids) => ids.filter((id) => docsData.items.some((doc) => doc.id === id)))
+        const lastPage = Math.max(1, Math.ceil(docsData.total / documentPageSize))
+        if (documentPage > lastPage) setDocumentPage(lastPage)
+        setError(null)
+        setHasLoaded(true)
+      })
+      .catch((err: unknown) => {
+        if (requestId !== fetchRequestIdRef.current) return
+        console.error('Failed to fetch knowledge data:', err)
+        setError(isZh ? '知识库加载失败' : 'Failed to load knowledge base')
+      })
+      .finally(() => {
+        if (requestId === fetchRequestIdRef.current) {
+          setLoading(false)
+          setDocumentListLoading(false)
+        }
+      })
+  }, [documentPage, documentPageSize, isZh, searchQuery, selectedCategory, selectedFileType, selectedStatus, viewMode])
 
   useEffect(() => {
     void fetchData()
-  }, [documentPage, documentPageSize, searchQuery, selectedCategory, selectedFileType, selectedStatus, viewMode])
+  }, [fetchData])
 
-  useEffect(() => {
-    setDocumentPage(1)
-  }, [searchQuery, selectedCategory, selectedFileType, selectedStatus])
-
-  const refreshLegacyMigration = async () => {
-    try {
-      setLegacyMigration(await fetchLegacyMigrationPreview())
-    } catch (migrationError) {
-      console.warn('Failed to load legacy knowledge migration preview:', migrationError)
-    }
-  }
+  const refreshLegacyMigration = useCallback(() => {
+    return fetchLegacyMigrationPreview()
+      .then(setLegacyMigration)
+      .catch((migrationError: unknown) => {
+        console.warn('Failed to load legacy knowledge migration preview:', migrationError)
+      })
+  }, [])
 
   useEffect(() => {
     if (viewMode !== 'manage') return
     void refreshLegacyMigration()
-  }, [viewMode])
+  }, [refreshLegacyMigration, viewMode])
 
   useEffect(() => {
     if (!isActiveKnowledgeJob(legacyMigration?.active_job)) return undefined
     const timer = window.setInterval(() => {
       void refreshLegacyMigration()
-      void fetchData({ silent: true })
+      void fetchData()
     }, 4000)
     return () => window.clearInterval(timer)
-  }, [legacyMigration?.active_job?.job_id, legacyMigration?.active_job?.status])
+  }, [fetchData, legacyMigration?.active_job, refreshLegacyMigration])
 
   const categories = useMemo(() => {
     const present = new Set(categoryCounts.map((item) => normalizeCategory(item.category)))
@@ -822,10 +821,6 @@ export function Knowledge() {
 
   const documentPageCount = Math.max(1, Math.ceil(documentTotal / documentPageSize))
   const currentDocumentPage = Math.min(documentPage, documentPageCount)
-
-  useEffect(() => {
-    setDocumentPage((current) => Math.min(current, documentPageCount))
-  }, [documentPageCount])
 
   const allDocumentCount = stats.document_count || categoryCounts.reduce((sum, item) => sum + item.count, 0) || documentTotal
   const latestDoc = recentDocuments[0]
@@ -845,23 +840,13 @@ export function Knowledge() {
   const processingCount = (statusCountMap.processing || 0) + (statusCountMap.pending || 0)
   const failedCount = statusCountMap.failed || 0
   const selectedDocumentCount = selectedDocumentIds.length
-  const fetchDataRef = useRef(fetchData)
-
-  useEffect(() => {
-    fetchDataRef.current = fetchData
-  }, [fetchData])
-
   useEffect(() => {
     if (!hasLoaded || apiMode !== 'v005' || processingCount === 0) return undefined
     const timer = window.setInterval(() => {
-      void fetchDataRef.current({ silent: true })
+      void fetchData()
     }, 4000)
     return () => window.clearInterval(timer)
-  }, [apiMode, hasLoaded, processingCount])
-
-  useEffect(() => {
-    setSelectedDocumentIds((ids) => ids.filter((id) => documents.some((doc) => doc.id === id)))
-  }, [documents])
+  }, [apiMode, fetchData, hasLoaded, processingCount])
 
   const ensureManualUploadSource = async () => {
     const existing = sources.find((source) => source.source_type === 'manual_upload' && source.scope_type === 'workspace')
@@ -878,19 +863,19 @@ export function Knowledge() {
 
   const syncKnowledgeSources = async () => {
     if (apiMode !== 'v005') {
-      await fetchData({ silent: true })
+      await fetchData()
       return
     }
     const syncableSources = sources.filter((source) => ['markdown_folder', 'obsidian_vault', 'git_repo'].includes(source.source_type))
     if (!syncableSources.length) {
-      await fetchData({ silent: true })
+      await fetchData()
       return
     }
     setRefreshing(true)
     try {
       await Promise.all(syncableSources.map((source) => api.post<KnowledgeJobResponseV005>(`/knowledge/sources/${source.id}/sync`)))
       toast.success({ title: isZh ? '已开始同步' : 'Sync started', description: isZh ? '文件夹来源会在后台扫描并更新索引。' : 'Folder sources will be scanned and indexed in the background.' })
-      await fetchData({ silent: true })
+      await fetchData()
     } catch (err) {
       console.error('Failed to sync knowledge sources:', err)
       toast.error({ title: isZh ? '同步失败' : 'Sync failed' })
@@ -913,7 +898,7 @@ export function Knowledge() {
         description: isZh ? '旧记录和原始文件会继续保留。' : 'Legacy records and original files remain intact.',
       })
       await refreshLegacyMigration()
-      await fetchData({ silent: true })
+      await fetchData()
     } catch (migrationError) {
       console.error('Failed to start legacy knowledge migration:', migrationError)
       toast.error({ title: isZh ? '历史知识升级启动失败' : 'Could not start legacy migration' })
@@ -959,7 +944,7 @@ export function Knowledge() {
         })
       }
       toast.success({ title: isZh ? '文档已上传' : 'Document uploaded', description: isZh ? '系统会在后台解析并索引。' : 'Aria will parse and index it in the background.' })
-      await fetchData({ silent: true })
+      await fetchData()
     } catch (err) {
       console.error('Failed to upload file:', err)
       setError(isZh ? '文档上传失败' : 'Failed to upload document')
@@ -982,7 +967,7 @@ export function Knowledge() {
       }
       setPendingDeleteId(null)
       toast.success({ title: isZh ? '文档已删除' : 'Document deleted' })
-      await fetchData({ silent: true })
+      await fetchData()
     } catch (err) {
       console.error('Failed to delete document:', err)
       setError(isZh ? '文档删除失败' : 'Failed to delete document')
@@ -1007,7 +992,7 @@ export function Knowledge() {
         await api.post(`/knowledge/documents/${doc.document_id || doc.id}/reindex`)
       }
       toast.success({ title: isZh ? '已重新排队' : 'Reindex queued', description: isZh ? '系统会重新解析并索引这份文件。' : 'Aria will parse and index this file again.' })
-      await fetchData({ silent: true })
+      await fetchData()
     } catch (err) {
       console.error('Failed to reindex document:', err)
       toast.error({ title: isZh ? '重新处理失败' : 'Reindex failed' })
@@ -1028,6 +1013,10 @@ export function Knowledge() {
     }
   }
 
+  const beginDocumentListUpdate = () => {
+    if (hasLoaded) setDocumentListLoading(true)
+  }
+
   if (loading && !hasLoaded) {
     return <KnowledgeLoading isZh={isZh} />
   }
@@ -1044,7 +1033,14 @@ export function Knowledge() {
           lineHeight: 1.6,
         }}
       >
-        <KnowledgeTopTabs active={viewMode} isZh={isZh} onChange={setViewMode} />
+        <KnowledgeTopTabs
+          active={viewMode}
+          isZh={isZh}
+          onChange={(nextViewMode) => {
+            beginDocumentListUpdate()
+            setViewMode(nextViewMode)
+          }}
+        />
 
         {viewMode === 'manage' && legacyMigration ? (
           <LegacyMigrationBanner
@@ -1070,10 +1066,12 @@ export function Knowledge() {
             isZh={isZh}
             latestDoc={latestDoc}
             onCategoryChange={(category) => {
+              beginDocumentListUpdate()
               setSelectedCategory(category)
               setDocumentPage(1)
             }}
             onClear={() => {
+              beginDocumentListUpdate()
               setSearchQuery('')
               setSelectedCategory('all')
               setSelectedFileType('all')
@@ -1081,8 +1079,12 @@ export function Knowledge() {
               setDocumentPage(1)
             }}
             onCopyCitation={(doc) => void copyCitation(doc)}
-            onPageChange={setDocumentPage}
+            onPageChange={(nextPage) => {
+              beginDocumentListUpdate()
+              setDocumentPage(nextPage)
+            }}
             onPageSizeChange={(nextPageSize) => {
+              beginDocumentListUpdate()
               setDocumentPageSize(nextPageSize)
               setDocumentPage(1)
             }}
@@ -1093,10 +1095,12 @@ export function Knowledge() {
             selectedCategory={selectedCategory}
             selectedFileType={selectedFileType}
             setSearchQuery={(value) => {
+              beginDocumentListUpdate()
               setSearchQuery(value)
               setDocumentPage(1)
             }}
             setSelectedFileType={(value) => {
+              beginDocumentListUpdate()
               setSelectedFileType(value)
               setDocumentPage(1)
             }}
@@ -1118,10 +1122,12 @@ export function Knowledge() {
             indexedCount={indexedCount}
             isZh={isZh}
             onCategoryChange={(category) => {
+              beginDocumentListUpdate()
               setSelectedCategory(category)
               setDocumentPage(1)
             }}
             onClear={() => {
+              beginDocumentListUpdate()
               setSearchQuery('')
               setSelectedCategory('all')
               setSelectedFileType('all')
@@ -1129,8 +1135,12 @@ export function Knowledge() {
               setDocumentPage(1)
             }}
             onDelete={(doc) => setPendingDeleteId(doc.id)}
-            onPageChange={setDocumentPage}
+            onPageChange={(nextPage) => {
+              beginDocumentListUpdate()
+              setDocumentPage(nextPage)
+            }}
             onPageSizeChange={(nextPageSize) => {
+              beginDocumentListUpdate()
               setDocumentPageSize(nextPageSize)
               setDocumentPage(1)
             }}
@@ -1153,14 +1163,17 @@ export function Knowledge() {
             selectedFileType={selectedFileType}
             selectedStatus={selectedStatus}
             setSearchQuery={(value) => {
+              beginDocumentListUpdate()
               setSearchQuery(value)
               setDocumentPage(1)
             }}
             setSelectedFileType={(value) => {
+              beginDocumentListUpdate()
               setSelectedFileType(value)
               setDocumentPage(1)
             }}
             setSelectedStatus={(value) => {
+              beginDocumentListUpdate()
               setSelectedStatus(value)
               setDocumentPage(1)
             }}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlertTriangle,
@@ -79,6 +79,8 @@ export function ProjectMemorySettings() {
   const toast = useToast()
   const autoGenerateMissingTriggeredRef = useRef(false)
   const autoWarmSummariesTriggeredRef = useRef(false)
+  const projectRequestIdRef = useRef(0)
+  const jobsRequestIdRef = useRef(0)
 
   const [projects, setProjects] = useState<Project[]>([])
   const [jobs, setJobs] = useState<ProjectMemoryJob[]>([])
@@ -102,15 +104,9 @@ export function ProjectMemorySettings() {
   const [refreshingProjectId, setRefreshingProjectId] = useState<number | null>(null)
   const [jobActionProjectId, setJobActionProjectId] = useState<number | null>(null)
 
-  const fetchProjects = async () => {
-    const isInitialLoad = loading && projects.length === 0 && projectTotal === 0
-    try {
-      if (isInitialLoad) {
-        setLoading(true)
-      } else {
-        setProjectsLoading(true)
-      }
-      const data = await api.get<ProjectMemoryListResponse>('/projects/memory/list', {
+  const fetchProjects = useCallback(() => {
+    const requestId = ++projectRequestIdRef.current
+    return api.get<ProjectMemoryListResponse>('/projects/memory/list', {
         params: {
           search: searchQuery.trim() || undefined,
           status: filter,
@@ -118,62 +114,63 @@ export function ProjectMemorySettings() {
           offset: (projectPage - 1) * projectPageSize,
         },
       })
-      setProjects(data.items || [])
-      setProjectTotal(data.total || 0)
-      setCounts({
-        all: data.counts?.all ?? 0,
-        ready: data.counts?.ready ?? 0,
-        stale: data.counts?.stale ?? 0,
-        missing: data.counts?.missing ?? 0,
+      .then((data) => {
+        if (requestId !== projectRequestIdRef.current) return
+        setProjects(data.items || [])
+        setProjectTotal(data.total || 0)
+        setCounts({
+          all: data.counts?.all ?? 0,
+          ready: data.counts?.ready ?? 0,
+          stale: data.counts?.stale ?? 0,
+          missing: data.counts?.missing ?? 0,
+        })
+        const lastPage = Math.max(1, Math.ceil((data.total || 0) / projectPageSize))
+        if (projectPage > lastPage) setProjectPage(lastPage)
       })
-    } catch (error) {
-      console.error('Failed to load projects for memory settings:', error)
-      toast.error(isZh ? '加载项目记忆列表失败' : 'Failed to load project memories')
-    } finally {
-      if (isInitialLoad) {
+      .catch((error: unknown) => {
+        if (requestId !== projectRequestIdRef.current) return
+        console.error('Failed to load projects for memory settings:', error)
+        toast.error(isZh ? '加载项目记忆列表失败' : 'Failed to load project memories')
+      })
+      .finally(() => {
+        if (requestId !== projectRequestIdRef.current) return
         setLoading(false)
-      } else {
         setProjectsLoading(false)
-      }
-    }
-  }
+      })
+  }, [filter, isZh, projectPage, projectPageSize, searchQuery, toast])
 
-  const fetchJobs = async (silent = false) => {
-    try {
-      if (!silent) setLoadingJobs(true)
-      const data = await api.get<ProjectMemoryJobsResponse>('/projects/memory/jobs')
-      setJobs(data.jobs || [])
-    } catch (error) {
-      console.error('Failed to load memory jobs:', error)
-      if (!silent) {
-        toast.error(isZh ? '加载后台任务列表失败' : 'Failed to load memory jobs')
-      }
-    } finally {
-      if (!silent) setLoadingJobs(false)
-    }
-  }
+  const fetchJobs = useCallback((reportError = false) => {
+    const requestId = ++jobsRequestIdRef.current
+    return api.get<ProjectMemoryJobsResponse>('/projects/memory/jobs')
+      .then((data) => {
+        if (requestId === jobsRequestIdRef.current) setJobs(data.jobs || [])
+      })
+      .catch((error: unknown) => {
+        if (requestId !== jobsRequestIdRef.current) return
+        console.error('Failed to load memory jobs:', error)
+        if (reportError) {
+          toast.error(isZh ? '加载后台任务列表失败' : 'Failed to load memory jobs')
+        }
+      })
+      .finally(() => {
+        if (requestId === jobsRequestIdRef.current) setLoadingJobs(false)
+      })
+  }, [isZh, toast])
 
   useEffect(() => {
     void fetchProjects()
-  }, [filter, projectPage, projectPageSize, searchQuery])
+  }, [fetchProjects])
 
   useEffect(() => {
-    void fetchJobs()
-  }, [])
+    void fetchJobs(true)
+  }, [fetchJobs])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void fetchJobs(true)
+      void fetchJobs(false)
     }, 10000)
     return () => window.clearInterval(timer)
-  }, [])
-
-  useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(projectTotal / projectPageSize))
-    if (projectPage > totalPages) {
-      setProjectPage(totalPages)
-    }
-  }, [projectPage, projectPageSize, projectTotal])
+  }, [fetchJobs])
 
   const readyProjectIds = useMemo(
     () =>
@@ -183,7 +180,7 @@ export function ProjectMemorySettings() {
     [projects],
   )
 
-  const applyProjectMemoryUpdate = (
+  const applyProjectMemoryUpdate = useCallback((
     projectId: number,
     update: {
       memory_stale: boolean
@@ -218,9 +215,9 @@ export function ProjectMemorySettings() {
           : project,
       ),
     )
-  }
+  }, [])
 
-  const warmSummaries = async (
+  const warmSummaries = useCallback(async (
     projectIds: number[],
     options?: {
       silent?: boolean
@@ -230,7 +227,6 @@ export function ProjectMemorySettings() {
     if (projectIds.length === 0) return
 
     try {
-      setIsWarmingSummaries(true)
       const result = await api.post<ProjectMemoryBatchWarmSummariesResponse>(
         '/projects/memory/warm-summaries-batch',
         {
@@ -242,7 +238,7 @@ export function ProjectMemorySettings() {
         { timeout: 120000 },
       )
 
-      void fetchJobs(true)
+      void fetchJobs(false)
 
       if (!options?.silent) {
         if ((result.queued_count || 0) > 0) {
@@ -265,7 +261,7 @@ export function ProjectMemorySettings() {
     } finally {
       setIsWarmingSummaries(false)
     }
-  }
+  }, [fetchJobs, i18n.language, isZh, toast])
 
   const rebuildSingleProject = async (project: Project) => {
     try {
@@ -279,7 +275,7 @@ export function ProjectMemorySettings() {
         memory_rebuild_status: data.memory_rebuild_status,
         memory_rebuild_failed_at: data.memory_rebuild_failed_at,
       })
-      void fetchJobs(true)
+      void fetchJobs(false)
       toast.success(isZh ? `已更新 ${project.name} 的项目记忆` : `Refreshed memory for ${project.name}`)
     } catch (error) {
       console.error('Failed to rebuild project memory:', error)
@@ -289,16 +285,13 @@ export function ProjectMemorySettings() {
     }
   }
 
-  const runBatch = async (
+  const runBatch = useCallback(async (
     mode: 'stale' | 'missing',
     options?: {
       silent?: boolean
     },
   ) => {
     if (counts[mode] === 0) return
-
-    if (mode === 'stale') setIsRefreshingStale(true)
-    else setIsGeneratingMissing(true)
 
     try {
       const result = await api.post<ProjectMemoryBatchRebuildResponse>(
@@ -334,6 +327,7 @@ export function ProjectMemorySettings() {
       }
 
       if (result.rebuilt.length > 0) {
+        setIsWarmingSummaries(true)
         await warmSummaries(
           result.rebuilt.map((item) => item.project_id),
           { silent: true },
@@ -353,9 +347,9 @@ export function ProjectMemorySettings() {
     } finally {
       if (mode === 'stale') setIsRefreshingStale(false)
       else setIsGeneratingMissing(false)
-      void Promise.all([fetchProjects(), fetchJobs(true)])
+      void Promise.all([fetchProjects(), fetchJobs(false)])
     }
-  }
+  }, [applyProjectMemoryUpdate, counts, fetchJobs, fetchProjects, isZh, toast, warmSummaries])
 
   const cancelJob = async (projectId: number) => {
     try {
@@ -393,7 +387,7 @@ export function ProjectMemorySettings() {
     try {
       setJobActionProjectId(projectId)
       const result = await api.post<{ ok: boolean; action: string }>(`/projects/memory/jobs/${projectId}/run-now`, {})
-      void Promise.all([fetchProjects(), fetchJobs(true)])
+      void Promise.all([fetchProjects(), fetchJobs(false)])
       toast.success(
         isZh
           ? result.action === 'rebuild'
@@ -423,7 +417,7 @@ export function ProjectMemorySettings() {
         : `Automatically preparing ${counts.missing} missing project memories`,
     )
     void runBatch('missing', { silent: true })
-  }, [counts.missing, isGeneratingMissing, isZh, loading])
+  }, [counts.missing, isGeneratingMissing, isZh, loading, runBatch, toast])
 
   useEffect(() => {
     if (
@@ -438,7 +432,7 @@ export function ProjectMemorySettings() {
 
     autoWarmSummariesTriggeredRef.current = true
     void warmSummaries(readyProjectIds, { silent: true })
-  }, [isGeneratingMissing, isWarmingSummaries, loading, readyProjectIds])
+  }, [isGeneratingMissing, isWarmingSummaries, loading, readyProjectIds, warmSummaries])
 
   const filterOptions: Array<{ key: MemoryFilter; label: string; count: number }> = [
     { key: 'all', label: isZh ? '全部项目' : 'All', count: counts.all },
@@ -544,7 +538,10 @@ export function ProjectMemorySettings() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => void runBatch('stale')}
+            onClick={() => {
+              setIsRefreshingStale(true)
+              void runBatch('stale')
+            }}
             disabled={isRefreshingStale || counts.stale === 0}
             className="inline-flex items-center gap-2 disabled:opacity-50"
             style={ghostButtonStyle}
@@ -554,7 +551,10 @@ export function ProjectMemorySettings() {
           </button>
           <button
             type="button"
-            onClick={() => void runBatch('missing')}
+            onClick={() => {
+              setIsGeneratingMissing(true)
+              void runBatch('missing')
+            }}
             disabled={isGeneratingMissing || counts.missing === 0}
             className="inline-flex items-center gap-2 disabled:opacity-50"
             style={{
@@ -623,7 +623,10 @@ export function ProjectMemorySettings() {
           </div>
           <button
             type="button"
-            onClick={() => void fetchJobs()}
+            onClick={() => {
+              setLoadingJobs(true)
+              void fetchJobs(true)
+            }}
             className="inline-flex items-center gap-2"
             style={ghostButtonStyle}
           >
@@ -805,6 +808,7 @@ export function ProjectMemorySettings() {
               key={option.key}
               type="button"
               onClick={() => {
+                setProjectsLoading(true)
                 setFilter(option.key)
                 setProjectPage(1)
               }}
@@ -856,6 +860,7 @@ export function ProjectMemorySettings() {
           type="text"
           value={searchQuery}
           onChange={(event) => {
+            setProjectsLoading(true)
             setSearchQuery(event.target.value)
             setProjectPage(1)
           }}
@@ -1046,8 +1051,12 @@ export function ProjectMemorySettings() {
             page={projectPage}
             pageSize={projectPageSize}
             totalItems={projectTotal}
-            onPageChange={setProjectPage}
+            onPageChange={(nextPage) => {
+              setProjectsLoading(true)
+              setProjectPage(nextPage)
+            }}
             onPageSizeChange={(nextPageSize) => {
+              setProjectsLoading(true)
               setProjectPageSize(nextPageSize)
               setProjectPage(1)
             }}

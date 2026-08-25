@@ -369,6 +369,7 @@ function useSkillsData(
   categoryKeys: string[],
   page: number,
   pageSize: number,
+  onPageOutOfRange: (page: number) => void,
 ) {
   const [loading, setLoading] = useState(true);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
@@ -379,10 +380,12 @@ function useSkillsData(
   const [hasLoaded, setHasLoaded] = useState(false);
   const [listLoading, setListLoading] = useState(false);
   const hasLoadedRef = useRef(false);
+  const requestIdRef = useRef(0);
   const categoryKeyParam = categoryKeys.join(",");
 
   useEffect(() => {
     const fetchSkills = async () => {
+      const requestId = ++requestIdRef.current;
       const isInitialLoad = !hasLoadedRef.current;
       try {
         if (isInitialLoad) {
@@ -398,26 +401,35 @@ function useSkillsData(
             offset: (page - 1) * pageSize,
           },
         });
+        if (requestId !== requestIdRef.current) return;
+        const lastPage = Math.max(1, Math.ceil(data.total / pageSize));
+        if (page > lastPage) {
+          onPageOutOfRange(lastPage);
+          return;
+        }
         setSkills(data.items);
         setTotal(data.total);
         setCategoryCounts(data.categories);
         hasLoadedRef.current = true;
         setHasLoaded(true);
       } catch (err) {
+        if (requestId !== requestIdRef.current) return;
         console.error("Failed to fetch skills:", err);
         const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
         setError(detail || (err instanceof Error ? err.message : "request failed"));
       } finally {
-        if (isInitialLoad) {
-          setLoading(false);
-        } else {
-          setListLoading(false);
+        if (requestId === requestIdRef.current) {
+          if (isInitialLoad) {
+            setLoading(false);
+          } else {
+            setListLoading(false);
+          }
         }
       }
     };
 
     void fetchSkills();
-  }, [categoryKeyParam, page, pageSize, reloadKey]);
+  }, [categoryKeyParam, onPageOutOfRange, page, pageSize, reloadKey]);
 
   const categories = useMemo(() => buildCategoriesFromCounts(categoryCounts, allLabel, isZh), [allLabel, categoryCounts, isZh]);
 
@@ -434,36 +446,33 @@ function useSkillsData(
 }
 
 function useSkillDetail(skillId?: string) {
-  const [loading, setLoading] = useState(true);
-  const [skill, setSkill] = useState<Skill | null>(null);
-  const [error, setError] = useState("");
+  const id = Number(skillId);
+  const validId = Number.isFinite(id) && id > 0;
+  const [result, setResult] = useState<{
+    id: number;
+    skill: Skill | null;
+    error: string;
+  } | null>(null);
 
   useEffect(() => {
-    const id = Number(skillId);
-    if (!Number.isFinite(id) || id <= 0) {
-      setLoading(false);
-      setError("invalid");
-      return;
-    }
-
-    const fetchSkill = async () => {
-      try {
-        setLoading(true);
-        setError("");
-        const data = await api.get<Skill>(`/skills/${id}`);
-        setSkill(data);
-      } catch (fetchError) {
+    if (!validId) return;
+    let cancelled = false;
+    void api.get<Skill>(`/skills/${id}`)
+      .then((skill) => {
+        if (!cancelled) setResult({ id, skill, error: "" });
+      })
+      .catch((fetchError: unknown) => {
         console.error("Failed to fetch skill:", fetchError);
-        setError("not_found");
-      } finally {
-        setLoading(false);
-      }
+        if (!cancelled) setResult({ id, skill: null, error: "not_found" });
+      });
+    return () => {
+      cancelled = true;
     };
+  }, [id, validId]);
 
-    void fetchSkill();
-  }, [skillId]);
-
-  return { error, loading, skill };
+  if (!validId) return { error: "invalid", loading: false, skill: null };
+  if (!result || result.id !== id) return { error: "", loading: true, skill: null };
+  return { error: result.error, loading: false, skill: result.skill };
 }
 
 function useLaunchSource() {
@@ -528,11 +537,8 @@ export function Skills() {
     selectedCategoryKeys,
     skillPage,
     skillPageSize,
+    setSkillPage,
   );
-  useEffect(() => {
-    const nextPageCount = Math.max(1, Math.ceil(skillTotal / skillPageSize));
-    setSkillPage((current) => Math.min(current, nextPageCount));
-  }, [skillPageSize, skillTotal]);
 
   if (loading && !hasLoaded) return <SkillsLoading title={t("skills.title")} />;
   if (error && !hasLoaded) return <SkillsLoadError title={t("skills.title")} message={error} onRetry={reload} isZh={isZh} />;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
+import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { Knowledge } from './Knowledge'
 
 const mockGet = vi.fn()
@@ -58,11 +58,38 @@ const v005Doc = ({
 
 vi.mock('../../api/client', () => ({
   api: {
-    get: (...args: any[]) => mockGet(...args),
-    post: (...args: any[]) => mockPost(...args),
-    delete: (...args: any[]) => mockDelete(...args),
+    get: (...args: unknown[]) => mockGet(...args),
+    post: (...args: unknown[]) => mockPost(...args),
+    delete: (...args: unknown[]) => mockDelete(...args),
   },
 }))
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function searchResponse(id: number, name: string) {
+  return {
+    chunks: [{
+      id: id * 100,
+      document_id: id,
+      document_title: name,
+      document_path: `/docs/${name}`,
+      heading_path: ['摘要'],
+      content: `${name} search result`,
+      scope_type: 'workspace',
+      scope_id: null,
+      source_id: source.id,
+      relevance: 0.91,
+      metadata: { template_key: 'general' },
+    }],
+    total_found: 1,
+  }
+}
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'zh' } }),
@@ -152,6 +179,41 @@ describe('Knowledge', () => {
       expect(within(table).getByText('report.pdf')).toBeInTheDocument()
       expect(within(table).queryByText('notes.txt')).not.toBeInTheDocument()
     })
+  })
+
+  it('does not let a slower old search overwrite the newest results', async () => {
+    const oldSearch = deferred<ReturnType<typeof searchResponse>>()
+    const newSearch = deferred<ReturnType<typeof searchResponse>>()
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/knowledge/sources') return Promise.resolve([source])
+      if (url === '/knowledge/sources/10/documents') {
+        return Promise.resolve([
+          v005Doc({ id: 1, name: 'baseline.pdf', file_type: 'pdf', path: '/docs/baseline.pdf' }),
+        ])
+      }
+      return Promise.resolve([])
+    })
+    mockPost.mockImplementation((url: string, body?: { query?: string }) => {
+      if (url !== '/knowledge/search') return Promise.resolve({})
+      return body?.query === '旧查询' ? oldSearch.promise : newSearch.promise
+    })
+
+    render(<Knowledge />)
+    await screen.findAllByText('baseline.pdf')
+    const searchInput = screen.getByLabelText('搜索知识库')
+    fireEvent.change(searchInput, { target: { value: '旧查询' } })
+    fireEvent.change(searchInput, { target: { value: '新查询' } })
+
+    await act(async () => {
+      newSearch.resolve(searchResponse(3, '最新结果.pdf'))
+    })
+    await screen.findAllByText('最新结果.pdf')
+
+    await act(async () => {
+      oldSearch.resolve(searchResponse(2, '过期结果.pdf'))
+    })
+    expect(screen.getAllByText('最新结果.pdf').length).toBeGreaterThan(0)
+    expect(screen.queryByText('过期结果.pdf')).not.toBeInTheDocument()
   })
 
   it('deletes a document via the confirm dialog', async () => {
