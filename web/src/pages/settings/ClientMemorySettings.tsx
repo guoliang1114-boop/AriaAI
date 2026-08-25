@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Brain, Building2, Clock3, ExternalLink, Loader2, Play, RefreshCw, Search, Sparkles, Users, XCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -65,6 +65,10 @@ export function ClientMemorySettings() {
   const toast = useToast()
   const autoGenerateMissingTriggeredRef = useRef(false)
   const autoWarmSummariesTriggeredRef = useRef(false)
+  const clientsRequestIdRef = useRef(0)
+  const jobsRequestIdRef = useRef(0)
+  const batchModesInFlightRef = useRef<Set<'stale' | 'missing'>>(new Set())
+  const warmRequestsInFlightRef = useRef(0)
 
   const [clients, setClients] = useState<ClientListItem[]>([])
   const [jobs, setJobs] = useState<ClientMemoryJob[]>([])
@@ -78,44 +82,59 @@ export function ClientMemorySettings() {
   const [refreshingClientId, setRefreshingClientId] = useState<number | null>(null)
   const [jobActionClientId, setJobActionClientId] = useState<number | null>(null)
 
-  const fetchClients = async () => {
-    try {
-      setLoading(true)
-      const data = await api.get<ClientListItem[]>('/clients')
-      setClients(data)
-    } catch (error) {
-      console.error('Failed to load clients for memory settings:', error)
-      toast.error(isZh ? '加载客户记忆列表失败' : 'Failed to load client memories')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const fetchClients = useCallback(() => {
+    const requestId = ++clientsRequestIdRef.current
+    return api
+      .get<ClientListItem[]>('/clients')
+      .then((data) => {
+        if (requestId !== clientsRequestIdRef.current) return
+        setClients(data)
+      })
+      .catch((error: unknown) => {
+        if (requestId !== clientsRequestIdRef.current) return
+        console.error('Failed to load clients for memory settings:', error)
+        toast.error(isZh ? '加载客户记忆列表失败' : 'Failed to load client memories')
+      })
+      .finally(() => {
+        if (requestId !== clientsRequestIdRef.current) return
+        setLoading(false)
+      })
+  }, [isZh, toast])
 
-  const fetchJobs = async (silent = false) => {
-    try {
-      if (!silent) setLoadingJobs(true)
-      const data = await api.get<ClientMemoryJobsResponse>('/clients/memory/jobs')
-      setJobs(data.jobs || [])
-    } catch (error) {
-      console.error('Failed to load client memory jobs:', error)
-      if (!silent) {
-        toast.error(isZh ? '加载客户记忆任务失败' : 'Failed to load client memory jobs')
-      }
-    } finally {
-      if (!silent) setLoadingJobs(false)
-    }
-  }
+  const fetchJobs = useCallback((reportError = false) => {
+    const requestId = ++jobsRequestIdRef.current
+    return api
+      .get<ClientMemoryJobsResponse>('/clients/memory/jobs')
+      .then((data) => {
+        if (requestId !== jobsRequestIdRef.current) return
+        setJobs(data.jobs || [])
+      })
+      .catch((error: unknown) => {
+        if (requestId !== jobsRequestIdRef.current) return
+        console.error('Failed to load client memory jobs:', error)
+        if (reportError) {
+          toast.error(isZh ? '加载客户记忆任务失败' : 'Failed to load client memory jobs')
+        }
+      })
+      .finally(() => {
+      if (requestId === jobsRequestIdRef.current) setLoadingJobs(false)
+      })
+  }, [isZh, toast])
 
   useEffect(() => {
-    void Promise.all([fetchClients(), fetchJobs()])
-  }, [])
+    void fetchClients()
+  }, [fetchClients])
+
+  useEffect(() => {
+    void fetchJobs(true)
+  }, [fetchJobs])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void fetchJobs(true)
+      void fetchJobs(false)
     }, 10000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [fetchJobs])
 
   const counts = useMemo(
     () => ({
@@ -149,7 +168,7 @@ export function ClientMemorySettings() {
     })
   }, [clients, filter, searchQuery])
 
-  const applyClientMemoryUpdate = (
+  const applyClientMemoryUpdate = useCallback((
     clientId: number,
     update: Pick<
       ClientMemoryStatusResponse,
@@ -171,9 +190,9 @@ export function ClientMemorySettings() {
           : client,
       ),
     )
-  }
+  }, [])
 
-  const warmSummaries = async (
+  const warmSummaries = useCallback(async (
     clientIds: number[],
     options?: {
       silent?: boolean
@@ -183,8 +202,10 @@ export function ClientMemorySettings() {
   ) => {
     if (clientIds.length === 0) return
 
+    warmRequestsInFlightRef.current += 1
+    await Promise.resolve()
+    setIsWarmingSummaries(true)
     try {
-      setIsWarmingSummaries(true)
       const result = await api.post<ClientMemoryBatchWarmSummariesResponse>(
         '/clients/memory/warm-summaries-batch',
         {
@@ -199,7 +220,7 @@ export function ClientMemorySettings() {
         { timeout: 120000 },
       )
 
-      void fetchJobs(true)
+      void fetchJobs(false)
 
       if (!options?.silent) {
         if ((result.queued_count || 0) > 0) {
@@ -220,9 +241,10 @@ export function ClientMemorySettings() {
       console.error('Failed to warm client memory summaries:', error)
       toast.error(isZh ? '批量预生成客户 AI 摘要失败' : 'Failed to warm client AI summaries')
     } finally {
-      setIsWarmingSummaries(false)
+      warmRequestsInFlightRef.current = Math.max(0, warmRequestsInFlightRef.current - 1)
+      if (warmRequestsInFlightRef.current === 0) setIsWarmingSummaries(false)
     }
-  }
+  }, [fetchJobs, i18n.language, isZh, toast])
 
   const refreshSingleClient = async (client: ClientListItem) => {
     try {
@@ -245,15 +267,17 @@ export function ClientMemorySettings() {
     }
   }
 
-  const runBatch = async (mode: 'stale' | 'missing') => {
+  const runBatch = useCallback(async (mode: 'stale' | 'missing') => {
     const targetClients = clients.filter((client) =>
       mode === 'stale' ? getMemoryStatus(client) === 'stale' : getMemoryStatus(client) === 'missing',
     )
     if (targetClients.length === 0) return
+    if (batchModesInFlightRef.current.has(mode)) return
 
+    batchModesInFlightRef.current.add(mode)
+    await Promise.resolve()
     if (mode === 'stale') setIsRefreshingStale(true)
     else setIsGeneratingMissing(true)
-
     try {
       const result = await api.post<ClientMemoryBatchRebuildResponse>(
         '/clients/memory/rebuild-batch',
@@ -279,7 +303,7 @@ export function ClientMemorySettings() {
           { silent: true },
         )
       }
-      void fetchJobs(true)
+      void fetchJobs(false)
 
       toast.success(
         isZh
@@ -302,10 +326,11 @@ export function ClientMemorySettings() {
             : 'Failed to generate missing client memories',
       )
     } finally {
+      batchModesInFlightRef.current.delete(mode)
       if (mode === 'stale') setIsRefreshingStale(false)
       else setIsGeneratingMissing(false)
     }
-  }
+  }, [applyClientMemoryUpdate, clients, fetchJobs, isZh, toast, warmSummaries])
 
   const cancelJob = async (clientId: number) => {
     try {
@@ -340,7 +365,7 @@ export function ClientMemorySettings() {
         memory_rebuild_status: result.memory_rebuild_status,
         memory_rebuild_failed_at: result.memory_rebuild_failed_at,
       })
-      await fetchJobs(true)
+      await fetchJobs(false)
       toast.success(isZh ? '已立即执行客户记忆重建' : 'Started client memory rebuild now')
     } catch (error) {
       console.error('Failed to run client memory job now:', error)
@@ -362,7 +387,7 @@ export function ClientMemorySettings() {
         : `Automatically preparing ${counts.missing} missing client memories`,
     )
     void runBatch('missing')
-  }, [counts.missing, isGeneratingMissing, isZh, loading])
+  }, [counts.missing, isGeneratingMissing, isZh, loading, runBatch, toast])
 
   useEffect(() => {
     if (
@@ -377,7 +402,7 @@ export function ClientMemorySettings() {
 
     autoWarmSummariesTriggeredRef.current = true
     void warmSummaries(readyClientIds, { silent: true, profile: 'core' })
-  }, [isGeneratingMissing, isWarmingSummaries, loading, readyClientIds])
+  }, [isGeneratingMissing, isWarmingSummaries, loading, readyClientIds, warmSummaries])
 
   const filterOptions: Array<{ key: MemoryFilter; label: string; count: number }> = [
     { key: 'all', label: isZh ? '全部客户' : 'All', count: counts.all },
@@ -633,7 +658,10 @@ export function ClientMemorySettings() {
             </p>
           </div>
           <button
-            onClick={() => void fetchJobs()}
+            onClick={() => {
+              setLoadingJobs(true)
+              void fetchJobs(true)
+            }}
             className="inline-flex items-center gap-2"
             style={ghostButtonStyle}
           >

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -68,6 +68,12 @@ function relativeTime(dateStr: string, isZh: boolean, timeZone?: string) {
   )
 }
 
+function readRequestError(error: unknown, fallback: string) {
+  const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+  if (detail) return detail
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 export function MessagesPage() {
   const { i18n } = useTranslation()
   const { resolvedTimeZone } = useAppTimeZone()
@@ -80,82 +86,92 @@ export function MessagesPage() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [filter, setFilter] = useState<FilterKey>('all')
+  const filterRef = useRef<FilterKey>('all')
+  const loadRequestIdRef = useRef(0)
+  const markingMessageIdsRef = useRef(new Set<number>())
+  const readMessageIdsRef = useRef(new Set<number>())
 
-  const loadMessages = async () => {
-    try {
-      setLoading(true)
-      setError('')
-      const result = await api.get<SystemMessageListResponse>('/messages')
-      const items = Array.isArray(result?.items) ? result.items : []
-      setMessages(items)
-      setUnreadCount(
-        Number.isFinite(result?.unread_count)
-          ? result.unread_count
-          : items.filter((message) => !message.is_read).length,
-      )
-      window.dispatchEvent(new Event('messages:updated'))
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load messages')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const loadMessages = useCallback(() => {
+    const requestId = ++loadRequestIdRef.current
+    return api.get<SystemMessageListResponse>('/messages')
+      .then((result) => {
+        if (requestId !== loadRequestIdRef.current) return
+        const receivedItems = Array.isArray(result?.items) ? result.items : []
+        const locallyReadCount = receivedItems.filter(
+          (message) => readMessageIdsRef.current.has(message.id) && !message.is_read,
+        ).length
+        const items = receivedItems.map((message) =>
+          readMessageIdsRef.current.has(message.id)
+            ? { ...message, is_read: true }
+            : message,
+        )
+        const visibleItems = filterRef.current === 'unread'
+          ? items.filter((message) => !message.is_read)
+          : items
+        setMessages(items)
+        setUnreadCount(
+          Number.isFinite(result?.unread_count)
+            ? Math.max(0, result.unread_count - locallyReadCount)
+            : items.filter((message) => !message.is_read).length,
+        )
+        setActiveId((current) => visibleItems.some((message) => message.id === current)
+          ? current
+          : visibleItems[0]?.id ?? null)
+        setError('')
+        window.dispatchEvent(new Event('messages:updated'))
+      })
+      .catch((error: unknown) => {
+        if (requestId === loadRequestIdRef.current) {
+          setError(readRequestError(error, 'Failed to load messages'))
+        }
+      })
+      .finally(() => {
+        if (requestId === loadRequestIdRef.current) setLoading(false)
+      })
+  }, [setActiveId, setError, setLoading, setMessages, setUnreadCount])
 
   useEffect(() => {
     void loadMessages()
-  }, [])
+  }, [loadMessages])
 
   const filteredMessages = useMemo(() => {
     if (filter === 'unread') return messages.filter((message) => !message.is_read)
     return messages
   }, [messages, filter])
 
-  // Keep a selection in sync with the current filter. When the active message
-  // falls off (e.g. user switches to "unread" but the selected one is read),
-  // jump to the first item in the new view.
-  useEffect(() => {
-    if (!filteredMessages.length) {
-      setActiveId(null)
-      return
-    }
-    if (activeId == null || !filteredMessages.some((m) => m.id === activeId)) {
-      setActiveId(filteredMessages[0].id)
-    }
-  }, [filteredMessages, activeId])
-
-  // Opening a message implies reading it. The earlier flow required a
-  // second click on "标记已读" in the detail pane — a chore. This effect
-  // covers both manual clicks and the auto-select-first behavior above.
-  useEffect(() => {
-    if (activeId == null) return
-    const active = messages.find((m) => m.id === activeId)
-    if (active && !active.is_read) void markRead(activeId)
-  }, [activeId, messages])
-
-  const markRead = async (messageId: number) => {
-    try {
-      await api.post(`/messages/${messageId}/read`)
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === messageId
-            ? { ...message, is_read: true, read_at: new Date().toISOString() }
-            : message,
-        ),
-      )
-      setUnreadCount((current) => Math.max(0, current - 1))
-      window.dispatchEvent(new Event('messages:updated'))
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to mark message as read')
-    }
-  }
+  const markRead = useCallback((messageId: number) => {
+    if (markingMessageIdsRef.current.has(messageId)) return Promise.resolve()
+    markingMessageIdsRef.current.add(messageId)
+    return api.post(`/messages/${messageId}/read`)
+      .then(() => {
+        readMessageIdsRef.current.add(messageId)
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === messageId
+              ? { ...message, is_read: true, read_at: new Date().toISOString() }
+              : message,
+          ),
+        )
+        setUnreadCount((current) => Math.max(0, current - 1))
+        setError('')
+        window.dispatchEvent(new Event('messages:updated'))
+      })
+      .catch((error: unknown) => {
+        setError(readRequestError(error, 'Failed to mark message as read'))
+      })
+      .finally(() => {
+        markingMessageIdsRef.current.delete(messageId)
+      })
+  }, [setError, setMessages, setUnreadCount])
 
   const markAllRead = async () => {
     try {
       setMarkingAll(true)
       await api.post('/messages/read-all')
+      messages.forEach((message) => readMessageIdsRef.current.add(message.id))
       await loadMessages()
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to mark all messages as read')
+    } catch (error: unknown) {
+      setError(readRequestError(error, 'Failed to mark all messages as read'))
     } finally {
       setMarkingAll(false)
     }
@@ -166,7 +182,25 @@ export function MessagesPage() {
     [messages, activeId],
   )
 
+  // Keep the current detail open after it becomes read. In the unread tab,
+  // immediately selecting the next row would cascade through and mark every
+  // unread message without an explicit user action.
+  useEffect(() => {
+    if (activeMessage && !activeMessage.is_read) void markRead(activeMessage.id)
+  }, [activeMessage, markRead])
+
   const totalCount = messages.length
+
+  const handleFilterChange = (nextFilter: FilterKey) => {
+    const visibleItems = nextFilter === 'unread'
+      ? messages.filter((message) => !message.is_read)
+      : messages
+    filterRef.current = nextFilter
+    setFilter(nextFilter)
+    setActiveId((current) => visibleItems.some((message) => message.id === current)
+      ? current
+      : visibleItems[0]?.id ?? null)
+  }
 
   return (
     <>
@@ -215,7 +249,10 @@ export function MessagesPage() {
                 </p>
               </div>
               <button
-                onClick={() => void loadMessages()}
+                onClick={() => {
+                  setLoading(true)
+                  void loadMessages()
+                }}
                 aria-label={isZh ? '刷新' : 'Refresh'}
                 title={isZh ? '刷新' : 'Refresh'}
                 className="p-1.5"
@@ -241,7 +278,7 @@ export function MessagesPage() {
               return (
                 <button
                   key={tab.key}
-                  onClick={() => setFilter(tab.key)}
+                  onClick={() => handleFilterChange(tab.key)}
                   className="inline-flex items-center gap-1.5 transition-colors"
                   style={{
                     padding: '5px 10px',
@@ -594,7 +631,10 @@ export function MessagesPage() {
               <p style={{ margin: '0 0 16px', fontSize: 14 }}>{error}</p>
               <button
                 type="button"
-                onClick={() => void loadMessages()}
+                onClick={() => {
+                  setLoading(true)
+                  void loadMessages()
+                }}
                 className="inline-flex items-center gap-1.5"
                 style={{
                   padding: '8px 14px',

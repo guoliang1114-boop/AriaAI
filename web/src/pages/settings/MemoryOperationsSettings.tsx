@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -276,6 +276,7 @@ export function MemoryOperationsSettings() {
   const isZh = i18n.language.startsWith('zh')
   const navigate = useNavigate()
   const toast = useToast()
+  const loadRequestIdRef = useRef(0)
 
   const [loading, setLoading] = useState(true)
   const [listLoading, setListLoading] = useState(false)
@@ -316,17 +317,10 @@ export function MemoryOperationsSettings() {
     toRetry: FailureItem[]
   } | null>(null)
 
-  const loadJobs = async (silent = false) => {
-    const isInitialLoad = !silent && loading && operationsSummary === null
-    try {
-      if (!silent) {
-        if (isInitialLoad) {
-          setLoading(true)
-        } else {
-          setListLoading(true)
-        }
-      }
-      const summaryData = await api.get<MemoryOperationsSummaryResponse>('/memory/operations/summary', {
+  const loadJobs = useCallback((reportError = false) => {
+    const requestId = ++loadRequestIdRef.current
+    return api
+      .get<MemoryOperationsSummaryResponse>('/memory/operations/summary', {
         params: {
           search: searchQuery.trim(),
           scope: scopeFilter,
@@ -342,40 +336,42 @@ export function MemoryOperationsSettings() {
           failure_offset: (failurePage - 1) * failurePageSize,
         },
       })
-      setOperationsSummary(summaryData)
-      setJobs((summaryData.pages?.jobs?.items ?? []) as unknown as CombinedJob[])
-      setProjectBudget(summaryData.budget.project ?? null)
-      setClientBudget(summaryData.budget.client ?? null)
-      setRecentFailures(((summaryData.pages?.failures?.items ?? []) as FailureItem[]))
-      setRecentSuccesses(((summaryData.pages?.successes?.items ?? []) as SuccessItem[]))
-      setJobsTotal(summaryData.pages?.jobs?.total ?? 0)
-      setFailureTotal(summaryData.pages?.failures?.total ?? 0)
-      setSuccessTotal(summaryData.pages?.successes?.total ?? 0)
-    } catch (error) {
-      console.error('Failed to load memory operations:', error)
-      toast.error(isZh ? '加载记忆任务中心失败' : 'Failed to load memory operations')
-    } finally {
-      if (!silent) {
-        if (isInitialLoad) {
-          setLoading(false)
-        } else {
-          setListLoading(false)
+      .then((summaryData) => {
+        if (requestId !== loadRequestIdRef.current) return
+        setOperationsSummary(summaryData)
+        setJobs((summaryData.pages?.jobs?.items ?? []) as unknown as CombinedJob[])
+        setProjectBudget(summaryData.budget.project ?? null)
+        setClientBudget(summaryData.budget.client ?? null)
+        setRecentFailures((summaryData.pages?.failures?.items ?? []) as FailureItem[])
+        setRecentSuccesses((summaryData.pages?.successes?.items ?? []) as SuccessItem[])
+        setJobsTotal(summaryData.pages?.jobs?.total ?? 0)
+        setFailureTotal(summaryData.pages?.failures?.total ?? 0)
+        setSuccessTotal(summaryData.pages?.successes?.total ?? 0)
+        const lastJobsPage = Math.max(1, Math.ceil((summaryData.pages?.jobs?.total ?? 0) / jobsPageSize))
+        const lastSuccessPage = Math.max(1, Math.ceil((summaryData.pages?.successes?.total ?? 0) / successPageSize))
+        const lastFailurePage = Math.max(1, Math.ceil((summaryData.pages?.failures?.total ?? 0) / failurePageSize))
+        if (jobsPage > lastJobsPage) setJobsPage(lastJobsPage)
+        if (successPage > lastSuccessPage) setSuccessPage(lastSuccessPage)
+        if (failurePage > lastFailurePage) setFailurePage(lastFailurePage)
+      })
+      .catch((error: unknown) => {
+        if (requestId !== loadRequestIdRef.current) return
+        console.error('Failed to load memory operations:', error)
+        if (reportError) {
+          toast.error(isZh ? '加载记忆任务中心失败' : 'Failed to load memory operations')
         }
-      }
-    }
-  }
-
-  useEffect(() => {
-    void loadJobs()
-    const timer = window.setInterval(() => {
-      void loadJobs(true)
-    }, 10000)
-    return () => window.clearInterval(timer)
+      })
+      .finally(() => {
+        if (requestId !== loadRequestIdRef.current) return
+        setLoading(false)
+        setListLoading(false)
+      })
   }, [
     attentionFilter,
     failureCategoryFilter,
     failurePage,
     failurePageSize,
+    isZh,
     jobTypeFilter,
     jobsPage,
     jobsPageSize,
@@ -384,7 +380,27 @@ export function MemoryOperationsSettings() {
     searchQuery,
     successPage,
     successPageSize,
+    toast,
   ])
+
+  const resetPages = useCallback(() => {
+    setJobsPage(1)
+    setSuccessPage(1)
+    setFailurePage(1)
+  }, [])
+
+  const beginFilteredUpdate = useCallback(() => {
+    setListLoading(true)
+    resetPages()
+  }, [resetPages])
+
+  useEffect(() => {
+    void loadJobs(true)
+    const timer = window.setInterval(() => {
+      void loadJobs(false)
+    }, 10000)
+    return () => window.clearInterval(timer)
+  }, [loadJobs])
 
   const grouped = useMemo(
     () => ({
@@ -455,6 +471,7 @@ export function MemoryOperationsSettings() {
           : `${manualAttentionCount} database, data, or unknown failures should be inspected before retrying.`,
         action: isZh ? '查看人工处理项' : 'Review manual items',
         onClick: () => {
+          resetPages()
           setShowFailuresOnly(true)
           setAttentionFilter('manual')
         },
@@ -473,6 +490,7 @@ export function MemoryOperationsSettings() {
           : `${mostCommonFailureCategory.count} recent failures are in this category.`,
         action: isZh ? '筛选该类型' : 'Filter this type',
         onClick: () => {
+          resetPages()
           setShowFailuresOnly(true)
           setFailureCategoryFilter(mostCommonFailureCategory.category)
         },
@@ -489,6 +507,7 @@ export function MemoryOperationsSettings() {
           : `${retryingJobsCount} jobs have already retried. Check rate limit, timeout, or model issues.`,
         action: isZh ? '查看重试任务' : 'View retrying jobs',
         onClick: () => {
+          resetPages()
           setShowFailuresOnly(false)
           setRetryFilter('retrying')
         },
@@ -505,6 +524,7 @@ export function MemoryOperationsSettings() {
           : `${projectBudget?.remaining ?? 0} project warm budget remains today.`,
         action: isZh ? '查看摘要预热任务' : 'View warm jobs',
         onClick: () => {
+          resetPages()
           setShowFailuresOnly(false)
           setScopeFilter('project')
           setJobTypeFilter('summary_warm')
@@ -522,6 +542,7 @@ export function MemoryOperationsSettings() {
           : `${clientBudget?.remaining ?? 0} client warm budget remains today.`,
         action: isZh ? '查看客户预热任务' : 'View client warm jobs',
         onClick: () => {
+          resetPages()
           setShowFailuresOnly(false)
           setScopeFilter('client')
           setJobTypeFilter('summary_warm')
@@ -540,6 +561,7 @@ export function MemoryOperationsSettings() {
     projectBudget,
     projectBudgetLow,
     retryingJobsCount,
+    resetPages,
   ])
 
   const filteredJobs = useMemo(() => {
@@ -602,24 +624,6 @@ export function MemoryOperationsSettings() {
   const currentFailurePage = Math.min(failurePage, failurePageCount)
   const paginatedFailures = visibleFailures
 
-  useEffect(() => {
-    setJobsPage(1)
-    setSuccessPage(1)
-    setFailurePage(1)
-  }, [attentionFilter, failureCategoryFilter, jobTypeFilter, retryFilter, scopeFilter, searchQuery, showFailuresOnly])
-
-  useEffect(() => {
-    setJobsPage((current) => Math.min(current, jobsPageCount))
-  }, [jobsPageCount])
-
-  useEffect(() => {
-    setSuccessPage((current) => Math.min(current, successPageCount))
-  }, [successPageCount])
-
-  useEffect(() => {
-    setFailurePage((current) => Math.min(current, failurePageCount))
-  }, [failurePageCount])
-
   const selectedFailure = useMemo(
     () => (selectedFailureKey ? recentFailures.find((failure) => getFailureKey(failure) === selectedFailureKey) ?? null : null),
     [recentFailures, selectedFailureKey],
@@ -636,7 +640,7 @@ export function MemoryOperationsSettings() {
         { timeout: 120000 },
       )
       toast.success(isZh ? '任务已开始执行' : 'Job started')
-      await loadJobs(true)
+      await loadJobs(false)
     } catch (error) {
       console.error('Failed to run memory job now:', error)
       toast.error(isZh ? '立即执行任务失败' : 'Failed to run job now')
@@ -656,7 +660,7 @@ export function MemoryOperationsSettings() {
         { timeout: 120000 },
       )
       toast.success(isZh ? '已重新加入执行队列' : 'Queued retry successfully')
-      await loadJobs(true)
+      await loadJobs(false)
     } catch (error) {
       console.error('Failed to retry memory job:', error)
       toast.error(isZh ? '重试任务失败' : 'Failed to retry job')
@@ -726,7 +730,7 @@ export function MemoryOperationsSettings() {
     if (failCount > 0) {
       toast.error(isZh ? `${failCount} 条重试失败` : `${failCount} retries failed`)
     }
-    await loadJobs(true)
+    await loadJobs(false)
   }
 
   const dismissSelectedFailures = () => {
@@ -778,7 +782,8 @@ export function MemoryOperationsSettings() {
       return
     }
     if (category === 'scheduler' || category === 'budget') {
-      void loadJobs()
+      setListLoading(true)
+      void loadJobs(true)
       return
     }
     if (category === 'rate_limit' || category === 'timeout') {
@@ -1251,7 +1256,10 @@ export function MemoryOperationsSettings() {
           </p>
         </div>
         <button
-          onClick={() => void loadJobs()}
+          onClick={() => {
+            setListLoading(true)
+            void loadJobs(true)
+          }}
           className="inline-flex flex-shrink-0 items-center gap-2"
           style={{
             padding: '8px 14px',
@@ -1383,6 +1391,7 @@ export function MemoryOperationsSettings() {
             <button
               type="button"
               onClick={() => {
+                resetPages()
                 setShowFailuresOnly(true)
                 setFailureCategoryFilter('all')
                 setAttentionFilter('all')
@@ -1474,7 +1483,10 @@ export function MemoryOperationsSettings() {
             />
             <input
               value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
+              onChange={(event) => {
+                beginFilteredUpdate()
+                setSearchQuery(event.target.value)
+              }}
               placeholder={isZh ? '搜索项目、客户、触发或摘要' : 'Search projects, clients, trigger, summary'}
               className="w-full outline-none"
               style={{
@@ -1491,7 +1503,10 @@ export function MemoryOperationsSettings() {
           {[
             {
               value: scopeFilter,
-              onChange: (v: string) => setScopeFilter(v as JobScopeFilter),
+              onChange: (v: string) => {
+                beginFilteredUpdate()
+                setScopeFilter(v as JobScopeFilter)
+              },
               options: [
                 { value: 'all', label: isZh ? '全部范围' : 'All scopes' },
                 { value: 'project', label: isZh ? '仅项目' : 'Projects' },
@@ -1500,7 +1515,10 @@ export function MemoryOperationsSettings() {
             },
             {
               value: jobTypeFilter,
-              onChange: (v: string) => setJobTypeFilter(v as JobTypeFilter),
+              onChange: (v: string) => {
+                beginFilteredUpdate()
+                setJobTypeFilter(v as JobTypeFilter)
+              },
               options: [
                 { value: 'all', label: isZh ? '全部任务' : 'All jobs' },
                 { value: 'rebuild', label: isZh ? '记忆重建' : 'Rebuild' },
@@ -1509,7 +1527,10 @@ export function MemoryOperationsSettings() {
             },
             {
               value: retryFilter,
-              onChange: (v: string) => setRetryFilter(v as RetryFilter),
+              onChange: (v: string) => {
+                beginFilteredUpdate()
+                setRetryFilter(v as RetryFilter)
+              },
               options: [
                 { value: 'all', label: isZh ? '全部重试' : 'All retry' },
                 { value: 'retrying', label: isZh ? '仅重试中' : 'Retrying' },
@@ -1518,7 +1539,10 @@ export function MemoryOperationsSettings() {
             },
             {
               value: failureCategoryFilter,
-              onChange: (v: string) => setFailureCategoryFilter(v as FailureCategory),
+              onChange: (v: string) => {
+                beginFilteredUpdate()
+                setFailureCategoryFilter(v as FailureCategory)
+              },
               options: (
                 ['all', 'budget', 'rate_limit', 'timeout', 'database', 'data', 'scheduler', 'llm', 'unknown'] as FailureCategory[]
               ).map((category) => ({
@@ -1528,7 +1552,10 @@ export function MemoryOperationsSettings() {
             },
             {
               value: attentionFilter,
-              onChange: (v: string) => setAttentionFilter(v as AttentionFilter),
+              onChange: (v: string) => {
+                beginFilteredUpdate()
+                setAttentionFilter(v as AttentionFilter)
+              },
               options: [
                 { value: 'all', label: isZh ? '全部处理' : 'All handling' },
                 { value: 'manual', label: isZh ? '仅人工' : 'Manual' },
@@ -1557,7 +1584,10 @@ export function MemoryOperationsSettings() {
           ))}
 
           <button
-            onClick={() => setShowFailuresOnly((current) => !current)}
+            onClick={() => {
+              resetPages()
+              setShowFailuresOnly((current) => !current)
+            }}
             className="inline-flex items-center justify-center gap-2"
             style={{
               padding: '8px 10px',
@@ -1616,8 +1646,12 @@ export function MemoryOperationsSettings() {
                   page={currentJobsPage}
                   pageSize={jobsPageSize}
                   totalItems={jobsTotal}
-                  onPageChange={setJobsPage}
+                  onPageChange={(nextPage) => {
+                    setListLoading(true)
+                    setJobsPage(nextPage)
+                  }}
                   onPageSizeChange={(nextPageSize) => {
+                    setListLoading(true)
                     setJobsPageSize(nextPageSize)
                     setJobsPage(1)
                   }}
@@ -1649,8 +1683,12 @@ export function MemoryOperationsSettings() {
                 page={currentSuccessPage}
                 pageSize={successPageSize}
                 totalItems={successTotal}
-                onPageChange={setSuccessPage}
+                onPageChange={(nextPage) => {
+                  setListLoading(true)
+                  setSuccessPage(nextPage)
+                }}
                 onPageSizeChange={(nextPageSize) => {
+                  setListLoading(true)
                   setSuccessPageSize(nextPageSize)
                   setSuccessPage(1)
                 }}
@@ -1910,8 +1948,12 @@ export function MemoryOperationsSettings() {
                 page={currentFailurePage}
                 pageSize={failurePageSize}
                 totalItems={failureTotal}
-                onPageChange={setFailurePage}
+                onPageChange={(nextPage) => {
+                  setListLoading(true)
+                  setFailurePage(nextPage)
+                }}
                 onPageSizeChange={(nextPageSize) => {
+                  setListLoading(true)
                   setFailurePageSize(nextPageSize)
                   setFailurePage(1)
                 }}

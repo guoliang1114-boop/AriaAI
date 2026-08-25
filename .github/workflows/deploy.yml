@@ -51,7 +51,7 @@ jobs:
       - name: Frontend Lint
         run: |
           cd web
-          npm run lint -- --max-warnings=107
+          npm run lint -- --max-warnings=84
 
       - name: Prepare Backend
         run: |
