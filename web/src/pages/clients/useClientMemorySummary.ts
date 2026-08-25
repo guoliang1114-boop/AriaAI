@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import type { ClientMemorySummaryResponse, ClientMemorySummaryType } from '../../types/api'
 
@@ -12,6 +12,12 @@ interface UseClientMemorySummaryOptions {
 }
 
 const clientMemorySummaryCache = new Map<string, string>()
+
+interface ClientMemorySummaryResult {
+  cacheKey: string
+  content: string
+  error: string
+}
 
 function normalizeLanguage(language: string) {
   const normalized = language.trim().toLowerCase()
@@ -42,49 +48,52 @@ export function useClientMemorySummary({
   enabled = true,
   errorMessage,
 }: UseClientMemorySummaryOptions) {
-  const [content, setContent] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
   const cacheKey = buildCacheKey({ clientId, summaryType, language, memoryVersion })
+  const [result, setResult] = useState<ClientMemorySummaryResult | null>(null)
+  const [loadingCacheKey, setLoadingCacheKey] = useState<string | null>(null)
+  const requestIdRef = useRef(0)
 
-  const loadCachedSummary = async () => {
-    try {
-      const response = await api.get<ClientMemorySummaryResponse>(
+  const loadCachedSummary = useCallback(() => {
+    const requestId = ++requestIdRef.current
+    return api.get<ClientMemorySummaryResponse>(
         `/clients/${clientId}/memory/summaries/${summaryType}`,
         { params: { language } },
       )
-      const nextContent = response.content?.trim() || ''
-      if (!nextContent) return ''
-      clientMemorySummaryCache.set(cacheKey, nextContent)
-      setContent(nextContent)
-      setError('')
-      setLoading(false)
-      return nextContent
-    } catch (nextError: any) {
-      if (nextError?.response?.status !== 404) {
-        console.error('Failed to load cached client memory summary:', nextError)
-      }
-      return ''
-    }
-  }
+      .then((response) => {
+        if (requestId !== requestIdRef.current) return ''
+        const content = response.content?.trim() || ''
+        if (content) clientMemorySummaryCache.set(cacheKey, content)
+        setResult({ cacheKey, content, error: '' })
+        return content
+      })
+      .catch((nextError: unknown) => {
+        if (requestId !== requestIdRef.current) return ''
+        const status = (nextError as { response?: { status?: number } })?.response?.status
+        if (status !== 404) {
+          console.error('Failed to load cached client memory summary:', nextError)
+        }
+        setResult({ cacheKey, content: '', error: '' })
+        return ''
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setLoadingCacheKey(null)
+      })
+  }, [cacheKey, clientId, language, summaryType])
 
-  const refresh = async (forceRefresh = false) => {
+  const refresh = useCallback((forceRefresh = false) => {
+    const requestId = ++requestIdRef.current
     if (!forceRefresh) {
       const cached = clientMemorySummaryCache.get(cacheKey)
       if (cached) {
-        setContent(cached)
-        setError('')
-        setLoading(false)
-        return cached
+        setLoadingCacheKey(null)
+        setResult({ cacheKey, content: cached, error: '' })
+        return Promise.resolve(cached)
       }
     }
 
-    setLoading(true)
-    setError('')
-    setContent('')
-
-    try {
-      const response = await api.post<ClientMemorySummaryResponse>(
+    setLoadingCacheKey(cacheKey)
+    setResult({ cacheKey, content: '', error: '' })
+    return api.post<ClientMemorySummaryResponse>(
         `/clients/${clientId}/memory/summarize`,
         {
           language,
@@ -93,34 +102,38 @@ export function useClientMemorySummary({
         },
         { timeout: 120000 },
       )
-      clientMemorySummaryCache.set(cacheKey, response.content)
-      setContent(response.content)
-      return response.content
-    } catch (nextError) {
-      console.error('Failed to load client memory summary:', nextError)
-      setError(nextError instanceof Error && nextError.message ? nextError.message : errorMessage)
-    } finally {
-      setLoading(false)
-    }
-  }
+      .then((response) => {
+        if (requestId !== requestIdRef.current) return response.content
+        clientMemorySummaryCache.set(cacheKey, response.content)
+        setResult({ cacheKey, content: response.content, error: '' })
+        return response.content
+      })
+      .catch((nextError: unknown) => {
+        if (requestId !== requestIdRef.current) return ''
+        console.error('Failed to load client memory summary:', nextError)
+        const error = nextError instanceof Error && nextError.message ? nextError.message : errorMessage
+        setResult({ cacheKey, content: '', error })
+        return ''
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setLoadingCacheKey(null)
+      })
+  }, [cacheKey, clientId, errorMessage, language, summaryType])
 
   useEffect(() => {
     if (!enabled) return
     const cached = clientMemorySummaryCache.get(cacheKey)
-    if (cached) {
-      setContent(cached)
-      setError('')
-      setLoading(false)
-      return
-    }
+    if (cached) return
     if (!memoryVersion) return
     void loadCachedSummary()
-  }, [cacheKey, clientId, enabled, language, memoryVersion, summaryType])
+  }, [cacheKey, enabled, loadCachedSummary, memoryVersion])
+
+  const current = result?.cacheKey === cacheKey ? result : null
 
   return {
-    content,
-    error,
-    loading,
+    content: clientMemorySummaryCache.get(cacheKey) ?? current?.content ?? '',
+    error: current?.error ?? '',
+    loading: loadingCacheKey === cacheKey,
     refresh,
   }
 }

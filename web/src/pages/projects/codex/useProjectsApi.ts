@@ -32,6 +32,12 @@ interface DetailState {
   refetch: () => Promise<void>
 }
 
+interface ProjectDetailResult {
+  projectId: number
+  data: ProjectDetailType | null
+  error: string | null
+}
+
 function readError(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const message = (err as { message?: unknown }).message
@@ -45,7 +51,6 @@ export function useProjectsList(): ListState {
 
   useEffect(() => {
     let cancelled = false
-    setState({ data: null, loading: true, error: null })
     api
       .get<Project[]>('/projects')
       .then((data) => {
@@ -65,64 +70,57 @@ export function useProjectsList(): ListState {
 }
 
 export function useProjectDetail(projectId: number | null): DetailState {
-  const [data, setData] = useState<ProjectDetailType | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // `loading` is the "first paint" gate that the detail wrapper uses
-  // to decide whether to show the full skeleton. Once we have any
-  // data on hand, subsequent fetches go through the `refreshing`
-  // flag instead so editing / toggling / adding doesn't blank the
-  // whole tab to a skeleton mid-flight.
-  const hasDataRef = useRef(false)
+  const validProjectId = projectId != null && !Number.isNaN(projectId)
+  const [result, setResult] = useState<ProjectDetailResult | null>(null)
+  const [refreshingProjectId, setRefreshingProjectId] = useState<number | null>(null)
+  const requestIdRef = useRef(0)
+  const loadedProjectIdRef = useRef<number | null>(null)
 
-  const fetchOnce = useCallback(async () => {
-    if (projectId == null || Number.isNaN(projectId)) {
-      setData(null)
-      setLoading(false)
-      setError('项目 id 无效')
-      return
-    }
-    if (hasDataRef.current) {
-      setRefreshing(true)
-    } else {
-      setLoading(true)
-    }
-    setError(null)
-    try {
-      const fresh = await api.get<ProjectDetailType>(`/projects/${projectId}/detail`)
-      setData(fresh)
-      hasDataRef.current = true
-      setError(null)
-    } catch (err) {
-      setError(readError(err))
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [projectId])
+  const fetchOnce = useCallback(() => {
+    const requestId = ++requestIdRef.current
+    if (!validProjectId) return Promise.resolve()
+    return api
+      .get<ProjectDetailType>(`/projects/${projectId}/detail`)
+      .then((fresh) => {
+        if (requestId !== requestIdRef.current) return
+        loadedProjectIdRef.current = projectId
+        setResult({ projectId, data: fresh, error: null })
+      })
+      .catch((err: unknown) => {
+        if (requestId !== requestIdRef.current) return
+        setResult((current) => ({
+          projectId,
+          data: current?.projectId === projectId ? current.data : null,
+          error: readError(err),
+        }))
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setRefreshingProjectId(null)
+      })
+  }, [projectId, validProjectId])
 
   useEffect(() => {
-    // Project id change means we navigated to a different project —
-    // reset the "have data" gate so the new project gets a proper
-    // first-paint skeleton again instead of inheriting the previous
-    // project's content.
-    hasDataRef.current = false
-    let cancelled = false
-    void (async () => {
-      if (cancelled) return
-      await fetchOnce()
-    })()
-    return () => {
-      cancelled = true
-    }
+    void fetchOnce()
   }, [fetchOnce])
 
   const refetch = useCallback(async () => {
+    if (validProjectId && loadedProjectIdRef.current === projectId) {
+      setRefreshingProjectId(projectId)
+    }
     await fetchOnce()
-  }, [fetchOnce])
+  }, [fetchOnce, projectId, validProjectId])
 
-  return { data, loading, refreshing, error, refetch }
+  if (!validProjectId) {
+    return { data: null, loading: false, refreshing: false, error: '项目 id 无效', refetch }
+  }
+  const current = result?.projectId === projectId ? result : null
+  return {
+    data: current?.data ?? null,
+    loading: current == null,
+    refreshing: refreshingProjectId === projectId,
+    error: current?.error ?? null,
+    refetch,
+  }
 }
 
 /** Friendly status label for top-bar chip. */
@@ -209,6 +207,14 @@ interface ClientListItem {
   name: string
 }
 
+interface ClientStakeholdersResult {
+  clientKey: string
+  matchedClientId: number | null
+  matchedClientName: string | null
+  stakeholders: ClientStakeholder[]
+  error: string | null
+}
+
 const normalizeClientName = (v: string) => v.trim().toLowerCase()
 
 /** Conversations for a project — used by the project Chat tab. The
@@ -222,48 +228,66 @@ interface ConversationsState {
   removeLocal: (conversationId: number) => void
 }
 
-export function useProjectConversations(projectId: number | null): ConversationsState {
-  const [data, setData] = useState<Conversation[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const hasLoadedRef = useRef(false)
+interface ProjectConversationsResult {
+  projectId: number
+  data: Conversation[]
+  error: string | null
+}
 
-  const fetchOnce = useCallback(async () => {
-    if (projectId == null || Number.isNaN(projectId)) {
-      setData([])
-      setLoading(false)
-      hasLoadedRef.current = true
-      return
-    }
-    if (!hasLoadedRef.current) setLoading(true)
-    setError(null)
-    try {
-      const rows = await api.get<Conversation[]>(
-        `/chat/conversations?project_id=${projectId}`,
-      )
-      setData(rows)
-      hasLoadedRef.current = true
-    } catch (err) {
-      setError(readError(err))
-    } finally {
-      setLoading(false)
-    }
+export function useProjectConversations(projectId: number | null): ConversationsState {
+  const [result, setResult] = useState<ProjectConversationsResult | null>(null)
+  const [loadingProjectId, setLoadingProjectId] = useState<number | null>(null)
+  const requestIdRef = useRef(0)
+
+  const fetchOnce = useCallback(() => {
+    const requestId = ++requestIdRef.current
+    if (projectId == null || Number.isNaN(projectId)) return Promise.resolve()
+    return api
+      .get<Conversation[]>(`/chat/conversations?project_id=${projectId}`)
+      .then((data) => {
+        if (requestId === requestIdRef.current) {
+          setResult({ projectId, data, error: null })
+        }
+      })
+      .catch((err: unknown) => {
+        if (requestId !== requestIdRef.current) return
+        setResult((current) => ({
+          projectId,
+          data: current?.projectId === projectId ? current.data : [],
+          error: readError(err),
+        }))
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setLoadingProjectId(null)
+      })
   }, [projectId])
 
   useEffect(() => {
-    hasLoadedRef.current = false
     void fetchOnce()
   }, [fetchOnce])
 
   const refetch = useCallback(async () => {
+    if (projectId != null && !Number.isNaN(projectId)) setLoadingProjectId(projectId)
     await fetchOnce()
-  }, [fetchOnce])
+  }, [fetchOnce, projectId])
 
   const removeLocal = useCallback((conversationId: number) => {
-    setData((current) => current.filter((item) => item.id !== conversationId))
-  }, [])
+    setResult((current) => current?.projectId === projectId
+      ? { ...current, data: current.data.filter((item) => item.id !== conversationId) }
+      : current)
+  }, [projectId])
 
-  return { data, loading, error, refetch, removeLocal }
+  if (projectId == null || Number.isNaN(projectId)) {
+    return { data: [], loading: false, error: null, refetch, removeLocal }
+  }
+  const current = result?.projectId === projectId ? result : null
+  return {
+    data: current?.data ?? [],
+    loading: current == null || loadingProjectId === projectId,
+    error: current?.error ?? null,
+    refetch,
+    removeLocal,
+  }
 }
 
 interface MessagesState {
@@ -275,42 +299,57 @@ interface MessagesState {
   refetch: () => Promise<void>
 }
 
+interface ConversationMessagesResult {
+  conversationId: number
+  data: Message[]
+  error: string | null
+}
+
 export function useConversationMessages(conversationId: number | null): MessagesState {
-  const [data, setData] = useState<Message[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Guards against a stale response from a previous conversation
-  // overwriting the current one when the user switches quickly.
-  const activeConvRef = useRef<number | null>(conversationId)
+  const [result, setResult] = useState<ConversationMessagesResult | null>(null)
+  const [loadingConversationId, setLoadingConversationId] = useState<number | null>(null)
+  const requestIdRef = useRef(0)
+
+  const fetchOnce = useCallback(() => {
+    const requestId = ++requestIdRef.current
+    if (conversationId == null) return Promise.resolve()
+    return api
+      .get<Message[]>(`/chat/conversations/${conversationId}/messages`)
+      .then((data) => {
+        if (requestId === requestIdRef.current) {
+          setResult({ conversationId, data, error: null })
+        }
+      })
+      .catch((err: unknown) => {
+        if (requestId !== requestIdRef.current) return
+        setResult((current) => ({
+          conversationId,
+          data: current?.conversationId === conversationId ? current.data : [],
+          error: readError(err),
+        }))
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setLoadingConversationId(null)
+      })
+  }, [conversationId])
 
   useEffect(() => {
-    activeConvRef.current = conversationId
-  }, [conversationId])
+    void fetchOnce()
+  }, [fetchOnce])
 
   const refetch = useCallback(async () => {
-    if (conversationId == null) {
-      setData([])
-      setLoading(false)
-      setError(null)
-      return
-    }
-    setLoading(true)
-    setError(null)
-    try {
-      const rows = await api.get<Message[]>(`/chat/conversations/${conversationId}/messages`)
-      if (activeConvRef.current === conversationId) setData(rows)
-    } catch (err) {
-      if (activeConvRef.current === conversationId) setError(readError(err))
-    } finally {
-      if (activeConvRef.current === conversationId) setLoading(false)
-    }
-  }, [conversationId])
+    if (conversationId != null) setLoadingConversationId(conversationId)
+    await fetchOnce()
+  }, [conversationId, fetchOnce])
 
-  useEffect(() => {
-    void refetch()
-  }, [refetch])
-
-  return { data, loading, error, refetch }
+  if (conversationId == null) return { data: [], loading: false, error: null, refetch }
+  const current = result?.conversationId === conversationId ? result : null
+  return {
+    data: current?.data ?? [],
+    loading: current == null || loadingConversationId === conversationId,
+    error: current?.error ?? null,
+    refetch,
+  }
 }
 
 /** Project meeting briefing — single fetch on mount + a manual
@@ -323,28 +362,36 @@ interface BriefingState {
   refetch: () => Promise<void>
 }
 
-export function useProjectBriefing(projectId: number | null): BriefingState {
-  const [data, setData] = useState<ProjectMeetingBriefing | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+interface ProjectBriefingResult {
+  projectId: number
+  data: ProjectMeetingBriefing | null
+  error: string | null
+}
 
-  const fetchOnce = useCallback(async () => {
-    if (projectId == null || Number.isNaN(projectId)) {
-      setData(null)
-      setLoading(false)
-      setError('项目 id 无效')
-      return
-    }
-    setLoading(true)
-    setError(null)
-    try {
-      const fresh = await api.get<ProjectMeetingBriefing>(`/projects/${projectId}/briefing`)
-      setData(fresh)
-    } catch (err) {
-      setError(readError(err))
-    } finally {
-      setLoading(false)
-    }
+export function useProjectBriefing(projectId: number | null): BriefingState {
+  const [result, setResult] = useState<ProjectBriefingResult | null>(null)
+  const [loadingProjectId, setLoadingProjectId] = useState<number | null>(null)
+  const requestIdRef = useRef(0)
+
+  const fetchOnce = useCallback(() => {
+    const requestId = ++requestIdRef.current
+    if (projectId == null || Number.isNaN(projectId)) return Promise.resolve()
+    return api
+      .get<ProjectMeetingBriefing>(`/projects/${projectId}/briefing`)
+      .then((data) => {
+        if (requestId === requestIdRef.current) setResult({ projectId, data, error: null })
+      })
+      .catch((err: unknown) => {
+        if (requestId !== requestIdRef.current) return
+        setResult((current) => ({
+          projectId,
+          data: current?.projectId === projectId ? current.data : null,
+          error: readError(err),
+        }))
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setLoadingProjectId(null)
+      })
   }, [projectId])
 
   useEffect(() => {
@@ -352,10 +399,20 @@ export function useProjectBriefing(projectId: number | null): BriefingState {
   }, [fetchOnce])
 
   const refetch = useCallback(async () => {
+    if (projectId != null && !Number.isNaN(projectId)) setLoadingProjectId(projectId)
     await fetchOnce()
-  }, [fetchOnce])
+  }, [fetchOnce, projectId])
 
-  return { data, loading, error, refetch }
+  if (projectId == null || Number.isNaN(projectId)) {
+    return { data: null, loading: false, error: '项目 id 无效', refetch }
+  }
+  const current = result?.projectId === projectId ? result : null
+  return {
+    data: current?.data ?? null,
+    loading: current == null || loadingProjectId === projectId,
+    error: current?.error ?? null,
+    refetch,
+  }
 }
 
 /** Lightweight clients list — used by the project list filter
@@ -375,7 +432,6 @@ export function useClientsList(): ClientsListState {
   const [loading, setLoading] = useState(true)
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
     api
       .get<ClientsListItem[]>('/clients')
       .then((rows) => {
@@ -399,64 +455,78 @@ export function useClientsList(): ClientsListState {
  * then load `/clients/:id/stakeholders`. Mirrors the legacy
  * ProjectStakeholdersTab approach. */
 export function useClientStakeholders(clientName: string | null | undefined): ClientStakeholdersState {
-  const [matchedClientId, setMatchedId] = useState<number | null>(null)
-  const [matchedClientName, setMatchedName] = useState<string | null>(null)
-  const [stakeholders, setStakeholders] = useState<ClientStakeholder[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const clientKey = normalizeClientName(clientName ?? '')
+  const [result, setResult] = useState<ClientStakeholdersResult | null>(null)
+  const [loadingClientKey, setLoadingClientKey] = useState<string | null>(null)
+  const requestIdRef = useRef(0)
 
-  const fetchOnce = useCallback(async () => {
-    const trimmed = clientName?.trim() ?? ''
-    if (!trimmed) {
-      setMatchedId(null)
-      setMatchedName(null)
-      setStakeholders([])
-      setLoading(false)
-      setError(null)
-      return
-    }
-    setLoading(true)
-    setError(null)
-    try {
-      const clients = await api.get<ClientListItem[]>('/clients')
-      const match = clients.find(
-        (item) => normalizeClientName(item.name) === normalizeClientName(trimmed),
-      )
-      if (!match) {
-        setMatchedId(null)
-        setMatchedName(null)
-        setStakeholders([])
-        setLoading(false)
-        return
-      }
-      const rows = await api.get<ClientStakeholder[]>(`/clients/${match.id}/stakeholders`)
-      setMatchedId(match.id)
-      setMatchedName(match.name)
-      setStakeholders(rows)
-    } catch (err) {
-      setMatchedId(null)
-      setMatchedName(null)
-      setStakeholders([])
-      setError(readError(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [clientName])
+  const fetchOnce = useCallback(() => {
+    const requestId = ++requestIdRef.current
+    if (!clientKey) return Promise.resolve()
+    return api
+      .get<ClientListItem[]>('/clients')
+      .then(async (clients) => {
+        if (requestId !== requestIdRef.current) {
+          return { match: null, stakeholders: [] as ClientStakeholder[] }
+        }
+        const match = clients.find((item) => normalizeClientName(item.name) === clientKey)
+        if (!match) {
+          return { match: null, stakeholders: [] as ClientStakeholder[] }
+        }
+        const stakeholders = await api.get<ClientStakeholder[]>(`/clients/${match.id}/stakeholders`)
+        return { match, stakeholders }
+      })
+      .then(({ match, stakeholders }) => {
+        if (requestId !== requestIdRef.current) return
+        setResult({
+          clientKey,
+          matchedClientId: match?.id ?? null,
+          matchedClientName: match?.name ?? null,
+          stakeholders,
+          error: null,
+        })
+      })
+      .catch((err: unknown) => {
+        if (requestId !== requestIdRef.current) return
+        setResult({
+          clientKey,
+          matchedClientId: null,
+          matchedClientName: null,
+          stakeholders: [],
+          error: readError(err),
+        })
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setLoadingClientKey(null)
+      })
+  }, [clientKey])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      if (cancelled) return
-      await fetchOnce()
-    })()
-    return () => {
-      cancelled = true
-    }
+    void fetchOnce()
   }, [fetchOnce])
 
   const refetch = useCallback(async () => {
+    if (clientKey) setLoadingClientKey(clientKey)
     await fetchOnce()
-  }, [fetchOnce])
+  }, [clientKey, fetchOnce])
 
-  return { matchedClientId, matchedClientName, stakeholders, loading, error, refetch }
+  if (!clientKey) {
+    return {
+      matchedClientId: null,
+      matchedClientName: null,
+      stakeholders: [],
+      loading: false,
+      error: null,
+      refetch,
+    }
+  }
+  const current = result?.clientKey === clientKey ? result : null
+  return {
+    matchedClientId: current?.matchedClientId ?? null,
+    matchedClientName: current?.matchedClientName ?? null,
+    stakeholders: current?.stakeholders ?? [],
+    loading: current == null || loadingClientKey === clientKey,
+    error: current?.error ?? null,
+    refetch,
+  }
 }

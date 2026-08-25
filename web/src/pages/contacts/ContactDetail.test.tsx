@@ -1,24 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import type { ClientStakeholder } from '../../types/api'
 import { ContactDetail } from './ContactDetail'
 
 const mockGet = vi.fn()
 const mockPost = vi.fn()
 const mockPut = vi.fn()
 const mockNavigate = vi.fn()
+let mockContactId = '5'
 
 vi.mock('../../api/client', () => ({
   api: {
-    get: (...args: any[]) => mockGet(...args),
-    post: (...args: any[]) => mockPost(...args),
-    put: (...args: any[]) => mockPut(...args),
+    get: (...args: unknown[]) => mockGet(...args),
+    post: (...args: unknown[]) => mockPost(...args),
+    put: (...args: unknown[]) => mockPut(...args),
   },
 }))
 
 vi.mock('react-router-dom', () => ({
-  useParams: () => ({ id: '5' }),
+  useParams: () => ({ id: mockContactId }),
   useNavigate: () => mockNavigate,
-  Link: ({ children }: any) => children,
+  Link: ({ children }: { children: ReactNode }) => children,
 }))
 
 vi.mock('react-i18next', () => ({
@@ -26,10 +29,10 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('react-helmet-async', () => ({
-  Helmet: ({ children }: any) => children,
+  Helmet: ({ children }: { children: ReactNode }) => children,
 }))
 
-function makeStakeholder(overrides: Partial<any> = {}) {
+function makeStakeholder(overrides: Partial<ClientStakeholder> = {}): ClientStakeholder {
   return {
     id: 5,
     client_id: 1,
@@ -54,7 +57,14 @@ function makeStakeholder(overrides: Partial<any> = {}) {
   }
 }
 
-function makeClient(overrides: Partial<any> = {}) {
+interface TestClient {
+  id: number
+  name: string
+  industry: string
+  project_names: string[]
+}
+
+function makeClient(overrides: Partial<TestClient> = {}): TestClient {
   return {
     id: 1,
     name: '客户A',
@@ -64,9 +74,17 @@ function makeClient(overrides: Partial<any> = {}) {
   }
 }
 
+interface TestBundle {
+  client: TestClient
+  stakeholder: ClientStakeholder
+  sibling_stakeholders: ClientStakeholder[]
+  projects: Array<{ id: number; name: string; status: string }>
+  history: Array<Record<string, unknown>>
+}
+
 // Helper for the new single-shot ``GET /contacts/{id}`` bundle that
 // replaced the old per-client stakeholder fan-out.
-function makeBundle(overrides: Partial<any> = {}) {
+function makeBundle(overrides: Partial<TestBundle> = {}): TestBundle {
   return {
     client: makeClient(),
     stakeholder: makeStakeholder(),
@@ -83,6 +101,7 @@ describe('ContactDetail', () => {
     mockPost.mockClear()
     mockPut.mockClear()
     mockNavigate.mockClear()
+    mockContactId = '5'
   })
 
   it('renders loading state initially', () => {
@@ -134,5 +153,23 @@ describe('ContactDetail', () => {
     expect(screen.getByText('项目例会')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '相关项目' }))
     expect(screen.getAllByText('P1').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('keeps the newest contact when route requests finish out of order', async () => {
+    let resolveFirst!: (value: TestBundle) => void
+    let resolveSecond!: (value: TestBundle) => void
+    const first = new Promise<TestBundle>((resolve) => { resolveFirst = resolve })
+    const second = new Promise<TestBundle>((resolve) => { resolveSecond = resolve })
+    mockGet.mockImplementation((url: string) => url === '/contacts/5' ? first : second)
+
+    const { rerender } = render(<ContactDetail />)
+    mockContactId = '6'
+    rerender(<ContactDetail />)
+
+    await act(async () => resolveSecond(makeBundle({ stakeholder: makeStakeholder({ id: 6, name: '最新联系人' }) })))
+    await screen.findByRole('heading', { name: '最新联系人' })
+    await act(async () => resolveFirst(makeBundle({ stakeholder: makeStakeholder({ id: 5, name: '过期联系人' }) })))
+    expect(screen.getByRole('heading', { name: '最新联系人' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '过期联系人' })).not.toBeInTheDocument()
   })
 })

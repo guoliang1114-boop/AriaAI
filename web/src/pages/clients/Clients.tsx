@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ArrowRight, Building2, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
@@ -134,48 +134,53 @@ export function Clients() {
   const [form, setForm] = useState({ name: "", industry: "", contact: "", notes: "" });
   const [clientPage, setClientPage] = useState(1);
   const [clientPageSize, setClientPageSize] = useState(CLIENT_PAGE_SIZE);
+  const hasLoadedRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const aiRequestIdRef = useRef(0);
 
   const [aiQuery, setAiQuery] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState<ClientSuggestion[]>([]);
   const [aiError, setAiError] = useState<string | null>(null);
 
-  const fetchClients = async () => {
-    const isInitialLoad = !hasLoaded;
-    try {
-      if (isInitialLoad) {
-        setLoading(true);
-      } else {
-        setListLoading(true);
-      }
-      setFetchError(null);
-      const data = await api.get<ClientListResponse>("/clients/list", {
+  const fetchClients = useCallback((options: { page?: number } = {}) => {
+    const page = options.page ?? clientPage;
+    const requestId = ++requestIdRef.current;
+    const isInitialLoad = !hasLoadedRef.current;
+    return api.get<ClientListResponse>("/clients/list", {
         params: {
           search: searchQuery.trim(),
           limit: clientPageSize,
-          offset: (clientPage - 1) * clientPageSize,
+          offset: (page - 1) * clientPageSize,
         },
+      })
+      .then((data) => {
+        if (requestId !== requestIdRef.current) return;
+        setClients(data.items);
+        setClientTotal(data.total);
+        setStats(data.stats);
+        setFetchError(null);
+        hasLoadedRef.current = true;
+        setHasLoaded(true);
+        const lastPage = Math.max(1, Math.ceil(data.total / clientPageSize));
+        if (page > lastPage) setClientPage(lastPage);
+      })
+      .catch((error: unknown) => {
+        if (requestId !== requestIdRef.current) return;
+        console.error("Failed to fetch clients:", error);
+        const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+        setFetchError(detail || (error instanceof Error ? error.message : "request failed"));
+      })
+      .finally(() => {
+        if (requestId !== requestIdRef.current) return;
+        if (isInitialLoad) setLoading(false);
+        else setListLoading(false);
       });
-      setClients(data.items);
-      setClientTotal(data.total);
-      setStats(data.stats);
-      setHasLoaded(true);
-    } catch (error) {
-      console.error("Failed to fetch clients:", error);
-      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setFetchError(detail || (error instanceof Error ? error.message : "request failed"));
-    } finally {
-      if (isInitialLoad) {
-        setLoading(false);
-      } else {
-        setListLoading(false);
-      }
-    }
-  };
+  }, [clientPage, clientPageSize, searchQuery]);
 
   useEffect(() => {
     void fetchClients();
-  }, [clientPage, clientPageSize, searchQuery]);
+  }, [fetchClients]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -189,7 +194,9 @@ export function Clients() {
   }, []);
 
   const closeCreateModal = () => {
+    aiRequestIdRef.current += 1;
     setShowCreateModal(false);
+    setAiLoading(false);
     setAiQuery("");
     setAiSuggestions([]);
     setAiError(null);
@@ -198,6 +205,7 @@ export function Clients() {
   const handleAiSuggest = async () => {
     const query = aiQuery.trim();
     if (!query) return;
+    const requestId = ++aiRequestIdRef.current;
 
     setAiLoading(true);
     setAiError(null);
@@ -213,31 +221,31 @@ export function Clients() {
         { query },
         { timeout: 60000 },
       );
+      if (requestId !== aiRequestIdRef.current) return;
       setAiSuggestions(results);
       if (results.length === 0) {
         setAiError(isZh ? "AI 没有返回可用建议。" : "AI returned no suggestions.");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      if (requestId !== aiRequestIdRef.current) return;
       console.error("AI suggest failed:", error);
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setAiError(
-        error?.response?.data?.detail ||
+        detail ||
           (isZh ? "AI 建议生成失败，请稍后重试。" : "AI suggestion failed. Please try again."),
       );
     } finally {
-      setAiLoading(false);
+      if (requestId === aiRequestIdRef.current) setAiLoading(false);
     }
+  };
+
+  const beginClientListUpdate = () => {
+    if (hasLoadedRef.current) setListLoading(true);
+    else setLoading(true);
   };
 
   const clientPageCount = Math.max(1, Math.ceil(clientTotal / clientPageSize));
   const currentClientPage = Math.min(clientPage, clientPageCount);
-
-  useEffect(() => {
-    setClientPage(1);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    setClientPage((current) => Math.min(current, clientPageCount));
-  }, [clientPageCount]);
 
   return (
     <>
@@ -293,7 +301,11 @@ export function Clients() {
                   <input
                     ref={searchRef}
                     value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
+                    onChange={(event) => {
+                      beginClientListUpdate();
+                      setSearchQuery(event.target.value);
+                      setClientPage(1);
+                    }}
                     placeholder={isZh ? "搜索客户" : "Search clients"}
                     className="codex-input min-w-0 flex-1 bg-transparent outline-none"
                     style={{ color: "var(--color-codex-ink)", fontSize: 13 }}
@@ -302,7 +314,11 @@ export function Clients() {
                   {searchQuery ? (
                     <button
                       type="button"
-                      onClick={() => setSearchQuery("")}
+                      onClick={() => {
+                        beginClientListUpdate();
+                        setSearchQuery("");
+                        setClientPage(1);
+                      }}
                       className="cx-no-hover inline-flex items-center"
                       style={{ color: "var(--color-codex-ink-faint)" }}
                       aria-label={isZh ? "清空搜索" : "Clear search"}
@@ -354,7 +370,10 @@ export function Clients() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => void fetchClients()}
+                  onClick={() => {
+                    beginClientListUpdate();
+                    void fetchClients();
+                  }}
                   className="inline-flex items-center gap-1.5"
                   style={{
                     padding: "6px 12px",
@@ -382,7 +401,11 @@ export function Clients() {
                     isZh={isZh}
                     hasSearch={Boolean(searchQuery.trim())}
                     onCreate={() => setShowCreateModal(true)}
-                    onClear={() => setSearchQuery("")}
+                    onClear={() => {
+                      beginClientListUpdate();
+                      setSearchQuery("");
+                      setClientPage(1);
+                    }}
                   />
                 ) : (
                   <div style={{ overflowX: "auto" }}>
@@ -418,8 +441,12 @@ export function Clients() {
                         page={currentClientPage}
                         pageSize={clientPageSize}
                         totalItems={clientTotal}
-                        onPageChange={setClientPage}
+                        onPageChange={(nextPage) => {
+                          beginClientListUpdate();
+                          setClientPage(nextPage);
+                        }}
                         onPageSizeChange={(nextPageSize) => {
+                          beginClientListUpdate();
                           setClientPageSize(nextPageSize);
                           setClientPage(1);
                         }}
@@ -499,7 +526,9 @@ export function Clients() {
               setForm({ name: "", industry: "", contact: "", notes: "" });
               closeCreateModal();
               toast.success(isZh ? "客户已创建" : "Client created");
-              await fetchClients();
+              beginClientListUpdate();
+              setClientPage(1);
+              await fetchClients({ page: 1 });
             } catch (error) {
               console.error("Failed to create client:", error);
               toast.error(isZh ? "创建失败，请稍后重试。" : "Failed to create client.");

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -86,12 +86,12 @@ export function ContactDetail() {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const contactId = Number(id)
+  const validContactId = Number.isFinite(contactId) && contactId > 0
 
   const [record, setRecord] = useState<ContactRecord | null>(null)
   const [clientContacts, setClientContacts] = useState<ClientStakeholder[]>([])
   const [projects, setProjects] = useState<ClientProjectSummary[]>([])
   const [history, setHistory] = useState<StakeholderHistoryEntry[]>([])
-  const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -101,46 +101,50 @@ export function ContactDetail() {
   const [touchpointOpen, setTouchpointOpen] = useState(false)
   const [editDraft, setEditDraft] = useState<ContactEditDraft | null>(null)
   const [touchpointDraft, setTouchpointDraft] = useState({ title: '', summary: '' })
+  const [loadedContactId, setLoadedContactId] = useState<number | null>(null)
+  const requestIdRef = useRef(0)
 
-  const loadContact = async ({ silent = false }: { silent?: boolean } = {}) => {
-    if (silent) setRefreshing(true)
-    else setLoading(true)
-    setError(null)
-
+  const loadContact = useCallback(() => {
+    const requestId = ++requestIdRef.current
+    if (!validContactId) return Promise.resolve()
     // Single round-trip via ``GET /contacts/{id}``. Previously this page
     // GET'd ``/clients`` and then walked the list calling
     // ``/clients/{id}/stakeholders`` for each one until it found the
     // target — N+1 fan-out that took ~6s on prod with ~12 clients.
-    try {
-      const bundle = await api.get<ContactDetailBundle>(`/contacts/${contactId}`)
-      setRecord({ client: bundle.client, stakeholder: bundle.stakeholder })
-      setClientContacts(
-        Array.isArray(bundle.sibling_stakeholders) ? bundle.sibling_stakeholders : [],
-      )
-      setProjects(Array.isArray(bundle.projects) ? bundle.projects : [])
-      setHistory(Array.isArray(bundle.history) ? bundle.history : [])
-      setEditDraft(buildEditDraft(bundle.stakeholder))
-    } catch (err: any) {
-      if (err?.response?.status === 404) {
+    return api.get<ContactDetailBundle>(`/contacts/${contactId}`)
+      .then((bundle) => {
+        if (requestId !== requestIdRef.current) return
+        setRecord({ client: bundle.client, stakeholder: bundle.stakeholder })
+        setClientContacts(
+          Array.isArray(bundle.sibling_stakeholders) ? bundle.sibling_stakeholders : [],
+        )
+        setProjects(Array.isArray(bundle.projects) ? bundle.projects : [])
+        setHistory(Array.isArray(bundle.history) ? bundle.history : [])
+        setEditDraft(buildEditDraft(bundle.stakeholder))
+        setError(null)
+        setLoadedContactId(contactId)
+      })
+      .catch((err: unknown) => {
+        if (requestId !== requestIdRef.current) return
         setRecord(null)
-        setError(isZh ? '没有找到这个联系人' : 'Contact not found')
-      } else {
-        setError(isZh ? '联系人详情加载失败' : 'Failed to load contact detail')
-      }
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }
+        setClientContacts([])
+        setProjects([])
+        setHistory([])
+        setEditDraft(null)
+        const status = (err as { response?: { status?: number } })?.response?.status
+        setError(status === 404
+          ? (isZh ? '没有找到这个联系人' : 'Contact not found')
+          : (isZh ? '联系人详情加载失败' : 'Failed to load contact detail'))
+        setLoadedContactId(contactId)
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setRefreshing(false)
+      })
+  }, [contactId, isZh, validContactId])
 
   useEffect(() => {
-    if (!Number.isFinite(contactId)) {
-      setError(isZh ? '联系人 ID 无效' : 'Invalid contact id')
-      setLoading(false)
-      return
-    }
     void loadContact()
-  }, [contactId])
+  }, [loadContact])
 
   const relatedContacts = useMemo(
     () => clientContacts.filter((item) => record && item.id !== record.stakeholder.id).slice(0, 5),
@@ -188,7 +192,8 @@ export function ContactDetail() {
     try {
       await updateStakeholder(editDraft)
       setEditing(false)
-      await loadContact({ silent: true })
+      setRefreshing(true)
+      await loadContact()
     } catch {
       setError(isZh ? '联系人保存失败' : 'Failed to save contact')
     } finally {
@@ -208,7 +213,8 @@ export function ContactDetail() {
       await updateStakeholder({ last_action: value })
       setTouchpointOpen(false)
       setTouchpointDraft({ title: '', summary: '' })
-      await loadContact({ silent: true })
+      setRefreshing(true)
+      await loadContact()
     } catch {
       setError(isZh ? '接触记录保存失败' : 'Failed to save touchpoint')
     } finally {
@@ -216,12 +222,18 @@ export function ContactDetail() {
     }
   }
 
-  if (loading) {
+  if (validContactId && loadedContactId !== contactId) {
     return <ContactDetailLoading isZh={isZh} />
   }
 
-  if (!record) {
-    return <ContactNotFound error={error} isZh={isZh} onBack={() => navigate('/contacts')} />
+  if (!validContactId || !record) {
+    return (
+      <ContactNotFound
+        error={validContactId ? error : (isZh ? '联系人 ID 无效' : 'Invalid contact id')}
+        isZh={isZh}
+        onBack={() => navigate('/contacts')}
+      />
+    )
   }
 
   const { client, stakeholder } = record
@@ -258,7 +270,10 @@ export function ContactDetail() {
             </RouterLink>
             <button
               type="button"
-              onClick={() => void loadContact({ silent: true })}
+              onClick={() => {
+                setRefreshing(true)
+                void loadContact()
+              }}
               disabled={refreshing}
               className="cx-no-hover inline-flex items-center gap-1.5"
               style={{ color: 'var(--color-codex-ink-mute)', fontSize: 12.5 }}

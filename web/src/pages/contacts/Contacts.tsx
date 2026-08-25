@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ArrowRight, Check, Loader2, Mail, Phone, Plus, Search, UserRound, X } from 'lucide-react'
@@ -138,6 +138,8 @@ export function Contacts() {
   const [createError, setCreateError] = useState<string | null>(null)
   const [contactPage, setContactPage] = useState(1)
   const [contactPageSize, setContactPageSize] = useState(CONTACT_PAGE_SIZE)
+  const hasLoadedRef = useRef(false)
+  const requestIdRef = useRef(0)
   const [draft, setDraft] = useState({
     clientId: '',
     name: '',
@@ -149,18 +151,11 @@ export function Contacts() {
 
   const [partialFailures, setPartialFailures] = useState(0)
 
-  const loadDirectory = async (options: { page?: number } = {}) => {
-    const isInitialLoad = !hasLoaded
-    if (isInitialLoad) {
-      setLoading(true)
-    } else {
-      setListLoading(true)
-    }
-    setError(null)
-    setPartialFailures(0)
-    try {
-      const page = options.page ?? contactPage
-      const data = await api.get<ContactListResponse>('/contacts', {
+  const loadDirectory = useCallback((options: { page?: number } = {}) => {
+    const page = options.page ?? contactPage
+    const requestId = ++requestIdRef.current
+    const isInitialLoad = !hasLoadedRef.current
+    return api.get<ContactListResponse>('/contacts', {
         params: {
           search: search.trim(),
           filter: activeFilter,
@@ -168,29 +163,37 @@ export function Contacts() {
           offset: (page - 1) * contactPageSize,
         },
       })
-      setClients(data.clients)
-      setContacts(data.items)
-      setContactTotal(data.total)
-      setPartialFailures(data.partial_failures || 0)
-      setDraft((current) => ({
-        ...current,
-        clientId: current.clientId || String(data.clients[0]?.id ?? ''),
-      }))
-      setHasLoaded(true)
-    } catch {
-      setError(isZh ? '联系人目录加载失败' : 'Failed to load contact directory')
-    } finally {
-      if (isInitialLoad) {
-        setLoading(false)
-      } else {
-        setListLoading(false)
-      }
-    }
-  }
+      .then((data) => {
+        if (requestId !== requestIdRef.current) return
+        setClients(data.clients)
+        setContacts(data.items)
+        setContactTotal(data.total)
+        setPartialFailures(data.partial_failures || 0)
+        setDraft((current) => ({
+          ...current,
+          clientId: current.clientId || String(data.clients[0]?.id ?? ''),
+        }))
+        setError(null)
+        hasLoadedRef.current = true
+        setHasLoaded(true)
+        const lastPage = Math.max(1, Math.ceil(data.total / contactPageSize))
+        if (page > lastPage) setContactPage(lastPage)
+      })
+      .catch(() => {
+        if (requestId === requestIdRef.current) {
+          setError(isZh ? '联系人目录加载失败' : 'Failed to load contact directory')
+        }
+      })
+      .finally(() => {
+        if (requestId !== requestIdRef.current) return
+        if (isInitialLoad) setLoading(false)
+        else setListLoading(false)
+      })
+  }, [activeFilter, contactPage, contactPageSize, isZh, search])
 
   useEffect(() => {
     void loadDirectory()
-  }, [activeFilter, contactPage, contactPageSize, search])
+  }, [loadDirectory])
 
   const filterOptions: Array<{ key: FilterKey; label: string }> = [
     { key: 'all', label: isZh ? '全部' : 'All' },
@@ -204,13 +207,10 @@ export function Contacts() {
   const contactPageCount = Math.max(1, Math.ceil(contactTotal / contactPageSize))
   const currentContactPage = Math.min(contactPage, contactPageCount)
 
-  useEffect(() => {
-    setContactPage(1)
-  }, [activeFilter, search])
-
-  useEffect(() => {
-    setContactPage((current) => Math.min(current, contactPageCount))
-  }, [contactPageCount])
+  const beginContactListUpdate = () => {
+    if (hasLoadedRef.current) setListLoading(true)
+    else setLoading(true)
+  }
 
   const resetCreateForm = () => {
     setDraft({
@@ -249,6 +249,7 @@ export function Contacts() {
           note: '',
         } as ClientStakeholder),
       })
+      beginContactListUpdate()
       setContactPage(1)
       setShowCreateModal(false)
       resetCreateForm()
@@ -313,6 +314,7 @@ export function Contacts() {
                 <input
                   value={search}
                   onChange={(event) => {
+                    beginContactListUpdate()
                     setSearch(event.target.value)
                     setContactPage(1)
                   }}
@@ -324,7 +326,11 @@ export function Contacts() {
                 {search ? (
                   <button
                     type="button"
-                    onClick={() => setSearch('')}
+                    onClick={() => {
+                      beginContactListUpdate()
+                      setSearch('')
+                      setContactPage(1)
+                    }}
                     className="cx-no-hover inline-flex items-center"
                     style={{ color: 'var(--color-codex-ink-faint)' }}
                     aria-label={isZh ? '清空搜索' : 'Clear search'}
@@ -348,6 +354,7 @@ export function Contacts() {
                 active={activeFilter === filter.key}
                 label={filter.label}
                 onClick={() => {
+                  beginContactListUpdate()
                   setActiveFilter(filter.key)
                   setContactPage(1)
                 }}
@@ -371,7 +378,10 @@ export function Contacts() {
               <span>{error}</span>
               <button
                 type="button"
-                onClick={() => void loadDirectory()}
+                onClick={() => {
+                  beginContactListUpdate()
+                  void loadDirectory()
+                }}
                 style={{
                   padding: '4px 10px',
                   fontSize: 12,
@@ -436,6 +446,7 @@ export function Contacts() {
                       hasSearch={Boolean(search.trim())}
                       isZh={isZh}
                       onClear={() => {
+                        beginContactListUpdate()
                         setSearch('')
                         setContactPage(1)
                       }}
@@ -454,8 +465,12 @@ export function Contacts() {
                         page={currentContactPage}
                         pageSize={contactPageSize}
                         totalItems={contactTotal}
-                        onPageChange={setContactPage}
+                        onPageChange={(nextPage) => {
+                          beginContactListUpdate()
+                          setContactPage(nextPage)
+                        }}
                         onPageSizeChange={(nextPageSize) => {
+                          beginContactListUpdate()
                           setContactPageSize(nextPageSize)
                           setContactPage(1)
                         }}

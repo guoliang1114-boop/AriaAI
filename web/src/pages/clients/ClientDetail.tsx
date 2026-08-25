@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -72,8 +72,9 @@ export function ClientDetail() {
   const navigate = useNavigate()
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
+  const numericClientId = Number(id)
+  const validClientId = Number.isFinite(numericClientId) && numericClientId > 0
 
-  const [loading, setLoading] = useState(true)
   const [client, setClient] = useState<Client | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [stakeholders, setStakeholders] = useState<ClientStakeholder[]>([])
@@ -81,6 +82,8 @@ export function ClientDetail() {
   const [editForm, setEditForm] = useState<Partial<Client>>({})
   const [memoryStatus, setMemoryStatus] = useState<ClientMemoryStatusResponse | null>(null)
   const [rebuildingMemory, setRebuildingMemory] = useState(false)
+  const [loadedClientId, setLoadedClientId] = useState<string | null>(null)
+  const requestIdRef = useRef(0)
   // Honor ``?tab=memory`` etc. on first mount so deep links from
   // MemoryOperationsSettings ("打开客户记忆") land directly on the
   // memory tab instead of overview.
@@ -106,36 +109,43 @@ export function ClientDetail() {
     summaryType: activeSummary,
     language: i18n.language,
     memoryVersion: memoryStatus?.memory_version,
-    enabled: Boolean(id && memoryStatus?.has_memory && activeTab === 'memory'),
+    enabled: Boolean(validClientId && loadedClientId === id && memoryStatus?.has_memory && activeTab === 'memory'),
     errorMessage: isZh ? '加载客户摘要失败' : 'Failed to load client summary',
   })
 
-  useEffect(() => {
-    if (id) {
-      void fetchClient()
-    }
-  }, [id])
-
-  const fetchClient = async () => {
-    try {
-      setLoading(true)
-      const [clientData, memoryData, projectsData, stakeholderData] = await Promise.all([
+  const fetchClient = useCallback(() => {
+    const requestId = ++requestIdRef.current
+    if (!validClientId) return Promise.resolve()
+    return Promise.all([
         api.get<Client>(`/clients/${id}`),
         api.get<ClientMemoryStatusResponse>(`/clients/${id}/memory/status`),
         api.get<Project[]>(`/clients/${id}/projects`),
         api.get<ClientStakeholder[]>(`/clients/${id}/stakeholders`),
       ])
-      setClient(clientData)
-      setEditForm(clientData)
-      setMemoryStatus(memoryData)
-      setProjects(projectsData)
-      setStakeholders(stakeholderData)
-    } catch (error) {
-      console.error('Failed to fetch client:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+      .then(([clientData, memoryData, projectsData, stakeholderData]) => {
+        if (requestId !== requestIdRef.current) return
+        setClient(clientData)
+        setEditForm(clientData || {})
+        setMemoryStatus(memoryData)
+        setProjects(projectsData)
+        setStakeholders(stakeholderData)
+        setLoadedClientId(id || null)
+      })
+      .catch((error: unknown) => {
+        if (requestId !== requestIdRef.current) return
+        console.error('Failed to fetch client:', error)
+        setClient(null)
+        setEditForm({})
+        setMemoryStatus(null)
+        setProjects([])
+        setStakeholders([])
+        setLoadedClientId(id || null)
+      })
+  }, [id, validClientId])
+
+  useEffect(() => {
+    void fetchClient()
+  }, [fetchClient])
 
   const handleUpdate = async () => {
     if (!client) return
@@ -229,7 +239,7 @@ export function ClientDetail() {
   const keyContacts = useMemo(() => getKeyContacts(client, stakeholders, isZh), [client, isZh, stakeholders])
   const stats = useMemo(() => getClientStats(projects, client, stakeholders, keyContacts, isZh), [client, isZh, keyContacts, projects, stakeholders])
 
-  if (loading) {
+  if (validClientId && loadedClientId !== id) {
     return (
       <>
         <PageTitle title={isZh ? '客户详情' : 'Client Detail'} />
@@ -240,7 +250,7 @@ export function ClientDetail() {
     )
   }
 
-  if (!client) {
+  if (!validClientId || !client) {
     return (
       <>
         <PageTitle title={isZh ? '客户详情' : 'Client Detail'} />

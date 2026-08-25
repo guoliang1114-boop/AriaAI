@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
+import type { ClientStakeholder } from '../../types/api'
 import { Contacts } from './Contacts'
 
 const mockNavigate = vi.fn()
@@ -13,10 +14,20 @@ vi.mock('react-i18next', () => ({
 }))
 
 const mockGet = vi.fn()
-const mockPut = vi.fn()
 
-const clientA = { id: 1, name: '客户A', industry: 'IT', contact: '张三', notes: '', created_at: '2025-01-01', document_count: 0, project_names: [] }
-const contactWang = {
+interface TestClient {
+  id: number
+  name: string
+  industry: string
+  contact: string
+  notes: string
+  created_at: string
+  document_count: number
+  project_names: string[]
+}
+
+const clientA: TestClient = { id: 1, name: '客户A', industry: 'IT', contact: '张三', notes: '', created_at: '2025-01-01', document_count: 0, project_names: [] }
+const contactWang: ClientStakeholder = {
   id: 10,
   client_id: 1,
   name: '王五',
@@ -37,7 +48,7 @@ const contactWang = {
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-02T00:00:00Z',
 }
-const wrapContacts = (items: any[]) => ({
+const wrapContacts = (items: Array<{ client: TestClient; stakeholder: ClientStakeholder }>) => ({
   items,
   total: items.length,
   limit: 10,
@@ -48,16 +59,22 @@ const wrapContacts = (items: any[]) => ({
 
 vi.mock('../../api/client', () => ({
   api: {
-    get: (...args: any[]) => mockGet(...args),
-    put: (...args: any[]) => mockPut(...args),
+    get: (...args: unknown[]) => mockGet(...args),
   },
 }))
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
 
 describe('Contacts', () => {
   beforeEach(() => {
     mockNavigate.mockClear()
     mockGet.mockClear()
-    mockPut.mockClear()
   })
 
   it('renders loading state initially', () => {
@@ -91,5 +108,35 @@ describe('Contacts', () => {
     await waitFor(() => {
       expect(screen.getAllByText('王五').length).toBeGreaterThanOrEqual(1)
     })
+  })
+
+  it('keeps the newest contact search when requests finish out of order', async () => {
+    const oldSearch = deferred<ReturnType<typeof wrapContacts>>()
+    const newSearch = deferred<ReturnType<typeof wrapContacts>>()
+    mockGet.mockImplementation((_url: string, config?: { params?: { search?: string } }) => {
+      if (config?.params?.search === '旧联系人') return oldSearch.promise
+      if (config?.params?.search === '新联系人') return newSearch.promise
+      return Promise.resolve(wrapContacts([{ client: clientA, stakeholder: contactWang }]))
+    })
+
+    render(<Contacts />)
+    await screen.findAllByText('王五')
+    const searchInput = screen.getByLabelText('搜索联系人')
+    fireEvent.change(searchInput, { target: { value: '旧联系人' } })
+    await waitFor(() => expect(mockGet.mock.calls.some(([, config]) => config?.params?.search === '旧联系人')).toBe(true))
+    fireEvent.change(searchInput, { target: { value: '新联系人' } })
+    await waitFor(() => expect(mockGet.mock.calls.some(([, config]) => config?.params?.search === '新联系人')).toBe(true))
+
+    await act(async () => newSearch.resolve(wrapContacts([{
+      client: clientA,
+      stakeholder: { ...contactWang, id: 12, name: '最新联系人' },
+    }])))
+    await screen.findAllByText('最新联系人')
+    await act(async () => oldSearch.resolve(wrapContacts([{
+      client: clientA,
+      stakeholder: { ...contactWang, id: 11, name: '过期联系人' },
+    }])))
+    expect(screen.getAllByText('最新联系人').length).toBeGreaterThan(0)
+    expect(screen.queryByText('过期联系人')).not.toBeInTheDocument()
   })
 })

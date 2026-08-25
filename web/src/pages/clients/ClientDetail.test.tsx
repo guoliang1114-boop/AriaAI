@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { ClientDetail } from './ClientDetail'
 
 const mockGet = vi.fn()
@@ -7,21 +8,22 @@ const mockPut = vi.fn()
 const mockDelete = vi.fn()
 const mockPost = vi.fn()
 const mockNavigate = vi.fn()
+let mockClientId = '1'
 
 vi.mock('../../api/client', () => ({
   api: {
-    get: (...args: any[]) => mockGet(...args),
-    put: (...args: any[]) => mockPut(...args),
-    delete: (...args: any[]) => mockDelete(...args),
-    post: (...args: any[]) => mockPost(...args),
+    get: (...args: unknown[]) => mockGet(...args),
+    put: (...args: unknown[]) => mockPut(...args),
+    delete: (...args: unknown[]) => mockDelete(...args),
+    post: (...args: unknown[]) => mockPost(...args),
   },
 }))
 
 vi.mock('react-router-dom', () => ({
-  useParams: () => ({ id: '1' }),
+  useParams: () => ({ id: mockClientId }),
   useNavigate: () => mockNavigate,
   useSearchParams: () => [new URLSearchParams(), () => {}],
-  Link: ({ children }: any) => children,
+  Link: ({ children }: { children: ReactNode }) => children,
 }))
 
 vi.mock('react-i18next', () => ({
@@ -29,8 +31,20 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('react-helmet-async', () => ({
-  Helmet: ({ children }: any) => children,
+  Helmet: ({ children }: { children: ReactNode }) => children,
 }))
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function clientData(id: number, name: string) {
+  return { id, name, industry: 'IT', contact: '张三', notes: '', created_at: '2025-01-01', document_count: 0, project_names: [] }
+}
 
 describe('ClientDetail', () => {
   beforeEach(() => {
@@ -39,6 +53,7 @@ describe('ClientDetail', () => {
     mockDelete.mockClear()
     mockPost.mockClear()
     mockNavigate.mockClear()
+    mockClientId = '1'
   })
 
   it('renders loading state initially', () => {
@@ -91,5 +106,27 @@ describe('ClientDetail', () => {
       fireEvent.click(backBtn)
       expect(mockNavigate).toHaveBeenCalledWith('/clients')
     }
+  })
+
+  it('keeps the newest client when route requests finish out of order', async () => {
+    const firstClient = deferred<ReturnType<typeof clientData>>()
+    const secondClient = deferred<ReturnType<typeof clientData>>()
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/clients/1') return firstClient.promise
+      if (url === '/clients/2') return secondClient.promise
+      if (url.endsWith('/projects') || url.endsWith('/stakeholders')) return Promise.resolve([])
+      if (url.endsWith('/memory/status')) return Promise.resolve({ has_memory: false })
+      return Promise.resolve({})
+    })
+
+    const { rerender } = render(<ClientDetail />)
+    mockClientId = '2'
+    rerender(<ClientDetail />)
+
+    await act(async () => secondClient.resolve(clientData(2, '最新客户')))
+    await screen.findByRole('heading', { name: '最新客户' })
+    await act(async () => firstClient.resolve(clientData(1, '过期客户')))
+    expect(screen.getByRole('heading', { name: '最新客户' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '过期客户' })).not.toBeInTheDocument()
   })
 })
