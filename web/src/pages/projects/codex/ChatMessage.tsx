@@ -11,6 +11,7 @@ import type {
 import type { ContextReceiptEvent } from '../../../types/productRunEvent'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 import { CxIcon } from './CxIcons'
+import { SkillCandidateButtons } from './SkillCandidateButtons'
 import { formatUpdatedRelative } from './useProjectsApi'
 
 /** Project-chat-tab message bubble.
@@ -71,6 +72,7 @@ interface MessageBubbleProps {
    * transition so this node updates in place instead of remounting. */
   isStreaming?: boolean
   streamingStatus?: string | null
+  onSkillSelect?: (skillId: number, name: string) => void
 }
 
 export function ProjectChatMessage({
@@ -79,6 +81,7 @@ export function ProjectChatMessage({
   onArtifactClick,
   isStreaming = false,
   streamingStatus = null,
+  onSkillSelect,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const meta = useMemo(() => parseMeta(message.metadata_json), [message.metadata_json])
@@ -180,7 +183,10 @@ export function ProjectChatMessage({
               </div>
             )}
             {!isStreaming && meta.contextReceipt && (
-              <PersistentContextReceipt receipt={meta.contextReceipt} />
+              <PersistentContextReceipt
+                receipt={meta.contextReceipt}
+                onSkillSelect={onSkillSelect}
+              />
             )}
             {!isStreaming && meta.references.length > 0 && <ReferenceChips refs={meta.references} />}
             {!isStreaming && (
@@ -197,7 +203,13 @@ export function ProjectChatMessage({
   )
 }
 
-function PersistentContextReceipt({ receipt }: { receipt: ContextReceiptEvent }) {
+function PersistentContextReceipt({
+  receipt,
+  onSkillSelect,
+}: {
+  receipt: ContextReceiptEvent
+  onSkillSelect?: (skillId: number, name: string) => void
+}) {
   const memoryLabel = {
     not_applicable: '不依赖单项目记忆',
     missing: '项目记忆缺失，使用当前项目原始信息',
@@ -225,6 +237,12 @@ function PersistentContextReceipt({ receipt }: { receipt: ContextReceiptEvent })
           ? ` · ${receipt.evidence.history_message_count} 条近期对话`
           : ''}
       </div>
+      {receipt.skill.status === 'ambiguous' && onSkillSelect && (
+        <SkillCandidateButtons
+          candidates={receipt.skill.candidates || []}
+          onSelect={onSkillSelect}
+        />
+      )}
     </details>
   )
 }

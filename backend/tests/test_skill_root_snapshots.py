@@ -15,10 +15,44 @@ from app.services.agent_harness.skill_roots import (
     SkillRootSpec,
 )
 from app.routers.chat_schemas import SendMessageRequest
+from app.services.chat.runtime import _resolve_effective_skill
 from app.services.skill_router import (
     auto_select_skill,
     rank_published_skill_candidates,
 )
+
+
+def test_structured_disable_skill_skips_lookup_and_clears_conversation_skill() -> None:
+    class LookupMustNotRun:
+        def get(self, *_args, **_kwargs):
+            raise AssertionError("disabled Skill control must short-circuit database lookup")
+
+    skill, decision, effective_skill_id, effective_skill = _resolve_effective_skill(
+        LookupMustNotRun(),
+        SendMessageRequest(content="只回答这个问题", project_id=7, disable_skill=True),
+    )
+
+    assert skill is None
+    assert effective_skill_id is None
+    assert effective_skill is None
+    assert decision.apply is False
+    assert decision.reason == "skill_disabled_by_user"
+    assert decision.source == "explicit"
+    assert decision.clear_conversation_skill is True
+
+    _, conflict, conflict_skill_id, conflict_skill = _resolve_effective_skill(
+        LookupMustNotRun(),
+        SendMessageRequest(
+            content="异常客户端冲突控制",
+            project_id=7,
+            skill_id=9,
+            force_skill=True,
+            disable_skill=True,
+        ),
+    )
+    assert conflict.reason == "skill_disabled_by_user"
+    assert conflict_skill_id is None
+    assert conflict_skill is None
 
 
 def _write_skill(

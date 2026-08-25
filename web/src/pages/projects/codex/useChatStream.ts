@@ -25,10 +25,8 @@ import {
  *     tool_result / done / error)
  *   - Surface a single growing `streamingContent` string plus a
  *     transient `statusMessage` so the caller can render a live
- *     "正在生成…" bubble. Tool calls / skill picker / file attach
- *     still live on /chat. This is the minimum surface that
- *     turns the project chat tab from read-only into a usable
- *     two-way chat.
+ *     "正在生成…" bubble. File attachment still lives on /chat;
+ *     this hook also carries the project tab's per-turn Skill choice.
  *
  * The caller owns the message list. We just hand back the final
  * assistant Message on `done` via `onAssistantMessage` and the user
@@ -51,6 +49,11 @@ export interface ChatCapabilityFrame {
   tools_granted_count: number
   chat_mode: string
   turn_contract?: Record<string, unknown>
+}
+
+export interface ProjectChatSkillControl {
+  skillId?: number
+  disableSkill?: boolean
 }
 
 interface UseChatStreamArgs {
@@ -87,7 +90,7 @@ interface UseChatStreamReturn {
    * same React node updates in place at `done` instead of remounting
    * (no end-of-stream reformat flash). */
   streamingMessageId: number
-  send: (content: string) => Promise<void>
+  send: (content: string, skillControl?: ProjectChatSkillControl) => Promise<void>
   steer: (content: string) => Promise<boolean>
   stop: () => void
 }
@@ -126,6 +129,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   const turnReceiptRef = useRef<TurnReceiptEvent | null>(null)
   const contextReceiptRef = useRef<ContextReceiptEvent | null>(null)
   const stopRequestedRef = useRef(false)
+  const sendInFlightRef = useRef(false)
 
   const reset = () => {
     accumulatedRef.current = ''
@@ -191,20 +195,22 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     activeRunIdRef.current = null
     setActiveRunId(null)
     stopRequestedRef.current = false
+    sendInFlightRef.current = false
     setStatus('idle')
     reset()
   }, [conversationId, onAssistantMessage])
 
   const send = useCallback(
-    async (content: string) => {
+    async (content: string, skillControl: ProjectChatSkillControl = {}) => {
       const text = content.trim()
       if (!text) return
       if (conversationId == null) {
         onError?.('未选择对话')
         return
       }
-      if (status === 'sending' || status === 'streaming') return
+      if (sendInFlightRef.current || status === 'sending' || status === 'streaming') return
 
+      sendInFlightRef.current = true
       reset()
       stopRequestedRef.current = false
       activeRunIdRef.current = null
@@ -239,8 +245,9 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
             conversation_id: conversationId,
             content: text,
             project_id: projectId,
-            skill_id: null,
-            force_skill: false,
+            skill_id: skillControl.skillId ?? null,
+            force_skill: skillControl.skillId != null,
+            disable_skill: skillControl.disableSkill === true,
             rag_doc_ids: [],
             file_ids: [],
             language: i18n.language || 'zh-CN',
@@ -255,6 +262,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         setStatus('error')
         onError?.(readApiError(err))
         abortControllerRef.current = null
+        sendInFlightRef.current = false
         return
       }
 
@@ -262,6 +270,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         setStatus('error')
         onError?.(`服务异常 (${response.status})`)
         abortControllerRef.current = null
+        sendInFlightRef.current = false
         return
       }
 
@@ -392,6 +401,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         activeRunIdRef.current = null
         setActiveRunId(null)
         reset()
+        sendInFlightRef.current = false
         return
       }
 
@@ -405,6 +415,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         activeRunIdRef.current = null
         setActiveRunId(null)
         reset()
+        sendInFlightRef.current = false
         return
       }
 
@@ -430,6 +441,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       activeRunIdRef.current = null
       setActiveRunId(null)
       stopRequestedRef.current = false
+      sendInFlightRef.current = false
       setStatus('idle')
       reset()
     },

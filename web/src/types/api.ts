@@ -1168,6 +1168,7 @@ export interface SendMessageRequest {
   project_id?: number
   skill_id?: number
   force_skill?: boolean
+  disable_skill?: boolean
   knowledge_scope?: 'project' | 'client' | 'global'
   rag_doc_ids?: number[]
   file_ids?: number[]

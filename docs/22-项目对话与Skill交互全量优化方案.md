@@ -1,6 +1,6 @@
 # 项目对话与 Skill 交互全量优化方案
 
-> 更新日期：2026-08-24
+> 更新日期：2026-08-25
 > 对照基线：OpenAI Codex `83d1fe0e67b1323f71febc2925817732b449f1d9`
 > 产品边界：只吸收源码机制，不运行、不调用、不连接 Codex。
 
@@ -26,9 +26,9 @@ Phase 2T 先关闭这两个缺口，Phase 2U 进一步补上长对话状态和�
 | 本轮输入边界 | `core/src/session/turn_input.rs`、`session/turn.rs` | 每轮输入是新的决策边界；追加上下文、纠偏和开始新轮次必须可区分 | 已有 `SendMessageRequest`、Turn Contract | 增加结构化“本轮目标/约束/引用对象”输入，不依赖纯文本猜测 |
 | 项目指令层级 | `codex-home/src/instructions/mod.rs` | 全局、项目、目录指令按明确层级加载，越近的规则越具体 | Phase 2U 已建立显式 `InstructionManifest v1` | 后续把简化冲突回执开放给前端，持续扩充跨层冲突评测 |
 | Skill 发现 | `skills/src/loading.rs`、`parser.rs` | 先发现元数据，命中后再加载完整内容；坏包隔离 | 已完成 Skill Root 快照、发布态目录、解析校验 | 增加作者预览、依赖校验、样例输入和质量评分 |
-| Skill 本轮选择 | `skills/src/mentions.rs`、`selection.rs` | 只解析本轮结构化输入和显式提及；去重后注入本轮 | 曾把会话 Skill 无条件粘住；Phase 2T 已修复 | 增加更丰富的显式 `@Skill` 解析和歧义候选确认 |
+| Skill 本轮选择 | `skills/src/mentions.rs`、`selection.rs` | 只解析本轮结构化输入和显式提及；去重后注入本轮 | Phase 2Y 已补齐自动/指定/禁用三态与歧义候选确认 | 后续增加输入框内的结构化对象引用与键盘检索 |
 | Skill 续用/释放 | Codex 的 per-turn selection boundary | Skill 不是会话永久所有者；是否续用应由本轮相关性决定 | Phase 2T 已实现相关追问续用、无关话题释放、显式退出 | 用真实匿名交互数据持续校准续用词与误触发率 |
-| Skill 可见性 | Turn 内 Skill 注入项 + 运行事件 | 用户应知道本轮实际加载了什么能力 | Phase 2T 已通过 `run_started.skill` 展示来源 | 增加可展开的“为什么匹配”和一键关闭/切换 |
+| Skill 可见性 | Turn 内 Skill 注入项 + 运行事件 | 用户应知道本轮实际加载了什么能力 | Phase 2Y 已支持项目内选择、歧义点选和一键关闭/切换 | 持续把内部匹配原因翻译为更具体的业务说明 |
 | 项目世界状态 | `core/src/context/world_state/` | 把工作目录、规则和环境变化建模为基线与差异，不把所有内容反复塞入 Prompt | 已有项目/客户结构化上下文与 Context Assembly Manifest | 增加项目状态版本、变化摘要和陈旧证据提示 |
 | 对话历史治理 | `core/src/context_manager/history.rs` | 保持工具调用/结果配对，压缩时保留任务状态和恢复边界 | Phase 2U 已用结构化 Capsule 绑定目标、约束、工具结果、阻塞和来源消息 | 扩大真实长对话集，并在压缩前后自动比较状态保持率 |
 | 长对话压缩 | Context compaction 与状态续接 | 压缩结果必须保留目标、已完成动作、假设、标识、工具结果、阻塞与下一步 | Phase 2U 已建立 Provider-neutral `Conversation Capsule v1`，仍使用确定性本地预算压缩 | 先积累 Provider 对比数据，再决定是否按模型启用官方 Compaction API |
@@ -260,6 +260,14 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 这一阶段复用 Aria 现有项目 JSON 记忆、消息 metadata、Trace 和 Provider adapter，无数据库迁移，不启动、不导入、不连接 Codex。
 
 边界说明：真实 Provider 评测是固定小样本的上线后冒烟与模型对比基线，不是对所有项目、所有问法或所有 Provider 的 100% 正确性保证。真实生产问题仍应先匿名化为 golden case，再持续扩展回归集。
+
+### Phase 2Y：项目对话 Skill 选择与歧义确认闭环（已实施）
+
+- 项目对话输入框新增一次性 Skill 控制，明确区分“自动匹配 / 本轮不用 Skill / 明确指定下一轮”；显式选择只作用于下一轮，发送后回到自动边界。
+- 新增结构化 `disable_skill` 请求字段。本轮禁用会在数据库查询和自动路由前短路并清除会话上一个 Skill；即使异常客户端同时提交启用字段，也以禁用为准，确保冲突只能缩小能力。
+- Context Receipt 的歧义候选不再只是说明文字：流式回执和历史 Assistant 消息均提供“下一轮使用”按钮，用户点选后直接绑定候选 ID，无需猜测 Skill 名称或提示词写法。
+- 项目聊天通过发布态 `/skills/meta/summary` 目录展示 Skill 名称、类别和适用说明；目录加载失败只退回自动模式，不阻断普通问答。
+- 前端发送契约、选择器、历史候选动作与后端冲突优先级均增加确定性回归测试；发布质量门禁扩展为 24 场景并新增 `skill_control_accuracy` 指标；不新增数据库迁移，不启动、不导入、不连接 Codex。
 
 ## 11. 官方资料与许可证
 

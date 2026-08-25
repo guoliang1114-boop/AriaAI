@@ -352,6 +352,19 @@ def _should_apply_skill(content: str, skill: Skill | None) -> bool:
 
 
 def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple[Skill | None, SkillActivationDecision, int | None, Skill | None]:
+    if getattr(req, "disable_skill", False):
+        return (
+            None,
+            SkillActivationDecision(
+                False,
+                "skill_disabled_by_user",
+                1.0,
+                source="explicit",
+                clear_conversation_skill=True,
+            ),
+            None,
+            None,
+        )
     skill = session.get(Skill, req.skill_id) if req.skill_id else None
     auto_skill: Skill | None = None
     auto_decision: SkillActivationDecision | None = None

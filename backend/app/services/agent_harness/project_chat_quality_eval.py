@@ -16,6 +16,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.models.db import Project, Skill
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.mode_registry import ActionPolicy, ToolAccessPolicy
+from app.services.chat.runtime import _resolve_effective_skill
 from app.services.agent_harness.project_memory_evidence import (
     select_project_memory_slots,
 )
@@ -177,6 +178,45 @@ def _advisory_safety_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _skill_control_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Explicit on/off controls must be deterministic and mutually exclusive."""
+
+    class LookupMustNotRun:
+        def get(self, *_args, **_kwargs):
+            raise AssertionError("disabled Skill control performed a database lookup")
+
+    _, disabled, effective_skill_id, effective_skill = _resolve_effective_skill(
+        LookupMustNotRun(),
+        SendMessageRequest(content="本轮普通回答", project_id=26, disable_skill=True),
+    )
+    disabled_ok = (
+        disabled.apply is False
+        and disabled.reason == "skill_disabled_by_user"
+        and disabled.clear_conversation_skill is True
+        and effective_skill_id is None
+        and effective_skill is None
+    )
+    _, conflict, conflict_skill_id, conflict_skill = _resolve_effective_skill(
+        LookupMustNotRun(),
+        SendMessageRequest(
+            content="冲突控制",
+            skill_id=7,
+            force_skill=True,
+            disable_skill=True,
+        ),
+    )
+    disable_precedes_enable = (
+        conflict.reason == "skill_disabled_by_user"
+        and conflict_skill_id is None
+        and conflict_skill is None
+    )
+    details = [
+        {"case": "structured_skill_disable", "passed": disabled_ok},
+        {"case": "disable_precedes_conflicting_enable", "passed": disable_precedes_enable},
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def _memory_results() -> tuple[int, int, list[dict[str, Any]]]:
     stale = Project(
         name="Stale",
@@ -268,6 +308,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "skill_selection_accuracy": _skill_selection_results(),
         "skill_lifecycle_accuracy": _lifecycle_results(),
         "advisory_skill_safety_rate": _advisory_safety_results(),
+        "skill_control_accuracy": _skill_control_results(),
         "memory_freshness_guard_rate": _memory_results(),
         "memory_retrieval_precision_rate": _memory_retrieval_results(),
         "constraint_retention_rate": _constraint_results(),

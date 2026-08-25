@@ -6,6 +6,7 @@ import type {
   GeneratedArtifact,
   Message,
   ProjectDetail as ProjectDetailType,
+  SkillSummary,
 } from '../../../../types/api'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../../types/productRunEvent'
 import { api } from '../../../../api/client'
@@ -23,8 +24,14 @@ import { ChatSpaceTree } from '../ChatSpaceTree'
 import {
   useChatStream,
   type ChatCapabilityFrame,
+  type ProjectChatSkillControl,
   type ChatStreamStatus,
 } from '../useChatStream'
+import {
+  ProjectSkillControl,
+  type ProjectSkillSelection,
+} from '../ProjectSkillControl'
+import { SkillCandidateButtons } from '../SkillCandidateButtons'
 import {
   formatUpdatedRelative,
   useConversationMessages,
@@ -63,6 +70,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
   const [requestedSelectedId, setRequestedSelectedId] = useState<number | null>(null)
   const [view, setView] = useState<'chats' | 'space'>('chats')
   const [creating, setCreating] = useState(false)
+  const [skills, setSkills] = useState<SkillSummary[]>([])
   const [openArtifact, setOpenArtifact] = useState<GeneratedArtifact | null>(null)
   // Preview pane width is user-resizable via a drag handle on its
   // left edge. Per-session only — we don't bother persisting it.
@@ -70,6 +78,21 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
   const selectedId = conversations.some((conversation) => conversation.id === requestedSelectedId)
     ? requestedSelectedId
     : conversations[0]?.id ?? null
+
+  useEffect(() => {
+    let active = true
+    api
+      .get<SkillSummary[]>('/skills/meta/summary')
+      .then((items) => {
+        if (active) setSkills(items)
+      })
+      .catch(() => {
+        if (active) setSkills([])
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   // Conversation messages — lifted out of ThreadView so the 空间
   // tree can list 「本会话产出」 without a duplicate fetch. Pending
@@ -276,6 +299,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
               capability={capability}
               turnReceipt={turnReceipt}
               contextReceipt={contextReceipt}
+              skills={skills}
               canSteer={Boolean(activeRunId && turnReceipt?.steering_supported)}
               pendingActionBatches={pendingActions.batches}
               pendingActionKey={pendingActions.actingKey}
@@ -633,12 +657,13 @@ interface ThreadViewProps {
   capability: ChatCapabilityFrame | null
   turnReceipt: TurnReceiptEvent | null
   contextReceipt: ContextReceiptEvent | null
+  skills: SkillSummary[]
   canSteer: boolean
   pendingActionBatches: PendingActionBatch[]
   pendingActionKey: string | null
   onConfirmAction: (batch: PendingActionBatch) => void
   onRejectAction: (batch: PendingActionBatch) => void
-  onSend: (text: string) => Promise<void>
+  onSend: (text: string, skillControl?: ProjectChatSkillControl) => Promise<void>
   onSteer: (text: string) => Promise<boolean>
   onStop: () => void
   onOpenArtifact: (artifact: GeneratedArtifact) => void
@@ -661,6 +686,7 @@ function ThreadView({
   capability,
   turnReceipt,
   contextReceipt,
+  skills,
   canSteer,
   pendingActionBatches,
   pendingActionKey,
@@ -683,7 +709,13 @@ function ThreadView({
   // Composer text is lifted here so the empty-state prompts can
   // seed it. Cleared on send.
   const [composerText, setComposerText] = useState('')
+  const [skillSelection, setSkillSelection] = useState<ProjectSkillSelection>({ mode: 'auto' })
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const selectSkillForNextTurn = (skillId: number, name: string) => {
+    setSkillSelection({ mode: 'explicit', skillId, name })
+    textareaRef.current?.focus()
+  }
 
   // Auto-scroll while a reply is streaming. Cheap to do every
   // render — the diff is append-only.
@@ -868,6 +900,7 @@ function ThreadView({
               onArtifactClick={onOpenArtifact}
               isStreaming={busy && m.id === streamingMessageId}
               streamingStatus={streamStatusMessage}
+              onSkillSelect={selectSkillForNextTurn}
             />
           ))}
 
@@ -888,14 +921,27 @@ function ThreadView({
       {/* Composer */}
       <div style={{ padding: '0 56px 22px', width: '100%' }}>
         {busy && turnReceipt && (
-          <TurnReceiptCard receipt={turnReceipt} contextReceipt={contextReceipt} />
+          <TurnReceiptCard
+            receipt={turnReceipt}
+            contextReceipt={contextReceipt}
+            onSkillSelect={selectSkillForNextTurn}
+          />
         )}
         <Composer
           value={composerText}
           onChange={setComposerText}
           onSend={async (text) => {
+            const selectionForTurn = skillSelection
             setComposerText('')
-            await onSend(text)
+            setSkillSelection({ mode: 'auto' })
+            await onSend(
+              text,
+              selectionForTurn.mode === 'explicit'
+                ? { skillId: selectionForTurn.skillId }
+                : selectionForTurn.mode === 'off'
+                  ? { disableSkill: true }
+                  : undefined,
+            )
           }}
           onSteer={async (text) => {
             const accepted = await onSteer(text)
@@ -905,6 +951,9 @@ function ThreadView({
           onStop={onStop}
           busy={busy}
           canSteer={canSteer}
+          skills={skills}
+          skillSelection={skillSelection}
+          onSkillSelectionChange={setSkillSelection}
           textareaRef={textareaRef}
         />
       </div>
@@ -1057,9 +1106,8 @@ function ConversationMenu({ onRename, onDelete, onOpenInChat, deleting }: Conver
 /* ────────────────────────────────────────────────────────────────
  * Composer — autosizing textarea + send button. Enter sends,
  * Shift+Enter inserts a newline. Disabled while a stream is in
- * flight. Intentionally minimal: no Skill picker, no @-mention, no
- * file attach — those live on /chat and aren't part of the
- * "直接沟通" MVP for the project chat tab.
+ * flight. The project-scoped Skill control is intentionally one-shot:
+ * each explicit choice applies to the next turn, then returns to auto.
  * ──────────────────────────────────────────────────────────────── */
 function Composer({
   value,
@@ -1069,6 +1117,9 @@ function Composer({
   onStop,
   busy,
   canSteer,
+  skills,
+  skillSelection,
+  onSkillSelectionChange,
   textareaRef,
 }: {
   value: string
@@ -1078,6 +1129,9 @@ function Composer({
   onStop: () => void
   busy: boolean
   canSteer: boolean
+  skills: SkillSummary[]
+  skillSelection: ProjectSkillSelection
+  onSkillSelectionChange: (selection: ProjectSkillSelection) => void
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
   const autosize = () => {
@@ -1154,15 +1208,33 @@ function Composer({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 8,
           marginTop: 8,
           paddingTop: 8,
           borderTop: '1px solid var(--line-soft)',
         }}
       >
-        <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
-          {busy ? 'Enter 追加 · Shift+Enter 换行' : 'Enter 发送 · Shift+Enter 换行'}
-        </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 9,
+            minWidth: 0,
+          }}
+        >
+          <ProjectSkillControl
+            skills={skills}
+            selection={skillSelection}
+            onChange={onSkillSelectionChange}
+            disabled={busy}
+          />
+          <span style={{ fontSize: 11, color: 'var(--ink-faint)', whiteSpace: 'nowrap' }}>
+            {busy ? 'Enter 追加 · Shift+Enter 换行' : 'Enter 发送 · Shift+Enter 换行'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
           {busy && (
             <button
               type="button"
@@ -1207,9 +1279,11 @@ function Composer({
 function TurnReceiptCard({
   receipt,
   contextReceipt,
+  onSkillSelect,
 }: {
   receipt: TurnReceiptEvent
   contextReceipt: ContextReceiptEvent | null
+  onSkillSelect: (skillId: number, name: string) => void
 }) {
   const modeLabel = {
     answer_only: '直接回答',
@@ -1243,12 +1317,23 @@ function TurnReceiptCard({
         {receipt.requires_confirmation ? ' · 高风险动作会先征求确认' : ''}
         {receipt.steering_supported ? ' · 可在下方追加要求' : ''}
       </div>
-      {contextReceipt && <ProjectContextReceiptSummary receipt={contextReceipt} />}
+      {contextReceipt && (
+        <ProjectContextReceiptSummary
+          receipt={contextReceipt}
+          onSkillSelect={onSkillSelect}
+        />
+      )}
     </div>
   )
 }
 
-function ProjectContextReceiptSummary({ receipt }: { receipt: ContextReceiptEvent }) {
+function ProjectContextReceiptSummary({
+  receipt,
+  onSkillSelect,
+}: {
+  receipt: ContextReceiptEvent
+  onSkillSelect: (skillId: number, name: string) => void
+}) {
   const memoryLabel = {
     not_applicable: '本轮不依赖单项目记忆',
     missing: '项目记忆尚未生成，已使用当前项目原始信息',
@@ -1292,6 +1377,12 @@ function ProjectContextReceiptSummary({ receipt }: { receipt: ContextReceiptEven
         {memoryRetrievalLabel ? ` · ${memoryRetrievalLabel}` : ''} · {skillLabel}
       </div>
       {evidenceBits.length > 0 && <div style={{ marginTop: 2 }}>{evidenceBits.join(' · ')}</div>}
+      {receipt.skill.status === 'ambiguous' && (
+        <SkillCandidateButtons
+          candidates={receipt.skill.candidates || []}
+          onSelect={onSkillSelect}
+        />
+      )}
     </div>
   )
 }
