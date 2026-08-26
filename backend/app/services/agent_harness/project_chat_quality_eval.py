@@ -7,6 +7,7 @@ constraint retention visible in CI.
 """
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -22,6 +23,16 @@ from app.services.chat.turn_setup import recommend_turn_brief_template
 from app.services.chat_store import build_message_metadata
 from app.services.agent_harness.project_memory_evidence import (
     select_project_memory_slots,
+)
+from app.services.agent_harness.project_world_state import (
+    WORLD_STATE_CATEGORIES,
+    compare_project_world_states,
+    format_project_world_state_change_for_prompt,
+)
+from app.services.chat.interaction_feedback import aggregate_interaction_metrics
+from app.services.chat.turn_recovery import (
+    build_turn_recovery_preview,
+    format_turn_recovery_for_prompt,
 )
 from app.services.context_builder.memory_formatters import (
     _format_project_memory_for_prompt,
@@ -436,6 +447,130 @@ def _turn_revision_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _world_state_manifest(version_char: str, *, todo_state_char: str) -> dict[str, Any]:
+    categories = {
+        name: {
+            "count": 0,
+            "items": [],
+            "fingerprint": "1" * 64,
+            "truncated": False,
+        }
+        for name in WORLD_STATE_CATEGORIES
+    }
+    categories["todos"] = {
+        "count": 1,
+        "items": [{"id": "7", "state_sha256": todo_state_char * 64}],
+        "fingerprint": todo_state_char * 64,
+        "truncated": False,
+    }
+    return {
+        "schema_version": 1,
+        "project_id": 26,
+        "version": version_char * 12,
+        "fingerprint": version_char * 64,
+        "categories": categories,
+        "truncated": False,
+    }
+
+
+def _project_world_state_results() -> tuple[int, int, list[dict[str, Any]]]:
+    before = _world_state_manifest("a", todo_state_char="2")
+    after = _world_state_manifest("b", todo_state_char="3")
+    change = compare_project_world_states(before, after)
+    prompt = format_project_world_state_change_for_prompt(change)
+    details = [
+        {
+            "case": "world_state_change_is_category_exact",
+            "passed": (
+                change.get("changed_categories") == ["todos"]
+                and change.get("categories", {}).get("todos", {}).get("updated") == 1
+            ),
+        },
+        {
+            "case": "world_state_prompt_contains_counts_not_business_content",
+            "passed": "todos: +0 / -0 / updated 1" in prompt and "PRIVATE" not in prompt,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
+def _turn_recovery_results() -> tuple[int, int, list[dict[str, Any]]]:
+    preview = build_turn_recovery_preview(
+        {
+            "run_id": "run_quality_recovery",
+            "status": "interrupted",
+            "steps": [
+                {
+                    "step_index": 1,
+                    "status": "completed",
+                    "tool_calls": [{"tool_name": "write_project_file"}],
+                }
+            ],
+            "run_outputs": [],
+            "recovery": {"can_resume": True, "can_retry": False},
+        },
+        source_message_id=91,
+    )
+    prompt = format_turn_recovery_for_prompt(preview)
+    details = [
+        {
+            "case": "interrupted_turn_uses_durable_checkpoint",
+            "passed": preview.get("strategy") == "resume_from_checkpoint"
+            and preview.get("completed_steps") == [1],
+        },
+        {
+            "case": "recovery_blocks_blind_side_effect_replay",
+            "passed": preview.get("side_effects_possible") is True
+            and "Never replay a previous write" in prompt
+            and "write_project_file" not in prompt,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
+def _interaction_feedback_results() -> tuple[int, int, list[dict[str, Any]]]:
+    messages = [
+        SimpleNamespace(
+            role="assistant",
+            content="PRIVATE-ANSWER",
+            metadata_json=json.dumps(
+                {
+                    "interaction_feedback": {
+                        "schema_version": 1,
+                        "rating": "unhelpful",
+                        "reasons": ["missing_context"],
+                    }
+                }
+            ),
+        ),
+        SimpleNamespace(
+            role="user",
+            content="PRIVATE-QUESTION",
+            metadata_json=json.dumps(
+                {"turn_setup_trace": {"schema_version": 1, "outcome": "applied"}}
+            ),
+        ),
+    ]
+    metrics = aggregate_interaction_metrics(messages)
+    details = [
+        {
+            "case": "interaction_metrics_are_content_free",
+            "passed": metrics.get("privacy") == {
+                "stores_message_content": False,
+                "stores_free_text_feedback": False,
+                "stores_user_identity": False,
+            }
+            and "PRIVATE" not in json.dumps(metrics),
+        },
+        {
+            "case": "feedback_and_setup_adoption_are_attributed",
+            "passed": metrics.get("negative_reasons", {}).get("missing_context") == 1
+            and metrics.get("turn_setup", {}).get("adoption_rate") == 1.0,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -451,6 +586,9 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "turn_brief_accuracy": _turn_brief_results(),
         "turn_setup_recommendation_accuracy": _turn_setup_results(),
         "turn_revision_attribution_accuracy": _turn_revision_results(),
+        "project_world_state_accuracy": _project_world_state_results(),
+        "turn_recovery_safety_rate": _turn_recovery_results(),
+        "interaction_feedback_privacy_rate": _interaction_feedback_results(),
     }
     metrics = {
         name: {

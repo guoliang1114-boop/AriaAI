@@ -60,6 +60,13 @@ export interface ChatStreamEvent {
     | { id?: string | number; name?: string; source?: string }
   evidence?: ContextReceiptEvent['evidence']
   warnings?: ContextReceiptEvent['warnings']
+  world_state?: ContextReceiptEvent['world_state']
+  message_id?: number | string
+  assistant_message_id?: number | string
+  run_rollout?: Record<string, unknown>
+  turn_interrupted?: Record<string, unknown>
+  phase_error?: Record<string, unknown>
+  delivery_failed?: boolean
 }
 
 /** Validate the minimum envelope before application code reads an SSE frame. */
@@ -160,6 +167,7 @@ export function toContextReceiptEvent(event: ChatStreamEvent): ContextReceiptEve
     memory: event.memory,
     skill: event.skill,
     evidence: event.evidence,
+    world_state: event.world_state,
     warnings: event.warnings,
   }
 }

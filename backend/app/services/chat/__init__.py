@@ -77,11 +77,18 @@ def _safe_list(value: Any) -> list:
     return value if isinstance(value, list) else []
 
 
-def _attach_turn_revision(metadata: dict, runtime: ChatRuntime) -> None:
+def _attach_turn_audit_metadata(metadata: dict, runtime: ChatRuntime) -> None:
     prepare_metrics = getattr(runtime, "prepare_metrics", None)
-    revision = prepare_metrics.get("turn_revision") if isinstance(prepare_metrics, dict) else None
-    if isinstance(revision, dict) and revision:
-        metadata["turn_revision"] = dict(revision)
+    if not isinstance(prepare_metrics, dict):
+        return
+    for audit_key in (
+        "turn_revision",
+        "turn_recovery",
+        "project_world_state_change",
+    ):
+        audit_value = prepare_metrics.get(audit_key)
+        if isinstance(audit_value, dict) and audit_value:
+            metadata[audit_key] = dict(audit_value)
 
 
 def _last_step_retryable(state: ChatSessionState) -> bool:
@@ -228,7 +235,7 @@ def _persist_interrupted_turn(
             error_message=reason,
         ),
     }
-    _attach_turn_revision(metadata, runtime)
+    _attach_turn_audit_metadata(metadata, runtime)
     if state.turn_receipt:
         metadata["turn_receipt"] = dict(state.turn_receipt)
     if state.context_receipt:
@@ -329,7 +336,7 @@ def _persist_phase_error_events(
             error_message=str(exc),
         ),
     }
-    _attach_turn_revision(metadata, runtime)
+    _attach_turn_audit_metadata(metadata, runtime)
     resolved_evidence, references = resolve_runtime_knowledge_evidence(
         runtime,
         full_text,

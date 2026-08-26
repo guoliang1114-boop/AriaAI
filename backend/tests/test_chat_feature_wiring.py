@@ -27,6 +27,9 @@ class ChatRouterWiringTestCase(unittest.TestCase):
         self.assertIn("/chat/mentionables", paths)
         self.assertIn("/chat/models", paths)
         self.assertIn("/chat/plan", paths)
+        self.assertIn("/chat/messages/{message_id}/feedback", paths)
+        self.assertIn("/chat/projects/{project_id}/interaction-metrics", paths)
+        self.assertIn("/chat/conversations/{conversation_id}/recovery-preview", paths)
 
 
 class ChatSchemaTestCase(unittest.TestCase):
@@ -66,6 +69,24 @@ class ChatSchemaTestCase(unittest.TestCase):
 
         self.assertEqual(req.turn_revision.source_message_id, 91)
         self.assertEqual(req.turn_revision.changed_fields, ["goal", "constraints", "skill"])
+
+    def test_send_message_accepts_turn_setup_and_recovery_contracts(self):
+        req = SendMessageRequest(
+            content="继续未完成部分",
+            project_id=27,
+            turn_setup_trace={"outcome": "applied", "template_id": "risk_review"},
+            turn_recovery={
+                "source_run_id": "run_abc123",
+                "source_message_id": 91,
+                "strategy": "continue_as_new_turn",
+                "completed_steps": [1],
+                "side_effects_possible": True,
+            },
+        )
+
+        self.assertEqual(req.turn_setup_trace.outcome, "applied")
+        self.assertEqual(req.turn_recovery.source_run_id, "run_abc123")
+        self.assertTrue(req.turn_recovery.side_effects_possible)
 
 
 class BackgroundChatStatusSchemaTestCase(unittest.TestCase):

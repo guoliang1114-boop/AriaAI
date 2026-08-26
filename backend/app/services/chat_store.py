@@ -195,6 +195,8 @@ def build_message_metadata(
     mention_context: Optional[dict] = None,
     turn_brief: Optional[dict] = None,
     turn_revision: Optional[dict] = None,
+    turn_setup_trace: Optional[dict] = None,
+    turn_recovery: Optional[dict] = None,
 ) -> dict:
     metadata = {}
     if skill_id:
@@ -242,6 +244,47 @@ def build_message_metadata(
                 "source_fingerprint": source_fingerprint,
                 "source_role": source_role,
                 "changed_fields": changed_fields,
+            }
+    if turn_setup_trace:
+        outcome = str(turn_setup_trace.get("outcome") or "").strip().lower()
+        template_id = re.sub(
+            r"[^a-z0-9_-]",
+            "",
+            str(turn_setup_trace.get("template_id") or "").strip().lower(),
+        )[:40]
+        skill_id = turn_setup_trace.get("skill_id")
+        if outcome in {"applied", "dismissed"}:
+            metadata["turn_setup_trace"] = {
+                "schema_version": 1,
+                "outcome": outcome,
+                "template_id": template_id or None,
+                "skill_id": skill_id if isinstance(skill_id, int) and skill_id > 0 else None,
+            }
+    if turn_recovery:
+        source_run_id = str(turn_recovery.get("source_run_id") or "").strip()
+        source_message_id = turn_recovery.get("source_message_id")
+        strategy = str(turn_recovery.get("strategy") or "").strip()
+        completed_steps: list[int] = []
+        for item in list(turn_recovery.get("completed_steps") or [])[:32]:
+            if isinstance(item, int) and not isinstance(item, bool) and item >= 0 and item not in completed_steps:
+                completed_steps.append(item)
+        if (
+            re.fullmatch(r"run_[A-Za-z0-9_-]{1,76}", source_run_id)
+            and isinstance(source_message_id, int)
+            and source_message_id > 0
+            and strategy in {
+                "resume_from_checkpoint",
+                "retry_failed_step",
+                "continue_as_new_turn",
+            }
+        ):
+            metadata["turn_recovery"] = {
+                "schema_version": 1,
+                "source_run_id": source_run_id,
+                "source_message_id": source_message_id,
+                "strategy": strategy,
+                "completed_steps": completed_steps,
+                "side_effects_possible": bool(turn_recovery.get("side_effects_possible", False)),
             }
     return metadata
 

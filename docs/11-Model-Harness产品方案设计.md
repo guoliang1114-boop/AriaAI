@@ -496,6 +496,9 @@ Model Layer（外部推理服务）
 - 预算超限以 `TURN_BUDGET_EXCEEDED` 失败终态收口，保存部分结果和预算快照，不自动重放可能已有副作用的工具。
 - 在持久化与成功终态之间运行确定性完成证据裁决；只有交付物、工具、策略、审批、Step 与输出完整性检查通过，Run 才能进入 `completed`。
 - 将版本化 `run_evaluation` 保存到 Assistant Message 与 Run Rollout；失败时发送 `RUN_EVALUATION_FAILED`，不再同时发送成功终态。
+- 对停止、失败或异常中断的 Run 提供服务端重建的 `recovery-preview`；恢复必须创建新的审计 Turn，保留已完成 checkpoint，并在可能已有副作用时先核对当前项目状态，禁止由前端声明或盲目重放写入。
+- 为项目对话维护不含业务正文的 `Project World State Manifest v1`：实体 ID、分类计数和 SHA-256 状态指纹随 Turn 保存；Context Receipt 展示状态版本与分类级变化，模型只接收变化数量和防陈旧状态约束。
+- 收集可覆盖的结构化交互反馈（有帮助/没帮助及最多三个原因），不保存自由文本、反馈者身份或额外消息正文副本；聚合指标用于评估 Skill、上下文和行动选择。
 
 设计原则：
 
@@ -885,7 +888,7 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 目标：降低扩展新工具、新 Skill、新交付物的成本。
 
-当前进展（2026-08-25）：前八批已经落地。第一批统一 `ToolExecutionRecord v1`（版本、调用 ID、status、outcome、终态、摘要、错误、重试与耗时），Rollout、Evaluation、Persist 和前端 Store 共用该契约；原始工具输入/输出不进入长期台账，超限时保留最近记录并显式报告省略数。第二批统一 `ToolCapabilityManifest v1`：17 个现有工具的权限、副作用、并行、重试、项目作用域、结果类型、展示名和 Product Run Event 进入一个注册事实源，未知工具失败关闭，Artifact Ready 事件保留来源工具。第三批统一 `Context Assembly Manifest v1`：Skill、项目/客户、RAG、工作记忆、工具历史、意图与 Turn Contract、用户偏好、会话历史和工具目录拥有稳定来源身份，最终 Provider 请求与预算清单绑定，Trace、Rollout、Evaluation 共享同一份无原文 Manifest。第四批统一 `RunOutputRecord v1`：Artifact 必须在 `UPLOADS_DIR` 内真实存在并通过项目文件证据、实际字节数与 SHA-256 校验后，才可进入 `GeneratedFile`、`artifact_ready` 和完成裁决；Memory Candidate 使用独立表、来源消息/Run、权限边界和 `pending → accepted/rejected` 裁决，接受后保留为重建不可覆盖的正式记忆锚点。第五批统一 `KnowledgeEvidenceManifest v1`：RAG 原文只进入 Provider 上下文，消息、Trace 与 Artifact 仅保存来源元数据、稳定 `K*` 引用键和内容摘要；最终回答只展示实际回指的合法来源，跨项目显式文档 ID 在检索前按成员范围过滤。第六批把知识 ingestion 改造为数据库持久化任务：用幂等键、lease、心跳时间、可恢复 checkpoint、语义失败分类和有界退避统一后台恢复，API 与前端只展示安全状态，不泄露原文、路径或 job payload。第七批建立历史知识受控迁移：预检库内元数据与文件内容摘要，用 plan fingerprint 锁定执行基线，通过持久映射、无损复制、重复内容复用和逐文档 checkpoint 进行批次切换，同时收紧旧管理 API 的项目/客户权限。第八批统一 `Project Memory Evidence Manifest v1`：用问题切面和槽位预算只向 Provider 注入当轮相关的项目记忆，为每条内容分配稳定 `M*` 引用；消息、Context Receipt、Trace 和 Evaluation 仅保存无正文的选择元数据与内容摘要，非法回指不会进入用户可见引用。
+当前进展（2026-08-26）：前九批已经落地。第一批统一 `ToolExecutionRecord v1`（版本、调用 ID、status、outcome、终态、摘要、错误、重试与耗时），Rollout、Evaluation、Persist 和前端 Store 共用该契约；原始工具输入/输出不进入长期台账，超限时保留最近记录并显式报告省略数。第二批统一 `ToolCapabilityManifest v1`：17 个现有工具的权限、副作用、并行、重试、项目作用域、结果类型、展示名和 Product Run Event 进入一个注册事实源，未知工具失败关闭，Artifact Ready 事件保留来源工具。第三批统一 `Context Assembly Manifest v1`：Skill、项目/客户、RAG、工作记忆、工具历史、意图与 Turn Contract、用户偏好、会话历史和工具目录拥有稳定来源身份，最终 Provider 请求与预算清单绑定，Trace、Rollout、Evaluation 共享同一份无原文 Manifest。第四批统一 `RunOutputRecord v1`：Artifact 必须在 `UPLOADS_DIR` 内真实存在并通过项目文件证据、实际字节数与 SHA-256 校验后，才可进入 `GeneratedFile`、`artifact_ready` 和完成裁决；Memory Candidate 使用独立表、来源消息/Run、权限边界和 `pending → accepted/rejected` 裁决，接受后保留为重建不可覆盖的正式记忆锚点。第五批统一 `KnowledgeEvidenceManifest v1`：RAG 原文只进入 Provider 上下文，消息、Trace 与 Artifact 仅保存来源元数据、稳定 `K*` 引用键和内容摘要；最终回答只展示实际回指的合法来源，跨项目显式文档 ID 在检索前按成员范围过滤。第六批把知识 ingestion 改造为数据库持久化任务：用幂等键、lease、心跳时间、可恢复 checkpoint、语义失败分类和有界退避统一后台恢复，API 与前端只展示安全状态，不泄露原文、路径或 job payload。第七批建立历史知识受控迁移：预检库内元数据与文件内容摘要，用 plan fingerprint 锁定执行基线，通过持久映射、无损复制、重复内容复用和逐文档 checkpoint 进行批次切换，同时收紧旧管理 API 的项目/客户权限。第八批统一 `Project Memory Evidence Manifest v1`：用问题切面和槽位预算只向 Provider 注入当轮相关的项目记忆，为每条内容分配稳定 `M*` 引用；消息、Context Receipt、Trace 和 Evaluation 仅保存无正文的选择元数据与内容摘要，非法回指不会进入用户可见引用。第九批补齐真实使用闭环与连续性：Assistant Message 支持匿名分类反馈及项目级质量聚合，配置建议记录采用/关闭结果；中断 Run 可由服务器基于持久 Rollout 生成安全恢复合同并一键新建续跑 Turn；项目实体状态通过 hash-only World State 形成每轮版本与分类变更摘要。该批复用 Aria 已移植并注明来源的 Codex Rollout/重建机制，没有引入 Codex 进程、协议、SDK 或数据库迁移。
 
 范围：
 

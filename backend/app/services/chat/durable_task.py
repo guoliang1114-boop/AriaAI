@@ -120,6 +120,14 @@ def _attach_turn_contract_metadata(metadata: dict, runtime: ChatRuntime) -> dict
     turn_revision = prepare_metrics.get("turn_revision") if isinstance(prepare_metrics, dict) else None
     if isinstance(turn_revision, dict) and turn_revision:
         metadata["turn_revision"] = dict(turn_revision)
+    if isinstance(prepare_metrics, dict):
+        for audit_key in (
+            "turn_recovery",
+            "project_world_state_change",
+        ):
+            audit_value = prepare_metrics.get(audit_key)
+            if isinstance(audit_value, dict) and audit_value:
+                metadata[audit_key] = dict(audit_value)
     return metadata
 
 

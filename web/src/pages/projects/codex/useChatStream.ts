@@ -9,7 +9,9 @@ import type {
   MentionContext,
   Reference,
   TurnBriefInput,
+  TurnRecoveryInput,
   TurnRevisionInput,
+  TurnSetupTraceInput,
 } from '../../../types/api'
 import { normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../types/productRunEvent'
@@ -60,6 +62,8 @@ export interface ProjectChatTurnControl {
   mentionContext?: MentionContext
   turnBrief?: TurnBriefInput
   turnRevision?: TurnRevisionInput
+  turnSetupTrace?: TurnSetupTraceInput
+  turnRecovery?: TurnRecoveryInput
 }
 
 interface UseChatStreamArgs {
@@ -181,6 +185,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
 
   const finishStoppedStream = useCallback(() => {
     const partial = accumulatedRef.current
+    const interruptedRunId = activeRunIdRef.current
     if (conversationId != null) {
       const assistantMsg: Message = {
         id: assistantDraftIdRef.current,
@@ -192,6 +197,9 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         metadata_json: JSON.stringify({
           stopped: true,
           turn_interrupted: { reason: 'user_interrupted' },
+          ...(interruptedRunId
+            ? { run_rollout: { run_id: interruptedRunId, status: 'cancelled' } }
+            : {}),
         }),
         created_at: new Date().toISOString(),
       }
@@ -239,6 +247,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           ...(turnControl.mentionContext ? { mention_context: turnControl.mentionContext } : {}),
           ...(turnControl.turnBrief ? { turn_brief: turnControl.turnBrief } : {}),
           ...(turnControl.turnRevision ? { turn_revision: turnControl.turnRevision } : {}),
+          ...(turnControl.turnSetupTrace ? { turn_setup_trace: turnControl.turnSetupTrace } : {}),
+          ...(turnControl.turnRecovery ? { turn_recovery: turnControl.turnRecovery } : {}),
         }),
         created_at: new Date().toISOString(),
       }
@@ -265,6 +275,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
             mention_context: turnControl.mentionContext,
             turn_brief: turnControl.turnBrief,
             turn_revision: turnControl.turnRevision,
+            turn_setup_trace: turnControl.turnSetupTrace,
+            turn_recovery: turnControl.turnRecovery,
           }),
           signal: controller.signal,
         })
@@ -298,6 +310,11 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       let finalToolCalls: unknown[] = []
       let finalSkillProgress: unknown[] = []
       let finalStageTimings: Record<string, number> | undefined
+      let finalMessageId = assistantDraftIdRef.current
+      let finalRunRollout: Record<string, unknown> | undefined
+      let finalTurnInterrupted: Record<string, unknown> | undefined
+      let finalPhaseError: Record<string, unknown> | undefined
+      let finalDeliveryFailed = false
       let done = false
       let streamErr: string | null = null
 
@@ -318,6 +335,9 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           setContextReceipt(receipt)
         } else if (ev.type === 'steering_applied' && ev.content_preview) {
           setStatusMessage(`已应用追加要求：${ev.content_preview}`)
+        } else if (ev.type === 'message_persisted' && ev.message_id != null) {
+          const persistedId = Number(ev.message_id)
+          if (Number.isInteger(persistedId) && persistedId > 0) finalMessageId = persistedId
         } else if ((ev.type === 'text' || ev.type === 'chunk') && ev.content) {
           accumulatedRef.current += ev.content
           setStreamingContent(accumulatedRef.current)
@@ -363,6 +383,15 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           finalToolCalls = ev.tool_calls || []
           finalSkillProgress = ev.skill_progress || []
           finalStageTimings = ev.stage_timings
+          finalRunRollout = ev.run_rollout
+          finalTurnInterrupted = ev.turn_interrupted
+          finalPhaseError = ev.phase_error
+          finalDeliveryFailed = Boolean(ev.delivery_failed)
+          const doneMessageId = ev.message_id ?? ev.assistant_message_id
+          if (doneMessageId != null) {
+            const persistedId = Number(doneMessageId)
+            if (Number.isInteger(persistedId) && persistedId > 0) finalMessageId = persistedId
+          }
         } else if (ev.type === 'error') {
           streamErr = ev.message || ev.error || 'AI 生成过程中断，请稍后重试。'
         }
@@ -445,9 +474,17 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           tool_calls: finalToolCalls,
           skill_progress: finalSkillProgress,
           stage_timings: finalStageTimings,
+          run_rollout: finalRunRollout,
+          turn_interrupted: finalTurnInterrupted,
+          phase_error: finalPhaseError,
+          delivery_failed: finalDeliveryFailed || undefined,
+          persisted_message_id: finalMessageId !== assistantDraftIdRef.current
+            ? finalMessageId
+            : undefined,
           turn_receipt: turnReceiptRef.current || undefined,
           context_receipt: contextReceiptRef.current || undefined,
           turn_revision: turnControl.turnRevision,
+          turn_recovery: turnControl.turnRecovery,
         }),
         created_at: new Date().toISOString(),
       }

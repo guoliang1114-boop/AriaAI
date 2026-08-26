@@ -86,3 +86,32 @@ def test_build_context_receipt_reports_ambiguous_skill_candidates_without_prompt
     ]
     assert "skill_match_ambiguous" in event["warnings"]
     assert "system_prompt" not in str(event)
+
+
+def test_build_context_receipt_reports_project_state_version_and_change():
+    runtime = _runtime()
+    runtime.prepare_metrics.update(
+        {
+            "project_world_state": {
+                "version": "abcdef123456",
+                "truncated": False,
+            },
+            "project_world_state_change": {
+                "schema_version": 1,
+                "baseline": False,
+                "changed": True,
+                "previous_version": "123456abcdef",
+                "current_version": "abcdef123456",
+                "changed_categories": ["todos"],
+                "categories": {
+                    "todos": {"added": 1, "removed": 0, "updated": 0, "current_count": 4}
+                },
+            },
+        }
+    )
+
+    event = build_context_receipt("run_world_state", runtime)
+
+    assert event["world_state"]["changed"] is True
+    assert event["world_state"]["changed_categories"] == ["todos"]
+    assert "project_world_state_changed" in event["warnings"]

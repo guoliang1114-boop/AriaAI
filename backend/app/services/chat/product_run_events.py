@@ -200,6 +200,21 @@ _CONTEXT_WARNING_CODES = frozenset(
         "memory_retrieval_truncated",
         "skill_match_ambiguous",
         "context_compacted",
+        "project_world_state_changed",
+        "project_world_state_truncated",
+    }
+)
+
+_PROJECT_WORLD_STATE_CATEGORIES = frozenset(
+    {
+        "project",
+        "milestones",
+        "todos",
+        "files",
+        "progress",
+        "financials",
+        "stakeholders",
+        "deliverables",
     }
 )
 
@@ -340,6 +355,7 @@ def context_receipt(
     skill: dict,
     evidence: dict,
     project: dict | None = None,
+    world_state: dict | None = None,
     warnings: Iterable[str] = (),
 ) -> dict:
     """Privacy-safe receipt of the evidence and Skill used for this turn."""
@@ -470,6 +486,54 @@ def context_receipt(
                 "id": str(project_id)[:80],
                 "name": project_name[:160],
             }
+    if world_state is not None:
+        current_version = str(world_state.get("current_version") or "").lower()
+        previous_version = str(world_state.get("previous_version") or "").lower()
+        if (
+            len(current_version) != 12
+            or any(char not in "0123456789abcdef" for char in current_version)
+            or (
+                previous_version
+                and (
+                    len(previous_version) != 12
+                    or any(char not in "0123456789abcdef" for char in previous_version)
+                )
+            )
+        ):
+            raise ValueError("context_receipt.world_state.version is invalid")
+        changed_categories = []
+        normalized_changes: dict[str, dict[str, int]] = {}
+        raw_changes = world_state.get("categories")
+        raw_changes = raw_changes if isinstance(raw_changes, dict) else {}
+        for category in list(world_state.get("changed_categories") or [])[:8]:
+            normalized_category = _require_in(
+                str(category),
+                _PROJECT_WORLD_STATE_CATEGORIES,
+                "context_receipt.world_state.category",
+            )
+            if normalized_category in changed_categories:
+                continue
+            changed_categories.append(normalized_category)
+            raw_counts = raw_changes.get(normalized_category)
+            raw_counts = raw_counts if isinstance(raw_counts, dict) else {}
+            counts: dict[str, int] = {}
+            for key in ("added", "removed", "updated", "current_count"):
+                try:
+                    counts[key] = max(0, int(raw_counts.get(key) or 0))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"context_receipt.world_state.{normalized_category}.{key} is invalid"
+                    ) from exc
+            normalized_changes[normalized_category] = counts
+        event["world_state"] = {
+            "current_version": current_version,
+            "previous_version": previous_version or None,
+            "baseline": bool(world_state.get("baseline", False)),
+            "changed": bool(world_state.get("changed", False)),
+            "changed_categories": changed_categories,
+            "categories": normalized_changes,
+            "truncated": bool(world_state.get("truncated", False)),
+        }
     return event
 
 

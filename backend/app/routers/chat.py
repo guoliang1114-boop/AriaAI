@@ -13,6 +13,7 @@ from app.routers.chat_conversations import router as conversations_router
 from app.routers.chat_diagnostics import router as diagnostics_router
 from app.routers.chat_async import router as async_router
 from app.routers.chat_export import router as export_router
+from app.routers.chat_feedback import router as feedback_router
 from app.routers.chat_mentions import router as mentions_router
 from app.routers.chat_models import router as models_router
 from app.routers.chat_plan import router as plan_router
@@ -41,6 +42,7 @@ logger = logging.getLogger(__name__)
 router.include_router(conversations_router)
 router.include_router(diagnostics_router)
 router.include_router(export_router)
+router.include_router(feedback_router)
 router.include_router(models_router)
 router.include_router(async_router)
 router.include_router(plan_router)

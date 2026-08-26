@@ -1,8 +1,13 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { Message } from '../../../types/api'
 import type { ContextReceiptEvent } from '../../../types/productRunEvent'
 import { ProjectChatMessage } from './ChatMessage'
+import { api } from '../../../api/client'
+
+vi.mock('../../../api/client', () => ({
+  api: { post: vi.fn() },
+}))
 
 vi.mock('../../../contexts/ToastContext', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }),
@@ -179,5 +184,76 @@ describe('ProjectChatMessage', () => {
     expect(screen.getByLabelText('本轮修订效果归因')).toHaveTextContent('已调整 目标 / 约束')
     fireEvent.click(screen.getByRole('button', { name: '定位修订来源消息' }))
     expect(onTurnRevisionSourceOpen).toHaveBeenCalledWith(14, 'turn-1a2b3c4d')
+  })
+
+  it('turns an interrupted rollout into a safe one-click continuation', async () => {
+    const onTurnRecovery = vi.fn().mockResolvedValue(undefined)
+    const message: Message = {
+      id: 16,
+      conversation_id: 4,
+      role: 'assistant',
+      content: '本轮在第二步中断。',
+      metadata_json: JSON.stringify({
+        turn_interrupted: { reason: 'user_interrupted' },
+        run_rollout: { run_id: 'run_interrupted', status: 'cancelled' },
+      }),
+      created_at: '2026-08-25T00:00:00Z',
+    }
+
+    render(
+      <ProjectChatMessage
+        message={message}
+        projectId={3}
+        onTurnRecovery={onTurnRecovery}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '从中断状态安全继续' }))
+
+    await waitFor(() => {
+      expect(onTurnRecovery).toHaveBeenCalledWith('run_interrupted', 16)
+    })
+  })
+
+  it('stores categorical feedback without a free-text field', async () => {
+    vi.mocked(api.post)
+      .mockResolvedValueOnce({
+        feedback: {
+          schema_version: 1,
+          rating: 'unhelpful',
+          reasons: [],
+          updated_at: '2026-08-25T00:00:00Z',
+        },
+      })
+      .mockResolvedValueOnce({
+        feedback: {
+          schema_version: 1,
+          rating: 'unhelpful',
+          reasons: ['missing_context'],
+          updated_at: '2026-08-25T00:00:01Z',
+        },
+      })
+    const message: Message = {
+      id: 17,
+      conversation_id: 4,
+      role: 'assistant',
+      content: '分析结果。',
+      metadata_json: '{}',
+      created_at: '2026-08-25T00:00:00Z',
+    }
+
+    render(<ProjectChatMessage message={message} projectId={3} />)
+    fireEvent.click(screen.getByRole('button', { name: '没帮助' }))
+    await screen.findByLabelText('没帮助的原因')
+    fireEvent.click(screen.getByRole('button', { name: '缺少上下文' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenLastCalledWith('/chat/messages/17/feedback', {
+        rating: 'unhelpful',
+        reasons: ['missing_context'],
+      })
+    })
+    const [, body] = vi.mocked(api.post).mock.calls.at(-1) || []
+    expect(body).not.toHaveProperty('content')
+    expect(body).not.toHaveProperty('comment')
   })
 })

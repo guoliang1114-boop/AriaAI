@@ -6,6 +6,9 @@ import type {
   GeneratedArtifact,
   MemoryCandidateCreateResponse,
   Message,
+  MessageFeedback,
+  MessageFeedbackRating,
+  MessageFeedbackReason,
   Reference,
 } from '../../../types/api'
 import type { ContextReceiptEvent } from '../../../types/productRunEvent'
@@ -56,11 +59,17 @@ interface ParsedMeta {
   contextReceipt: ContextReceiptEvent | null
   turn: ParsedProjectTurnMetadata | undefined
   revision: ParsedProjectTurnRevision | undefined
+  feedback: MessageFeedback | null
+  rollout: { run_id: string; status: string } | null
+  interrupted: boolean
+  locallyStopped: boolean
+  persistedMessageId: number | null
 }
 
 function parseMeta(raw: string | undefined): ParsedMeta {
   const empty: ParsedMeta = {
     references: [], artifacts: [], progress: [], contextReceipt: null, turn: undefined, revision: undefined,
+    feedback: null, rollout: null, interrupted: false, locallyStopped: false, persistedMessageId: null,
   }
   if (!raw) return empty
   try {
@@ -71,6 +80,32 @@ function parseMeta(raw: string | undefined): ParsedMeta {
     const receipt = meta.context_receipt && typeof meta.context_receipt === 'object'
       ? (meta.context_receipt as ContextReceiptEvent)
       : null
+    const rawFeedback = meta.interaction_feedback && typeof meta.interaction_feedback === 'object'
+      ? meta.interaction_feedback as Record<string, unknown>
+      : null
+    const feedbackRating = rawFeedback?.rating
+    const feedback = rawFeedback?.schema_version === 1
+      && (feedbackRating === 'helpful' || feedbackRating === 'unhelpful')
+      ? {
+        schema_version: 1 as const,
+        rating: feedbackRating as MessageFeedbackRating,
+        reasons: Array.isArray(rawFeedback.reasons)
+          ? rawFeedback.reasons.filter(
+            (reason): reason is MessageFeedbackReason => typeof reason === 'string'
+              && Object.prototype.hasOwnProperty.call(FEEDBACK_REASON_LABELS, reason),
+          ).slice(0, 3)
+          : [],
+        updated_at: String(rawFeedback.updated_at || ''),
+      }
+      : null
+    const rawRollout = meta.run_rollout && typeof meta.run_rollout === 'object'
+      ? meta.run_rollout as Record<string, unknown>
+      : null
+    const rollout = rawRollout
+      && typeof rawRollout.run_id === 'string'
+      && /^run_[A-Za-z0-9_-]{1,76}$/u.test(rawRollout.run_id)
+      ? { run_id: rawRollout.run_id, status: String(rawRollout.status || '') }
+      : null
     return {
       references: refs,
       artifacts: arts,
@@ -78,6 +113,19 @@ function parseMeta(raw: string | undefined): ParsedMeta {
       contextReceipt: receipt,
       turn: parseProjectTurnMetadata(meta),
       revision: parseProjectTurnRevision(meta),
+      feedback,
+      rollout,
+      interrupted: Boolean(
+        meta.turn_interrupted
+        || meta.phase_error
+        || meta.stopped
+        || (rollout && ['cancelled', 'failed', 'interrupted'].includes(rollout.status)),
+      ),
+      locallyStopped: Boolean(meta.stopped),
+      persistedMessageId: Number.isInteger(Number(meta.persisted_message_id))
+        && Number(meta.persisted_message_id) > 0
+        ? Number(meta.persisted_message_id)
+        : null,
     }
   } catch {
     return empty
@@ -98,6 +146,7 @@ interface MessageBubbleProps {
   onSkillSelect?: (skillId: number, name: string) => void
   onTurnBriefReuse?: (payload: ProjectTurnReusePayload) => void
   onTurnRevisionSourceOpen?: (sourceMessageId: number, sourceFingerprint: string) => void
+  onTurnRecovery?: (sourceRunId: string, sourceMessageId?: number) => Promise<void>
 }
 
 export function ProjectChatMessage({
@@ -109,6 +158,7 @@ export function ProjectChatMessage({
   onSkillSelect,
   onTurnBriefReuse,
   onTurnRevisionSourceOpen,
+  onTurnRecovery,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const meta = useMemo(() => parseMeta(message.metadata_json), [message.metadata_json])
@@ -244,6 +294,15 @@ export function ProjectChatMessage({
                 onSourceOpen={onTurnRevisionSourceOpen}
               />
             )}
+            {!isStreaming && meta.interrupted && meta.rollout && onTurnRecovery && (
+              <InterruptedTurnRecovery
+                runId={meta.rollout.run_id}
+                sourceMessageId={meta.locallyStopped
+                  ? undefined
+                  : meta.persistedMessageId || message.id}
+                onContinue={onTurnRecovery}
+              />
+            )}
             {!isStreaming && meta.contextReceipt && (
               <PersistentContextReceipt
                 receipt={meta.contextReceipt}
@@ -254,13 +313,74 @@ export function ProjectChatMessage({
             {!isStreaming && (
               <AriaActionChips
                 content={message.content}
-                messageId={message.id}
+                messageId={meta.persistedMessageId || message.id}
                 projectId={projectId}
+                initialFeedback={meta.feedback}
+                persistedActions={!meta.locallyStopped}
               />
             )}
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+function InterruptedTurnRecovery({
+  runId,
+  sourceMessageId,
+  onContinue,
+}: {
+  runId: string
+  sourceMessageId?: number
+  onContinue: (sourceRunId: string, sourceMessageId?: number) => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+  const continueTurn = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await onContinue(runId, sourceMessageId)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div
+      aria-label="中断轮次恢复"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 9,
+        padding: '8px 10px',
+        color: 'var(--ink-soft)',
+        background: 'color-mix(in oklch, var(--warn) 10%, var(--bg-tint))',
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-sm)',
+        fontSize: 11,
+      }}
+    >
+      <span style={{ color: 'var(--warn)', fontWeight: 600 }}>本轮未完成</span>
+      <span>Aria 会核对当前项目状态，保留已完成结果，避免重复写入。</span>
+      <button
+        type="button"
+        aria-label="从中断状态安全继续"
+        onClick={() => { void continueTurn() }}
+        disabled={busy}
+        style={{
+          marginLeft: 'auto',
+          padding: '4px 9px',
+          color: 'var(--bg-elev)',
+          background: 'var(--accent)',
+          borderRadius: 'var(--r-sm)',
+          fontSize: 11,
+          opacity: busy ? 0.65 : 1,
+        }}
+      >
+        {busy ? '正在恢复…' : '安全继续'}
+      </button>
     </div>
   )
 }
@@ -431,10 +551,13 @@ function PersistentContextReceipt({
   const retrievalLabel = receipt.memory.selected_item_count > 0
     ? ` · ${receipt.memory.retrieval_mode === 'full' ? '全量' : '按问题'}召回 ${receipt.memory.selected_item_count} 条记忆`
     : ''
+  const worldStateLabel = receipt.world_state
+    ? ` · 项目状态 ${receipt.world_state.current_version}${receipt.world_state.changed ? ' 有变化' : ''}`
+    : ''
   return (
     <details style={{ marginTop: 8, fontSize: 11.5, color: 'var(--ink-mute)' }}>
       <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
-        本轮依据 · {memoryLabel}{retrievalLabel} · {skillLabel}
+        本轮依据 · {memoryLabel}{retrievalLabel}{worldStateLabel} · {skillLabel}
       </summary>
       <div style={{ marginTop: 4, paddingLeft: 14 }}>
         {evidenceCount > 0 ? `${evidenceCount} 项文件/知识证据` : '未附加文件或知识证据'}
@@ -442,6 +565,14 @@ function PersistentContextReceipt({
           ? ` · ${receipt.evidence.history_message_count} 条近期对话`
           : ''}
       </div>
+      {receipt.world_state?.changed && (
+        <div style={{ marginTop: 4, paddingLeft: 14, color: 'var(--warn)' }}>
+          项目状态变更 · {receipt.world_state.changed_categories.map((category) => {
+            const counts = receipt.world_state?.categories[category]
+            return `${PROJECT_WORLD_STATE_LABELS[category] || category} +${counts?.added || 0} / -${counts?.removed || 0} / 更新 ${counts?.updated || 0}`
+          }).join(' · ')}
+        </div>
+      )}
       {receipt.skill.status === 'ambiguous' && onSkillSelect && (
         <SkillCandidateButtons
           candidates={receipt.skill.candidates || []}
@@ -450,6 +581,17 @@ function PersistentContextReceipt({
       )}
     </details>
   )
+}
+
+const PROJECT_WORLD_STATE_LABELS: Record<string, string> = {
+  project: '项目',
+  milestones: '里程碑',
+  todos: '待办',
+  files: '文件',
+  progress: '进展',
+  financials: '财务',
+  stakeholders: '干系人',
+  deliverables: '交付物',
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -751,14 +893,54 @@ function AriaActionChips({
   content,
   messageId,
   projectId,
+  initialFeedback,
+  persistedActions,
 }: {
   content: string
   messageId: number
   projectId: number
+  initialFeedback: MessageFeedback | null
+  persistedActions: boolean
 }) {
   const toast = useToast()
   const [copying, setCopying] = useState(false)
   const [memBusy, setMemBusy] = useState(false)
+  const [feedback, setFeedback] = useState<MessageFeedback | null>(initialFeedback)
+  const [feedbackBusy, setFeedbackBusy] = useState(false)
+  const [showReasons, setShowReasons] = useState(
+    initialFeedback?.rating === 'unhelpful' && initialFeedback.reasons.length === 0,
+  )
+
+  const saveFeedback = async (
+    rating: MessageFeedbackRating,
+    reasons: MessageFeedbackReason[] = [],
+  ) => {
+    if (feedbackBusy) return
+    setFeedbackBusy(true)
+    try {
+      const response = await api.post<{ feedback: MessageFeedback }>(
+        `/chat/messages/${messageId}/feedback`,
+        { rating, reasons },
+      )
+      setFeedback(response.feedback)
+      setShowReasons(response.feedback.rating === 'unhelpful')
+    } catch (err) {
+      toast.error({
+        title: '反馈未保存',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      })
+    } finally {
+      setFeedbackBusy(false)
+    }
+  }
+
+  const toggleFeedbackReason = (reason: MessageFeedbackReason) => {
+    const current = feedback?.rating === 'unhelpful' ? feedback.reasons : []
+    const reasons = current.includes(reason)
+      ? current.filter((item) => item !== reason)
+      : [...current, reason].slice(0, 3)
+    void saveFeedback('unhelpful', reasons)
+  }
 
   const copy = async () => {
     if (copying) return
@@ -809,7 +991,7 @@ function AriaActionChips({
 
   return (
     <div
-      className="opacity-0 group-hover:opacity-100"
+      className={feedback || showReasons ? '' : 'opacity-0 group-hover:opacity-100'}
       style={{
         display: 'flex',
         gap: 6,
@@ -821,12 +1003,66 @@ function AriaActionChips({
       <Chip onClick={copy} disabled={copying}>
         {copying ? '复制中…' : '复制'}
       </Chip>
-      <Chip onClick={sinkToMemory} disabled={memBusy} tone="accent">
-        <CxIcon name="sparkle" size={11} stroke={1.6} />
-        {memBusy ? '提交中…' : '提交记忆候选'}
-      </Chip>
+      {persistedActions && (
+        <Chip onClick={sinkToMemory} disabled={memBusy} tone="accent">
+          <CxIcon name="sparkle" size={11} stroke={1.6} />
+          {memBusy ? '提交中…' : '提交记忆候选'}
+        </Chip>
+      )}
+      {persistedActions && (
+        <Chip
+          onClick={() => { void saveFeedback('helpful') }}
+          disabled={feedbackBusy}
+          active={feedback?.rating === 'helpful'}
+        >
+          有帮助
+        </Chip>
+      )}
+      {persistedActions && (
+        <Chip
+          onClick={() => {
+            setShowReasons(true)
+            void saveFeedback('unhelpful', feedback?.rating === 'unhelpful' ? feedback.reasons : [])
+          }}
+          disabled={feedbackBusy}
+          active={feedback?.rating === 'unhelpful'}
+        >
+          没帮助
+        </Chip>
+      )}
+      {persistedActions && showReasons && feedback?.rating === 'unhelpful' && (
+        <div
+          aria-label="没帮助的原因"
+          style={{ display: 'flex', gap: 5, flexWrap: 'wrap', flexBasis: '100%' }}
+        >
+          {(Object.entries(FEEDBACK_REASON_LABELS) as Array<[MessageFeedbackReason, string]>).map(
+            ([reason, label]) => (
+              <Chip
+                key={reason}
+                onClick={() => toggleFeedbackReason(reason)}
+                disabled={feedbackBusy}
+                active={feedback.reasons.includes(reason)}
+              >
+                {label}
+              </Chip>
+            ),
+          )}
+          <span style={{ alignSelf: 'center', fontSize: 10.5, color: 'var(--ink-faint)' }}>
+            仅保存标签，不保存反馈文字
+          </span>
+        </div>
+      )}
     </div>
   )
+}
+
+const FEEDBACK_REASON_LABELS: Record<MessageFeedbackReason, string> = {
+  inaccurate: '事实不准',
+  missing_context: '缺少上下文',
+  wrong_skill: 'Skill 不合适',
+  wrong_action: '行动不对',
+  unclear: '表达不清',
+  incomplete: '结果不完整',
 }
 
 function Chip({
@@ -834,18 +1070,21 @@ function Chip({
   onClick,
   disabled,
   tone,
+  active,
 }: {
   children: React.ReactNode
   onClick: () => void
   disabled?: boolean
   tone?: 'accent'
+  active?: boolean
 }) {
-  const accent = tone === 'accent'
+  const accent = tone === 'accent' || active
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-pressed={active}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

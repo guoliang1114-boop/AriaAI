@@ -1146,6 +1146,11 @@ export interface MessageMetadata {
   }>
   project_id?: number
   truncated?: boolean
+  interaction_feedback?: MessageFeedback
+  turn_setup_trace?: TurnSetupTraceInput & { schema_version?: 1 }
+  turn_recovery?: TurnRecoveryInput & { schema_version?: 1 }
+  project_world_state?: Record<string, unknown>
+  project_world_state_change?: Record<string, unknown>
   /** Product Run Event v1: serialized RunActivityTimeline for the persisted view. */
   activity_timeline?: unknown
   /** V0.0.4 A4: routing decision snapshot (intent_method / intent_reason / chat_mode). */
@@ -1182,6 +1187,50 @@ export interface TurnRevisionInput {
   changed_fields: TurnRevisionField[]
 }
 
+export interface TurnSetupTraceInput {
+  outcome: 'applied' | 'dismissed'
+  template_id?: string
+  skill_id?: number
+}
+
+export type TurnRecoveryStrategy =
+  | 'resume_from_checkpoint'
+  | 'retry_failed_step'
+  | 'continue_as_new_turn'
+
+export interface TurnRecoveryInput {
+  source_run_id: string
+  source_message_id: number
+  strategy: TurnRecoveryStrategy
+  completed_steps: number[]
+  side_effects_possible: boolean
+}
+
+export interface TurnRecoveryPreview extends TurnRecoveryInput {
+  schema_version: 1
+  source_status: string
+  can_continue: boolean
+  completed_tool_call_count: number
+  warning_codes: string[]
+  suggested_content: string
+}
+
+export type MessageFeedbackRating = 'helpful' | 'unhelpful'
+export type MessageFeedbackReason =
+  | 'inaccurate'
+  | 'missing_context'
+  | 'wrong_skill'
+  | 'wrong_action'
+  | 'unclear'
+  | 'incomplete'
+
+export interface MessageFeedback {
+  schema_version: 1
+  rating: MessageFeedbackRating
+  reasons: MessageFeedbackReason[]
+  updated_at: string
+}
+
 export interface TurnSetupSuggestion {
   template?: {
     id: string
@@ -1213,6 +1262,8 @@ export interface SendMessageRequest {
   mention_context?: MentionContext
   turn_brief?: TurnBriefInput
   turn_revision?: TurnRevisionInput
+  turn_setup_trace?: TurnSetupTraceInput
+  turn_recovery?: TurnRecoveryInput
   action_confirmations?: string[]
 }
 

@@ -103,6 +103,19 @@ def build_context_receipt(run_id: str, runtime: Any) -> dict[str, Any]:
     if evidence["compacted"]:
         warnings.append("context_compacted")
 
+    world_state_manifest = _dict(metrics.get("project_world_state"))
+    world_state_change = _dict(metrics.get("project_world_state_change"))
+    world_state = None
+    if world_state_manifest and world_state_change:
+        world_state = {
+            **world_state_change,
+            "truncated": bool(world_state_manifest.get("truncated", False)),
+        }
+        if bool(world_state_change.get("changed", False)):
+            warnings.append("project_world_state_changed")
+        if world_state["truncated"]:
+            warnings.append("project_world_state_truncated")
+
     return context_receipt(
         run_id,
         scope=str(base.get("scope") or "chat"),
@@ -115,5 +128,6 @@ def build_context_receipt(run_id: str, runtime: Any) -> dict[str, Any]:
         },
         skill=skill,
         evidence=evidence,
+        world_state=world_state,
         warnings=warnings,
     )

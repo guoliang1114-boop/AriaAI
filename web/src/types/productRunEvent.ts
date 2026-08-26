@@ -92,7 +92,9 @@ export type ContextWarningCode =
   | "project_memory_stale"
   | "memory_retrieval_truncated"
   | "skill_match_ambiguous"
-  | "context_compacted";
+  | "context_compacted"
+  | "project_world_state_changed"
+  | "project_world_state_truncated";
 
 export interface ContextReceiptEvent {
   type: "context_receipt";
@@ -131,6 +133,29 @@ export interface ContextReceiptEvent {
     conversation_capsule: boolean;
     user_preferences: boolean;
     compacted: boolean;
+  };
+  world_state?: {
+    current_version: string;
+    previous_version: string | null;
+    baseline: boolean;
+    changed: boolean;
+    changed_categories: Array<
+      | "project"
+      | "milestones"
+      | "todos"
+      | "files"
+      | "progress"
+      | "financials"
+      | "stakeholders"
+      | "deliverables"
+    >;
+    categories: Record<string, {
+      added: number;
+      removed: number;
+      updated: number;
+      current_count: number;
+    }>;
+    truncated: boolean;
   };
   warnings: ContextWarningCode[];
 }

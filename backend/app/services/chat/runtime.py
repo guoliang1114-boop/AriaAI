@@ -34,6 +34,14 @@ from app.services.agent_harness.knowledge_evidence import knowledge_evidence_ref
 from app.services.agent_harness.project_memory_evidence import (
     project_memory_evidence_reference,
 )
+from app.services.agent_harness.project_world_state import (
+    build_project_world_state_manifest,
+    compare_project_world_states,
+    format_project_world_state_change_for_prompt,
+    latest_project_world_state,
+)
+from app.services.agent_harness.run_rollout import get_chat_rollout
+from app.services.agent_harness.turn_interrupt import get_active_turn
 from app.services.agent_harness.conversation_capsule import (
     build_conversation_capsule,
     conversation_capsule_reference,
@@ -67,6 +75,10 @@ from app.services.chat_tools import ChatRuntime
 from app.services.chat.intent_contract import build_chat_intent_contract
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, MODE_CONFIG, ToolAccessPolicy
 from app.services.chat.turn_contract import build_turn_contract, format_turn_user_request
+from app.services.chat.turn_recovery import (
+    build_turn_recovery_preview,
+    format_turn_recovery_for_prompt,
+)
 from app.services.chat.working_memory import (
     build_working_memory,
     should_continue_current_artifact,
@@ -244,6 +256,53 @@ def _upgrade_policy_for_confirmed_followup(
             trace={**(intent_decision.trace or {}), "policy_upgrade": "confirmation_followup_after_deletion_plan"},
         )
     return intent_decision
+
+
+def _validated_turn_recovery(
+    session: Session,
+    req: SendMessageRequest,
+    *,
+    conversation_id: int,
+) -> dict:
+    """Rebuild a recovery contract from the server-side rollout.
+
+    Client recovery fields are navigation hints only. The durable rollout is
+    authoritative for completed steps and possible side effects.
+    """
+
+    if req.turn_recovery is None:
+        return {}
+    source_message = session.get(Message, req.turn_recovery.source_message_id)
+    if (
+        source_message is None
+        or source_message.role != "assistant"
+        or source_message.conversation_id != conversation_id
+    ):
+        raise ValueError("Turn recovery source does not belong to this conversation")
+    source_run_id = req.turn_recovery.source_run_id
+    if get_active_turn(source_run_id) is not None:
+        raise ValueError("Turn recovery source is still active")
+    source_metadata = source_message.get_metadata()
+    source_rollout = source_metadata.get("run_rollout")
+    if (
+        not isinstance(source_rollout, dict)
+        or str(source_rollout.get("run_id") or "") != source_run_id
+    ):
+        raise ValueError("Turn recovery source run does not match the selected message")
+    rollout = get_chat_rollout(
+        session,
+        conversation_id,
+        run_id=source_run_id,
+    )
+    if not rollout:
+        raise ValueError("Turn recovery rollout is no longer available")
+    preview = build_turn_recovery_preview(
+        rollout,
+        source_message_id=int(source_message.id or 0),
+    )
+    if not preview.get("can_continue"):
+        raise ValueError("This run has already completed and cannot be recovered")
+    return preview
 
 
 def _upgrade_policy_for_artifact_continuation(
@@ -787,7 +846,16 @@ def prepare_chat_runtime(
     prepare_metrics["conversation_ready_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     conv_id = int(conv.id or 0) if conv is not None else 0
 
-    # 3. Persist user message
+    # 3. Persist user message and its auditable turn inputs.
+    turn_recovery = (
+        _validated_turn_recovery(
+            session,
+            req,
+            conversation_id=conv_id,
+        )
+        if conv_id
+        else {}
+    )
     metadata = build_message_metadata(
         project_id=req.project_id,
         skill_id=effective_skill_id,
@@ -796,9 +864,35 @@ def prepare_chat_runtime(
         mention_context=req.mention_context.model_dump() if req.mention_context else None,
         turn_brief=req.turn_brief.model_dump() if req.turn_brief else None,
         turn_revision=req.turn_revision.model_dump() if req.turn_revision else None,
+        turn_setup_trace=req.turn_setup_trace.model_dump() if req.turn_setup_trace else None,
+        turn_recovery=turn_recovery or None,
     )
     if isinstance(metadata.get("turn_revision"), dict):
         prepare_metrics["turn_revision"] = dict(metadata["turn_revision"])
+    if isinstance(metadata.get("turn_setup_trace"), dict):
+        prepare_metrics["turn_setup_trace"] = dict(metadata["turn_setup_trace"])
+    if isinstance(metadata.get("turn_recovery"), dict):
+        prepare_metrics["turn_recovery"] = dict(metadata["turn_recovery"])
+    if req.project_id and conv_id:
+        previous_world_state = latest_project_world_state(
+            session,
+            conv_id,
+            project_id=req.project_id,
+        )
+        current_world_state = build_project_world_state_manifest(
+            session,
+            req.project_id,
+        )
+        world_state_change = compare_project_world_states(
+            previous_world_state,
+            current_world_state,
+        )
+        if current_world_state:
+            metadata["project_world_state"] = current_world_state
+            prepare_metrics["project_world_state"] = current_world_state
+        if world_state_change:
+            metadata["project_world_state_change"] = world_state_change
+            prepare_metrics["project_world_state_change"] = world_state_change
     step_started_at = time.perf_counter()
     if persist_user and conv_id:
         persist_user_message(session, conv_id, req.content, metadata)
@@ -901,6 +995,16 @@ def prepare_chat_runtime(
     )
     intent_frame = _build_intent_frame(intent_decision, skill_decision, effective_skill, context_mode, consulting_frame)
     system = _append_intent_frame(system, intent_frame, consulting_frame)
+    world_state_change_prompt = format_project_world_state_change_for_prompt(
+        prepare_metrics.get("project_world_state_change")
+    )
+    if world_state_change_prompt:
+        system = f"{system.rstrip()}\n\n{world_state_change_prompt}\n"
+    turn_recovery_prompt = format_turn_recovery_for_prompt(
+        prepare_metrics.get("turn_recovery")
+    )
+    if turn_recovery_prompt:
+        system = f"{system.rstrip()}\n\n{turn_recovery_prompt}\n"
 
     # Filter tools BEFORE building the capability frame so the prompt
     # can list the exact tools the LLM will see (Phase 3). The
@@ -1125,6 +1229,18 @@ def prepare_chat_runtime(
                 trust="platform",
                 content=instruction_precedence_frame or "",
                 metadata=instruction_manifest_reference(instruction_manifest),
+            ),
+            ContextSourceInput(
+                source_id="project_world_state_change",
+                kind="execution_state",
+                trust="workspace",
+                content=world_state_change_prompt or "",
+            ),
+            ContextSourceInput(
+                source_id="turn_recovery_contract",
+                kind="policy",
+                trust="platform",
+                content=turn_recovery_prompt or "",
             ),
         ]
     )

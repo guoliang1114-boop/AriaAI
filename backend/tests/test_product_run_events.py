@@ -218,6 +218,32 @@ class ContextReceiptTest(unittest.TestCase):
                 evidence={},
             )
 
+    def test_context_receipt_exposes_content_free_project_state_change(self):
+        event = context_receipt(
+            make_run_id(),
+            scope="project",
+            memory={"status": "ready", "version": 4},
+            skill={"status": "not_used", "usage_mode": "none"},
+            evidence={},
+            world_state={
+                "current_version": "abcdef123456",
+                "previous_version": "123456abcdef",
+                "baseline": False,
+                "changed": True,
+                "changed_categories": ["files"],
+                "categories": {
+                    "files": {"added": 1, "removed": 0, "updated": 2, "current_count": 8}
+                },
+                "truncated": False,
+            },
+            warnings=["project_world_state_changed"],
+        )
+
+        self.assertEqual(event["world_state"]["current_version"], "abcdef123456")
+        self.assertEqual(event["world_state"]["categories"]["files"]["updated"], 2)
+        self.assertIn("project_world_state_changed", event["warnings"])
+        self.assertNotIn("content", str(event))
+
 
 class TextDeltaTest(unittest.TestCase):
     def test_basic(self):

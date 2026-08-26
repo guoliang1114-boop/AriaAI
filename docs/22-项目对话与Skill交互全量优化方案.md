@@ -307,6 +307,16 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 发布质量门禁由 29 扩展为 35 场景，新增 `turn_setup_recommendation_accuracy` 与 `turn_revision_attribution_accuracy`；前端增加联合建议、稳定指纹、精确差异、历史归因和来源定位测试。
 - 本阶段继续复用 Aria 原生 Skill、消息 metadata、Turn Contract 与 Product Run Event，无数据库迁移，不运行、不调用、不连接 Codex。
 
+### Phase 3D：真实反馈、中断连续性与项目状态版本（已实施）
+
+- Assistant 历史消息新增“有帮助 / 没帮助”反馈；负向反馈最多选择三个固定原因（事实不准、缺少上下文、Skill 不合适、行动不对、表达不清、结果不完整）。反馈可覆盖更新，不接收自由文本，也不额外保存消息正文或反馈者身份。
+- 项目级交互指标聚合反馈覆盖率、帮助率、修订轮次成功率、发送前配置建议采用率和负向原因分布；指标只读取角色与结构化 metadata，不把对话正文带入分析结果。
+- 发送前配置建议在真正发送下一轮时记录“已应用 / 已关闭”，模板与 Skill 只保存受限 ID，使建议质量可以用真实采用结果评估，而不是只看点击或接口调用次数。
+- 停止、失败和异常中断消息提供“安全继续”。前端只提交来源 Run/Message，后端重新读取当前会话的持久 Rollout，重建 checkpoint、已完成步骤与副作用风险；跨会话或不匹配来源失败关闭。恢复总是创建新的审计 Turn，不修改旧消息，不盲目重放已完成写入。
+- 每个项目 Turn 在消息 metadata 中保存 `Project World State Manifest v1`：项目、里程碑、待办、文件、进展、财务、干系人和交付物只保留实体 ID、计数与 SHA-256 状态指纹。下一轮生成分类级新增/移除/更新数量，Context Receipt 展示 12 位状态版本；业务正文、文件名和金额不会进入状态回执或变化提示。
+- 发布质量门禁由 35 扩展为 41 场景，新增 `project_world_state_accuracy`、`turn_recovery_safety_rate` 与 `interaction_feedback_privacy_rate`；前端增加分类反馈、恢复动作、请求审计和状态回执测试。
+- 本阶段复用 Aria 原生 Message metadata、Context Assembly、Context Receipt、Run Evaluation 和此前基于 OpenAI Codex Apache-2.0 源码移植的 Rollout 重建机制；未引入 Codex 进程、协议、SDK 或通信依赖，也不新增数据库迁移。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

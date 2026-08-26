@@ -8,8 +8,10 @@ import type {
   ProjectDetail as ProjectDetailType,
   ProjectMentionables,
   SkillSummary,
+  TurnRecoveryPreview,
   TurnRevisionInput,
   TurnSetupSuggestion,
+  TurnSetupTraceInput,
 } from '../../../../types/api'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../../types/productRunEvent'
 import { api } from '../../../../api/client'
@@ -783,6 +785,7 @@ function ThreadView({
   const [turnBriefDraft, setTurnBriefDraft] = useState<ProjectTurnBriefDraft>(EMPTY_PROJECT_TURN_BRIEF)
   const [turnRevisionSource, setTurnRevisionSource] = useState<ProjectTurnRevisionSource | null>(null)
   const [turnSetupSuggestion, setTurnSetupSuggestion] = useState<TurnSetupSuggestion | null>(null)
+  const [turnSetupTrace, setTurnSetupTrace] = useState<TurnSetupTraceInput | null>(null)
   const [turnSetupLoading, setTurnSetupLoading] = useState(false)
   const turnSetupRequestRef = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -843,7 +846,14 @@ function ThreadView({
         skill_mode: skillSelection.mode,
         skill_id: skillSelection.mode === 'explicit' ? skillSelection.skillId : undefined,
       })
-      if (turnSetupRequestRef.current === requestId) setTurnSetupSuggestion(suggestion)
+      if (turnSetupRequestRef.current === requestId) {
+        setTurnSetupSuggestion(suggestion)
+        setTurnSetupTrace({
+          outcome: 'dismissed',
+          ...(suggestion.template?.id ? { template_id: suggestion.template.id } : {}),
+          ...(suggestion.skill.skill_id ? { skill_id: suggestion.skill.skill_id } : {}),
+        })
+      }
     } catch (err) {
       if (turnSetupRequestRef.current === requestId) {
         toast.error({
@@ -870,6 +880,7 @@ function ThreadView({
     if (recommendedSkill) {
       setSkillSelection({ mode: 'explicit', skillId: recommendedSkill.id, name: recommendedSkill.name })
     }
+    setTurnSetupTrace((current) => current ? { ...current, outcome: 'applied' } : null)
     setTurnSetupSuggestion(null)
     if (recommendedSkillId && !recommendedSkill) {
       toast.warning({
@@ -881,6 +892,14 @@ function ThreadView({
     }
   }
 
+  const selectSuggestedSkill = (skillId: number, name: string) => {
+    setSkillSelection({ mode: 'explicit', skillId, name })
+    setTurnSetupTrace((current) => current
+      ? { ...current, outcome: 'applied', skill_id: skillId }
+      : { outcome: 'applied', skill_id: skillId })
+    setTurnSetupSuggestion(null)
+  }
+
   const reuseHistoricalTurn = (payload: ProjectTurnReusePayload) => {
     const restored = restoreProjectMentionsFromContext(mentionOptions, payload.mentionContext)
     const selectedSkill = payload.skillId != null
@@ -890,6 +909,7 @@ function ThreadView({
     setTurnRevisionSource(payload)
     turnSetupRequestRef.current += 1
     setTurnSetupSuggestion(null)
+    setTurnSetupTrace(null)
     setTurnSetupLoading(false)
     setSelectedMentions(restored.selected)
     setSkillSelection(selectedSkill
@@ -967,6 +987,41 @@ function ThreadView({
   }
 
   const busy = streamStatus === 'sending' || streamStatus === 'streaming'
+
+  const continueInterruptedTurn = async (sourceRunId: string, sourceMessageId?: number) => {
+    if (busy) return
+    try {
+      const preview = await api.get<TurnRecoveryPreview>(
+        `/chat/conversations/${conversationId}/recovery-preview`,
+        {
+          params: {
+            run_id: sourceRunId,
+            ...(sourceMessageId ? { message_id: sourceMessageId } : {}),
+          },
+        },
+      )
+      await onSend(preview.suggested_content, {
+        turnRecovery: {
+          source_run_id: preview.source_run_id,
+          source_message_id: preview.source_message_id,
+          strategy: preview.strategy,
+          completed_steps: preview.completed_steps,
+          side_effects_possible: preview.side_effects_possible,
+        },
+      })
+      toast.success({
+        title: '已从中断状态安全继续',
+        description: preview.side_effects_possible
+          ? '新轮次会先核对当前状态，避免重复执行写入动作。'
+          : '已完成步骤会保留，继续处理未完成部分。',
+      })
+    } catch (err) {
+      toast.error({
+        title: '暂时无法恢复本轮',
+        description: err instanceof Error ? err.message : '中断状态仍在保存，请稍后再试。',
+      })
+    }
+  }
 
   // Throttle the live reply so Markdown re-parses ~12×/s, not per SSE token.
   const throttledStreaming = useThrottledValue(streamingContent, 80)
@@ -1112,6 +1167,7 @@ function ThreadView({
               onSkillSelect={selectSkillForNextTurn}
               onTurnBriefReuse={reuseHistoricalTurn}
               onTurnRevisionSourceOpen={openTurnRevisionSource}
+              onTurnRecovery={continueInterruptedTurn}
             />
           ))}
 
@@ -1145,6 +1201,7 @@ function ThreadView({
             const selectionForTurn = skillSelection
             const mentionContext = currentMentionContext
             const turnBrief = projectTurnBriefToInput(turnBriefDraft)
+            const setupTraceForTurn = turnSetupTrace
             setComposerText('')
             setSkillSelection({ mode: 'auto' })
             setSelectedMentions([])
@@ -1152,6 +1209,7 @@ function ThreadView({
             setTurnRevisionSource(null)
             turnSetupRequestRef.current += 1
             setTurnSetupSuggestion(null)
+            setTurnSetupTrace(null)
             setTurnSetupLoading(false)
             await onSend(
               text,
@@ -1164,6 +1222,7 @@ function ThreadView({
                 ...(mentionContext ? { mentionContext } : {}),
                 ...(turnBrief ? { turnBrief } : {}),
                 ...(turnRevision ? { turnRevision } : {}),
+                ...(setupTraceForTurn ? { turnSetupTrace: setupTraceForTurn } : {}),
               },
             )
           }}
@@ -1191,6 +1250,7 @@ function ThreadView({
           onTurnSetupRequest={() => { void requestTurnSetupSuggestion() }}
           onTurnSetupApply={applyTurnSetupSuggestion}
           onTurnSetupDismiss={() => setTurnSetupSuggestion(null)}
+          onTurnSetupCandidateSelect={selectSuggestedSkill}
           textareaRef={textareaRef}
         />
       </div>
@@ -1370,6 +1430,7 @@ export function ProjectChatComposer({
   onTurnSetupRequest,
   onTurnSetupApply,
   onTurnSetupDismiss,
+  onTurnSetupCandidateSelect,
   textareaRef,
 }: {
   value: string
@@ -1395,6 +1456,7 @@ export function ProjectChatComposer({
   onTurnSetupRequest: () => void
   onTurnSetupApply: () => void
   onTurnSetupDismiss: () => void
+  onTurnSetupCandidateSelect?: (skillId: number, name: string) => void
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
   const [activeMention, setActiveMention] = useState<ActiveProjectMention | null>(null)
@@ -1688,11 +1750,10 @@ export function ProjectChatComposer({
             onRequest={onTurnSetupRequest}
             onApply={onTurnSetupApply}
             onDismiss={onTurnSetupDismiss}
-            onSkillSelect={(skillId, name) => onSkillSelectionChange({
-              mode: 'explicit',
-              skillId,
-              name,
-            })}
+            onSkillSelect={(skillId, name) => {
+              if (onTurnSetupCandidateSelect) onTurnSetupCandidateSelect(skillId, name)
+              else onSkillSelectionChange({ mode: 'explicit', skillId, name })
+            }}
           />
           <span style={{ fontSize: 11, color: 'var(--ink-faint)', whiteSpace: 'nowrap' }}>
             {busy ? 'Enter 追加 · Shift+Enter 换行' : '输入 @ 引用 · Enter 发送'}
@@ -1836,7 +1897,12 @@ function ProjectContextReceiptSummary({
       : '',
   ].filter(Boolean)
   const hasWarning = receipt.warnings.some((warning) =>
-    ['project_memory_missing', 'project_memory_stale', 'skill_match_ambiguous'].includes(warning),
+    [
+      'project_memory_missing',
+      'project_memory_stale',
+      'skill_match_ambiguous',
+      'project_world_state_changed',
+    ].includes(warning),
   )
   return (
     <div
@@ -1853,6 +1919,16 @@ function ProjectContextReceiptSummary({
         {memoryRetrievalLabel ? ` · ${memoryRetrievalLabel}` : ''} · {skillLabel}
       </div>
       {evidenceBits.length > 0 && <div style={{ marginTop: 2 }}>{evidenceBits.join(' · ')}</div>}
+      {receipt.world_state && (
+        <div style={{ marginTop: 2 }}>
+          项目状态版本 · {receipt.world_state.current_version}
+          {receipt.world_state.changed
+            ? ` · 已检测到 ${receipt.world_state.changed_categories.length} 类变化，已改用当前状态`
+            : receipt.world_state.baseline
+              ? ' · 已建立本对话基线'
+              : ' · 与上一轮一致'}
+        </div>
+      )}
       {receipt.skill.status === 'ambiguous' && (
         <SkillCandidateButtons
           candidates={receipt.skill.candidates || []}

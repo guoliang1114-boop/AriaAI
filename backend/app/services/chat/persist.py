@@ -1097,6 +1097,13 @@ async def run_persist(
         turn_revision_metadata = runtime_prepare_metrics.get("turn_revision")
         if isinstance(turn_revision_metadata, dict) and turn_revision_metadata:
             metadata["turn_revision"] = dict(turn_revision_metadata)
+        for audit_key in (
+            "turn_recovery",
+            "project_world_state_change",
+        ):
+            audit_value = runtime_prepare_metrics.get(audit_key)
+            if isinstance(audit_value, dict) and audit_value:
+                metadata[audit_key] = dict(audit_value)
     if state.turn_budget is not None:
         turn_budget_snapshot = state.turn_budget.snapshot()
         metadata["turn_budget"] = (

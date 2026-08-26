@@ -183,6 +183,7 @@ jobs:
                 tests/test_turn_budget.py \
                 tests/test_turn_retry.py \
                 tests/test_chat_actions.py \
+                tests/test_chat_continuity_feedback.py \
                 tests/test_chat_multiturn_golden.py
 
             # Emit deterministic project-chat quality metrics as a release

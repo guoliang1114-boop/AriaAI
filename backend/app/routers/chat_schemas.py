@@ -26,6 +26,24 @@ class TurnRevisionInput(BaseModel):
     ] = Field(default_factory=list, max_length=5)
 
 
+class TurnSetupTraceInput(BaseModel):
+    outcome: Literal["applied", "dismissed"]
+    template_id: Optional[str] = Field(default=None, max_length=40)
+    skill_id: Optional[int] = Field(default=None, gt=0)
+
+
+class TurnRecoveryInput(BaseModel):
+    source_run_id: str = Field(min_length=5, max_length=80, pattern=r"^run_[A-Za-z0-9_-]+$")
+    source_message_id: int = Field(gt=0)
+    strategy: Literal[
+        "resume_from_checkpoint",
+        "retry_failed_step",
+        "continue_as_new_turn",
+    ]
+    completed_steps: List[int] = Field(default_factory=list, max_length=32)
+    side_effects_possible: bool = False
+
+
 class SendMessageRequest(BaseModel):
     conversation_id: Optional[int] = None
     content: str
@@ -41,6 +59,8 @@ class SendMessageRequest(BaseModel):
     mention_context: Optional[MentionContext] = None
     turn_brief: Optional[TurnBriefInput] = None
     turn_revision: Optional[TurnRevisionInput] = None
+    turn_setup_trace: Optional[TurnSetupTraceInput] = None
+    turn_recovery: Optional[TurnRecoveryInput] = None
     action_confirmations: List[str] = []
 
 
