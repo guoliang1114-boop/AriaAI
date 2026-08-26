@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   PROJECT_TURN_BRIEF_TEMPLATES,
   applyProjectTurnBriefTemplate,
+  buildProjectTurnRevisionInput,
   collectRecentProjectTurnBriefs,
+  findProjectTurnRevisionSource,
   normalizeTurnBriefConstraints,
   parseProjectTurnMetadata,
+  parseProjectTurnRevision,
+  projectTurnFingerprint,
   projectTurnBriefToInput,
 } from './turnBrief'
 
@@ -83,5 +87,52 @@ describe('project turn brief', () => {
 
     expect(recent.map((item) => item.label)).toEqual(['最新目标', '旧目标'])
     expect(collectRecentProjectTurnBriefs([], 0)).toEqual([])
+  })
+
+  it('creates a stable source fingerprint and a precise revision diff', () => {
+    const source = {
+      content: '分析 @「访谈纪要.docx」',
+      draft: { goal: '识别风险', constraintsText: '只分析' },
+      mentionContext: { file_ids: [11] },
+      skillId: 7,
+      sourceMessageId: 91,
+      sourceRole: 'user' as const,
+      sourceFingerprint: '',
+    }
+    source.sourceFingerprint = projectTurnFingerprint(source)
+
+    const revision = buildProjectTurnRevisionInput(source, {
+      content: '分析 @「访谈纪要.docx」并给出建议',
+      draft: { goal: '识别并排序风险', constraintsText: '只分析\n先给结论' },
+      skillMode: 'off',
+      mentionContext: { file_ids: [11] },
+    })
+
+    expect(source.sourceFingerprint).toMatch(/^turn-[a-f0-9]{8}$/)
+    expect(revision.changed_fields).toEqual(['content', 'goal', 'constraints', 'skill'])
+    expect(parseProjectTurnRevision(JSON.stringify({ turn_revision: revision }))).toEqual({
+      sourceMessageId: 91,
+      sourceFingerprint: source.sourceFingerprint,
+      sourceRole: 'user',
+      changedFields: ['content', 'goal', 'constraints', 'skill'],
+    })
+
+    const sourceMessage = {
+      id: 91,
+      conversation_id: 4,
+      role: 'user' as const,
+      content: source.content,
+      metadata_json: JSON.stringify({
+        turn_brief: { goal: '识别风险', constraints: ['只分析'] },
+        skill_id: 7,
+        mention_context: { file_ids: [11] },
+      }),
+      created_at: '2026-08-26T00:00:00Z',
+    }
+    expect(findProjectTurnRevisionSource([sourceMessage], source.sourceFingerprint)?.id).toBe(91)
+    expect(findProjectTurnRevisionSource([
+      sourceMessage,
+      { ...sourceMessage, id: 92 },
+    ], source.sourceFingerprint)).toBeUndefined()
   })
 })

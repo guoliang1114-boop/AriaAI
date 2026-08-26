@@ -77,6 +77,13 @@ def _safe_list(value: Any) -> list:
     return value if isinstance(value, list) else []
 
 
+def _attach_turn_revision(metadata: dict, runtime: ChatRuntime) -> None:
+    prepare_metrics = getattr(runtime, "prepare_metrics", None)
+    revision = prepare_metrics.get("turn_revision") if isinstance(prepare_metrics, dict) else None
+    if isinstance(revision, dict) and revision:
+        metadata["turn_revision"] = dict(revision)
+
+
 def _last_step_retryable(state: ChatSessionState) -> bool:
     if not state.steps:
         return False
@@ -221,6 +228,7 @@ def _persist_interrupted_turn(
             error_message=reason,
         ),
     }
+    _attach_turn_revision(metadata, runtime)
     if state.turn_receipt:
         metadata["turn_receipt"] = dict(state.turn_receipt)
     if state.context_receipt:
@@ -321,6 +329,7 @@ def _persist_phase_error_events(
             error_message=str(exc),
         ),
     }
+    _attach_turn_revision(metadata, runtime)
     resolved_evidence, references = resolve_runtime_knowledge_evidence(
         runtime,
         full_text,

@@ -23,16 +23,16 @@ Phase 2T 先关闭这两个缺口，Phase 2U 进一步补上长对话状态和�
 
 | 能力层 | Codex 参考路径/机制 | 值得借鉴的原则 | Aria 当前状态 | Aria 后续动作 |
 |---|---|---|---|---|
-| 本轮输入边界 | `core/src/session/turn_input.rs`、`session/turn.rs` | 每轮输入是新的决策边界；追加上下文、纠偏和开始新轮次必须可区分 | Phase 3B 已支持模板、最近使用、历史恢复与修订重试 | 用匿名真实交互持续评测模板命中率和修订成功率 |
+| 本轮输入边界 | `core/src/session/turn_input.rs`、`session/turn.rs` | 每轮输入是新的决策边界；追加上下文、纠偏和开始新轮次必须可区分 | Phase 3C 已支持发送前联合建议、修订差异与来源追踪 | 用匿名真实交互持续评测建议采纳率和修订成功率 |
 | 项目指令层级 | `codex-home/src/instructions/mod.rs` | 全局、项目、目录指令按明确层级加载，越近的规则越具体 | Phase 2U 已建立显式 `InstructionManifest v1` | 后续把简化冲突回执开放给前端，持续扩充跨层冲突评测 |
 | Skill 发现 | `skills/src/loading.rs`、`parser.rs` | 先发现元数据，命中后再加载完整内容；坏包隔离 | 已完成 Skill Root 快照、发布态目录、解析校验 | 增加作者预览、依赖校验、样例输入和质量评分 |
-| Skill 本轮选择 | `skills/src/mentions.rs`、`selection.rs` | 只解析本轮结构化输入和显式提及；去重后注入本轮 | Phase 3B 已在历史恢复时重验 Skill 与项目对象 ID，失效身份不降级为名称猜测 | 增加按业务场景联合推荐 Brief 与 Skill |
+| Skill 本轮选择 | `skills/src/mentions.rs`、`selection.rs` | 只解析本轮结构化输入和显式提及；去重后注入本轮 | Phase 3C 已复用生产 Skill Router 提供发送前 Brief + Skill 联合建议，仍由用户显式应用 | 用真实匿名反馈持续校准建议阈值和业务解释 |
 | Skill 续用/释放 | Codex 的 per-turn selection boundary | Skill 不是会话永久所有者；是否续用应由本轮相关性决定 | Phase 2T 已实现相关追问续用、无关话题释放、显式退出 | 用真实匿名交互数据持续校准续用词与误触发率 |
 | Skill 可见性 | Turn 内 Skill 注入项 + 运行事件 | 用户应知道本轮实际加载了什么能力 | Phase 2Y 已支持项目内选择、歧义点选和一键关闭/切换 | 持续把内部匹配原因翻译为更具体的业务说明 |
 | 项目世界状态 | `core/src/context/world_state/` | 把工作目录、规则和环境变化建模为基线与差异，不把所有内容反复塞入 Prompt | 已有项目/客户结构化上下文与 Context Assembly Manifest | 增加项目状态版本、变化摘要和陈旧证据提示 |
 | 对话历史治理 | `core/src/context_manager/history.rs` | 保持工具调用/结果配对，压缩时保留任务状态和恢复边界 | Phase 2U 已用结构化 Capsule 绑定目标、约束、工具结果、阻塞和来源消息 | 扩大真实长对话集，并在压缩前后自动比较状态保持率 |
 | 长对话压缩 | Context compaction 与状态续接 | 压缩结果必须保留目标、已完成动作、假设、标识、工具结果、阻塞与下一步 | Phase 2U 已建立 Provider-neutral `Conversation Capsule v1`，仍使用确定性本地预算压缩 | 先积累 Provider 对比数据，再决定是否按模型启用官方 Compaction API |
-| 计划与执行 | `session/turn.rs` 的 turn loop、任务状态 | 计划、执行、反馈和完成应有状态边界，用户纠偏可进入当前轮次 | Phase 3B 已把历史 Turn Contract 变为可见的“修订并重试”入口 | 增加修订前后的差异回执与效果归因 |
+| 计划与执行 | `session/turn.rs` 的 turn loop、任务状态 | 计划、执行、反馈和完成应有状态边界，用户纠偏可进入当前轮次 | Phase 3C 已保存五类修订差异，并在请求与回应两侧显示来源和效果归因 | 增加同一目标多次修订的版本链与结果对比 |
 | Steering | `session/turn_input.rs` 的 steer + expected turn id | 用户追加要求必须绑定正确运行，防止发给已经结束或另一个 Run | 已有 stop/cancel 和 run id，普通追加仍是新消息 | 增加运行中追加指令队列与 expected run id 校验 |
 | 中断与恢复 | Task abort、rollout reconstruction | 停止不是删掉结果；应保存部分输出、已执行副作用和可恢复状态 | 已完成用户中断、Rollout、恢复规划 | 前端提供“从中断点继续”而非只显示失败 |
 | 工具协议 | tool call/result pairing、registry、parallel lanes | 工具定义、权限、调度和回填必须共享同一事实源 | 已完成 Tool Capability Manifest、转录规范化、只读并行 | 增加面向用户的工具原因和影响说明 |
@@ -296,6 +296,16 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 恢复文件、干系人和里程碑时重新用当前项目候选校验精确 ID；对象改名后使用当前名称，对象已删除或 Skill 已下线时移除失效选择并提示用户，绝不回退到同名对象或纯文本猜测。
 - 历史 mention 令牌会先从正文剥离，再仅附加重验成功的当前令牌，从而保证显示名称、结构化 ID 和下一轮请求三者一致。
 - 新增模板合并、最近历史去重、恶意/失效 ID 边界、令牌重建、用户 Brief 展示、Assistant Contract 修订和 Composer 恢复测试；无数据库迁移，不运行、不调用、不连接 Codex。
+
+### Phase 3C：发送前联合建议与修订效果归因（已实施）
+
+- 项目对话新增用户主动触发的“建议配置”：后端直接复用生产 `Skill Router` 的候选评分、问题模式阈值和歧义规则，同时用确定性业务信号推荐 Brief；前端不复制 Skill 匹配算法，避免发送前预览与实际执行漂移。
+- 建议严格保持非执行语义：接口不创建消息、不调用模型、不修改项目；只有用户点击“应用建议”后才写入下一轮草稿。明确关闭 Skill、明确指定 Skill、自动匹配和歧义候选均保持各自边界。
+- “修订并重试”建立稳定的 Turn 指纹与 `turn_revision` metadata，记录来源角色、来源消息以及正文、目标、约束、Skill、项目引用五类有界差异；该审计数据不进入模型指令，也不扩大工具权限。
+- Composer 在发送前实时展示修订差异，用户可以取消修订；发送后的用户消息显示修订轨迹，Assistant 回应显示本轮效果归因，并可用消息 ID 或稳定指纹定位历史来源，兼容流式消息临时 ID 与刷新后的数据库 ID。
+- 普通 Agent Loop、Durable Task 和失败/中断持久化路径均继承修订 metadata；历史来源优先用消息 ID 定位，仅在结构化指纹唯一命中时回退定位，不在加载窗口或指纹重复时明确提示不可定位。
+- 发布质量门禁由 29 扩展为 35 场景，新增 `turn_setup_recommendation_accuracy` 与 `turn_revision_attribution_accuracy`；前端增加联合建议、稳定指纹、精确差异、历史归因和来源定位测试。
+- 本阶段继续复用 Aria 原生 Skill、消息 metadata、Turn Contract 与 Product Run Event，无数据库迁移，不运行、不调用、不连接 Codex。
 
 ## 11. 官方资料与许可证
 

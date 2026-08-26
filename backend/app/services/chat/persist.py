@@ -1094,6 +1094,9 @@ async def run_persist(
         turn_contract_metadata = runtime_prepare_metrics.get("turn_contract")
         if isinstance(turn_contract_metadata, dict) and turn_contract_metadata:
             metadata["turn_contract"] = dict(turn_contract_metadata)
+        turn_revision_metadata = runtime_prepare_metrics.get("turn_revision")
+        if isinstance(turn_revision_metadata, dict) and turn_revision_metadata:
+            metadata["turn_revision"] = dict(turn_revision_metadata)
     if state.turn_budget is not None:
         turn_budget_snapshot = state.turn_budget.snapshot()
         metadata["turn_budget"] = (

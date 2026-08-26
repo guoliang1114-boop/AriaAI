@@ -194,6 +194,7 @@ def build_message_metadata(
     file_ids: Optional[list[int]] = None,
     mention_context: Optional[dict] = None,
     turn_brief: Optional[dict] = None,
+    turn_revision: Optional[dict] = None,
 ) -> dict:
     metadata = {}
     if skill_id:
@@ -217,6 +218,31 @@ def build_message_metadata(
                 break
         if goal or constraints:
             metadata["turn_brief"] = {"goal": goal, "constraints": constraints}
+    if turn_revision:
+        source_message_id = turn_revision.get("source_message_id")
+        source_fingerprint = str(turn_revision.get("source_fingerprint") or "").strip().lower()
+        source_role = str(turn_revision.get("source_role") or "").strip().lower()
+        allowed_fields = {"content", "goal", "constraints", "skill", "references"}
+        changed_fields: list[str] = []
+        raw_changed_fields = turn_revision.get("changed_fields")
+        if isinstance(raw_changed_fields, (list, tuple)):
+            for item in raw_changed_fields:
+                if isinstance(item, str) and item in allowed_fields and item not in changed_fields:
+                    changed_fields.append(item)
+                if len(changed_fields) >= 5:
+                    break
+        if (
+            isinstance(source_message_id, int)
+            and source_message_id > 0
+            and re.fullmatch(r"turn-[a-f0-9]{3,59}", source_fingerprint)
+            and source_role in {"user", "assistant"}
+        ):
+            metadata["turn_revision"] = {
+                "source_message_id": source_message_id,
+                "source_fingerprint": source_fingerprint,
+                "source_role": source_role,
+                "changed_fields": changed_fields,
+            }
     return metadata
 
 

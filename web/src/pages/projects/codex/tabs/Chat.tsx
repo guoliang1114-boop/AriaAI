@@ -8,6 +8,8 @@ import type {
   ProjectDetail as ProjectDetailType,
   ProjectMentionables,
   SkillSummary,
+  TurnRevisionInput,
+  TurnSetupSuggestion,
 } from '../../../../types/api'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../../types/productRunEvent'
 import { api } from '../../../../api/client'
@@ -34,13 +36,22 @@ import {
 } from '../ProjectSkillControl'
 import { ProjectTurnBriefControl } from '../ProjectTurnBriefControl'
 import {
+  ProjectTurnRevisionPreview,
+  ProjectTurnSetupControl,
+} from '../ProjectTurnSetupControl'
+import {
   EMPTY_PROJECT_TURN_BRIEF,
+  PROJECT_TURN_BRIEF_TEMPLATES,
+  applyProjectTurnBriefTemplate,
+  buildProjectTurnRevisionInput,
   normalizeTurnBriefConstraints,
   normalizeTurnBriefGoal,
   collectRecentProjectTurnBriefs,
+  findProjectTurnRevisionSource,
   projectTurnBriefToInput,
   type ProjectTurnBriefHistoryItem,
   type ProjectTurnReusePayload,
+  type ProjectTurnRevisionSource,
   type ProjectTurnBriefDraft,
 } from '../turnBrief'
 import { SkillCandidateButtons } from '../SkillCandidateButtons'
@@ -770,6 +781,10 @@ function ThreadView({
   const [skillSelection, setSkillSelection] = useState<ProjectSkillSelection>({ mode: 'auto' })
   const [selectedMentions, setSelectedMentions] = useState<SelectedProjectMention[]>([])
   const [turnBriefDraft, setTurnBriefDraft] = useState<ProjectTurnBriefDraft>(EMPTY_PROJECT_TURN_BRIEF)
+  const [turnRevisionSource, setTurnRevisionSource] = useState<ProjectTurnRevisionSource | null>(null)
+  const [turnSetupSuggestion, setTurnSetupSuggestion] = useState<TurnSetupSuggestion | null>(null)
+  const [turnSetupLoading, setTurnSetupLoading] = useState(false)
+  const turnSetupRequestRef = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mentionOptions = useMemo(
     () => buildProjectMentionOptions(skills, mentionables),
@@ -779,10 +794,91 @@ function ThreadView({
     () => collectRecentProjectTurnBriefs(messages),
     [messages],
   )
+  const currentMentionContext = useMemo(
+    () => selectedProjectMentionsToContext(selectedMentions),
+    [selectedMentions],
+  )
+  const turnRevision = useMemo<TurnRevisionInput | null>(() => (
+    turnRevisionSource
+      ? buildProjectTurnRevisionInput(turnRevisionSource, {
+        content: composerText,
+        draft: turnBriefDraft,
+        skillMode: skillSelection.mode,
+        skillId: skillSelection.mode === 'explicit' ? skillSelection.skillId : undefined,
+        mentionContext: currentMentionContext,
+      })
+      : null
+  ), [composerText, currentMentionContext, skillSelection, turnBriefDraft, turnRevisionSource])
+
+  const changeComposerText = (next: string) => {
+    turnSetupRequestRef.current += 1
+    setTurnSetupSuggestion(null)
+    setTurnSetupLoading(false)
+    setComposerText(next)
+  }
+
+  const changeSkillSelection = (selection: ProjectSkillSelection) => {
+    turnSetupRequestRef.current += 1
+    setTurnSetupSuggestion(null)
+    setTurnSetupLoading(false)
+    setSkillSelection(selection)
+  }
 
   const selectSkillForNextTurn = (skillId: number, name: string) => {
-    setSkillSelection({ mode: 'explicit', skillId, name })
+    changeSkillSelection({ mode: 'explicit', skillId, name })
     textareaRef.current?.focus()
+  }
+
+  const requestTurnSetupSuggestion = async () => {
+    const content = composerText.trim()
+    if (!content || turnSetupLoading) return
+    const requestId = turnSetupRequestRef.current + 1
+    turnSetupRequestRef.current = requestId
+    setTurnSetupLoading(true)
+    setTurnSetupSuggestion(null)
+    try {
+      const suggestion = await api.post<TurnSetupSuggestion>('/skills/recommendations/turn', {
+        project_id: projectId,
+        content,
+        skill_mode: skillSelection.mode,
+        skill_id: skillSelection.mode === 'explicit' ? skillSelection.skillId : undefined,
+      })
+      if (turnSetupRequestRef.current === requestId) setTurnSetupSuggestion(suggestion)
+    } catch (err) {
+      if (turnSetupRequestRef.current === requestId) {
+        toast.error({
+          title: '暂时无法生成配置建议',
+          description: err instanceof Error ? err.message : '请稍后重试',
+        })
+      }
+    } finally {
+      if (turnSetupRequestRef.current === requestId) setTurnSetupLoading(false)
+    }
+  }
+
+  const applyTurnSetupSuggestion = () => {
+    const template = PROJECT_TURN_BRIEF_TEMPLATES.find(
+      (item) => item.id === turnSetupSuggestion?.template?.id,
+    )
+    if (template) setTurnBriefDraft((current) => applyProjectTurnBriefTemplate(current, template))
+    const recommendedSkillId = turnSetupSuggestion?.skill.state === 'recommended'
+      ? turnSetupSuggestion.skill.skill_id
+      : null
+    const recommendedSkill = recommendedSkillId
+      ? skills.find((skill) => skill.id === recommendedSkillId)
+      : undefined
+    if (recommendedSkill) {
+      setSkillSelection({ mode: 'explicit', skillId: recommendedSkill.id, name: recommendedSkill.name })
+    }
+    setTurnSetupSuggestion(null)
+    if (recommendedSkillId && !recommendedSkill) {
+      toast.warning({
+        title: template ? 'Brief 已应用，建议 Skill 当前不可用' : '建议 Skill 当前不可用',
+        description: 'Skill 列表可能已更新，请重新获取配置建议。',
+      })
+    } else {
+      toast.success({ title: '配置建议已应用，发送前仍可修改' })
+    }
   }
 
   const reuseHistoricalTurn = (payload: ProjectTurnReusePayload) => {
@@ -791,6 +887,10 @@ function ThreadView({
       ? skills.find((skill) => skill.id === payload.skillId)
       : undefined
     setTurnBriefDraft(payload.draft)
+    setTurnRevisionSource(payload)
+    turnSetupRequestRef.current += 1
+    setTurnSetupSuggestion(null)
+    setTurnSetupLoading(false)
     setSelectedMentions(restored.selected)
     setSkillSelection(selectedSkill
       ? { mode: 'explicit', skillId: selectedSkill.id, name: selectedSkill.name }
@@ -809,6 +909,21 @@ function ThreadView({
       toast.success({ title: '已恢复到输入框，可修订后发送' })
     }
     window.requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  const openTurnRevisionSource = (sourceMessageId: number, sourceFingerprint: string) => {
+    let target = document.getElementById(`project-chat-message-${sourceMessageId}`)
+    if (!target) {
+      const source = findProjectTurnRevisionSource(messages, sourceFingerprint)
+      if (source) {
+        target = document.getElementById(`project-chat-message-${source.id}`)
+      }
+    }
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } else {
+      toast.warning({ title: '原始消息已不在当前加载范围内' })
+    }
   }
 
   // Auto-scroll while a reply is streaming. Cheap to do every
@@ -976,7 +1091,7 @@ function ThreadView({
             projectId={projectId}
             detail={detail}
             onSelectPrompt={(text) => {
-              setComposerText(text)
+              changeComposerText(text)
               // Defer focus until the empty-state-to-composer
               // transition stabilizes.
               setTimeout(() => textareaRef.current?.focus(), 0)
@@ -996,6 +1111,7 @@ function ThreadView({
               streamingStatus={streamStatusMessage}
               onSkillSelect={selectSkillForNextTurn}
               onTurnBriefReuse={reuseHistoricalTurn}
+              onTurnRevisionSourceOpen={openTurnRevisionSource}
             />
           ))}
 
@@ -1024,15 +1140,19 @@ function ThreadView({
         )}
         <ProjectChatComposer
           value={composerText}
-          onChange={setComposerText}
+          onChange={changeComposerText}
           onSend={async (text) => {
             const selectionForTurn = skillSelection
-            const mentionContext = selectedProjectMentionsToContext(selectedMentions)
+            const mentionContext = currentMentionContext
             const turnBrief = projectTurnBriefToInput(turnBriefDraft)
             setComposerText('')
             setSkillSelection({ mode: 'auto' })
             setSelectedMentions([])
             setTurnBriefDraft(EMPTY_PROJECT_TURN_BRIEF)
+            setTurnRevisionSource(null)
+            turnSetupRequestRef.current += 1
+            setTurnSetupSuggestion(null)
+            setTurnSetupLoading(false)
             await onSend(
               text,
               {
@@ -1043,6 +1163,7 @@ function ThreadView({
                     : {}),
                 ...(mentionContext ? { mentionContext } : {}),
                 ...(turnBrief ? { turnBrief } : {}),
+                ...(turnRevision ? { turnRevision } : {}),
               },
             )
           }}
@@ -1056,13 +1177,20 @@ function ThreadView({
           canSteer={canSteer}
           skills={skills}
           skillSelection={skillSelection}
-          onSkillSelectionChange={setSkillSelection}
+          onSkillSelectionChange={changeSkillSelection}
           mentionOptions={mentionOptions}
           selectedMentions={selectedMentions}
           onSelectedMentionsChange={setSelectedMentions}
           turnBriefDraft={turnBriefDraft}
           onTurnBriefDraftChange={setTurnBriefDraft}
           recentTurnBriefs={recentTurnBriefs}
+          turnRevision={turnRevision}
+          onTurnRevisionCancel={() => setTurnRevisionSource(null)}
+          turnSetupSuggestion={turnSetupSuggestion}
+          turnSetupLoading={turnSetupLoading}
+          onTurnSetupRequest={() => { void requestTurnSetupSuggestion() }}
+          onTurnSetupApply={applyTurnSetupSuggestion}
+          onTurnSetupDismiss={() => setTurnSetupSuggestion(null)}
           textareaRef={textareaRef}
         />
       </div>
@@ -1235,6 +1363,13 @@ export function ProjectChatComposer({
   turnBriefDraft,
   onTurnBriefDraftChange,
   recentTurnBriefs,
+  turnRevision,
+  onTurnRevisionCancel,
+  turnSetupSuggestion,
+  turnSetupLoading,
+  onTurnSetupRequest,
+  onTurnSetupApply,
+  onTurnSetupDismiss,
   textareaRef,
 }: {
   value: string
@@ -1253,6 +1388,13 @@ export function ProjectChatComposer({
   turnBriefDraft: ProjectTurnBriefDraft
   onTurnBriefDraftChange: (draft: ProjectTurnBriefDraft) => void
   recentTurnBriefs: ProjectTurnBriefHistoryItem[]
+  turnRevision: TurnRevisionInput | null
+  onTurnRevisionCancel: () => void
+  turnSetupSuggestion: TurnSetupSuggestion | null
+  turnSetupLoading: boolean
+  onTurnSetupRequest: () => void
+  onTurnSetupApply: () => void
+  onTurnSetupDismiss: () => void
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
   const [activeMention, setActiveMention] = useState<ActiveProjectMention | null>(null)
@@ -1501,6 +1643,9 @@ export function ProjectChatComposer({
           ))}
         </div>
       )}
+      {turnRevision && (
+        <ProjectTurnRevisionPreview revision={turnRevision} onCancel={onTurnRevisionCancel} />
+      )}
       <div
         style={{
           display: 'flex',
@@ -1534,6 +1679,20 @@ export function ProjectChatComposer({
             referenceCount={selectedMentions.length}
             recentBriefs={recentTurnBriefs}
             disabled={busy}
+          />
+          <ProjectTurnSetupControl
+            suggestion={turnSetupSuggestion}
+            loading={turnSetupLoading}
+            canRequest={Boolean(value.trim())}
+            disabled={busy}
+            onRequest={onTurnSetupRequest}
+            onApply={onTurnSetupApply}
+            onDismiss={onTurnSetupDismiss}
+            onSkillSelect={(skillId, name) => onSkillSelectionChange({
+              mode: 'explicit',
+              skillId,
+              name,
+            })}
           />
           <span style={{ fontSize: 11, color: 'var(--ink-faint)', whiteSpace: 'nowrap' }}>
             {busy ? 'Enter 追加 · Shift+Enter 换行' : '输入 @ 引用 · Enter 发送'}

@@ -98,6 +98,36 @@ describe('useChatStream Skill control', () => {
     })
   })
 
+  it('persists revision attribution on the request and both optimistic messages', async () => {
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+    }))
+    const turnRevision = {
+      source_message_id: 91,
+      source_fingerprint: 'turn-1a2b3c4d',
+      source_role: 'assistant' as const,
+      changed_fields: ['goal', 'constraints'] as const,
+    }
+
+    await act(async () => result.current.send('按修订后的目标重试', {
+      turnRevision: { ...turnRevision, changed_fields: [...turnRevision.changed_fields] },
+    }))
+
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(init.body))).toMatchObject({ turn_revision: turnRevision })
+    expect(JSON.parse(onUserMessage.mock.calls[0][0].metadata_json)).toMatchObject({
+      turn_revision: turnRevision,
+    })
+    expect(JSON.parse(onAssistantMessage.mock.calls[0][0].metadata_json)).toMatchObject({
+      turn_revision: turnRevision,
+    })
+  })
+
   it('admits only one send before React has committed the busy state', async () => {
     let resolveResponse!: (response: Response) => void
     vi.mocked(fetch).mockImplementation(() => new Promise<Response>((resolve) => {

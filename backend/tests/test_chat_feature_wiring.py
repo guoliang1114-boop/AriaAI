@@ -52,6 +52,21 @@ class ChatSchemaTestCase(unittest.TestCase):
         self.assertEqual(req.mention_context.stakeholder_ids, [3])
         self.assertEqual(req.mention_context.milestone_ids, [2])
 
+    def test_send_message_accepts_bounded_turn_revision_trace(self):
+        req = SendMessageRequest(
+            content="修订后重试",
+            project_id=27,
+            turn_revision={
+                "source_message_id": 91,
+                "source_fingerprint": "turn-1a2b3c4d",
+                "source_role": "assistant",
+                "changed_fields": ["goal", "constraints", "skill"],
+            },
+        )
+
+        self.assertEqual(req.turn_revision.source_message_id, 91)
+        self.assertEqual(req.turn_revision.changed_fields, ["goal", "constraints", "skill"])
+
 
 class BackgroundChatStatusSchemaTestCase(unittest.TestCase):
     def test_status_response_exposes_error_and_timestamp(self):

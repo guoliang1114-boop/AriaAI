@@ -5,27 +5,30 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from app.database import get_session
 from app.config import SKILL_ROOT_PATHS
+from app.database import get_session
 from app.models.db import Skill
+from app.routers.chat_schemas import SendMessageRequest
+from app.services.cache import TTLCache
 from app.services.agent_harness.skill_roots import (
     FileBackedSkillPrompt,
     LoadedSkillCatalog,
     SkillRootLoader,
     SkillRootSpec,
 )
+from app.services.chat.turn_setup import recommend_turn_brief_template
 from app.services.consulting_capabilities import CONSULTING_CAPABILITIES, ConsultingCapability
+from app.services.skill_router import auto_select_skill
 from app.tools import file_generators as _file_generators  # noqa: F401 - register file generation tools
 from app.tools import office_documents as _office_documents  # noqa: F401 - register office document tools
 from app.tools import project_markdown as _project_markdown  # noqa: F401 - register markdown document tools
 from app.tools import registry as tool_registry
-from app.services.cache import TTLCache
 
 DIGITAL_STRATEGY_SKILL_NAME = "数字化战略设计"
 DIGITAL_STRATEGY_PROMPT_MARKER = "digital-strategy 工作流"
@@ -214,6 +217,54 @@ class SkillSummaryListResponse(BaseModel):
     limit: int
     offset: int
     categories: list[SkillCategoryCount]
+
+
+class TurnSetupSuggestionRequest(BaseModel):
+    project_id: int = Field(gt=0)
+    content: str = Field(min_length=1, max_length=8_000)
+    skill_mode: Literal["auto", "off", "explicit"] = "auto"
+    skill_id: Optional[int] = None
+
+
+class TurnSetupSkillCandidate(BaseModel):
+    id: int
+    name: str
+    score: int
+
+
+class TurnSetupSkillAdvice(BaseModel):
+    state: Literal["auto", "off", "selected", "recommended", "ambiguous"]
+    reason: str
+    confidence: float = 0.0
+    skill_id: Optional[int] = None
+    skill_name: str = ""
+    candidates: list[TurnSetupSkillCandidate] = Field(default_factory=list)
+
+
+class TurnSetupTemplateAdvice(BaseModel):
+    id: str
+    label: str
+    reason: str
+
+
+class TurnSetupSuggestionResponse(BaseModel):
+    template: Optional[TurnSetupTemplateAdvice] = None
+    skill: TurnSetupSkillAdvice
+    catalog_fingerprint: str = ""
+
+
+def _skill_reason_label(reason: str) -> str:
+    if reason == "forced_by_user":
+        return "沿用你明确指定的 Skill。"
+    if "ambiguous" in reason:
+        return "发现多个接近的 Skill，请在发送前明确选择。"
+    if "skill_name_exact" in reason:
+        return "问题直接命中 Skill 名称。"
+    if "alias:" in reason:
+        return "问题与该 Skill 的业务场景高度匹配。"
+    if "token_overlap" in reason:
+        return "问题与该 Skill 的专业描述高度重合。"
+    return "保留自动匹配，由发送时的完整上下文决定。"
 
 
 def _category_key(category: str) -> str:
@@ -457,6 +508,79 @@ def get_skill_root_snapshot():
         ],
         "last_publish_sync": dict(_last_skill_root_sync),
     }
+
+
+@router.post("/recommendations/turn", response_model=TurnSetupSuggestionResponse)
+def recommend_turn_setup(
+    req: TurnSetupSuggestionRequest,
+    session: Session = Depends(get_session),
+):
+    """Preview a Brief + Skill setup without executing or persisting a turn."""
+
+    template_advice = recommend_turn_brief_template(req.content)
+    template = (
+        TurnSetupTemplateAdvice(
+            id=template_advice.template_id,
+            label=template_advice.label,
+            reason=template_advice.reason,
+        )
+        if template_advice
+        else None
+    )
+
+    if req.skill_mode == "off":
+        return TurnSetupSuggestionResponse(
+            template=template,
+            skill=TurnSetupSkillAdvice(
+                state="off",
+                reason="沿用你设置的“本轮不用 Skill”。",
+                confidence=1.0,
+            ),
+        )
+
+    if req.skill_mode == "explicit":
+        if not req.skill_id:
+            raise HTTPException(422, "Explicit Skill mode requires skill_id")
+        skill = session.get(Skill, req.skill_id)
+        if not skill:
+            raise HTTPException(404, "Skill not found")
+        return TurnSetupSuggestionResponse(
+            template=template,
+            skill=TurnSetupSkillAdvice(
+                state="selected",
+                reason="沿用你明确指定的 Skill。",
+                confidence=1.0,
+                skill_id=skill.id,
+                skill_name=skill.name,
+            ),
+        )
+
+    matched_skill, decision = auto_select_skill(
+        session,
+        SendMessageRequest(content=req.content, project_id=req.project_id),
+    )
+    ambiguous = "ambiguous" in decision.reason
+    candidates = [
+        TurnSetupSkillCandidate(
+            id=int(item["skill_id"]),
+            name=str(item["skill_name"]),
+            score=int(item["score"]),
+        )
+        for item in decision.top_candidates[:3]
+        if item.get("skill_id") and item.get("skill_name")
+    ] if ambiguous else []
+    return TurnSetupSuggestionResponse(
+        template=template,
+        skill=TurnSetupSkillAdvice(
+            state="recommended" if matched_skill else "ambiguous" if ambiguous else "auto",
+            reason=_skill_reason_label(decision.reason),
+            confidence=round(decision.confidence, 3),
+            skill_id=matched_skill.id if matched_skill else None,
+            skill_name=matched_skill.name if matched_skill else "",
+            candidates=candidates,
+        ),
+        catalog_fingerprint=decision.catalog_fingerprint,
+    )
 
 
 @router.get("/{skill_id}")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,15 @@ class MentionContext(BaseModel):
 class TurnBriefInput(BaseModel):
     goal: str = Field(default="", max_length=240)
     constraints: List[str] = Field(default_factory=list, max_length=8)
+
+
+class TurnRevisionInput(BaseModel):
+    source_message_id: int = Field(gt=0)
+    source_fingerprint: str = Field(min_length=8, max_length=64, pattern=r"^turn-[a-f0-9]+$")
+    source_role: Literal["user", "assistant"]
+    changed_fields: List[
+        Literal["content", "goal", "constraints", "skill", "references"]
+    ] = Field(default_factory=list, max_length=5)
 
 
 class SendMessageRequest(BaseModel):
@@ -31,6 +40,7 @@ class SendMessageRequest(BaseModel):
     language: Optional[str] = None
     mention_context: Optional[MentionContext] = None
     turn_brief: Optional[TurnBriefInput] = None
+    turn_revision: Optional[TurnRevisionInput] = None
     action_confirmations: List[str] = []
 
 

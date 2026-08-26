@@ -1173,6 +1173,32 @@ export interface TurnBriefInput {
   constraints?: string[]
 }
 
+export type TurnRevisionField = 'content' | 'goal' | 'constraints' | 'skill' | 'references'
+
+export interface TurnRevisionInput {
+  source_message_id: number
+  source_fingerprint: string
+  source_role: 'user' | 'assistant'
+  changed_fields: TurnRevisionField[]
+}
+
+export interface TurnSetupSuggestion {
+  template?: {
+    id: string
+    label: string
+    reason: string
+  } | null
+  skill: {
+    state: 'auto' | 'off' | 'selected' | 'recommended' | 'ambiguous'
+    reason: string
+    confidence: number
+    skill_id?: number | null
+    skill_name: string
+    candidates: Array<{ id: number; name: string; score: number }>
+  }
+  catalog_fingerprint: string
+}
+
 export interface SendMessageRequest {
   conversation_id?: number
   content: string
@@ -1186,6 +1212,7 @@ export interface SendMessageRequest {
   model?: string
   mention_context?: MentionContext
   turn_brief?: TurnBriefInput
+  turn_revision?: TurnRevisionInput
   action_confirmations?: string[]
 }
 

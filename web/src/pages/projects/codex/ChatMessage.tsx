@@ -13,10 +13,14 @@ import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../../
 import { CxIcon } from './CxIcons'
 import { SkillCandidateButtons } from './SkillCandidateButtons'
 import {
+  parseProjectTurnRevision,
   parseProjectTurnMetadata,
+  projectTurnFingerprint,
+  type ParsedProjectTurnRevision,
   type ParsedProjectTurnMetadata,
   type ProjectTurnReusePayload,
 } from './turnBrief'
+import { PROJECT_TURN_REVISION_FIELD_LABELS } from './ProjectTurnSetupControl'
 import { formatUpdatedRelative } from './useProjectsApi'
 
 /** Project-chat-tab message bubble.
@@ -51,10 +55,13 @@ interface ParsedMeta {
   progress: ProgressStep[]
   contextReceipt: ContextReceiptEvent | null
   turn: ParsedProjectTurnMetadata | undefined
+  revision: ParsedProjectTurnRevision | undefined
 }
 
 function parseMeta(raw: string | undefined): ParsedMeta {
-  const empty = { references: [], artifacts: [], progress: [], contextReceipt: null, turn: undefined }
+  const empty: ParsedMeta = {
+    references: [], artifacts: [], progress: [], contextReceipt: null, turn: undefined, revision: undefined,
+  }
   if (!raw) return empty
   try {
     const meta = JSON.parse(raw) as Record<string, unknown>
@@ -70,6 +77,7 @@ function parseMeta(raw: string | undefined): ParsedMeta {
       progress: prog,
       contextReceipt: receipt,
       turn: parseProjectTurnMetadata(meta),
+      revision: parseProjectTurnRevision(meta),
     }
   } catch {
     return empty
@@ -89,6 +97,7 @@ interface MessageBubbleProps {
   streamingStatus?: string | null
   onSkillSelect?: (skillId: number, name: string) => void
   onTurnBriefReuse?: (payload: ProjectTurnReusePayload) => void
+  onTurnRevisionSourceOpen?: (sourceMessageId: number, sourceFingerprint: string) => void
 }
 
 export function ProjectChatMessage({
@@ -99,12 +108,14 @@ export function ProjectChatMessage({
   streamingStatus = null,
   onSkillSelect,
   onTurnBriefReuse,
+  onTurnRevisionSourceOpen,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const meta = useMemo(() => parseMeta(message.metadata_json), [message.metadata_json])
 
   return (
     <div
+      id={`project-chat-message-${message.id}`}
       className="group"
       style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}
     >
@@ -180,11 +191,19 @@ export function ProjectChatMessage({
             >
               {message.content}
             </p>
+            {meta.revision && (
+              <HistoricalTurnRevision
+                revision={meta.revision}
+                isAssistant={false}
+                onSourceOpen={onTurnRevisionSourceOpen}
+              />
+            )}
             {meta.turn && (
               <HistoricalTurnContract
                 turn={meta.turn}
                 isUser
                 messageContent={message.content}
+                messageId={message.id}
                 onReuse={onTurnBriefReuse}
               />
             )}
@@ -214,7 +233,15 @@ export function ProjectChatMessage({
                 turn={meta.turn}
                 isUser={false}
                 messageContent={message.content}
+                messageId={message.id}
                 onReuse={onTurnBriefReuse}
+              />
+            )}
+            {!isStreaming && meta.revision && (
+              <HistoricalTurnRevision
+                revision={meta.revision}
+                isAssistant
+                onSourceOpen={onTurnRevisionSourceOpen}
               />
             )}
             {!isStreaming && meta.contextReceipt && (
@@ -242,11 +269,13 @@ function HistoricalTurnContract({
   turn,
   isUser,
   messageContent,
+  messageId,
   onReuse,
 }: {
   turn: ParsedProjectTurnMetadata
   isUser: boolean
   messageContent: string
+  messageId: number
   onReuse?: (payload: ProjectTurnReusePayload) => void
 }) {
   const constraints = turn.draft.constraintsText.split('\n').filter(Boolean)
@@ -302,6 +331,15 @@ function HistoricalTurnContract({
               draft: turn.draft,
               mentionContext: turn.mentionContext,
               skillId: turn.skillId,
+              sourceMessageId: messageId,
+              sourceRole: isUser ? 'user' : 'assistant',
+              sourceFingerprint: projectTurnFingerprint({
+                content: messageContent,
+                draft: turn.draft,
+                sourceRole: isUser ? 'user' : 'assistant',
+                skillId: turn.skillId,
+                mentionContext: turn.mentionContext,
+              }),
             })}
             style={{
               marginTop: 7,
@@ -318,6 +356,55 @@ function HistoricalTurnContract({
         )}
       </div>
     </details>
+  )
+}
+
+function HistoricalTurnRevision({
+  revision,
+  isAssistant,
+  onSourceOpen,
+}: {
+  revision: ParsedProjectTurnRevision
+  isAssistant: boolean
+  onSourceOpen?: (sourceMessageId: number, sourceFingerprint: string) => void
+}) {
+  return (
+    <div
+      aria-label={isAssistant ? '本轮修订效果归因' : '历史契约修订轨迹'}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 5,
+        marginTop: 7,
+        maxWidth: 720,
+        padding: '5px 8px',
+        color: 'var(--ink-mute)',
+        background: 'color-mix(in oklch, var(--accent-bg) 50%, var(--bg-tint))',
+        border: '1px solid var(--line-soft)',
+        borderRadius: 'var(--r-sm)',
+        fontSize: 10.5,
+      }}
+    >
+      <span style={{ color: 'var(--accent)', fontWeight: 600 }}>
+        {isAssistant ? '回应修订' : '修订轨迹'}
+      </span>
+      <span>
+        {revision.changedFields.length > 0
+          ? `已调整 ${revision.changedFields.map((field) => PROJECT_TURN_REVISION_FIELD_LABELS[field]).join(' / ')}`
+          : '按原契约重试'}
+      </span>
+      {onSourceOpen && (
+        <button
+          type="button"
+          aria-label="定位修订来源消息"
+          onClick={() => onSourceOpen(revision.sourceMessageId, revision.sourceFingerprint)}
+          style={{ color: 'var(--accent)', fontSize: 10.5 }}
+        >
+          查看来源
+        </button>
+      )}
+    </div>
   )
 }
 

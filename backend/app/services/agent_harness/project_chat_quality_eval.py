@@ -18,6 +18,7 @@ from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.mode_registry import ActionPolicy, ToolAccessPolicy
 from app.services.chat.runtime import _resolve_effective_skill
 from app.services.chat.turn_contract import build_turn_contract
+from app.services.chat.turn_setup import recommend_turn_brief_template
 from app.services.chat_store import build_message_metadata
 from app.services.agent_harness.project_memory_evidence import (
     select_project_memory_slots,
@@ -380,6 +381,61 @@ def _turn_brief_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _turn_setup_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Preflight advice stays deterministic and abstains on weak signals."""
+
+    cases = (
+        ("请先做执行计划，不要执行", "plan_only"),
+        ("请核验访谈证据并标明来源", "evidence_first"),
+        ("整理成董事会汇报，结论先行", "executive_answer"),
+        ("Please update the database schema", None),
+    )
+    details: list[dict[str, Any]] = []
+    for content, expected in cases:
+        advice = recommend_turn_brief_template(content)
+        actual = advice.template_id if advice else None
+        details.append({
+            "content": content,
+            "expected": expected,
+            "actual": actual,
+            "passed": actual == expected,
+        })
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
+def _turn_revision_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Revision attribution is bounded metadata and never an execution input."""
+
+    valid = build_message_metadata(
+        project_id=26,
+        turn_revision={
+            "source_message_id": 91,
+            "source_fingerprint": "turn-1a2b3c4d",
+            "source_role": "assistant",
+            "changed_fields": ["goal", "goal", "skill", "unknown"],
+        },
+    )
+    invalid = build_message_metadata(
+        project_id=26,
+        turn_revision={
+            "source_message_id": -1,
+            "source_fingerprint": "invalid",
+            "source_role": "assistant",
+        },
+    )
+    details = [
+        {
+            "case": "turn_revision_is_deduplicated_and_bounded",
+            "passed": valid.get("turn_revision", {}).get("changed_fields") == ["goal", "skill"],
+        },
+        {
+            "case": "invalid_turn_revision_is_not_persisted",
+            "passed": "turn_revision" not in invalid,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -393,6 +449,8 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "memory_retrieval_precision_rate": _memory_retrieval_results(),
         "constraint_retention_rate": _constraint_results(),
         "turn_brief_accuracy": _turn_brief_results(),
+        "turn_setup_recommendation_accuracy": _turn_setup_results(),
+        "turn_revision_attribution_accuracy": _turn_revision_results(),
     }
     metrics = {
         name: {

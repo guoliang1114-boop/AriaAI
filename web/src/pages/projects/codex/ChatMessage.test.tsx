@@ -98,12 +98,15 @@ describe('ProjectChatMessage', () => {
     fireEvent.click(screen.getByText(/本轮 Brief/))
     fireEvent.click(screen.getByRole('button', { name: '复用此历史 Brief' }))
 
-    expect(onTurnBriefReuse).toHaveBeenCalledWith({
+    expect(onTurnBriefReuse).toHaveBeenCalledWith(expect.objectContaining({
       content: message.content,
       draft: { goal: '识别关键风险', constraintsText: '只分析' },
       mentionContext: { file_ids: [11], stakeholder_ids: [], milestone_ids: [] },
       skillId: 7,
-    })
+      sourceMessageId: 13,
+      sourceRole: 'user',
+      sourceFingerprint: expect.stringMatching(/^turn-[a-f0-9]{8}$/),
+    }))
   })
 
   it('turns an assistant Turn Contract into a visible revise-and-retry action', () => {
@@ -134,7 +137,7 @@ describe('ProjectChatMessage', () => {
     fireEvent.click(screen.getByText(/本轮执行契约/))
     fireEvent.click(screen.getByRole('button', { name: '基于此执行契约修订并重试' }))
 
-    expect(onTurnBriefReuse).toHaveBeenCalledWith({
+    expect(onTurnBriefReuse).toHaveBeenCalledWith(expect.objectContaining({
       content: '评估报告结构',
       draft: {
         goal: '评估报告结构',
@@ -142,6 +145,39 @@ describe('ProjectChatMessage', () => {
       },
       mentionContext: undefined,
       skillId: undefined,
-    })
+      sourceMessageId: 14,
+      sourceRole: 'assistant',
+      sourceFingerprint: expect.stringMatching(/^turn-[a-f0-9]{8}$/),
+    }))
+  })
+
+  it('renders persisted revision attribution and can locate its source', () => {
+    const onTurnRevisionSourceOpen = vi.fn()
+    const message: Message = {
+      id: 15,
+      conversation_id: 4,
+      role: 'assistant',
+      content: '修订后的分析。',
+      metadata_json: JSON.stringify({
+        turn_revision: {
+          source_message_id: 14,
+          source_fingerprint: 'turn-1a2b3c4d',
+          source_role: 'assistant',
+          changed_fields: ['goal', 'constraints'],
+        },
+      }),
+      created_at: '2026-08-25T00:00:00Z',
+    }
+
+    render(
+      <ProjectChatMessage
+        message={message}
+        projectId={3}
+        onTurnRevisionSourceOpen={onTurnRevisionSourceOpen}
+      />,
+    )
+    expect(screen.getByLabelText('本轮修订效果归因')).toHaveTextContent('已调整 目标 / 约束')
+    fireEvent.click(screen.getByRole('button', { name: '定位修订来源消息' }))
+    expect(onTurnRevisionSourceOpen).toHaveBeenCalledWith(14, 'turn-1a2b3c4d')
   })
 })

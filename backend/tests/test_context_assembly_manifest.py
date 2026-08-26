@@ -143,6 +143,32 @@ def test_message_metadata_preserves_bounded_turn_brief_for_audit() -> None:
     assert "turn_brief" not in build_message_metadata(turn_brief={"goal": "", "constraints": []})
 
 
+def test_message_metadata_preserves_bounded_turn_revision_for_attribution() -> None:
+    metadata = build_message_metadata(
+        project_id=3,
+        turn_revision={
+            "source_message_id": 91,
+            "source_fingerprint": "TURN-1A2B3C4D",
+            "source_role": "assistant",
+            "changed_fields": ["goal", "goal", ["malformed"], "skill", "unknown"],
+        },
+    )
+
+    assert metadata["turn_revision"] == {
+        "source_message_id": 91,
+        "source_fingerprint": "turn-1a2b3c4d",
+        "source_role": "assistant",
+        "changed_fields": ["goal", "skill"],
+    }
+    assert "turn_revision" not in build_message_metadata(
+        turn_revision={
+            "source_message_id": -1,
+            "source_fingerprint": "invalid",
+            "source_role": "assistant",
+        },
+    )
+
+
 def test_plan_only_turn_brief_blocks_durable_and_artifact_fallback_paths() -> None:
     runtime = SimpleNamespace(
         prepare_metrics={"turn_contract": {"mode": "plan_only"}},

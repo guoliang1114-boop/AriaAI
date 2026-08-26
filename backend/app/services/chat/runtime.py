@@ -795,7 +795,10 @@ def prepare_chat_runtime(
         file_ids=req.file_ids,
         mention_context=req.mention_context.model_dump() if req.mention_context else None,
         turn_brief=req.turn_brief.model_dump() if req.turn_brief else None,
+        turn_revision=req.turn_revision.model_dump() if req.turn_revision else None,
     )
+    if isinstance(metadata.get("turn_revision"), dict):
+        prepare_metrics["turn_revision"] = dict(metadata["turn_revision"])
     step_started_at = time.perf_counter()
     if persist_user and conv_id:
         persist_user_message(session, conv_id, req.content, metadata)

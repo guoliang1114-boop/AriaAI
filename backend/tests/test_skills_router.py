@@ -119,6 +119,31 @@ class SkillsCrudTestCase(unittest.TestCase):
         data = resp.json()
         self.assertIsInstance(data, (list, dict))
 
+    def test_turn_setup_recommends_brief_and_exact_skill_without_executing(self):
+        resp = self.client.post("/skills/recommendations/turn", json={
+            "project_id": 3,
+            "content": "Generate Strategy Report for the board",
+            "skill_mode": "auto",
+        })
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["template"]["id"], "executive_answer")
+        self.assertEqual(data["skill"]["state"], "recommended")
+        self.assertEqual(data["skill"]["skill_id"], self.skill_id)
+        self.assertEqual(data["skill"]["skill_name"], "Strategy Report")
+
+    def test_turn_setup_respects_explicit_skill_off_boundary(self):
+        resp = self.client.post("/skills/recommendations/turn", json={
+            "project_id": 3,
+            "content": "请分析项目风险",
+            "skill_mode": "off",
+        })
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["template"]["id"], "read_only_analysis")
+        self.assertEqual(resp.json()["skill"]["state"], "off")
+
     def test_update_nonexistent_skill(self):
         resp = self.client.patch("/skills/99999", json={"name": "Nope"})
         self.assertEqual(resp.status_code, 404)

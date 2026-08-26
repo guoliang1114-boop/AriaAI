@@ -1,4 +1,10 @@
-import type { MentionContext, Message, TurnBriefInput } from '../../../types/api'
+import type {
+  MentionContext,
+  Message,
+  TurnBriefInput,
+  TurnRevisionField,
+  TurnRevisionInput,
+} from '../../../types/api'
 
 export interface ProjectTurnBriefDraft {
   goal: string
@@ -28,6 +34,18 @@ export interface ProjectTurnReusePayload {
   draft: ProjectTurnBriefDraft
   mentionContext?: MentionContext
   skillId?: number
+  sourceMessageId: number
+  sourceRole: 'user' | 'assistant'
+  sourceFingerprint: string
+}
+
+export type ProjectTurnRevisionSource = ProjectTurnReusePayload
+
+export interface ParsedProjectTurnRevision {
+  sourceMessageId: number
+  sourceFingerprint: string
+  sourceRole: 'user' | 'assistant'
+  changedFields: TurnRevisionField[]
 }
 
 export interface ParsedProjectTurnMetadata {
@@ -128,6 +146,138 @@ function parseMentionContext(value: unknown): MentionContext | undefined {
     milestone_ids: parsePositiveIds(record.milestone_ids),
   }
   return Object.values(context).some((ids) => ids.length > 0) ? context : undefined
+}
+
+function canonicalMentionContext(context: MentionContext | undefined): string {
+  const ids = (values: number[] | undefined) => [...new Set(values || [])].sort((left, right) => left - right)
+  return JSON.stringify({
+    file_ids: ids(context?.file_ids),
+    stakeholder_ids: ids(context?.stakeholder_ids),
+    milestone_ids: ids(context?.milestone_ids),
+  })
+}
+
+function normalizeTurnContent(content: string): string {
+  return content.replace(/\s+/gu, ' ').trim()
+}
+
+export function projectTurnFingerprint({
+  content,
+  draft,
+  sourceRole,
+  skillId,
+  mentionContext,
+}: {
+  content: string
+  draft: ProjectTurnBriefDraft
+  sourceRole: 'user' | 'assistant'
+  skillId?: number
+  mentionContext?: MentionContext
+}): string {
+  const canonical = JSON.stringify({
+    role: sourceRole,
+    content: normalizeTurnContent(content),
+    brief: projectTurnBriefToInput(draft) || {},
+    skill_id: skillId || null,
+    mentions: canonicalMentionContext(mentionContext),
+  })
+  let hash = 0x811c9dc5
+  for (let index = 0; index < canonical.length; index += 1) {
+    hash ^= canonical.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return `turn-${(hash >>> 0).toString(16).padStart(8, '0')}`
+}
+
+export function findProjectTurnRevisionSource(
+  messages: Pick<Message, 'id' | 'role' | 'content' | 'metadata_json'>[],
+  sourceFingerprint: string,
+): Pick<Message, 'id' | 'role' | 'content' | 'metadata_json'> | undefined {
+  const matches = messages.filter((message) => {
+    if (message.role !== 'user' && message.role !== 'assistant') return false
+    const turn = parseProjectTurnMetadata(message.metadata_json)
+    if (!turn) return false
+    return projectTurnFingerprint({
+      content: message.content,
+      draft: turn.draft,
+      sourceRole: message.role,
+      skillId: turn.skillId,
+      mentionContext: turn.mentionContext,
+    }) === sourceFingerprint
+  })
+  return matches.length === 1 ? matches[0] : undefined
+}
+
+export function buildProjectTurnRevisionInput(
+  source: ProjectTurnRevisionSource,
+  current: {
+    content: string
+    draft: ProjectTurnBriefDraft
+    skillMode: 'auto' | 'off' | 'explicit'
+    skillId?: number
+    mentionContext?: MentionContext
+  },
+): TurnRevisionInput {
+  const changedFields: TurnRevisionField[] = []
+  if (normalizeTurnContent(source.content) !== normalizeTurnContent(current.content)) {
+    changedFields.push('content')
+  }
+  if (normalizeTurnBriefGoal(source.draft.goal) !== normalizeTurnBriefGoal(current.draft.goal)) {
+    changedFields.push('goal')
+  }
+  if (JSON.stringify(normalizeTurnBriefConstraints(source.draft.constraintsText))
+    !== JSON.stringify(normalizeTurnBriefConstraints(current.draft.constraintsText))) {
+    changedFields.push('constraints')
+  }
+  const sourceSkill = source.skillId ? `explicit:${source.skillId}` : 'auto'
+  const currentSkill = current.skillMode === 'explicit'
+    ? `explicit:${current.skillId || 0}`
+    : current.skillMode
+  if (sourceSkill !== currentSkill) changedFields.push('skill')
+  if (canonicalMentionContext(source.mentionContext) !== canonicalMentionContext(current.mentionContext)) {
+    changedFields.push('references')
+  }
+  return {
+    source_message_id: source.sourceMessageId,
+    source_fingerprint: source.sourceFingerprint,
+    source_role: source.sourceRole,
+    changed_fields: changedFields,
+  }
+}
+
+export function parseProjectTurnRevision(
+  raw: string | Record<string, unknown> | undefined,
+): ParsedProjectTurnRevision | undefined {
+  if (!raw) return undefined
+  try {
+    const meta = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return undefined
+    const revision = meta.turn_revision
+    if (!revision || typeof revision !== 'object' || Array.isArray(revision)) return undefined
+    const record = revision as Record<string, unknown>
+    const sourceMessageId = Number(record.source_message_id)
+    const sourceFingerprint = typeof record.source_fingerprint === 'string'
+      ? record.source_fingerprint.trim().toLowerCase()
+      : ''
+    const sourceRole = record.source_role
+    const allowedFields = new Set<TurnRevisionField>([
+      'content', 'goal', 'constraints', 'skill', 'references',
+    ])
+    const changedFields = Array.isArray(record.changed_fields)
+      ? record.changed_fields.filter(
+        (item): item is TurnRevisionField => typeof item === 'string' && allowedFields.has(item as TurnRevisionField),
+      ).filter((item, index, items) => items.indexOf(item) === index).slice(0, 5)
+      : []
+    if (
+      !Number.isSafeInteger(sourceMessageId)
+      || sourceMessageId <= 0
+      || !/^turn-[a-f0-9]{3,59}$/u.test(sourceFingerprint)
+      || (sourceRole !== 'user' && sourceRole !== 'assistant')
+    ) return undefined
+    return { sourceMessageId, sourceFingerprint, sourceRole, changedFields }
+  } catch {
+    return undefined
+  }
 }
 
 export function parseProjectTurnMetadata(

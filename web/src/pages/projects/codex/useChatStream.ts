@@ -9,6 +9,7 @@ import type {
   MentionContext,
   Reference,
   TurnBriefInput,
+  TurnRevisionInput,
 } from '../../../types/api'
 import { normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../types/productRunEvent'
@@ -58,6 +59,7 @@ export interface ProjectChatTurnControl {
   disableSkill?: boolean
   mentionContext?: MentionContext
   turnBrief?: TurnBriefInput
+  turnRevision?: TurnRevisionInput
 }
 
 interface UseChatStreamArgs {
@@ -236,6 +238,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           ...(turnControl.skillId != null ? { skill_id: turnControl.skillId } : {}),
           ...(turnControl.mentionContext ? { mention_context: turnControl.mentionContext } : {}),
           ...(turnControl.turnBrief ? { turn_brief: turnControl.turnBrief } : {}),
+          ...(turnControl.turnRevision ? { turn_revision: turnControl.turnRevision } : {}),
         }),
         created_at: new Date().toISOString(),
       }
@@ -261,6 +264,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
             language: i18n.language || 'zh-CN',
             mention_context: turnControl.mentionContext,
             turn_brief: turnControl.turnBrief,
+            turn_revision: turnControl.turnRevision,
           }),
           signal: controller.signal,
         })
@@ -443,6 +447,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           stage_timings: finalStageTimings,
           turn_receipt: turnReceiptRef.current || undefined,
           context_receipt: contextReceiptRef.current || undefined,
+          turn_revision: turnControl.turnRevision,
         }),
         created_at: new Date().toISOString(),
       }
