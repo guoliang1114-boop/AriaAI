@@ -14,7 +14,15 @@ import type {
   TurnSetupTraceInput,
 } from '../../../types/api'
 import { normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
-import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../types/productRunEvent'
+import {
+  isProductRunEvent,
+  type ContextReceiptEvent,
+  type TurnReceiptEvent,
+} from '../../../types/productRunEvent'
+import {
+  reduceRunActivity,
+  type RunActivityTimeline,
+} from '../../../stores/runActivityReducer'
 import {
   parseChatStreamEvent,
   toContextReceiptEvent,
@@ -93,6 +101,7 @@ interface UseChatStreamReturn {
   capability: ChatCapabilityFrame | null
   turnReceipt: TurnReceiptEvent | null
   contextReceipt: ContextReceiptEvent | null
+  activityTimeline: RunActivityTimeline | null
   activeRunId: string | null
   /** Stable id assigned to THIS turn's assistant reply at send time.
    * The caller renders the in-flight reply as a draft message with
@@ -125,6 +134,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   const [capability, setCapability] = useState<ChatCapabilityFrame | null>(null)
   const [turnReceipt, setTurnReceipt] = useState<TurnReceiptEvent | null>(null)
   const [contextReceipt, setContextReceipt] = useState<ContextReceiptEvent | null>(null)
+  const [activityTimeline, setActivityTimeline] = useState<RunActivityTimeline | null>(null)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   // Stable id for the current turn's assistant reply. State so the
   // caller re-renders the draft under the right key; ref mirror so the
@@ -138,6 +148,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   const activeRunIdRef = useRef<string | null>(null)
   const turnReceiptRef = useRef<TurnReceiptEvent | null>(null)
   const contextReceiptRef = useRef<ContextReceiptEvent | null>(null)
+  const activityTimelineRef = useRef<RunActivityTimeline | null>(null)
   const stopRequestedRef = useRef(false)
   const sendInFlightRef = useRef(false)
 
@@ -150,6 +161,8 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     turnReceiptRef.current = null
     setContextReceipt(null)
     contextReceiptRef.current = null
+    setActivityTimeline(null)
+    activityTimelineRef.current = null
   }
 
   const stop = useCallback(() => {
@@ -187,6 +200,13 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     const partial = accumulatedRef.current
     const interruptedRunId = activeRunIdRef.current
     if (conversationId != null) {
+      const stoppedTimeline = activityTimelineRef.current
+        ? {
+          ...activityTimelineRef.current,
+          final_status: 'cancelled' as const,
+          status: undefined,
+        }
+        : undefined
       const assistantMsg: Message = {
         id: assistantDraftIdRef.current,
         conversation_id: conversationId,
@@ -200,6 +220,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           ...(interruptedRunId
             ? { run_rollout: { run_id: interruptedRunId, status: 'cancelled' } }
             : {}),
+          activity_timeline: stoppedTimeline,
         }),
         created_at: new Date().toISOString(),
       }
@@ -319,6 +340,11 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       let streamErr: string | null = null
 
       const handleEvent = (ev: ChatStreamEvent) => {
+        if (isProductRunEvent(ev)) {
+          const nextTimeline = reduceRunActivity(activityTimelineRef.current, ev)
+          activityTimelineRef.current = nextTimeline
+          setActivityTimeline(nextTimeline)
+        }
         if (ev.type === 'run_started' && typeof ev.run_id === 'string') {
           activeRunIdRef.current = ev.run_id
           setActiveRunId(ev.run_id)
@@ -485,6 +511,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           context_receipt: contextReceiptRef.current || undefined,
           turn_revision: turnControl.turnRevision,
           turn_recovery: turnControl.turnRecovery,
+          activity_timeline: activityTimelineRef.current || undefined,
         }),
         created_at: new Date().toISOString(),
       }
@@ -550,6 +577,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     capability,
     turnReceipt,
     contextReceipt,
+    activityTimeline,
     activeRunId,
     streamingMessageId,
     send,

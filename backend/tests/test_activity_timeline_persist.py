@@ -38,12 +38,20 @@ def _state(
     )
 
 
-def _runtime(*, skill_name="", skill_id=None, skill_activation_source="", prepare_metrics=None):
+def _runtime(
+    *,
+    skill_name="",
+    skill_id=None,
+    skill_activation_source="",
+    prepare_metrics=None,
+    action_policy="direct_answer",
+):
     return SimpleNamespace(
         skill_name=skill_name,
         skill_id=skill_id,
         skill_activation_source=skill_activation_source,
         prepare_metrics=prepare_metrics or {},
+        action_policy=action_policy,
     )
 
 
@@ -59,6 +67,7 @@ class BuildActivityTimelineTest(unittest.TestCase):
         )
         assert timeline is not None
         self.assertEqual(timeline["run_id"], "run_x")
+        self.assertEqual(timeline["display_mode"], "quiet")
         self.assertEqual(timeline["steps"], [])
         self.assertEqual(timeline["artifacts"], [])
         self.assertEqual(timeline["final_status"], "completed")
@@ -107,11 +116,11 @@ class BuildActivityTimelineTest(unittest.TestCase):
         self.assertEqual(len(timeline["steps"]), 1)
         step = timeline["steps"][0]
         self.assertEqual(step["index"], 1)  # 1-based for the frontend
-        self.assertEqual(step["title"], "read_project_markdown_document")
+        self.assertEqual(step["title"], "读取项目 Markdown 文档")
         self.assertEqual(step["status"], "completed")
         self.assertEqual(step["duration_ms"], 180)
         self.assertEqual(step["items"], [
-            {"tool_name": "read_project_markdown_document", "status": "completed", "detail": "已读取 3 个文件"},
+            {"tool_name": "读取项目 Markdown 文档", "status": "completed", "detail": "已读取 3 个文件"},
         ])
 
     def test_failed_event_flips_step_status_to_failed(self):

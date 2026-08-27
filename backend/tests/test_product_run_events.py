@@ -19,6 +19,7 @@ from app.services.chat.product_run_events import (
     memory_candidate_ready,
     message_persisted,
     reference_delta,
+    resolve_run_display_mode,
     run_done,
     run_failed,
     run_started,
@@ -31,6 +32,19 @@ from app.services.chat.product_run_events import (
     turn_receipt,
     tool_progress,
 )
+
+
+class DisplayModeResolutionTest(unittest.TestCase):
+    def test_policy_modes_remain_product_level_and_skill_wins(self):
+        self.assertEqual(resolve_run_display_mode("direct_answer"), DisplayMode.QUIET)
+        self.assertEqual(resolve_run_display_mode("read_only_tool"), DisplayMode.CONTEXTUAL)
+        self.assertEqual(resolve_run_display_mode("write_artifact"), DisplayMode.TASK)
+        self.assertEqual(resolve_run_display_mode("durable_task"), DisplayMode.TASK)
+        self.assertEqual(resolve_run_display_mode("destructive_action"), DisplayMode.CONFIRMATION)
+        self.assertEqual(
+            resolve_run_display_mode("direct_answer", has_skill=True),
+            DisplayMode.SKILL,
+        )
 
 
 class RunIdTest(unittest.TestCase):

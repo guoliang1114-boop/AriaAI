@@ -608,7 +608,19 @@ async def _stream_chat_events_impl(
         stage="agent_loop_pending" if _steering_supported else "non_steerable_execution",
         steerable=_steering_supported,
     )
-    yield sse_event(run_started(state.run_id, skill=_run_started_skill))
+    from app.services.chat.product_run_events import resolve_run_display_mode
+
+    _display_mode = resolve_run_display_mode(
+        runtime.action_policy,
+        has_skill=_run_started_skill is not None,
+    )
+    yield sse_event(
+        run_started(
+            state.run_id,
+            display_mode=_display_mode,
+            skill=_run_started_skill,
+        )
+    )
 
     state.turn_receipt = build_turn_receipt(
         state.run_id,

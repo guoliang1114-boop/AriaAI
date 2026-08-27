@@ -718,6 +718,10 @@ Phase 2S 把 Codex apply-patch 的“先冻结基线、写入前重新验证”�
 
 同时新增由 `TurnContract` 生成的 `turn_receipt`，在模型开始前向用户展示本轮目标、回答/规划/执行模式、作用范围、预期结果、写入与确认策略；两个对话入口运行中保留“追加到当前任务”和独立“停止”动作。实现不暴露提示词或隐藏推理，不运行、不导入、不连接 Codex，不新增数据库迁移。
 
+### Phase 2W：运行投影、统一时间线与记忆版本守卫（已实施）
+
+参考 Codex 的 rollout recorder、session item 和 Skills package 质量边界，继续只移植最小机制到 Aria：新增不含正文的 `ChatRun` 查询投影，保留既有 `TaskRun/TaskEvent` 作为可恢复执行事实源；实时与持久消息共享统一 Activity Timeline；Memory Candidate 绑定创建时记忆版本，审批发生并发漂移时必须基于当前版本再次确认；全量 Skill 元数据进入确定性质量报告和 CI 门禁。`ChatRun` 随会话/项目删除，用户或 Skill 删除只解除可选引用，避免外键阻塞同时保留内容安全的历史事实。数据库迁移由 `029_v1_29` 与 `030_v1_30` 管理。所有权限、业务状态、审批、记忆版本和 Provider 调用仍属于 Aria 原生服务，不运行、不导入、不连接 Codex。
+
 ## 8. 许可证与升级流程
 
 Aria 主项目继续使用 MIT License；从 Codex 改编的具体文件同时受 Apache License 2.0 的适用要求约束。

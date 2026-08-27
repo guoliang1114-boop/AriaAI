@@ -1,6 +1,10 @@
 ---
 name: tp-documentation-preparation
 description: "转让定价文档准备：主体文档、本地文档、国别报告，基于OECD BEPS第13项行动计划及中国国家税务总局公告2016年第42号"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 转让定价文档准备

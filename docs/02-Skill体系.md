@@ -32,7 +32,7 @@ Skill 的产品作用：
 | 对话执行 | `ChatMode.SKILL_EXECUTION` 与 `force_skill` |
 | 结果回流 | 项目 Chat 保存为项目文档/笔记，触发记忆 stale/刷新 |
 
-注意：当前代码没有独立的 Skill 运行记录表，也没有正式的 Skill 版本发布模型。这些属于后续演进。
+注意：当前代码已有内容安全的 `ChatRun` 生命周期投影，可记录本轮实际 Skill、来源、策略和终态；Skill 包也已统一声明 semver 元数据并受 CI 质量门禁约束。独立的 Skill 发布/回滚数据模型仍属于后续演进。
 
 ## 3. 数据模型
 
@@ -228,8 +228,8 @@ skills/
 
 优先级建议：
 
-1. 增加 Skill 运行记录表，记录输入、上下文版本、工具调用、输出和保存结果。
-2. 增加 Skill 版本号、发布状态和回滚能力。
+1. 在现有 `ChatRun` 内容安全投影上增加按 Skill 的质量趋势和版本维度统计，不保存原始输入或工具参数。
+2. 将当前 Skill 包 semver/status 元数据升级为正式的发布、灰度和回滚模型。
 3. 为核心 Skill 增加 golden examples。
 4. 增加 `verification_steps`，让交付物生成后可自动校验。
 5. 设计 Skill 导入/导出格式，统一 DB Skill 与文件包 Skill 的同步方式。

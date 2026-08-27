@@ -691,6 +691,31 @@ export interface ProjectDetail {
   financials: ProjectFinancials
 }
 
+export interface ProjectInteractionMetrics {
+  project_id: number
+  sample_limit: number
+  schema_version: number
+  assistant_turn_count: number
+  feedback_count: number
+  feedback_coverage: number | null
+  helpful_count: number
+  helpful_rate: number | null
+  revision_feedback_count: number
+  revision_success_rate: number | null
+  turn_setup: {
+    requested_count: number
+    applied_count: number
+    dismissed_count: number
+    adoption_rate: number | null
+  }
+  negative_reasons: Record<string, number>
+  privacy: {
+    stores_message_content: boolean
+    stores_free_text_feedback: boolean
+    stores_user_identity: boolean
+  }
+}
+
 export interface ProjectMeetingBriefing {
   project: {
     id: number
@@ -973,6 +998,18 @@ export interface MemoryCandidate {
   status: "pending" | "accepted" | "rejected" | "archived"
   created_by: "user" | "ai" | "system" | string
   target_slot: string
+  base_memory_version?: number | null
+  memory_relation?: {
+    status: 'additive' | 'duplicate' | 'stale_base' | string
+    target_slot: string
+    base_memory_version?: number | null
+    current_memory_version: number
+    base_changed: boolean
+    duplicate: boolean
+    requires_confirmation: boolean
+    current_value_count: number
+    current_values_preview: string[]
+  } | null
   applied_memory_version?: number | null
   resolved_by_user_id?: number | null
   decision_note: string

@@ -53,7 +53,7 @@ export function AboutSettings() {
   const { i18n, t } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
-    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.3',
+    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.4',
     buildDate: typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__.slice(0, 10) : '-',
     environment: 'production',
     apiStatus: 'offline',
@@ -63,6 +63,26 @@ export function AboutSettings() {
   const [activeTab, setActiveTab] = useState<'overview' | 'changelog' | 'license'>('overview')
 
   const changelog: ChangelogEntry[] = [
+    {
+      version: '0.0.4',
+      date: '2026-08-27',
+      summary: isZh ? 'V0.0.4 发布：项目对话、运行治理、记忆连续性与 Skill 质量全面升级。' : 'V0.0.4 release: project chat, run governance, memory continuity, and Skill quality upgrades.',
+      changes: isZh
+        ? [
+            '统一 Product Run Event 活动时间线，实时与刷新后的 Skill、步骤、工具、交付物、错误和确认状态保持一致。',
+            '新增正式 ChatRun 生命周期投影与内容安全查询，运行状态、阶段、工具和产出数量可审计。',
+            '项目记忆候选加入基线版本冲突守卫，记忆页展示版本历史和差异摘要，重复候选不再制造空版本。',
+            '项目对话新增隐私安全的质量指标面板，反馈、修订和配置建议效果可量化。',
+            '48 个 Skill 统一版本元数据并加入 CI 质量门禁，首批高优先级专业 Skill 补齐参考资料和示例。',
+          ]
+        : [
+            'Unified Product Run Event activity timeline across live and persisted Skill, step, tool, artifact, error, and confirmation states.',
+            'First-class content-free ChatRun lifecycle projection and authorized diagnostics.',
+            'Memory candidate version-conflict guards, visible snapshot history and diffs, and no-op duplicate acceptance.',
+            'Privacy-safe project interaction quality metrics for feedback, revisions, and turn setup adoption.',
+            'Version metadata and CI quality gates for all 48 Skills, with richer references and examples for the first priority set.',
+          ],
+    },
     {
       version: '0.0.3',
       date: '2026-05-28',
@@ -424,7 +444,7 @@ export function AboutSettings() {
               }}
             >
               <Sparkles className="h-3.5 w-3.5" />
-              {isZh ? 'V0.0.3 发布版本' : 'V0.0.3 Release'}
+              {isZh ? 'V0.0.4 发布版本' : 'V0.0.4 Release'}
             </div>
             <p
               style={{
@@ -435,8 +455,8 @@ export function AboutSettings() {
               }}
             >
               {isZh
-                ? '本版本聚焦 Skill 体系治理、Harness 架构设计和记忆系统升级，为 AriaAI 从项目助手向可控、可沉淀、可审计的项目 AI 工作台演进奠定架构基础。'
-                : 'This release focuses on Skill governance, Harness architecture design, and memory system upgrades, laying the architectural foundation for evolving AriaAI from a project assistant to a controllable, traceable, and auditable project AI workbench.'}
+                ? '本版本完成项目对话、Skill、运行审计和记忆治理的产品闭环：过程可理解、结果可验证、上下文可追溯、候选冲突可确认，并保持 Aria 原生权限与 Provider 边界。'
+                : 'This release closes the product loop across project chat, Skills, run auditing, and memory governance: understandable progress, verifiable results, traceable context, and explicit conflict review within Aria-native authorization and provider boundaries.'}
             </p>
           </div>
         </div>

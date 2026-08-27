@@ -4,7 +4,9 @@ import { useToast } from '../../../../contexts/ToastContext'
 import type {
   MemoryCandidate,
   MemoryCandidateListResponse,
+  MemorySnapshotDiffResponse,
   ProjectDetail as ProjectDetailType,
+  ProjectMemorySnapshot,
 } from '../../../../types/api'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
@@ -136,6 +138,17 @@ function parseIsoMillis(iso: string | null | undefined): number {
   const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(iso) ? iso : `${iso}Z`
   const t = new Date(normalized).getTime()
   return Number.isFinite(t) ? t : 0
+}
+
+function formatMemoryTrigger(trigger: string): string {
+  if (trigger.startsWith('memory_candidate:')) return '候选审批写入'
+  if (trigger.startsWith('rollback:')) return '历史版本恢复'
+  const labels: Record<string, string> = {
+    manual: '手动更新',
+    rebuild: 'AI 重新汇总',
+    scheduled: '自动更新',
+  }
+  return labels[trigger] ?? trigger.replaceAll('_', ' ')
 }
 
 /** Light-weight "what fed this rebuild" snapshot. We can't (cheaply)
@@ -342,6 +355,9 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
   const memoryCandidatesRequestIdRef = useRef(0)
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([])
   const [candidateBusyId, setCandidateBusyId] = useState<number | null>(null)
+  const [versionSnapshots, setVersionSnapshots] = useState<ProjectMemorySnapshot[]>([])
+  const [selectedVersionDiff, setSelectedVersionDiff] = useState<MemorySnapshotDiffResponse | null>(null)
+  const [versionDiffLoading, setVersionDiffLoading] = useState(false)
   const loadMemoryCandidates = useCallback(() => {
     const requestId = ++memoryCandidatesRequestIdRef.current
     return api
@@ -364,12 +380,50 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
     void loadMemoryCandidates()
   }, [loadMemoryCandidates])
 
+  const loadMemoryVersions = useCallback(() => {
+    return api
+      .get<ProjectMemorySnapshot[]>(`/projects/${projectId}/memory/snapshots`)
+      .then((items) => setVersionSnapshots(items))
+      .catch((error: unknown) => {
+        console.error('Failed to load memory snapshots:', error)
+        setVersionSnapshots([])
+      })
+  }, [projectId])
+
+  useEffect(() => {
+    void loadMemoryVersions()
+  }, [loadMemoryVersions])
+
+  const inspectVersion = useCallback(async (snapshotId: number) => {
+    setVersionDiffLoading(true)
+    try {
+      setSelectedVersionDiff(await api.get<MemorySnapshotDiffResponse>(
+        `/projects/${projectId}/memory/snapshots/${snapshotId}/diff`,
+      ))
+    } catch (error) {
+      toast.error({
+        title: '版本差异加载失败',
+        description: error instanceof Error ? error.message : '请稍后重试',
+      })
+    } finally {
+      setVersionDiffLoading(false)
+    }
+  }, [projectId, toast])
+
   const decideMemoryCandidate = useCallback(
     async (candidate: MemoryCandidate, decision: 'accept' | 'reject') => {
       if (candidateBusyId != null) return
       setCandidateBusyId(candidate.id)
       try {
-        await api.post(`/memory-candidates/${candidate.id}/${decision}`, {})
+        await api.post(`/memory-candidates/${candidate.id}/${decision}`, decision === 'accept'
+          ? {
+              expected_memory_version: candidate.memory_relation?.current_memory_version,
+              allow_conflict: candidate.memory_relation?.requires_confirmation ?? false,
+              decision_note: candidate.memory_relation?.requires_confirmation
+                ? `Reviewed and merged after memory changed from v${candidate.base_memory_version ?? 'unknown'}`
+                : '',
+            }
+          : {})
         toast.success({
           title: decision === 'accept' ? '候选已写入正式记忆' : '候选已拒绝',
           description:
@@ -378,7 +432,9 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
               : '正式项目记忆没有发生变化',
         })
         await loadMemoryCandidates()
-        if (decision === 'accept') await refetch()
+        if (decision === 'accept') {
+          await Promise.all([refetch(), loadMemoryVersions()])
+        }
       } catch (error) {
         toast.error({
           title: decision === 'accept' ? '写入失败' : '拒绝失败',
@@ -388,7 +444,7 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
         setCandidateBusyId(null)
       }
     },
-    [candidateBusyId, loadMemoryCandidates, refetch, toast],
+    [candidateBusyId, loadMemoryCandidates, loadMemoryVersions, refetch, toast],
   )
 
   const [rebuildBusy, setRebuildBusy] = useState(false)
@@ -515,6 +571,20 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
                         }}
                       >
                         <span>{candidate.target_slot || 'recent_progress'}</span>
+                        {candidate.memory_relation?.status === 'stale_base' && (
+                          <>
+                            <span>·</span>
+                            <span style={{ color: 'var(--warn)' }}>
+                              基于 v{candidate.base_memory_version ?? '—'}，当前 v{candidate.memory_relation.current_memory_version}
+                            </span>
+                          </>
+                        )}
+                        {candidate.memory_relation?.status === 'duplicate' && (
+                          <>
+                            <span>·</span>
+                            <span style={{ color: 'var(--info)' }}>正式记忆中已存在</span>
+                          </>
+                        )}
                         <span>·</span>
                         <span>
                           来源 {candidate.source_type === 'chat_message' ? `对话 #${candidate.source_id}` : candidate.source_type}
@@ -547,7 +617,13 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
                             opacity: busy ? 0.65 : 1,
                           }}
                         >
-                          {busy ? '处理中…' : '接受并写入'}
+                          {busy
+                            ? '处理中…'
+                            : candidate.memory_relation?.requires_confirmation
+                              ? '确认合并到当前版本'
+                              : candidate.memory_relation?.duplicate
+                                ? '确认已存在'
+                                : '接受并写入'}
                         </button>
                       </div>
                     </div>
@@ -787,6 +863,63 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
                 </span>
               </div>
             </div>
+          </CxPanel>
+
+          <CxPanel
+            title="版本历史"
+            subtitle={versionSnapshots.length > 0 ? `保留最近 ${versionSnapshots.length} 个快照` : '暂无版本快照'}
+          >
+            {versionSnapshots.length === 0 ? (
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-faint)' }}>
+                首次建立或更新记忆后会生成可追溯快照。
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {versionSnapshots.slice(0, 6).map((item) => {
+                  const selected = selectedVersionDiff?.from_snapshot.id === item.id
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => void inspectVersion(item.id)}
+                      disabled={versionDiffLoading}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '42px 1fr auto',
+                        gap: 8,
+                        alignItems: 'center',
+                        padding: '7px 8px',
+                        textAlign: 'left',
+                        color: selected ? 'var(--accent-ink)' : 'var(--ink-soft)',
+                        background: selected ? 'var(--accent-bg)' : 'transparent',
+                        border: 'none',
+                        borderRadius: 'var(--r-sm)',
+                        cursor: versionDiffLoading ? 'wait' : 'pointer',
+                      }}
+                    >
+                      <span className="num" style={{ fontSize: 11.5 }}>v{item.memory_version}</span>
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10.5 }}>
+                        {formatMemoryTrigger(item.trigger)}
+                      </span>
+                      <span style={{ fontSize: 9.5, color: 'var(--ink-faint)' }}>
+                        {formatUpdatedRelative(item.created_at)}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            {selectedVersionDiff && (
+              <div style={{ marginTop: 10, paddingTop: 9, borderTop: '1px solid var(--line-soft)', fontSize: 10.5, color: 'var(--ink-mute)', lineHeight: 1.7 }}>
+                <div>
+                  v{selectedVersionDiff.from_snapshot.memory_version} → v{selectedVersionDiff.to.memory_version}
+                  {' · '}{selectedVersionDiff.summary.changed} 个字段变化
+                </div>
+                <div style={{ color: 'var(--ink-faint)' }}>
+                  新增 {selectedVersionDiff.summary.added} · 移除 {selectedVersionDiff.summary.removed} · 未变 {selectedVersionDiff.summary.unchanged}
+                </div>
+              </div>
+            )}
           </CxPanel>
 
           <CxPanel

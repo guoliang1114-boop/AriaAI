@@ -1,6 +1,10 @@
 ---
 name: internal-audit-annual-plan
 description: "基于IIA国际内部审计专业实务标准，制定风险导向的年度内部审计计划，涵盖审计宇宙、风险评分、资源分配"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 # 年度内部审计计划
 

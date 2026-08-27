@@ -5,8 +5,8 @@ FK to a project (or its conversations / messages / files). When a new such
 table is added but not wired into the cascade, deleting a project that has rows
 in it raises a Postgres IntegrityError — surfaced to the client as a 500.
 
-This guards the three tables that were originally missed: ChatTrace,
-ConversationState, and ProjectFileVersion.
+This guards the lifecycle tables that were previously missed: ChatRun,
+ChatTrace, ConversationState, and ProjectFileVersion.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import unittest
 from sqlmodel import Session, SQLModel, select
 
 from app.models.db import (
+    ChatRun,
     ChatTrace,
     Conversation,
     ConversationState,
@@ -22,6 +23,7 @@ from app.models.db import (
     Project,
     ProjectFile,
     ProjectFileVersion,
+    TaskRun,
 )
 from app.services.project_deletion import delete_project_cascade
 from tests.test_database import create_test_engine, drop_all_tables
@@ -36,9 +38,8 @@ class DeleteProjectCascadeTest(unittest.TestCase):
     def tearDown(self):
         self.engine.dispose()
 
-    def test_deletes_project_with_trace_state_and_file_versions(self):
-        """A project carrying ChatTrace / ConversationState / ProjectFileVersion
-        rows must delete cleanly (these used to violate FKs → 500)."""
+    def test_deletes_project_with_run_trace_state_and_file_versions(self):
+        """A project carrying lifecycle rows must delete without FK failures."""
         with Session(self.engine) as session:
             project = Project(name="GTM Project", client="Client")
             session.add(project)
@@ -87,7 +88,28 @@ class DeleteProjectCascadeTest(unittest.TestCase):
                     project_id=project_id,
                 )
             )
+            # Chat rollout tasks intentionally stay out of project task lists,
+            # so project_id is null and the conversation is their ownership link.
+            task_run = TaskRun(
+                project_id=None,
+                conversation_id=conversation.id,
+                task_type="chat_rollout",
+                status="completed",
+            )
+            session.add(task_run)
+            session.flush()
+            session.add(
+                ChatRun(
+                    run_id="run-project-delete",
+                    task_run_id=task_run.id,
+                    conversation_id=conversation.id,
+                    project_id=project_id,
+                    source_message_id=message.id,
+                    status="completed",
+                )
+            )
             session.commit()
+            task_run_id = int(task_run.id)
 
         # Should not raise (previously raised IntegrityError → 500).
         with Session(self.engine) as session:
@@ -99,6 +121,11 @@ class DeleteProjectCascadeTest(unittest.TestCase):
                 session.exec(select(ChatTrace).where(ChatTrace.project_id == project_id)).all(),
                 [],
             )
+            self.assertEqual(
+                session.exec(select(ChatRun).where(ChatRun.project_id == project_id)).all(),
+                [],
+            )
+            self.assertIsNone(session.get(TaskRun, task_run_id))
             self.assertEqual(
                 session.exec(
                     select(ConversationState).where(ConversationState.project_id == project_id)

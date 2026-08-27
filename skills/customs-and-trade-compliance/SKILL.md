@@ -1,6 +1,10 @@
 ---
 name: customs-and-trade-compliance
 description: "海关与贸易合规：海关估价、HS归类、原产地规则、自贸区/保税区优化"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 海关与贸易合规评估

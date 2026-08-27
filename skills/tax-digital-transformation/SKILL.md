@@ -1,6 +1,10 @@
 ---
 name: tax-digital-transformation
 description: "税务数字化转型：税务系统选型、电子发票（金税四期）、税务数据治理、自动化申报"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 税务数字化转型规划

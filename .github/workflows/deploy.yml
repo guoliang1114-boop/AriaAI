@@ -46,7 +46,7 @@ jobs:
           cd web
           # Bound worker fan-out so the full UI suite remains stable on
           # smaller GitHub runners while preserving test isolation.
-          npm test -- --run --maxWorkers=4
+          npm test -- --run --maxWorkers=2
 
       - name: Frontend Lint
         run: |
@@ -70,6 +70,11 @@ jobs:
           python -m py_compile main.py
           python -m py_compile app/config.py
           python -m py_compile app/models/db.py
+
+      - name: Skill Quality Gate
+        run: |
+          cd backend
+          python scripts/skill_quality_report.py --strict
 
       - name: Deploy to Server
         uses: appleboy/scp-action@v0.1.7
@@ -156,6 +161,7 @@ jobs:
                 tests/test_agent_harness_native.py \
                 tests/test_activity_timeline_persist.py \
                 tests/test_approval_envelope.py \
+                tests/test_auth_router.py \
                 tests/test_context_assembly_manifest.py \
                 tests/test_context_receipt.py \
                 tests/test_conversation_capsule.py \
@@ -167,12 +173,17 @@ jobs:
                 tests/test_knowledge_legacy_migration.py \
                 tests/test_product_run_events.py \
                 tests/test_project_chat_quality_eval.py \
+                tests/test_project_deletion.py \
                 tests/test_project_memory_evidence.py \
                 tests/test_run_evaluation.py \
                 tests/test_run_output_record.py \
                 tests/test_run_rollout.py \
+                tests/test_chat_run_persistence.py \
+                tests/test_chat_run_projection.py \
                 tests/test_memory_candidates.py \
                 tests/test_skill_root_snapshots.py \
+                tests/test_skill_quality.py \
+                tests/test_skills_router.py \
                 tests/test_structured_patch.py \
                 tests/test_tool_capability_manifest.py \
                 tests/test_tool_execution_record.py \

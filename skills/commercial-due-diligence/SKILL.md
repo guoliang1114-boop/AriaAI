@@ -1,6 +1,10 @@
 ---
 name: commercial-due-diligence
 description: "商业尽职调查：市场吸引力、竞争定位、客户质量、增长可持续性评估"
+version: "1.0.0"
+domain: "consulting"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 商业尽职调查

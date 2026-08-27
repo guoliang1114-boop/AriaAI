@@ -14,6 +14,7 @@ import type {
   TurnSetupTraceInput,
 } from '../../../../types/api'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../../types/productRunEvent'
+import type { RunActivityTimeline } from '../../../../stores/runActivityReducer'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
 import { CxConfirmDialog, CxSkeleton } from '../../../../components/codex'
@@ -37,6 +38,7 @@ import {
   type ProjectSkillSelection,
 } from '../ProjectSkillControl'
 import { ProjectTurnBriefControl } from '../ProjectTurnBriefControl'
+import { ProjectInteractionMetricsPanel } from '../ProjectInteractionMetrics'
 import {
   ProjectTurnRevisionPreview,
   ProjectTurnSetupControl,
@@ -191,6 +193,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     capability,
     turnReceipt,
     contextReceipt,
+    activityTimeline,
     activeRunId,
     streamingMessageId,
     send,
@@ -367,6 +370,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
               capability={capability}
               turnReceipt={turnReceipt}
               contextReceipt={contextReceipt}
+              activityTimeline={activityTimeline}
               skills={skills}
               mentionables={mentionables}
               canSteer={Boolean(activeRunId && turnReceipt?.steering_supported)}
@@ -726,6 +730,7 @@ interface ThreadViewProps {
   capability: ChatCapabilityFrame | null
   turnReceipt: TurnReceiptEvent | null
   contextReceipt: ContextReceiptEvent | null
+  activityTimeline: RunActivityTimeline | null
   skills: SkillSummary[]
   mentionables: ProjectMentionables
   canSteer: boolean
@@ -756,6 +761,7 @@ function ThreadView({
   capability,
   turnReceipt,
   contextReceipt,
+  activityTimeline,
   skills,
   mentionables,
   canSteer,
@@ -1078,6 +1084,7 @@ function ThreadView({
         >
           {conversation?.title || t('chat.newConversation', 'New Conversation')}
         </h2>
+        <ProjectInteractionMetricsPanel projectId={projectId} />
         <ConversationMenu
           onRename={() => setRenaming(true)}
           onDelete={() => setConfirmDelete(true)}
@@ -1164,6 +1171,7 @@ function ThreadView({
               onArtifactClick={onOpenArtifact}
               isStreaming={busy && m.id === streamingMessageId}
               streamingStatus={streamStatusMessage}
+              activityTimeline={busy && m.id === streamingMessageId ? activityTimeline : null}
               onSkillSelect={selectSkillForNextTurn}
               onTurnBriefReuse={reuseHistoricalTurn}
               onTurnRevisionSourceOpen={openTurnRevisionSource}

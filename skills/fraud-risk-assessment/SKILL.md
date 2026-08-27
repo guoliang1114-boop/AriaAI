@@ -1,6 +1,10 @@
 ---
 name: fraud-risk-assessment
 description: "舞弊风险评估：舞弊三角理论、红旗信号、反舞弊控制，ACFE舞弊树及常见舞弊类型"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 舞弊风险评估

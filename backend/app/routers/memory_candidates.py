@@ -21,6 +21,7 @@ from app.services.memory_candidates import (
     SCOPE_TYPES,
     accept_memory_candidate,
     create_memory_candidate,
+    inspect_memory_candidate,
     reject_memory_candidate,
     serialize_memory_candidate,
     source_run_id_from_message,
@@ -46,6 +47,8 @@ class MemoryCandidateCreate(BaseModel):
 
 class MemoryCandidateDecision(BaseModel):
     decision_note: str = Field(default="", max_length=300)
+    expected_memory_version: int | None = Field(default=None, ge=0)
+    allow_conflict: bool = False
 
 
 def _owned_candidate(
@@ -217,7 +220,10 @@ def create_candidate(
             content_sha256=candidate.content_sha256,
         )
     return {
-        "candidate": serialize_memory_candidate(candidate),
+        "candidate": serialize_memory_candidate(
+            candidate,
+            relation=inspect_memory_candidate(session, candidate),
+        ),
         "created": created,
         "product_event": product_event,
     }
@@ -282,7 +288,13 @@ def list_candidates(
         if len(items) >= safe_limit:
             break
     return {
-        "items": [serialize_memory_candidate(candidate) for candidate in items],
+        "items": [
+            serialize_memory_candidate(
+                candidate,
+                relation=inspect_memory_candidate(session, candidate),
+            )
+            for candidate in items
+        ],
         "count": len(items),
     }
 
@@ -295,7 +307,10 @@ def get_candidate(
 ):
     candidate = _owned_candidate(session, candidate_id, current_user)
     _require_candidate_scope_access(session, candidate, current_user, require_write=False)
-    return serialize_memory_candidate(candidate)
+    return serialize_memory_candidate(
+        candidate,
+        relation=inspect_memory_candidate(session, candidate),
+    )
 
 
 @router.post("/{candidate_id}/accept")
@@ -314,8 +329,13 @@ def accept_candidate(
         candidate,
         user_id=int(current_user.id),
         decision_note=body.decision_note if body else "",
+        expected_memory_version=body.expected_memory_version if body else None,
+        allow_conflict=body.allow_conflict if body else False,
     )
-    return serialize_memory_candidate(accepted)
+    return serialize_memory_candidate(
+        accepted,
+        relation=inspect_memory_candidate(session, accepted),
+    )
 
 
 @router.post("/{candidate_id}/reject")
@@ -335,4 +355,7 @@ def reject_candidate(
         user_id=int(current_user.id),
         decision_note=body.decision_note if body else "",
     )
-    return serialize_memory_candidate(rejected)
+    return serialize_memory_candidate(
+        rejected,
+        relation=inspect_memory_candidate(session, rejected),
+    )

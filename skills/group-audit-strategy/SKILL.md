@@ -1,6 +1,10 @@
 ---
 name: group-audit-strategy
 description: "制定集团审计策略，基于ISA 600框架，覆盖组成部分识别、重要性分配、组成部分审计师协调和合并程序。"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 # 集团审计策略制定
 

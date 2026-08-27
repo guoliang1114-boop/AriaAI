@@ -3,13 +3,14 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models.db import Message, User
+from app.models.db import ChatRun, Message, User
 from app.routers.auth import get_current_user, require_admin
 from app.routers.chat_schemas import TestConnectionRequest, TestModelRequest
 from app.routers.chat_security import require_conversation_access
+from app.routers.chat_security import require_project_access
 from app.services.chat.trace import get_latest_chat_trace
 from app.services.agent_harness.run_rollout import get_chat_rollout
 from app.services.agent_harness.turn_interrupt import get_active_turn
@@ -17,6 +18,63 @@ from app.services.chat.turn_recovery import build_turn_recovery_preview
 from app.services.chat_diagnostics import run_model_test, test_provider_connection
 
 router = APIRouter()
+
+
+def _chat_run_payload(run: ChatRun) -> dict:
+    return {
+        "run_id": run.run_id,
+        "conversation_id": run.conversation_id,
+        "project_id": run.project_id,
+        "source_message_id": run.source_message_id,
+        "assistant_message_id": run.assistant_message_id,
+        "skill": {"id": run.skill_id, "name": run.skill_name} if run.skill_id or run.skill_name else None,
+        "model": run.model,
+        "chat_mode": run.chat_mode,
+        "action_policy": run.action_policy,
+        "display_mode": run.display_mode,
+        "status": run.status,
+        "phase": run.phase,
+        "step_count": run.step_count,
+        "tool_call_count": run.tool_call_count,
+        "output_count": run.output_count,
+        "duration_ms": run.duration_ms,
+        "error_code": run.error_code or None,
+        "retryable": run.retryable,
+        "started_at": run.started_at.isoformat(),
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        "updated_at": run.updated_at.isoformat(),
+    }
+
+
+@router.get("/projects/{project_id}/runs")
+def list_project_chat_runs(
+    project_id: int,
+    limit: int = 50,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_project_access(session, project_id, current_user)
+    safe_limit = max(1, min(limit, 200))
+    runs = session.exec(
+        select(ChatRun)
+        .where(ChatRun.project_id == project_id)
+        .order_by(ChatRun.started_at.desc(), ChatRun.id.desc())
+        .limit(safe_limit)
+    ).all()
+    return {"project_id": project_id, "runs": [_chat_run_payload(run) for run in runs]}
+
+
+@router.get("/runs/{run_id}")
+def get_chat_run(
+    run_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    run = session.exec(select(ChatRun).where(ChatRun.run_id == run_id)).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Chat run not found")
+    require_conversation_access(session, run.conversation_id, current_user)
+    return _chat_run_payload(run)
 
 
 @router.post("/test-connection")

@@ -1,6 +1,10 @@
 ---
 name: audit-report-draft
 description: "起草审计报告，基于ISA 700/701/706框架，覆盖意见类型决策逻辑、关键审计事项、强调事项段等。"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 # 审计报告起草
 

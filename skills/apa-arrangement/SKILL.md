@@ -1,6 +1,10 @@
 ---
 name: apa-arrangement
 description: "预约定价安排申请：可行性评估、申请流程、定价方法设计，基于OECD MAP指南及中国国家税务总局公告2016年第64号"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 预约定价安排申请

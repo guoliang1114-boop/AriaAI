@@ -1,6 +1,10 @@
 ---
 name: presentation-builder
 description: "Base consulting PowerPoint generation skill. Use when the user asks for a PPT, presentation deck, executive briefing, proposal, project update, workshop material, roadmap deck, review deck, or client-ready slide deliverable. Provides reusable storyline presets and template guidance for strategy, proposal, and project-update decks."
+version: "1.0.0"
+domain: "tech"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # Presentation Builder

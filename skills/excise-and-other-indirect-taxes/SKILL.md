@@ -1,6 +1,10 @@
 ---
 name: excise-and-other-indirect-taxes
 description: "其他间接税：消费税、印花税、房产税、城市维护建设税等税种的合规与优化"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 其他间接税合规评估

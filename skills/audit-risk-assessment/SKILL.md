@@ -1,6 +1,10 @@
 ---
 name: audit-risk-assessment
 description: "基于 ISA 315 (Revised 2019) 框架执行审计计划阶段的风险评估。当用户需要 (1) 制定审计计划 (2) 识别重大错报风险 (3) 评估内部控制 (4) 确定重要性水平 (5) 设计审计策略 时使用。输出结构化风险评估文档。"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 审计计划与风险评估

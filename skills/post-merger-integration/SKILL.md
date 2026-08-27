@@ -1,6 +1,10 @@
 ---
 name: post-merger-integration
 description: "并购后整合（PMI）：Day 1清单、百日计划、组织/系统/文化整合、协同效应追踪"
+version: "1.0.0"
+domain: "consulting"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 并购后整合（PMI）规划

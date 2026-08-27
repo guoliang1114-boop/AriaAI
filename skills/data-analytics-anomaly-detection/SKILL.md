@@ -1,6 +1,10 @@
 ---
 name: data-analytics-anomaly-detection
 description: "运用数据分析技术识别异常交易和潜在舞弊，涵盖本福特定律、趋势分析、重复检测和关联方筛查"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 数据分析与异常检测

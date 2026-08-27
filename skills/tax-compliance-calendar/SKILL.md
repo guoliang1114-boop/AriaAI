@@ -1,6 +1,10 @@
 ---
 name: tax-compliance-calendar
 description: "税务合规日历：涵盖中国各税种申报截止日期、季度/年度申报要求、汇算清缴时间表，输出年度税务合规日历。"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 税务合规日历管理

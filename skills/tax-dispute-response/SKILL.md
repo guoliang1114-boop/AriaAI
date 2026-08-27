@@ -1,6 +1,10 @@
 ---
 name: tax-dispute-response
 description: "税务争议应对：涵盖税务稽查、纳税评估、反避税调查等程序，提供应对策略、证据准备、沟通技巧，输出争议应对策略方案。"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 税务争议应对

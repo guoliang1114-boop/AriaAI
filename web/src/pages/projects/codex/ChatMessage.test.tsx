@@ -256,4 +256,40 @@ describe('ProjectChatMessage', () => {
     expect(body).not.toHaveProperty('content')
     expect(body).not.toHaveProperty('comment')
   })
+
+  it('renders the same persisted Product Run timeline after refresh', () => {
+    const message: Message = {
+      id: 18,
+      conversation_id: 4,
+      role: 'assistant',
+      content: '已完成风险分析。',
+      metadata_json: JSON.stringify({
+        activity_timeline: {
+          run_id: 'run_timeline',
+          display_mode: 'skill',
+          skill: { name: '审计计划与风险评估', source: 'auto' },
+          steps: [{
+            index: 1,
+            title: '读取项目文档',
+            status: 'completed',
+            duration_ms: 320,
+            items: [{ tool_name: '读取项目 Markdown 文档', status: 'completed' }],
+          }],
+          artifacts: [],
+          memory_candidates: [],
+          steering: [],
+          final_status: 'completed',
+          text: '已完成风险分析。',
+        },
+      }),
+      created_at: '2026-08-25T00:00:00Z',
+    }
+
+    render(<ProjectChatMessage message={message} projectId={3} />)
+
+    expect(screen.getByLabelText('Aria 运行时间线')).toHaveTextContent('Skill · 审计计划与风险评估')
+    fireEvent.click(screen.getByRole('button', { name: /Skill · 审计计划与风险评估/ }))
+    expect(screen.getByText('读取项目文档')).toBeInTheDocument()
+    expect(screen.getByText('读取项目 Markdown 文档')).toBeInTheDocument()
+  })
 })

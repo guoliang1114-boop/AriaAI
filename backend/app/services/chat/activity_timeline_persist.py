@@ -18,6 +18,8 @@ from app.services.agent_harness.tool_execution_record import (
     ToolExecutionOutcome,
     tool_event_outcome,
 )
+from app.tools.capabilities import tool_display_name
+from app.services.chat.product_run_events import resolve_run_display_mode
 
 
 _ARTIFACT_TYPE_V1_MAP = {
@@ -87,12 +89,22 @@ def _build_step(step: Any, tool_events: list[dict]) -> dict:
             msg = ev.get("summary") or ev.get("message")
             if isinstance(msg, str) and msg.strip():
                 detail = msg.strip()
-        item: dict[str, Any] = {"tool_name": name, "status": status}
+        try:
+            display_name = tool_display_name(name)
+        except (KeyError, ValueError):
+            display_name = name
+        item: dict[str, Any] = {"tool_name": display_name, "status": status}
         if detail:
             item["detail"] = detail
         items.append(item)
 
-    title = "、".join(tool_names) if tool_names else f"第 {(getattr(step, 'index', 0) or 0) + 1} 步"
+    display_names: list[str] = []
+    for name in tool_names:
+        try:
+            display_names.append(tool_display_name(name))
+        except (KeyError, ValueError):
+            display_names.append(name)
+    title = "、".join(display_names) if display_names else f"第 {(getattr(step, 'index', 0) or 0) + 1} 步"
     step_status = "failed" if any(it.get("status") == "failed" for it in items) else "completed"
     entry: dict[str, Any] = {
         "index": (getattr(step, "index", 0) or 0) + 1,
@@ -190,6 +202,10 @@ def build_activity_timeline(state: Any, runtime: Any, *, full_text: str = "") ->
 
     timeline: dict[str, Any] = {
         "run_id": run_id,
+        "display_mode": resolve_run_display_mode(
+            getattr(runtime, "action_policy", ""),
+            has_skill=bool(getattr(runtime, "skill_name", "")),
+        ),
         "steps": steps,
         "artifacts": artifacts,
         "memory_candidates": memory_candidates,

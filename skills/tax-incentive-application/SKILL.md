@@ -1,6 +1,10 @@
 ---
 name: tax-incentive-application
 description: "企业所得税税收优惠适用分析：高新技术企业15%、研发费用200%加计扣除、西部大开发15%、小型微利企业有效税率5%等，输出适用性评估报告。"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 企业所得税税收优惠适用分析

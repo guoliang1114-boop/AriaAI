@@ -1,6 +1,10 @@
 ---
 name: beps-pillar-two-assessment
 description: "OECD支柱二GloBE规则评估：IIR、UTPR、QDMTT、15%最低税，基于OECD GloBE Model Rules及注释"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # BEPS支柱二全球最低税评估

@@ -1,6 +1,10 @@
 ---
 name: pdf-management
 description: "PDF file management toolkit. Use when the user needs to (1) merge multiple PDFs into one, (2) split a PDF into multiple files, (3) extract specific pages from a PDF, (4) read PDF text content, (5) add watermark to PDF. Supports advanced PDF operations beyond simple reading."
+version: "1.0.0"
+domain: "tech"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # PDF Management Toolkit

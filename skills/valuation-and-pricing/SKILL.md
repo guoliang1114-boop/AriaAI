@@ -1,6 +1,10 @@
 ---
 name: valuation-and-pricing
 description: "估值与定价：DCF、可比公司、可比交易、LBO估值方法，WACC计算、终值、敏感性分析"
+version: "1.0.0"
+domain: "consulting"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 估值与定价分析

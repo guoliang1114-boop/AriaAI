@@ -1,6 +1,10 @@
 ---
 name: expatriate-tax-planning
 description: "外籍人员/派遣员工税务筹划：税收居民身份判定、税收协定待遇、社保安排、税收抵免优化"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 外籍人员税务筹划

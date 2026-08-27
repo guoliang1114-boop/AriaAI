@@ -400,6 +400,44 @@ class ChatTrace(SQLModel, table=True):
         }
 
 
+class ChatRun(SQLModel, table=True):
+    """First-class, content-free lifecycle projection for one Aria chat run."""
+
+    __table_args__ = (
+        UniqueConstraint("run_id", name="uq_chatrun_run_id"),
+        UniqueConstraint("task_run_id", name="uq_chatrun_task_run_id"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    run_id: str
+    task_run_id: int = Field(foreign_key="taskrun.id")
+    conversation_id: int = Field(foreign_key="conversation.id", index=True)
+    project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
+    owner_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    source_message_id: Optional[int] = Field(default=None, foreign_key="message.id", index=True)
+    assistant_message_id: Optional[int] = Field(default=None, foreign_key="message.id", index=True)
+    skill_id: Optional[int] = Field(default=None, foreign_key="skill.id", index=True)
+    skill_name: str = ""
+    model: str = ""
+    chat_mode: str = Field(default="", index=True)
+    action_policy: str = Field(default="", index=True)
+    display_mode: str = Field(default="quiet", index=True)
+    status: str = Field(default="running", index=True)
+    phase: str = Field(default="run_start", index=True)
+    request_sha256: str = Field(default="", index=True)
+    context_manifest_sha256: str = ""
+    step_count: int = 0
+    tool_call_count: int = 0
+    output_count: int = 0
+    duration_ms: int = 0
+    error_code: str = ""
+    retryable: bool = False
+    started_at: datetime = Field(default_factory=utc_now_naive, index=True)
+    completed_at: Optional[datetime] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
 class PendingToolAction(SQLModel, table=True):
     """Human-in-the-loop pending tool execution record."""
 
@@ -803,6 +841,7 @@ class MemoryCandidate(SQLModel, table=True):
     status: str = Field(default="pending", index=True)
     created_by: str = "user"  # user | ai | system
     target_slot: str = ""
+    base_memory_version: Optional[int] = None
     applied_memory_version: Optional[int] = None
     resolved_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     decision_note: str = ""

@@ -1,6 +1,10 @@
 ---
 name: audit-substantive-procedures
 description: "设计和执行实质性审计程序，覆盖细节测试、实质性分析程序、函证程序和审计抽样，基于ISA 330框架。"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 # 实质性审计程序设计与执行
 

@@ -1,6 +1,10 @@
 ---
 name: meeting-intelligence
 description: "Extract structured meeting intelligence from transcripts or notes. Use when the user provides (1) meeting transcript, (2) interview notes, (3) call recording text, (4) workshop notes, or asks to (5) summarize a meeting, (6) extract action items, (7) identify decisions and risks from a meeting. Produces structured minutes with decisions, action items, risks, and follow-ups."
+version: "1.0.0"
+domain: "consulting"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # Meeting Intelligence

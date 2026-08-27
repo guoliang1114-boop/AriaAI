@@ -26,6 +26,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
+from app.services.agent_harness.run_display import DisplayMode, resolve_run_display_mode
+
 # ----------------------------------------------------------------------
 # Event type constants
 # ----------------------------------------------------------------------
@@ -56,15 +58,6 @@ class EventType:
 # ----------------------------------------------------------------------
 # Enum-like field value sets
 # ----------------------------------------------------------------------
-
-
-class DisplayMode:
-    QUIET = "quiet"
-    CONTEXTUAL = "contextual"
-    TASK = "task"
-    SKILL = "skill"
-    CONFIRMATION = "confirmation"
-    DEBUG = "debug"
 
 
 _DISPLAY_MODES = frozenset(

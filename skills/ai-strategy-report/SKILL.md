@@ -7,6 +7,10 @@ metadata:
   version: 1.0.0
   description_zh: "生成完整的AI战略报告PPT（15+页），分析企业数字化现状、识别高价值AI场景、制定实施路线图、提供ROI预测。咨询公司级别的交付物。"
   category: digital-transformation
+version: "1.0.0"
+domain: "tech"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # AI Strategy Report

@@ -1,6 +1,10 @@
 ---
 name: digital-strategy
 description: "Digital transformation strategy planning and blueprint design for consulting engagements. Use when the user requests (1) creating or updating a digital transformation strategy, (2) digital top-level design or blueprint, (3) digital vision mission or goal setting, (4) digital transformation roadmap or phased planning, (5) digital strategy reports or presentation materials for leadership. Also triggers when keywords appear such as digital transformation strategy, digital blueprint, digital top-level design, transformation roadmap, digital vision, digital strategic planning. This skill produces structured strategic content that can be rendered into PPT, documents, or Excel deliverables via collaborating skills."
+version: "1.0.0"
+domain: "consulting"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # Digital Strategy

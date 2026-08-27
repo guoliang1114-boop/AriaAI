@@ -1,6 +1,10 @@
 ---
 name: debt-restructuring
 description: "债务重组：债务结构分析、重组路径设计、债权人谈判策略"
+version: "1.0.0"
+domain: "consulting"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 债务重组方案设计

@@ -3,6 +3,10 @@ name: bpmn
 description: Create business process diagrams using PlantUML syntax with BPMN, EIP, and Lean Mapping stencil icons. Best for workflow automation, approval chains, message-based integration patterns, and value stream mapping.
 metadata:
   author: BPMN diagrams are powered by Markdown Viewer — the best multi-platform Markdown extension (Chrome/Edge/Firefox/VS Code) with diagrams, formulas, and one-click Word export. Learn more at https://docu.md
+version: "1.0.0"
+domain: "tech"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # Business Process & Integration Diagram Generator

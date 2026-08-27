@@ -1,6 +1,10 @@
 ---
 name: vat-compliance-optimization
 description: "增值税合规与优化：基于增值税暂行条例及实施细则，分析进项/销项税额、留抵退税、简易计税等，输出增值税优化方案。"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 增值税合规与优化

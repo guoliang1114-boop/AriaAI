@@ -1,6 +1,10 @@
 ---
 name: post-merger-tax-integration
 description: "并购后税务整合：税务协同效应识别、集团税务架构调整、亏损结转利用，基于中国企业所得税法及OECD指引"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 并购后税务整合

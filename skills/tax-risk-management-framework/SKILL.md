@@ -1,6 +1,10 @@
 ---
 name: tax-risk-management-framework
 description: "税务风险管理框架：税务风险识别、评估、监控、报告体系，COSO ERM整合"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 税务风险管理框架

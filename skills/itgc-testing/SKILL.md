@@ -1,6 +1,10 @@
 ---
 name: itgc-testing
 description: "执行IT一般控制测试，基于COBIT框架，覆盖访问控制、变更管理、系统开发和IT运维四大领域"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # IT一般控制测试 (ITGC Testing)

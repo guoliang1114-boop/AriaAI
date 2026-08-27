@@ -1,6 +1,10 @@
 ---
 name: goal-definition
 description: "Structure and validate project or business goals using SMART criteria and consulting frameworks. Use when the user needs to (1) define project goals, (2) set OKRs, (3) clarify objectives, (4) validate if a goal is well-defined, (5) break down a vague goal into measurable targets. Produces structured goal documents with success criteria, metrics, and milestones."
+version: "1.0.0"
+domain: "consulting"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # Goal Definition

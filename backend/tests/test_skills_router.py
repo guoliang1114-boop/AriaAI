@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, select
 
-from app.models.db import User, Skill
+from app.models.db import ChatRun, Conversation, ScheduledTask, Skill, TaskRun, User
 from app.routers import skills as skills_module
 from app.routers.auth import get_current_user
 from app.routers.skills import router
@@ -104,10 +104,49 @@ class SkillsCrudTestCase(unittest.TestCase):
         self.assertEqual(resp.json()["name"], "Updated Strategy")
 
     def test_delete_skill(self):
+        with Session(self.engine) as session:
+            conversation = Conversation(title="Skill run history", skill_id=self.skill_id)
+            session.add(conversation)
+            session.flush()
+            scheduled_task = ScheduledTask(
+                name="Skill schedule",
+                skill_id=self.skill_id,
+                frequency="weekly",
+            )
+            session.add(scheduled_task)
+            task = TaskRun(
+                conversation_id=conversation.id,
+                task_type="chat_rollout",
+                status="completed",
+            )
+            session.add(task)
+            session.flush()
+            session.add(
+                ChatRun(
+                    run_id="run-skill-delete",
+                    task_run_id=task.id,
+                    conversation_id=conversation.id,
+                    skill_id=self.skill_id,
+                    skill_name="Strategy Report",
+                    status="completed",
+                )
+            )
+            session.commit()
+            conversation_id = int(conversation.id)
+            scheduled_task_id = int(scheduled_task.id)
+
         resp = self.client.delete(f"/skills/{self.skill_id}")
         self.assertIn(resp.status_code, [200, 204])
         resp2 = self.client.get(f"/skills/{self.skill_id}")
         self.assertEqual(resp2.status_code, 404)
+        with Session(self.engine) as session:
+            chat_run = session.exec(
+                select(ChatRun).where(ChatRun.run_id == "run-skill-delete")
+            ).one()
+            self.assertIsNone(chat_run.skill_id)
+            self.assertEqual(chat_run.skill_name, "Strategy Report")
+            self.assertIsNone(session.get(Conversation, conversation_id).skill_id)
+            self.assertIsNone(session.get(ScheduledTask, scheduled_task_id).skill_id)
 
     def test_delete_nonexistent_skill(self):
         resp = self.client.delete("/skills/99999")

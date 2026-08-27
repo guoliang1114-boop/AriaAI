@@ -216,4 +216,35 @@ describe('useChatStream Skill control', () => {
     })
     expect(fetch).toHaveBeenCalledTimes(1)
   })
+
+  it('folds Product Run events and persists the final activity timeline', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      'data: {"type":"run_started","run_id":"run_timeline","timestamp":"2026-08-26T00:00:00Z","display_mode":"skill","skill":{"name":"风险评估","source":"auto"}}\n\n'
+      + 'data: {"type":"step_started","run_id":"run_timeline","step_index":1,"title":"读取项目文档"}\n\n'
+      + 'data: {"type":"tool_progress","run_id":"run_timeline","step_index":1,"title":"读取项目文档","status":"completed"}\n\n'
+      + 'data: {"type":"step_completed","run_id":"run_timeline","step_index":1,"status":"completed","duration_ms":120}\n\n'
+      + 'data: {"type":"text_delta","run_id":"run_timeline","content":"回答"}\n\n'
+      + 'data: {"type":"text","content":"回答"}\n\n'
+      + 'data: {"type":"run_done","run_id":"run_timeline","final_status":"completed","message_id":53}\n\n'
+      + 'data: {"type":"done","assistant_message_id":53}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    ))
+    const onAssistantMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage: vi.fn(),
+      onAssistantMessage,
+    }))
+
+    await act(async () => result.current.send('运行时间线测试'))
+
+    const metadata = JSON.parse(onAssistantMessage.mock.calls[0][0].metadata_json)
+    expect(metadata.activity_timeline).toMatchObject({
+      run_id: 'run_timeline',
+      final_status: 'completed',
+      skill: { name: '风险评估', source: 'auto' },
+      steps: [{ title: '读取项目文档', status: 'completed', duration_ms: 120 }],
+    })
+  })
 })

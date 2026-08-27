@@ -3,6 +3,10 @@ name: architecture
 description: Create layered system architecture diagrams using HTML/CSS templates with color-coded tiers and grid layouts. Best for technology stacks, microservices topology, and multi-tier application design.
 metadata:
   author: Architecture Diagram Generator is powered by Markdown Viewer — the best multi-platform Markdown extension (Chrome/Edge/Firefox/VS Code) with diagrams, formulas, and one-click Word export. Learn more at https://docu.md
+version: "1.0.0"
+domain: "tech"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # Architecture Diagram Generator

@@ -1,6 +1,10 @@
 ---
 name: internal-audit-execution
 description: "基于IIA绩效标准执行内部审计项目，涵盖审计目标、范围、程序、抽样方法和工作底稿编制"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 # 内部审计项目执行
 

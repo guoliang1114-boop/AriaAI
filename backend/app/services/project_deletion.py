@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import (
+    ChatRun,
     ChatTrace,
     Conversation,
     ConversationState,
@@ -49,6 +50,18 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
     ).all()
     conversation_ids = [conversation.id for conversation in conversations if conversation.id is not None]
 
+    chat_runs: dict[int, ChatRun] = {}
+    for chat_run in session.exec(select(ChatRun).where(ChatRun.project_id == project_id)).all():
+        chat_runs[chat_run.id] = chat_run
+    if conversation_ids:
+        for chat_run in session.exec(
+            select(ChatRun).where(ChatRun.conversation_id.in_(conversation_ids))
+        ).all():
+            chat_runs[chat_run.id] = chat_run
+    for chat_run in chat_runs.values():
+        session.delete(chat_run)
+    session.flush()
+
     # ChatTrace, ConversationState, and ProjectFileVersion were added after this
     # cascade was first written and were never included. They carry FKs to
     # conversation / message / project_file / project, so deleting those parents
@@ -83,9 +96,20 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
         session.delete(version)
     session.flush()
 
-    task_runs = session.exec(
-        select(TaskRun).where(TaskRun.project_id == project_id)
-    ).all()
+    task_runs_by_id: dict[int, TaskRun] = {
+        task.id: task
+        for task in session.exec(
+            select(TaskRun).where(TaskRun.project_id == project_id)
+        ).all()
+        if task.id is not None
+    }
+    if conversation_ids:
+        for task in session.exec(
+            select(TaskRun).where(TaskRun.conversation_id.in_(conversation_ids))
+        ).all():
+            if task.id is not None:
+                task_runs_by_id[task.id] = task
+    task_runs = list(task_runs_by_id.values())
     task_run_ids = [task.id for task in task_runs if task.id is not None]
     task_steps = session.exec(
         select(TaskStep).where(TaskStep.task_run_id.in_(task_run_ids))

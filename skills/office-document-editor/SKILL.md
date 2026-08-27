@@ -1,6 +1,10 @@
 ---
 name: office-document-editor
 description: "Edit existing Office documents in the project space. Use when the user asks to (1) modify a PPT slide's title/content/data, (2) update a Word document's section/paragraph/table, (3) change Excel cell values/formulas/rows/columns, (4) add/remove/reorder slides or pages, (5) fix formatting, update data, or make corrections to an existing file. Covers PPT, Word, Excel editing. Does NOT create new files from scratch — use presentation-builder or write_project_office_document for that."
+version: "1.0.0"
+domain: "tech"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # Office Document Editor

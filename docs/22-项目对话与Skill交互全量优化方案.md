@@ -317,6 +317,18 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 发布质量门禁由 35 扩展为 41 场景，新增 `project_world_state_accuracy`、`turn_recovery_safety_rate` 与 `interaction_feedback_privacy_rate`；前端增加分类反馈、恢复动作、请求审计和状态回执测试。
 - 本阶段复用 Aria 原生 Message metadata、Context Assembly、Context Receipt、Run Evaluation 和此前基于 OpenAI Codex Apache-2.0 源码移植的 Rollout 重建机制；未引入 Codex 进程、协议、SDK 或通信依赖，也不新增数据库迁移。
 
+### Phase 3E：统一活动时间线、正式 Run 与记忆冲突治理（已实施）
+
+- 项目对话实时流和历史 Assistant 消息统一消费 `RunActivityTimeline`；安静问答保持折叠，Skill、任务、步骤、工具、交付物、记忆候选、确认和错误使用同一产品级展示，不向用户暴露底层 Provider 事件。
+- 新增内容安全的 `ChatRun` 生命周期投影，以 Aria `run_id` 关联现有 Rollout `TaskRun`，保存会话/项目/Skill/模型/策略、阶段、终态、步骤/工具/产出数量、耗时和错误码；不保存请求正文、模型正文、工具参数或工具结果。迁移由 `029_v1_29` 管理。
+- 新增按项目和按 Run 的授权查询接口；原有 TaskEvent 仍负责 append-only checkpoint 和恢复，`ChatRun` 只作为稳定查询投影，不复制业务状态或取代 HITAS。
+- `ChatRun` 生命周期跟随 Aria 业务所有权：删除会话或项目时先删除相应 Run 投影，避免遗留内容摘要和外键阻塞；删除用户或 Skill 时只解除可选外键，保留不含正文的历史运行事实与 Skill 名称快照。
+- 项目对话标题栏加入隐私安全的交互质量面板，展示反馈覆盖率、有效回答率、修订成功率、配置采纳率和固定负向原因分布；聚合明确不读取正文、自由文本反馈或用户身份。
+- Memory Candidate 新增创建时正式记忆基线版本；若审批期间项目/客户/用户记忆已变化，接受请求必须绑定当前版本并显式确认合并，版本再次漂移时返回 409。已存在的重复内容直接完成审批，不生成无内容变化的新版本。迁移由 `030_v1_30` 管理。
+- 项目记忆页展示最近快照、生成触发原因和相对当前版本的字段级增删摘要；待确认候选同时展示旧基线、当前版本和重复状态。
+- 48 个 Skill 包统一 `version/domain/last_updated/status` 元数据并加入确定性 CI 质量门禁；首批十个高优先级包补齐专业参考资料、质量检查清单和最小示例，并确保文件内容进入实际 Skill system prompt。
+- 本阶段继续保持 Aria 原生权限、事件、数据库和 Provider 路径；不运行、不导入、不连接 Codex 进程、SDK、App Server 或通信协议。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

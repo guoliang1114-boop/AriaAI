@@ -1,6 +1,10 @@
 ---
 name: deal-structure-tax-optimization
 description: "交易结构税务优化：比较股权收购、资产收购、合并/分立/划转的税务影响，运用中国特殊性税务处理（财税〔2009〕59号）等规定，输出交易结构税务比较方案。"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 交易结构税务优化

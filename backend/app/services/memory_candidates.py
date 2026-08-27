@@ -171,6 +171,19 @@ def create_memory_candidate(
     if existing is not None:
         return existing, False
 
+    base_memory_version = 0
+    if scope == "project" and project_id is not None:
+        project = session.get(Project, project_id)
+        base_memory_version = int(getattr(project, "memory_version", 0) or 0)
+    elif scope == "client" and client_id is not None:
+        client = session.get(ClientRecord, client_id)
+        base_memory_version = int(getattr(client, "client_memory_version", 0) or 0)
+    elif scope == "user":
+        user_memory = session.exec(
+            select(UserMemory).where(UserMemory.user_id == owner_user_id)
+        ).first()
+        base_memory_version = int(getattr(user_memory, "version", 0) or 0)
+
     candidate = MemoryCandidate(
         owner_user_id=owner_user_id,
         scope=scope,
@@ -187,13 +200,18 @@ def create_memory_candidate(
         status="pending",
         created_by=str(created_by or "user").strip().lower()[:20] or "user",
         target_slot=DEFAULT_TARGET_SLOT[candidate_type],
+        base_memory_version=base_memory_version,
     )
     session.add(candidate)
     session.flush()
     return candidate, True
 
 
-def serialize_memory_candidate(candidate: MemoryCandidate) -> dict[str, Any]:
+def serialize_memory_candidate(
+    candidate: MemoryCandidate,
+    *,
+    relation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     refs = _parse_json(candidate.source_refs_json, [])
     return {
         "schema_version": MEMORY_CANDIDATE_SCHEMA_VERSION,
@@ -212,11 +230,79 @@ def serialize_memory_candidate(candidate: MemoryCandidate) -> dict[str, Any]:
         "status": candidate.status,
         "created_by": candidate.created_by,
         "target_slot": candidate.target_slot,
+        "base_memory_version": candidate.base_memory_version,
+        "memory_relation": relation,
         "applied_memory_version": candidate.applied_memory_version,
         "resolved_by_user_id": candidate.resolved_by_user_id,
         "decision_note": candidate.decision_note,
         "created_at": candidate.created_at.isoformat() if candidate.created_at else None,
         "resolved_at": candidate.resolved_at.isoformat() if candidate.resolved_at else None,
+    }
+
+
+def inspect_memory_candidate(
+    session: Session,
+    candidate: MemoryCandidate,
+) -> dict[str, Any]:
+    """Compare a pending proposal with its current target memory version."""
+
+    current_version = 0
+    memory: dict[str, Any] = {}
+    if candidate.scope == "project" and candidate.project_id is not None:
+        project = session.get(Project, candidate.project_id)
+        if project is not None:
+            current_version = int(project.memory_version or 0)
+            memory = _get_existing_raw_memory(project) or {}
+    elif candidate.scope == "client" and candidate.client_id is not None:
+        client = session.get(ClientRecord, candidate.client_id)
+        if client is not None:
+            current_version = int(client.client_memory_version or 0)
+            memory = get_client_memory_payload(client)
+    elif candidate.scope == "user":
+        row = session.exec(
+            select(UserMemory).where(UserMemory.user_id == candidate.owner_user_id)
+        ).first()
+        if row is not None:
+            current_version = int(row.version or 0)
+            parsed = _parse_json(row.preferences_json, {})
+            memory = parsed if isinstance(parsed, dict) else {}
+
+    target_slot = DEFAULT_TARGET_SLOT.get(candidate.candidate_type, candidate.target_slot)
+    raw_values = memory.get(target_slot)
+    if isinstance(raw_values, dict):
+        values = [
+            *list(raw_values.get("ai") or []),
+            *list(raw_values.get("pinned") or []),
+        ]
+    elif isinstance(raw_values, list):
+        values = list(raw_values)
+    elif isinstance(raw_values, str) and raw_values.strip():
+        values = [raw_values]
+    else:
+        values = []
+    current_values = [str(value).strip() for value in values if str(value).strip()]
+    normalized_candidate = " ".join(candidate.content.lower().split())
+    duplicate = any(
+        " ".join(value.lower().split()) == normalized_candidate
+        for value in current_values
+    )
+    base_version = (
+        int(candidate.base_memory_version)
+        if candidate.base_memory_version is not None
+        else None
+    )
+    base_changed = base_version is not None and current_version != base_version
+    status = "duplicate" if duplicate else "stale_base" if base_changed else "additive"
+    return {
+        "status": status,
+        "target_slot": target_slot,
+        "base_memory_version": base_version,
+        "current_memory_version": current_version,
+        "base_changed": base_changed,
+        "duplicate": duplicate,
+        "requires_confirmation": base_changed,
+        "current_value_count": len(current_values),
+        "current_values_preview": current_values[:3],
     }
 
 
@@ -324,28 +410,88 @@ def accept_memory_candidate(
     *,
     user_id: int,
     decision_note: str = "",
+    expected_memory_version: int | None = None,
+    allow_conflict: bool = False,
 ) -> MemoryCandidate:
     if candidate.status == "accepted":
         return candidate
     if candidate.status != "pending":
         raise HTTPException(409, f"Memory candidate is already {candidate.status}")
 
-    target_slot = DEFAULT_TARGET_SLOT.get(candidate.candidate_type, candidate.target_slot)
-    candidate.target_slot = target_slot
-    if candidate.scope == "user":
-        # Lock the owner row first so concurrent candidate decisions cannot
-        # both derive the same UserMemory version or race to create its unique
-        # row.
+    project: Project | None = None
+    client: ClientRecord | None = None
+    owner: User | None = None
+    user_memory: UserMemory | None = None
+    if candidate.scope == "project":
+        project = session.exec(
+            select(Project).where(Project.id == candidate.project_id).with_for_update()
+        ).first()
+        if project is None:
+            raise HTTPException(404, "Project not found")
+    elif candidate.scope == "client":
+        client = session.exec(
+            select(ClientRecord)
+            .where(ClientRecord.id == candidate.client_id)
+            .with_for_update()
+        ).first()
+        if client is None:
+            raise HTTPException(404, "Client not found")
+    elif candidate.scope == "user":
+        # Locking the owner serializes both updates and first-time UserMemory
+        # creation where no memory row exists yet.
         owner = session.exec(
             select(User).where(User.id == candidate.owner_user_id).with_for_update()
         ).first()
         if owner is None:
             raise HTTPException(404, "User not found")
-        row = session.exec(
+        user_memory = session.exec(
             select(UserMemory)
             .where(UserMemory.user_id == candidate.owner_user_id)
             .with_for_update()
         ).first()
+    else:
+        raise HTTPException(400, "Unsupported memory candidate scope")
+
+    # This comparison now occurs while the authoritative target row is locked,
+    # so expected_memory_version protects the subsequent write without a TOCTOU
+    # window.
+    relation = inspect_memory_candidate(session, candidate)
+    current_version = int(relation["current_memory_version"])
+    if expected_memory_version is not None and int(expected_memory_version) != current_version:
+        raise HTTPException(
+            409,
+            {
+                "code": "MEMORY_VERSION_CONFLICT",
+                "message": "Target memory changed after review loaded",
+                "memory_relation": relation,
+            },
+        )
+    if relation["requires_confirmation"] and not allow_conflict:
+        raise HTTPException(
+            409,
+            {
+                "code": "MEMORY_CONFLICT_CONFIRMATION_REQUIRED",
+                "message": "Candidate was created against an older memory version",
+                "memory_relation": relation,
+            },
+        )
+    if relation["duplicate"]:
+        _mark_accepted(
+            session,
+            candidate,
+            user_id=user_id,
+            applied_memory_version=current_version,
+            decision_note=decision_note or "Already present in target memory",
+        )
+        sync_candidate_source_message(session, candidate)
+        session.commit()
+        session.refresh(candidate)
+        return candidate
+
+    target_slot = DEFAULT_TARGET_SLOT.get(candidate.candidate_type, candidate.target_slot)
+    candidate.target_slot = target_slot
+    if candidate.scope == "user":
+        row = user_memory
         now = utc_now_naive()
         if row is None:
             preferences: dict[str, Any] = {}
@@ -375,11 +521,6 @@ def accept_memory_candidate(
         sync_candidate_source_message(session, candidate)
         session.commit()
     elif candidate.scope == "project":
-        project = session.exec(
-            select(Project).where(Project.id == candidate.project_id).with_for_update()
-        ).first()
-        if project is None:
-            raise HTTPException(404, "Project not found")
         memory = _get_existing_raw_memory(project) or _default_project_memory(project)
         _record_accepted_anchor(memory, target_slot, candidate.content)
         if target_slot == "key_risks":
@@ -406,13 +547,6 @@ def accept_memory_candidate(
         sync_candidate_source_message(session, candidate)
         session.commit()
     elif candidate.scope == "client":
-        client = session.exec(
-            select(ClientRecord)
-            .where(ClientRecord.id == candidate.client_id)
-            .with_for_update()
-        ).first()
-        if client is None:
-            raise HTTPException(404, "Client not found")
         memory = get_client_memory_payload(client)
         _record_accepted_anchor(memory, target_slot, candidate.content)
         memory[target_slot] = _append_unique(memory.get(target_slot), candidate.content)
@@ -433,8 +567,6 @@ def accept_memory_candidate(
         )
         sync_candidate_source_message(session, candidate)
         session.commit()
-    else:
-        raise HTTPException(400, "Unsupported memory candidate scope")
     session.refresh(candidate)
     return candidate
 

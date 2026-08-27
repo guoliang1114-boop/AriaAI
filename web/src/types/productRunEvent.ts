@@ -307,8 +307,11 @@ export type ProductRunEvent =
 export function isProductRunEvent(value: unknown): value is ProductRunEvent {
   if (!value || typeof value !== "object") return false;
   const type = (value as { type?: unknown }).type;
+  const runId = (value as { run_id?: unknown }).run_id;
   return (
     typeof type === "string" &&
+    typeof runId === "string" &&
+    Boolean(runId.trim()) &&
     PRODUCT_RUN_EVENT_TYPES.has(type as ProductRunEventType)
   );
 }

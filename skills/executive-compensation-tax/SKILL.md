@@ -1,6 +1,10 @@
 ---
 name: executive-compensation-tax
 description: "高管薪酬税务优化：中国个人所得税法、股权激励、递延薪酬，基于个人所得税法及财税〔2018〕164号等规定"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 高管薪酬税务优化

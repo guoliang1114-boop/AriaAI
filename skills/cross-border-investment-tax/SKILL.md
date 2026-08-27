@@ -1,6 +1,10 @@
 ---
 name: cross-border-investment-tax
 description: "跨境投资税务架构：控股公司、融资安排、知识产权布局，基于税收协定网络、CFC规则及间接转让规定"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 跨境投资税务架构设计

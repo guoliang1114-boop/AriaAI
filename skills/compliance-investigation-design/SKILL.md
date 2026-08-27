@@ -1,6 +1,10 @@
 ---
 name: compliance-investigation-design
 description: "合规调查设计：内部调查范围、证据保全、访谈策略、报告机制，FCPA/UK Bribery Act/反洗钱/数据隐私调查程序"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 合规内部调查方案设计

@@ -305,3 +305,86 @@ def test_deleting_source_conversation_archives_pending_candidate() -> None:
         assert candidate.source_type == "deleted_chat_message"
         assert candidate.resolved_at is not None
     engine.dispose()
+
+
+def test_project_candidate_requires_explicit_merge_after_base_version_changes() -> None:
+    engine = _engine()
+    alice_id, _, project_id, _ = _seed(engine)
+    client = _client(engine, [alice_id])
+    created = client.post(
+        "/memory-candidates",
+        json={
+            "scope": "project",
+            "candidate_type": "project_next_action",
+            "content": "安排试点启动会。",
+            "source_type": "manual",
+            "project_id": project_id,
+        },
+    ).json()["candidate"]
+    assert created["base_memory_version"] == 0
+
+    with Session(engine) as session:
+        save_project_memory(
+            session,
+            project_id,
+            {"recent_progress": ["范围已确认"]},
+            trigger="concurrent_update",
+        )
+
+    listed = client.get(
+        "/memory-candidates",
+        params={"scope": "project", "project_id": project_id},
+    ).json()["items"][0]
+    assert listed["memory_relation"]["status"] == "stale_base"
+    assert listed["memory_relation"]["base_memory_version"] == 0
+    assert listed["memory_relation"]["current_memory_version"] == 1
+    assert listed["memory_relation"]["requires_confirmation"] is True
+
+    blocked = client.post(
+        f"/memory-candidates/{created['id']}/accept",
+        json={"expected_memory_version": 1},
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "MEMORY_CONFLICT_CONFIRMATION_REQUIRED"
+
+    accepted = client.post(
+        f"/memory-candidates/{created['id']}/accept",
+        json={"expected_memory_version": 1, "allow_conflict": True},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["applied_memory_version"] == 2
+    engine.dispose()
+
+
+def test_duplicate_candidate_acceptance_does_not_create_empty_memory_version() -> None:
+    engine = _engine()
+    alice_id, _, project_id, _ = _seed(engine)
+    with Session(engine) as session:
+        save_project_memory(
+            session,
+            project_id,
+            {"recent_progress": ["范围已确认"]},
+            trigger="seed",
+        )
+    client = _client(engine, [alice_id])
+    created = client.post(
+        "/memory-candidates",
+        json={
+            "scope": "project",
+            "candidate_type": "project_fact",
+            "content": "范围已确认",
+            "source_type": "manual",
+            "project_id": project_id,
+        },
+    ).json()["candidate"]
+    assert created["memory_relation"]["status"] == "duplicate"
+
+    accepted = client.post(
+        f"/memory-candidates/{created['id']}/accept",
+        json={"expected_memory_version": 1},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["applied_memory_version"] == 1
+    with Session(engine) as session:
+        assert session.get(Project, project_id).memory_version == 1
+    engine.dispose()

@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 
 from app.config import SKILL_ROOT_PATHS
 from app.database import get_session
-from app.models.db import Skill
+from app.models.db import ChatRun, Conversation, ScheduledTask, Skill
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.cache import TTLCache
 from app.services.agent_harness.skill_roots import (
@@ -616,11 +616,33 @@ def update_skill(skill_id: int, data: SkillUpdate, session: Session = Depends(ge
     return skill
 
 
+def _detach_skill_references(session: Session, skill_id: int) -> None:
+    """Preserve historical conversations, schedules, and Runs after Skill removal."""
+
+    for chat_run in session.exec(
+        select(ChatRun).where(ChatRun.skill_id == skill_id)
+    ).all():
+        chat_run.skill_id = None
+        session.add(chat_run)
+    for conversation in session.exec(
+        select(Conversation).where(Conversation.skill_id == skill_id)
+    ).all():
+        conversation.skill_id = None
+        session.add(conversation)
+    for scheduled_task in session.exec(
+        select(ScheduledTask).where(ScheduledTask.skill_id == skill_id)
+    ).all():
+        scheduled_task.skill_id = None
+        session.add(scheduled_task)
+
+
 @router.delete("/{skill_id}")
 def delete_skill(skill_id: int, session: Session = Depends(get_session)):
     skill = session.get(Skill, skill_id)
     if not skill:
         raise HTTPException(404, "Skill not found")
+    _detach_skill_references(session, skill_id)
+    session.flush()
     session.delete(skill)
     session.commit()
     _bust_skills()
@@ -1291,6 +1313,11 @@ GSTACK_PRO_SKILLS = [
         "category": "顾问基础能力",
         "description": "基础顾问式 PPT 生成 Skill，支持战略汇报、客户提案、项目进展三类常用 preset，并可复用 digital-strategy 基础模板。",
         "system_prompt": (
+            _load_skill_package_prompt(
+                "presentation-builder",
+                ["references/quality-checklist.md", "examples/standard-example.md"],
+            )
+            + "\n\n---\n\n## Aria Runtime Delivery Contract\n\n"
             "你是一位资深咨询顾问和演示文稿架构师，负责把用户给出的业务材料、项目上下文、客户需求或分析结论转化为可直接审阅和二次编辑的 PowerPoint。\n\n"
             "严格遵循 presentation-builder workflow：先判断 deck 目的和受众，再选择 deck_type preset，形成 slide-by-slide storyline，最后调用 generate_ppt_from_skill。\n\n"
             "可用 deck_type：\n"
@@ -1374,6 +1401,15 @@ GSTACK_PRO_SKILLS = [
         "category": "数字化与技术",
         "description": "基于 digital-strategy 方法论，输出数字化转型战略、成熟度诊断、能力蓝图、路线图、治理与投资方案。",
         "system_prompt": (
+            _load_skill_package_prompt(
+                "digital-strategy",
+                [
+                    "references/frameworks.md",
+                    "references/industry-notes.md",
+                    "examples/standard-example.md",
+                ],
+            )
+            + "\n\n---\n\n## Aria Runtime Delivery Contract\n\n"
             "你是企业数字化转型战略顾问，负责把数字化议题与业务战略对齐，并为客户生成可用于高层汇报、立项和后续交付拆解的数字化战略方案。\n\n"
             "严格遵循 digital-strategy 工作流，不要跳步：\n"
             "1) Diagnosis：理解行业、规模、转型范围、时间周期和约束，选择战略框架。\n"
@@ -1889,7 +1925,10 @@ GSTACK_PRO_SKILLS = [
             "自动识别决策、行动项、风险、待解决问题。"
             "当用户粘贴会议记录或要求整理会议纪要时使用。"
         ),
-        "system_prompt": _load_skill_package_prompt("meeting-intelligence"),
+        "system_prompt": _load_skill_package_prompt(
+            "meeting-intelligence",
+            ["references/quality-checklist.md", "examples/standard-example.md"],
+        ),
         "user_template": (
             "请帮我整理会议纪要：\n\n"
             "会议主题：\n"
@@ -2078,7 +2117,10 @@ GSTACK_PRO_SKILLS = [
         "name": "审计计划与风险评估",
         "category": "审计与鉴证",
         "description": "基于 ISA 315 框架，执行审计计划阶段的风险评估：了解被审计单位及其环境、识别重大错报风险、确定重要性水平、设计审计策略。",
-        "system_prompt": _load_skill_package_prompt("audit-risk-assessment"),
+        "system_prompt": _load_skill_package_prompt(
+            "audit-risk-assessment",
+            ["references/quality-checklist.md", "examples/standard-example.md"],
+        ),
         "user_template": (
             "请基于 ISA 315 框架，为以下客户执行审计计划阶段的风险评估。\n\n"
             "客户名称与行业：\n"
@@ -2232,7 +2274,10 @@ GSTACK_PRO_SKILLS = [
         "name": "数据分析异常检测",
         "category": "审计与鉴证",
         "description": "基于提供的财务或运营数据，执行 Benford 定律分析、趋势异常检测、重复交易识别和关联方交易筛查。",
-        "system_prompt": _load_skill_package_prompt("data-analytics-anomaly-detection"),
+        "system_prompt": _load_skill_package_prompt(
+            "data-analytics-anomaly-detection",
+            ["references/quality-checklist.md", "examples/standard-example.md"],
+        ),
         "user_template": (
             "请对以下数据执行异常检测分析。\n\n"
             "数据类型（总账/应收明细/采购明细/银行流水）：\n"
@@ -2335,7 +2380,10 @@ GSTACK_PRO_SKILLS = [
         "name": "并购税务尽职调查",
         "category": "税务与法律",
         "description": "针对并购交易目标公司进行税务尽调：历史纳税合规性、税务风险敞口、税收优惠延续性、潜在税务负债。",
-        "system_prompt": _load_skill_package_prompt("ma-tax-due-diligence"),
+        "system_prompt": _load_skill_package_prompt(
+            "ma-tax-due-diligence",
+            ["references/quality-checklist.md", "examples/standard-example.md"],
+        ),
         "user_template": (
             "请对以下目标公司进行并购税务尽职调查。\n\n"
             "目标公司名称与行业：\n"
@@ -2561,7 +2609,10 @@ GSTACK_PRO_SKILLS = [
         "name": "税务风险管理框架",
         "category": "税务与法律",
         "description": "设计税务风险识别、评估、监控和报告体系建设方案。",
-        "system_prompt": _load_skill_package_prompt("tax-risk-management-framework"),
+        "system_prompt": _load_skill_package_prompt(
+            "tax-risk-management-framework",
+            ["references/quality-checklist.md", "examples/standard-example.md"],
+        ),
         "user_template": (
             "请为以下企业设计税务风险管理框架。\n\n"
             "企业名称与行业：\n"
@@ -2579,7 +2630,10 @@ GSTACK_PRO_SKILLS = [
         "name": "商业尽职调查",
         "category": "交易",
         "description": "执行商业尽调：市场吸引力、竞争定位、客户质量、增长可持续性、商业模式韧性。",
-        "system_prompt": _load_skill_package_prompt("commercial-due-diligence"),
+        "system_prompt": _load_skill_package_prompt(
+            "commercial-due-diligence",
+            ["references/quality-checklist.md", "examples/standard-example.md"],
+        ),
         "user_template": (
             "请对以下标的执行商业尽职调查。\n\n"
             "标的公司名称与行业：\n"
@@ -2648,7 +2702,10 @@ GSTACK_PRO_SKILLS = [
         "name": "舞弊风险评估",
         "category": "风险监管",
         "description": "基于舞弊三角理论（压力/机会/自我合理化），识别企业舞弊风险领域，设计反舞弊控制措施。",
-        "system_prompt": _load_skill_package_prompt("fraud-risk-assessment"),
+        "system_prompt": _load_skill_package_prompt(
+            "fraud-risk-assessment",
+            ["references/quality-checklist.md", "examples/standard-example.md"],
+        ),
         "user_template": (
             "请对以下企业进行舞弊风险评估。\n\n"
             "企业名称与行业：\n"
@@ -2853,6 +2910,8 @@ def ensure_builtin_pro_skills(session: Session) -> int:
     for obsolete_name in OBSOLETE_BUILTIN_SKILL_NAMES:
         obsolete_skill = existing.pop(obsolete_name, None)
         if obsolete_skill is not None:
+            _detach_skill_references(session, int(obsolete_skill.id))
+            session.flush()
             session.delete(obsolete_skill)
             changed += 1
     for skill_def in prepared_skill_defs:

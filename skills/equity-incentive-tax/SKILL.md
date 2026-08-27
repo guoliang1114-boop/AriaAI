@@ -1,6 +1,10 @@
 ---
 name: equity-incentive-tax
 description: "股权激励税务筹划：股票期权、限制性股票、RSU的税务处理与优化方案"
+version: "1.0.0"
+domain: "tax"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 股权激励税务筹划

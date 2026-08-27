@@ -1,6 +1,10 @@
 ---
 name: sox-compliance-checklist
 description: "基于PCAOB AS 2201和SOX Section 302/404，执行萨班斯-奥克斯利法案合规检查，涵盖管理层评估、内部控制评价和审计师鉴证"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 # SOX合规检查清单
 

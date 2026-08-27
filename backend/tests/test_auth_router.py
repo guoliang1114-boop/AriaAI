@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import User, UserToken
+from app.models.db import ChatRun, Conversation, TaskRun, User, UserToken
 from app.routers.auth import router, _hash, require_admin, get_current_user
 from app.database import get_session
 from tests.test_database import create_test_engine, drop_all_tables
@@ -210,10 +210,40 @@ class AuthUsersCrudTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
 
     def test_delete_user(self):
+        with Session(self.engine) as session:
+            conversation = Conversation(
+                title="Retained audit run",
+                owner_user_id=self.admin.id,
+            )
+            session.add(conversation)
+            session.flush()
+            task = TaskRun(
+                conversation_id=conversation.id,
+                task_type="chat_rollout",
+                status="completed",
+            )
+            session.add(task)
+            session.flush()
+            session.add(
+                ChatRun(
+                    run_id="run-user-delete",
+                    task_run_id=task.id,
+                    conversation_id=conversation.id,
+                    owner_user_id=self.user.id,
+                    status="completed",
+                )
+            )
+            session.commit()
+
         app = _make_app(self.engine, admin_user=self.admin)
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.delete(f"/auth/users/{self.user.id}")
         self.assertEqual(resp.status_code, 200)
+        with Session(self.engine) as session:
+            chat_run = session.exec(
+                select(ChatRun).where(ChatRun.run_id == "run-user-delete")
+            ).one()
+            self.assertIsNone(chat_run.owner_user_id)
 
     def test_delete_nonexistent_user(self):
         app = _make_app(self.engine, admin_user=self.admin)

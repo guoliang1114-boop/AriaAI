@@ -12,8 +12,10 @@ import type {
   Reference,
 } from '../../../types/api'
 import type { ContextReceiptEvent } from '../../../types/productRunEvent'
+import type { RunActivityTimeline } from '../../../stores/runActivityReducer'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 import { CxIcon } from './CxIcons'
+import { ProjectChatActivityTimeline } from './ProjectChatActivityTimeline'
 import { SkillCandidateButtons } from './SkillCandidateButtons'
 import {
   parseProjectTurnRevision,
@@ -64,12 +66,40 @@ interface ParsedMeta {
   interrupted: boolean
   locallyStopped: boolean
   persistedMessageId: number | null
+  activityTimeline: RunActivityTimeline | null
+}
+
+function parseActivityTimeline(value: unknown): RunActivityTimeline | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<RunActivityTimeline>
+  if (typeof raw.run_id !== 'string' || !raw.run_id.trim()) return null
+  const steps = Array.isArray(raw.steps)
+    ? raw.steps
+      .filter((step) => step && Number.isInteger(Number(step.index)))
+      .map((step) => ({
+        ...step,
+        index: Number(step.index),
+        title: String(step.title || `第 ${step.index} 步`),
+        status: step.status || 'pending',
+        items: Array.isArray(step.items) ? step.items : [],
+      }))
+    : []
+  return {
+    ...raw,
+    run_id: raw.run_id,
+    steps,
+    artifacts: Array.isArray(raw.artifacts) ? raw.artifacts : [],
+    memory_candidates: Array.isArray(raw.memory_candidates) ? raw.memory_candidates : [],
+    steering: Array.isArray(raw.steering) ? raw.steering : [],
+    text: typeof raw.text === 'string' ? raw.text : '',
+  }
 }
 
 function parseMeta(raw: string | undefined): ParsedMeta {
   const empty: ParsedMeta = {
     references: [], artifacts: [], progress: [], contextReceipt: null, turn: undefined, revision: undefined,
     feedback: null, rollout: null, interrupted: false, locallyStopped: false, persistedMessageId: null,
+    activityTimeline: null,
   }
   if (!raw) return empty
   try {
@@ -126,6 +156,7 @@ function parseMeta(raw: string | undefined): ParsedMeta {
         && Number(meta.persisted_message_id) > 0
         ? Number(meta.persisted_message_id)
         : null,
+      activityTimeline: parseActivityTimeline(meta.activity_timeline),
     }
   } catch {
     return empty
@@ -143,6 +174,7 @@ interface MessageBubbleProps {
    * transition so this node updates in place instead of remounting. */
   isStreaming?: boolean
   streamingStatus?: string | null
+  activityTimeline?: RunActivityTimeline | null
   onSkillSelect?: (skillId: number, name: string) => void
   onTurnBriefReuse?: (payload: ProjectTurnReusePayload) => void
   onTurnRevisionSourceOpen?: (sourceMessageId: number, sourceFingerprint: string) => void
@@ -155,6 +187,7 @@ export function ProjectChatMessage({
   onArtifactClick,
   isStreaming = false,
   streamingStatus = null,
+  activityTimeline = null,
   onSkillSelect,
   onTurnBriefReuse,
   onTurnRevisionSourceOpen,
@@ -162,6 +195,7 @@ export function ProjectChatMessage({
 }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const meta = useMemo(() => parseMeta(message.metadata_json), [message.metadata_json])
+  const effectiveTimeline = activityTimeline || meta.activityTimeline
 
   return (
     <div
@@ -260,7 +294,15 @@ export function ProjectChatMessage({
           </>
         ) : (
           <>
-            {!isStreaming && meta.progress.length > 0 && <SkillProgressPill steps={meta.progress} />}
+            {effectiveTimeline && (
+              <ProjectChatActivityTimeline
+                timeline={effectiveTimeline}
+                isStreaming={isStreaming}
+              />
+            )}
+            {!effectiveTimeline && !isStreaming && meta.progress.length > 0 && (
+              <SkillProgressPill steps={meta.progress} />
+            )}
             {!isStreaming &&
               meta.artifacts.map((a, i) => (
                 <ArtifactCard

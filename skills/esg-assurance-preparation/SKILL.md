@@ -1,6 +1,10 @@
 ---
 name: esg-assurance-preparation
 description: "准备ESG鉴证/保证工作，基于ISSB IFRS S1/S2、ESRS和GRI标准，评估ESG数据质量和可持续性报告内部控制"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # ESG鉴证准备 (ESG Assurance Preparation)

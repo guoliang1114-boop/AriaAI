@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.config import CHAT_RETENTION_DAYS, CONVERSATION_CACHE_TTL, UPLOADS_DIR
-from app.models.db import ChatTrace, Conversation, ConversationState, GeneratedFile, MemoryCandidate, Message, PendingToolAction, ProjectFile, TaskRun, ToolCall
+from app.models.db import ChatRun, ChatTrace, Conversation, ConversationState, GeneratedFile, MemoryCandidate, Message, PendingToolAction, ProjectFile, TaskRun, ToolCall
 from app.services.agent_harness.run_output_record import (
     RUN_OUTPUT_RECORD_VERSION,
     append_run_output_record,
@@ -646,6 +646,14 @@ def delete_conversation_with_messages(session: Session, conv_id: int, *, clear_c
                 candidate.resolved_at = utc_now_naive()
             session.add(candidate)
         session.flush()
+    # ChatRun is a lifecycle projection with required FKs to the conversation
+    # and its TaskRun. Remove it before messages are deleted and TaskRuns are
+    # detached from the conversation.
+    for chat_run in session.exec(
+        select(ChatRun).where(ChatRun.conversation_id == conv_id)
+    ).all():
+        session.delete(chat_run)
+    session.flush()
     for task in session.exec(select(TaskRun).where(TaskRun.conversation_id == conv_id)).all():
         task.conversation_id = None
         session.add(task)

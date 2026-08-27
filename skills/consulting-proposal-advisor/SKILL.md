@@ -1,6 +1,10 @@
 ---
 name: consulting-proposal-advisor
 description: Create client-ready consulting proposals, PPT outlines, PPTX decks, business cases, SOWs, roadmaps, and executive recommendations.
+version: "1.0.0"
+domain: "consulting"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # Consulting Proposal Advisor

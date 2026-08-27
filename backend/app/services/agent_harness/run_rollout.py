@@ -19,7 +19,7 @@ from typing import Any, Iterable
 
 from sqlmodel import Session, select
 
-from app.models.db import Message, TaskEvent, TaskRun, TaskStep
+from app.models.db import ChatRun, Conversation, Message, TaskEvent, TaskRun, TaskStep
 from app.services.context_builder.assembly import validate_context_assembly_manifest
 from app.services.agent_harness.tool_execution_record import (
     tool_event_is_failure,
@@ -28,6 +28,7 @@ from app.services.agent_harness.tool_execution_record import (
 )
 from app.services.agent_harness.run_output_record import normalize_run_output_records
 from app.services.time_utils import utc_now_naive
+from app.services.agent_harness.run_display import resolve_run_display_mode
 
 ROLLOUT_SCHEMA_VERSION = 1
 ROLLOUT_TASK_TYPE = "chat_rollout"
@@ -389,6 +390,33 @@ def begin_chat_rollout(bind: Any, runtime: Any, request_content: str, run_id: st
         )
         session.add(task)
         session.flush()
+        conversation = session.get(Conversation, int(runtime.conv_id))
+        chat_run = ChatRun(
+            run_id=run_id,
+            task_run_id=_task_run_id(task),
+            conversation_id=int(runtime.conv_id),
+            project_id=getattr(runtime, "project_id", None),
+            owner_user_id=getattr(conversation, "owner_user_id", None),
+            source_message_id=getattr(source_message, "id", None),
+            skill_id=getattr(runtime, "skill_id", None),
+            skill_name=str(getattr(runtime, "skill_name", "") or ""),
+            model=str(getattr(runtime, "selected_model", "") or ""),
+            chat_mode=_enum_value(getattr(runtime, "chat_mode", "")),
+            action_policy=_enum_value(getattr(runtime, "action_policy", "")),
+            display_mode=resolve_run_display_mode(
+                getattr(runtime, "action_policy", ""),
+                has_skill=bool(
+                    getattr(runtime, "skill_id", None)
+                    or getattr(runtime, "skill_name", "")
+                ),
+            ),
+            request_sha256=_sha256(request_content or ""),
+            context_manifest_sha256=_sha256(context_manifest),
+            started_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(chat_run)
         _append_event(
             session,
             task,
@@ -452,6 +480,19 @@ def checkpoint_chat_rollout(bind: Any, task_id: int, step: Any, state: Any) -> d
             task.status = "paused"
         session.add(record)
         session.add(task)
+        chat_run = session.exec(select(ChatRun).where(ChatRun.task_run_id == task_id)).first()
+        if chat_run is not None:
+            chat_run.status = "waiting_confirmation" if status == "waiting_confirmation" else "running"
+            chat_run.phase = key
+            chat_run.step_count = max(chat_run.step_count, step_index + 1)
+            chat_run.tool_call_count = sum(
+                len(_json_loads(item.input_json, {}).get("tool_calls", []))
+                for item in session.exec(
+                    select(TaskStep).where(TaskStep.task_run_id == task_id)
+                ).all()
+            )
+            chat_run.updated_at = record.updated_at
+            session.add(chat_run)
         _append_event(session, task, "step_checkpoint", {"checkpoint": checkpoint})
         session.commit()
         return checkpoint
@@ -523,6 +564,26 @@ def finalize_chat_rollout(
         snapshot = reconstruct_rollout(_records_for_task(session, task_id), task_status=task.status)
         task.output_json = _json_dumps(snapshot)
         session.add(task)
+        chat_run = session.exec(select(ChatRun).where(ChatRun.task_run_id == task_id)).first()
+        if chat_run is not None:
+            steps = list(snapshot.get("steps") or [])
+            chat_run.assistant_message_id = message_id
+            chat_run.status = status
+            chat_run.phase = phase or "completed"
+            chat_run.step_count = len(steps)
+            chat_run.tool_call_count = sum(
+                len(step.get("tool_calls") or []) for step in steps if isinstance(step, dict)
+            )
+            chat_run.output_count = len(snapshot.get("run_outputs") or [])
+            chat_run.error_code = error_code
+            chat_run.retryable = bool(retryable)
+            chat_run.completed_at = now
+            chat_run.updated_at = now
+            chat_run.duration_ms = max(
+                0,
+                int((now - chat_run.started_at).total_seconds() * 1000),
+            )
+            session.add(chat_run)
         session.commit()
         return snapshot
 

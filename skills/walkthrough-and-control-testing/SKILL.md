@@ -1,6 +1,10 @@
 ---
 name: walkthrough-and-control-testing
 description: "执行穿行测试与控制测试，基于COSO 2013内部控制框架，评估控制设计与运行有效性"
+version: "1.0.0"
+domain: "audit"
+last_updated: "2026-08-26"
+status: "stable"
 ---
 
 # 穿行测试与控制测试
