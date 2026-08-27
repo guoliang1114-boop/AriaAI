@@ -1,7 +1,23 @@
 from pathlib import Path
+import subprocess
+import sys
 from unittest.mock import patch
 
 from scripts import verified_postgres_backup as backup
+
+
+def test_direct_script_entrypoint_can_import_backend_app() -> None:
+    result = subprocess.run(
+        [sys.executable, "scripts/verified_postgres_backup.py"],
+        cwd=Path(__file__).resolve().parents[1],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "BACKUP_PATH is required" in result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
 
 
 def test_connection_arguments_keep_password_out_of_command() -> None:

@@ -15,6 +15,15 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
+
+# Direct script execution sets ``sys.path[0]`` to ``backend/scripts`` rather
+# than the backend package root. Keep this operational entry point equivalent
+# to ``python -m scripts.verified_postgres_backup`` so production deployment
+# can import Aria's configuration reliably.
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
