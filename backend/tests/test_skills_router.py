@@ -35,6 +35,13 @@ class SkillsCrudTestCase(unittest.TestCase):
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:
+            session.add(User(
+                id=1,
+                email="test@example.com",
+                display_name="Test",
+                password_hash="test-only",
+                is_admin=True,
+            ))
             skill = Skill(
                 name="Strategy Report",
                 description="Generate strategy reports",
@@ -110,6 +117,11 @@ class SkillsCrudTestCase(unittest.TestCase):
         self.assertEqual(data["name"], "New Skill")
         self.assertEqual(data["package_version"], "1.0.0")
         self.assertEqual(data["package_status"], "stable")
+        with Session(self.engine) as session:
+            release = session.exec(
+                select(SkillRelease).where(SkillRelease.skill_id == data["id"])
+            ).one()
+            self.assertEqual(release.created_by_user_id, 1)
 
     def test_skill_release_fields_require_semver_and_known_status(self):
         invalid_version = self.client.post("/skills", json={
