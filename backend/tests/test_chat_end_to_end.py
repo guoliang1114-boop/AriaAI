@@ -917,8 +917,12 @@ class ProductRunEventV1ContractGoldens(ChatEndToEndBase):
         self.set_llm_stream([["hi"]])
         events = await self.drain()
         started = _events_of_type(events, "run_started")[0]
-        # Plain text-only run: no skill, no display_mode (we don't set them yet).
-        self.assertEqual(_strip_volatile_run_event_fields(started), {"type": "run_started"})
+        # The runtime policy is write_artifact, so the unified product contract
+        # advertises task mode even when this mocked turn emits only text.
+        self.assertEqual(
+            _strip_volatile_run_event_fields(started),
+            {"type": "run_started", "display_mode": "task"},
+        )
         # Volatile fields are nonetheless present and well-formed.
         self.assertTrue(started["run_id"].startswith("run_"))
         self.assertIsInstance(started["timestamp"], str)
@@ -931,7 +935,14 @@ class ProductRunEventV1ContractGoldens(ChatEndToEndBase):
         started = _events_of_type(events, "run_started")[0]
         cleaned = _strip_volatile_run_event_fields(started)
         # Skill block has exactly {name}; no id is set unless runtime.skill_id is.
-        self.assertEqual(cleaned, {"type": "run_started", "skill": {"name": "digital-strategy"}})
+        self.assertEqual(
+            cleaned,
+            {
+                "type": "run_started",
+                "display_mode": "skill",
+                "skill": {"name": "digital-strategy"},
+            },
+        )
 
     async def test_message_persisted_shape(self) -> None:
         self.set_llm_stream([["hello"]])
