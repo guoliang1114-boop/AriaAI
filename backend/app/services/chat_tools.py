@@ -26,6 +26,10 @@ class ChatRuntime:
     skill_version: str = ""
     skill_release_status: str = ""
     skill_release_sha256: str = ""
+    skill_release_id: int | None = None
+    skill_rollout_id: int | None = None
+    skill_rollout_variant: str = ""
+    skill_rollout_bucket: int | None = None
     skill_activation_source: str = ""
     skill_activation_reason: str = ""
     prepare_metrics: dict | None = None

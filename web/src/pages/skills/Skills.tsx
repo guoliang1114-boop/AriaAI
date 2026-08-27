@@ -18,8 +18,11 @@ import {
   LayoutGrid,
   Loader2,
   MessageSquare,
+  Pause,
   Receipt,
   RefreshCw,
+  RotateCcw,
+  Rocket,
   Shield,
   ShieldCheck,
   Target,
@@ -30,7 +33,14 @@ import {
 import { api } from "../../api/client";
 import { CxPagination, CxSkeleton, CxTopProgress } from "../../components/codex";
 import { PageTitle } from "../../components/PageTitle";
-import type { Skill, SkillSummary } from "../../types/api";
+import type {
+  Skill,
+  SkillReleaseListResponse,
+  SkillReleaseSummary,
+  SkillRolloutListResponse,
+  SkillRolloutSummary,
+  SkillSummary,
+} from "../../types/api";
 
 const SKILLS_PAGE_SIZE = 10;
 
@@ -473,6 +483,16 @@ function useSkillDetail(skillId?: string) {
   if (!validId) return { error: "invalid", loading: false, skill: null };
   if (!result || result.id !== id) return { error: "", loading: true, skill: null };
   return { error: result.error, loading: false, skill: result.skill };
+}
+
+function getStoredUserIsAdmin(): boolean {
+  try {
+    const raw = localStorage.getItem("user");
+    if (!raw) return false;
+    return !!(JSON.parse(raw) as { is_admin?: boolean }).is_admin;
+  } catch {
+    return false;
+  }
 }
 
 function useLaunchSource() {
@@ -1135,6 +1155,119 @@ export function SkillDetailPage() {
   const navigate = useNavigate();
   const launchSource = useLaunchSource();
   const { error, loading, skill } = useSkillDetail(skillId);
+  const isAdmin = getStoredUserIsAdmin();
+  const [governanceResult, setGovernanceResult] = useState<{
+    skillId: number;
+    releases: SkillReleaseSummary[];
+    rollouts: SkillRolloutSummary[];
+    error: string;
+  } | null>(null);
+  const [governanceBusy, setGovernanceBusy] = useState(false);
+  const [governanceActionError, setGovernanceActionError] = useState("");
+  const [governanceReloadKey, setGovernanceReloadKey] = useState(0);
+
+  useEffect(() => {
+    if (!skill?.id) return;
+    let cancelled = false;
+    void Promise.all([
+      api.get<SkillReleaseListResponse>(`/skills/${skill.id}/releases`),
+      api.get<SkillRolloutListResponse>(`/skills/${skill.id}/rollouts`),
+    ])
+      .then(([releases, rollouts]) => {
+        if (cancelled) return;
+        setGovernanceResult({
+          skillId: skill.id,
+          releases: Array.isArray(releases?.items) ? releases.items : [],
+          rollouts: Array.isArray(rollouts?.items) ? rollouts.items : [],
+          error: "",
+        });
+      })
+      .catch((fetchError: unknown) => {
+        console.error("Failed to load Skill release governance:", fetchError);
+        if (!cancelled) {
+          setGovernanceResult({
+            skillId: skill.id,
+            releases: [],
+            rollouts: [],
+            error: isZh ? "发布治理信息加载失败" : "Failed to load release governance",
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [governanceReloadKey, isZh, skill?.id]);
+
+  const currentGovernance = governanceResult?.skillId === skill?.id ? governanceResult : null;
+  const releaseItems = currentGovernance?.releases ?? [];
+  const rolloutItems = currentGovernance?.rollouts ?? [];
+  const governanceLoading = !!skill && !currentGovernance;
+  const governanceError = governanceActionError || currentGovernance?.error || "";
+  const activeRelease = releaseItems.find((item) => item.is_active) ?? null;
+  const activeRollout = rolloutItems.find((item) => item.status === "active" || item.status === "paused") ?? null;
+  const rolloutCandidate = releaseItems.find(
+    (item) => !item.is_active && item.status !== "deprecated" && item.version !== activeRelease?.version,
+  ) ?? null;
+
+  const refreshGovernance = () => {
+    setGovernanceActionError("");
+    setGovernanceResult(null);
+    setGovernanceReloadKey((value) => value + 1);
+  };
+
+  const startCanary = async () => {
+    if (!skill || !activeRelease || !rolloutCandidate || governanceBusy) return;
+    setGovernanceBusy(true);
+    setGovernanceActionError("");
+    try {
+      await api.post(`/skills/${skill.id}/rollouts`, {
+        candidate_release_id: rolloutCandidate.id,
+        percentage: 10,
+        min_sample_size: 20,
+        max_failure_rate: 0.25,
+        auto_stop: true,
+        expected_active_release_sha256: activeRelease.sha256,
+      });
+      refreshGovernance();
+    } catch (controlError) {
+      console.error("Failed to start Skill rollout:", controlError);
+      setGovernanceActionError(isZh ? "启动灰度失败，请刷新后重试" : "Failed to start rollout; refresh and retry");
+    } finally {
+      setGovernanceBusy(false);
+    }
+  };
+
+  const controlRollout = async (
+    rollout: SkillRolloutSummary,
+    action: "set_percentage" | "pause" | "resume" | "promote" | "rollback",
+    percentage?: number,
+  ) => {
+    if (!skill || !rollout.candidate_release || governanceBusy) return;
+    if (
+      (action === "promote" || action === "rollback")
+      && !window.confirm(
+        action === "promote"
+          ? (isZh ? "确认将候选版本推广为线上版本？" : "Promote the candidate release to live traffic?")
+          : (isZh ? "确认立即将全部流量切回基线版本？" : "Immediately return all traffic to the baseline release?"),
+      )
+    ) return;
+    setGovernanceBusy(true);
+    setGovernanceActionError("");
+    try {
+      await api.post(`/skills/${skill.id}/rollouts/${rollout.id}/control`, {
+        action,
+        expected_status: rollout.status,
+        expected_candidate_sha256: rollout.candidate_release.sha256,
+        ...(percentage == null ? {} : { percentage }),
+      });
+      refreshGovernance();
+    } catch (controlError) {
+      console.error("Failed to control Skill rollout:", controlError);
+      setGovernanceActionError(isZh ? "发布状态已变化，请刷新后重试" : "Release state changed; refresh and retry");
+    } finally {
+      setGovernanceBusy(false);
+    }
+  };
 
   const toolNames = useMemo(() => parseToolNames(skill?.tools_definition_json), [skill?.tools_definition_json]);
   const inputHints = useMemo(() => buildInputHints(skill, isZh), [isZh, skill]);
@@ -1655,6 +1788,212 @@ export function SkillDetailPage() {
                     {toolNames.length}
                   </span>
                 </div>
+              </div>
+            </section>
+
+            <section style={panelStyle}>
+              <div className="flex items-center justify-between" style={{ marginBottom: 12, gap: 8 }}>
+                <h2 style={{ ...panelTitleStyle, marginBottom: 0 }}>
+                  {isZh ? "发布治理" : "Release governance"}
+                </h2>
+                <button
+                  type="button"
+                  onClick={refreshGovernance}
+                  disabled={governanceLoading || governanceBusy}
+                  aria-label={isZh ? "刷新发布治理" : "Refresh release governance"}
+                  style={{ ...ghostButton, padding: "4px 7px" }}
+                >
+                  <RefreshCw className={`h-3 w-3 ${governanceLoading ? "animate-spin" : ""}`} />
+                </button>
+              </div>
+
+              {governanceError ? (
+                <div
+                  style={{
+                    marginBottom: 10,
+                    padding: "7px 9px",
+                    fontSize: 11.5,
+                    color: "var(--color-codex-danger)",
+                    background: "color-mix(in oklch, var(--color-codex-danger) 8%, transparent)",
+                    borderRadius: "var(--codex-r-sm, 3px)",
+                  }}
+                >
+                  {governanceError}
+                </div>
+              ) : null}
+
+              {activeRelease ? (
+                <div
+                  style={{
+                    padding: "9px 10px",
+                    background: "var(--color-codex-accent-bg)",
+                    borderRadius: "var(--codex-r-sm, 3px)",
+                    fontSize: 11.5,
+                    color: "var(--color-codex-accent-ink)",
+                  }}
+                >
+                  <div className="flex items-center justify-between" style={{ gap: 8 }}>
+                    <span>{isZh ? "线上版本" : "Live release"}</span>
+                    <span className="font-mono">v{activeRelease.version}</span>
+                  </div>
+                  <div className="font-mono" style={{ marginTop: 3, fontSize: 10.5, opacity: 0.78 }}>
+                    {activeRelease.sha256.slice(0, 12)} · {activeRelease.status}
+                  </div>
+                </div>
+              ) : governanceLoading ? (
+                <div style={{ fontSize: 11.5, color: "var(--color-codex-ink-mute)" }}>
+                  {isZh ? "正在加载发布记录…" : "Loading releases…"}
+                </div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: "var(--color-codex-ink-mute)" }}>
+                  {isZh ? "暂无可验证的线上发布快照" : "No verified live release snapshot"}
+                </div>
+              )}
+
+              {activeRollout ? (
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: "10px",
+                    border: "1px solid var(--color-codex-line-soft)",
+                    borderRadius: "var(--codex-r-sm, 3px)",
+                  }}
+                >
+                  <div className="flex items-center justify-between" style={{ gap: 8 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 500, color: "var(--color-codex-ink)" }}>
+                      {activeRollout.status === "paused"
+                        ? (isZh ? "灰度已暂停" : "Rollout paused")
+                        : (isZh ? `候选流量 ${activeRollout.percentage}%` : `Candidate traffic ${activeRollout.percentage}%`)}
+                    </span>
+                    <span className="font-mono" style={{ fontSize: 10.5, color: "var(--color-codex-ink-mute)" }}>
+                      v{activeRollout.candidate_release?.version || "—"}
+                    </span>
+                  </div>
+                  <div
+                    className="grid grid-cols-2"
+                    style={{ marginTop: 8, gap: 6, fontSize: 10.5, color: "var(--color-codex-ink-mute)" }}
+                  >
+                    <div>
+                      {isZh ? "候选运行" : "Candidate runs"} {activeRollout.health.candidate.run_count}
+                    </div>
+                    <div>
+                      {isZh ? "失败率" : "Failure"}{" "}
+                      {activeRollout.health.candidate.failure_rate == null
+                        ? "—"
+                        : `${Math.round(activeRollout.health.candidate.failure_rate * 100)}%`}
+                    </div>
+                    <div>
+                      {isZh ? "止损样本" : "Stop sample"} {activeRollout.min_sample_size}
+                    </div>
+                    <div>
+                      {isZh ? "失败阈值" : "Failure limit"} {Math.round(activeRollout.max_failure_rate * 100)}%
+                    </div>
+                  </div>
+                  {isAdmin ? (
+                    <div className="flex flex-wrap" style={{ marginTop: 9, gap: 5 }}>
+                      {activeRollout.status === "active" ? (
+                        <>
+                          {activeRollout.percentage < 100 ? (
+                            <button
+                              type="button"
+                              disabled={governanceBusy}
+                              onClick={() => void controlRollout(
+                                activeRollout,
+                                "set_percentage",
+                                Math.min(100, activeRollout.percentage + 10),
+                              )}
+                              style={{ ...ghostButton, padding: "4px 7px", fontSize: 10.5 }}
+                            >
+                              +10%
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            disabled={governanceBusy}
+                            onClick={() => void controlRollout(activeRollout, "pause")}
+                            style={{ ...ghostButton, padding: "4px 7px", fontSize: 10.5 }}
+                          >
+                            <Pause className="h-3 w-3" />
+                            {isZh ? "暂停" : "Pause"}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={governanceBusy}
+                          onClick={() => void controlRollout(activeRollout, "resume")}
+                          style={{ ...ghostButton, padding: "4px 7px", fontSize: 10.5 }}
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                          {isZh ? "恢复" : "Resume"}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={governanceBusy}
+                        onClick={() => void controlRollout(activeRollout, "promote")}
+                        style={{ ...ghostButton, padding: "4px 7px", fontSize: 10.5 }}
+                      >
+                        <Rocket className="h-3 w-3" />
+                        {isZh ? "推广" : "Promote"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={governanceBusy}
+                        onClick={() => void controlRollout(activeRollout, "rollback")}
+                        style={{ ...ghostButton, padding: "4px 7px", fontSize: 10.5 }}
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        {isZh ? "回滚" : "Rollback"}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : isAdmin && activeRelease && rolloutCandidate ? (
+                <button
+                  type="button"
+                  disabled={governanceBusy}
+                  onClick={() => void startCanary()}
+                  className="mt-2 inline-flex w-full items-center justify-center gap-1.5"
+                  style={{ ...ghostButton, marginTop: 9 }}
+                >
+                  <Rocket className="h-3 w-3" />
+                  {isZh
+                    ? `以 10% 灰度 v${rolloutCandidate.version}`
+                    : `Start v${rolloutCandidate.version} at 10%`}
+                </button>
+              ) : null}
+
+              {releaseItems.length > 0 ? (
+                <div style={{ marginTop: 12 }}>
+                  <div
+                    className="font-mono"
+                    style={{ marginBottom: 6, fontSize: 10, color: "var(--color-codex-ink-mute)", letterSpacing: "0.05em" }}
+                  >
+                    {isZh ? "最近发布" : "RECENT RELEASES"}
+                  </div>
+                  <div className="flex flex-col" style={{ gap: 5 }}>
+                    {releaseItems.slice(0, 5).map((release) => (
+                      <div
+                        key={release.id}
+                        className="flex items-center justify-between"
+                        style={{ fontSize: 10.5, color: "var(--color-codex-ink-soft)", gap: 8 }}
+                      >
+                        <span className="font-mono">
+                          v{release.version} · {release.status}
+                        </span>
+                        <span className="font-mono" style={{ color: release.is_active ? "var(--color-codex-accent)" : "var(--color-codex-ink-faint)" }}>
+                          {release.is_active ? (isZh ? "线上" : "live") : release.sha256.slice(0, 8)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div style={{ marginTop: 9, fontSize: 10, lineHeight: 1.5, color: "var(--color-codex-ink-faint)" }}>
+                {isZh
+                  ? "分流只使用项目优先的作用域 ID 哈希；质量统计不读取消息正文或提示词。"
+                  : "Bucketing hashes project-first scope IDs only; quality checks never read message or prompt text."}
               </div>
             </section>
 

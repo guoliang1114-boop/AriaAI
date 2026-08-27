@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -11,6 +12,10 @@ from app.models.db import (
     Message,
     Project,
     ProjectMember,
+    Skill,
+    SkillRelease,
+    SkillRollout,
+    TaskEvent,
     TaskRun,
     User,
 )
@@ -133,6 +138,98 @@ def test_chat_run_records_waiting_confirmation_as_non_terminal_view_state() -> N
         assert run.status == "waiting_confirmation"
         assert run.display_mode == "confirmation"
         assert run.retryable is False
+
+
+def test_failed_candidate_run_auto_stops_rollout_and_updates_durable_snapshot() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        skill = Skill(name="Canary Skill", category="quality")
+        session.add(skill)
+        session.flush()
+        baseline = SkillRelease(
+            skill_id=skill.id,
+            skill_name=skill.name,
+            name=skill.name,
+            category=skill.category,
+            system_prompt="baseline",
+            package_version="1.0.0",
+            package_sha256="a" * 64,
+        )
+        candidate = SkillRelease(
+            skill_id=skill.id,
+            skill_name=skill.name,
+            name=skill.name,
+            category=skill.category,
+            system_prompt="candidate",
+            package_version="1.1.0",
+            package_status="preview",
+            package_sha256="b" * 64,
+        )
+        session.add(baseline)
+        session.add(candidate)
+        session.flush()
+        skill.active_release_id = baseline.id
+        rollout = SkillRollout(
+            skill_id=skill.id,
+            baseline_release_id=baseline.id,
+            candidate_release_id=candidate.id,
+            min_sample_size=1,
+            max_failure_rate=0.0,
+        )
+        session.add(skill)
+        session.add(rollout)
+        conversation = Conversation(title="Canary stop loss")
+        session.add(conversation)
+        session.flush()
+        session.commit()
+        skill_id = int(skill.id)
+        baseline_id = int(baseline.id)
+        candidate_id = int(candidate.id)
+        rollout_id = int(rollout.id)
+        conversation_id = int(conversation.id)
+
+    runtime = SimpleNamespace(
+        conv_id=conversation_id,
+        project_id=None,
+        selected_model="provider-model",
+        chat_mode="skill_execution",
+        action_policy="direct_answer",
+        context_manifest={},
+        skill_id=skill_id,
+        skill_name="Canary Skill",
+        skill_version="1.1.0",
+        skill_release_status="preview",
+        skill_release_sha256="b" * 64,
+        skill_release_id=candidate_id,
+        skill_rollout_id=rollout_id,
+        skill_rollout_variant="candidate",
+        skill_rollout_bucket=3,
+    )
+    task_id = begin_chat_rollout(engine, runtime, "private candidate request", "run_canary_stop")
+    snapshot = finalize_chat_rollout(
+        engine,
+        task_id,
+        status="failed",
+        phase="persist",
+        error_code="MODEL_FAILED",
+    )
+
+    with Session(engine) as session:
+        skill = session.get(Skill, skill_id)
+        rollout = session.get(SkillRollout, rollout_id)
+        task = session.get(TaskRun, task_id)
+        events = session.exec(
+            select(TaskEvent).where(TaskEvent.task_run_id == task_id)
+        ).all()
+        stored_snapshot = json.loads(task.output_json)
+
+        assert rollout.status == "rolled_back"
+        assert rollout.stop_reason == "candidate_failure_rate_exceeded"
+        assert skill.active_release_id == baseline_id
+        assert any(event.event_type == "skill_rollout_auto_stopped" for event in events)
+        assert stored_snapshot == snapshot
+        assert stored_snapshot["last_ordinal"] == len(events)
+        assert "private candidate request" not in task.output_json
 
 
 def test_chat_run_routes_enforce_project_and_conversation_access() -> None:

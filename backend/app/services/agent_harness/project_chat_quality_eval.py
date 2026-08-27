@@ -24,6 +24,10 @@ from app.services.chat_store import build_message_metadata
 from app.services.agent_harness.project_memory_evidence import (
     select_project_memory_slots,
 )
+from app.services.agent_harness.skill_releases import (
+    skill_release_sha256,
+    skill_rollout_bucket,
+)
 from app.services.agent_harness.project_world_state import (
     WORLD_STATE_CATEGORIES,
     compare_project_world_states,
@@ -661,6 +665,95 @@ def _skill_run_quality_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _skill_release_governance_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Exact snapshots and project-sticky buckets stay deterministic."""
+
+    baseline = SimpleNamespace(
+        name="Project Risk Review",
+        category="risk",
+        description="Review project risks",
+        system_prompt="Use the approved baseline.",
+        user_template="Review {{project}}",
+        estimated_time="~2 min",
+        max_tokens=4096,
+        tools_definition_json="[]",
+        tools_json="[]",
+        package_version="1.0.0",
+        package_status="stable",
+    )
+    candidate = SimpleNamespace(
+        **{
+            **vars(baseline),
+            "system_prompt": "Use the candidate risk method.",
+            "package_version": "1.1.0",
+            "package_status": "preview",
+        }
+    )
+    baseline_sha = skill_release_sha256(baseline)
+    candidate_sha = skill_release_sha256(candidate)
+    project_bucket = skill_rollout_bucket(
+        17,
+        skill_id=7,
+        project_id=26,
+        conversation_id=81,
+        owner_user_id=3,
+    )
+    same_project_bucket = skill_rollout_bucket(
+        17,
+        skill_id=7,
+        project_id=26,
+        conversation_id=999,
+        owner_user_id=99,
+    )
+    conversation_bucket = skill_rollout_bucket(
+        17,
+        skill_id=7,
+        project_id=None,
+        conversation_id=81,
+        owner_user_id=3,
+    )
+    same_conversation_bucket = skill_rollout_bucket(
+        17,
+        skill_id=7,
+        project_id=None,
+        conversation_id=81,
+        owner_user_id=99,
+    )
+    owner_bucket = skill_rollout_bucket(
+        17,
+        skill_id=7,
+        project_id=None,
+        conversation_id=None,
+        owner_user_id=3,
+    )
+    same_owner_bucket = skill_rollout_bucket(
+        17,
+        skill_id=7,
+        project_id=None,
+        conversation_id=None,
+        owner_user_id=3,
+    )
+    details = [
+        {
+            "case": "skill_release_hash_identifies_exact_runtime_contract",
+            "passed": len(baseline_sha) == 64
+            and len(candidate_sha) == 64
+            and baseline_sha != candidate_sha,
+        },
+        {
+            "case": "skill_rollout_is_sticky_to_project_before_turn_identity",
+            "passed": 0 <= project_bucket < 100
+            and project_bucket == same_project_bucket,
+        },
+        {
+            "case": "skill_rollout_fallback_scopes_are_deterministic",
+            "passed": conversation_bucket == same_conversation_bucket
+            and owner_bucket == same_owner_bucket,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -680,6 +773,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "turn_recovery_safety_rate": _turn_recovery_results(),
         "interaction_feedback_privacy_rate": _interaction_feedback_results(),
         "skill_quality_attribution_accuracy": _skill_run_quality_results(),
+        "skill_release_governance_accuracy": _skill_release_governance_results(),
     }
     metrics = {
         name: {

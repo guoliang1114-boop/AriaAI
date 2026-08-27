@@ -32,7 +32,7 @@ Skill 的产品作用：
 | 对话执行 | `ChatMode.SKILL_EXECUTION` 与 `force_skill` |
 | 结果回流 | 项目 Chat 保存为项目文档/笔记，触发记忆 stale/刷新 |
 
-注意：当前代码已有内容安全的 `ChatRun` 生命周期投影，可冻结本轮实际 Skill 的 semver、发布状态、包 SHA-256、启用来源、策略和终态；Skill 包也已统一声明 semver 元数据并受 CI 质量门禁约束。灰度流量分配和一键回滚仍属于后续演进。
+注意：当前代码已有内容安全的 `ChatRun` 生命周期投影、不可变 `SkillRelease` 快照和 `SkillRollout` 发布治理。线上版本与最新编辑版本使用独立指针；预览版本不会直接替换线上契约，管理员可按项目稳定分桶灰度、暂停、推广或回滚，失败率越界时自动切回基线。
 
 部署时 CI 会从干净 checkout 生成 `.aria-release-manifest.json`。服务器中不在清单内、且一级目录确实包含 `SKILL.md` 的历史包不会被直接删除，而会移动到 `/www/backups/ariaai/stale-skills/<UTC时间>/` 可恢复归档；随后服务器再次执行 Skill 固定计数与质量测试，避免旧包继续进入运行时发现范围。
 
@@ -54,11 +54,14 @@ Skill 的产品作用：
 | `tools_json` | 兼容旧版的工具名称列表 |
 | `package_version` | 当前已发布语义版本；创建/修改必须满足 semver |
 | `package_status` | `preview` / `stable` / `deprecated`；退役版本保留历史但不得进入新一轮启动和自动路由 |
-| `package_sha256` | 文件型 Skill 发布快照的精确 SHA-256；DB-only Skill 可为空 |
+| `package_sha256` | 当前最新编辑契约的精确 SHA-256；迁移会为既有 DB-only Skill 补齐 |
+| `active_release_id` | 当前线上不可变 `SkillRelease` 指针，与最新编辑候选分离 |
 
-每个新 `ChatRun` 会复制 `skill_version`、`skill_release_status`、`skill_release_sha256` 与 `skill_activation_source`。这些是运行时快照，不会因为后来修改或删除 Skill 而变化。迁移前的历史 Run 保持“版本未记录”，不会用当前版本回填并伪造历史归因。
+`SkillRelease` 冻结名称、说明、system prompt、输入模板、工具契约、token 上限、semver、状态和 SHA-256；同一 Skill 的同一精确契约只生成一条记录。`SkillRollout` 只保存基线/候选快照、流量比例、阈值、状态和管理员审计，不保存消息正文、Prompt、工具参数或用户身份。
 
-通过 CRUD 修改 `system_prompt`、`user_template` 或工具定义属于运行行为变更，必须同时提交一个严格递增的 `package_version`，降级或复用版本会返回 409。Aria 会对最终 DB 发布契约重新计算 SHA-256；版本号与指纹共同构成质量归因身份，避免同一 semver 下的意外内容漂移混入同一组数据。真正的回滚将通过后续发布历史模型选择旧契约，而不是篡改当前版本号。
+每个新 `ChatRun` 会复制 `skill_version`、发布状态、SHA-256、精确 `skill_release_id`、灰度 ID/分组/桶位与启用来源。这些是运行时快照，不会因为后来修改或删除 Skill 而变化。迁移前的历史 Run 保持“版本未记录”，不会用当前版本回填并伪造历史归因。
+
+通过 CRUD 修改 `system_prompt`、`user_template` 或工具定义属于运行行为变更，必须同时提交一个严格递增的 `package_version`，降级或复用版本会返回 409。编辑 `preview` 只生成候选快照；活动灰度期间禁止继续编辑或删除，避免被测契约漂移。推广和回滚只移动线上快照指针，不篡改历史版本或历史 Run。
 
 ## 4. 路由与缓存
 
@@ -71,10 +74,15 @@ Skill 的产品作用：
 | `POST` | `/skills` | 创建 Skill |
 | `PATCH` | `/skills/{skill_id}` | 更新 Skill |
 | `DELETE` | `/skills/{skill_id}` | 删除 Skill |
+| `GET` | `/skills/{skill_id}/releases` | 查询不可变发布历史和线上指针 |
+| `GET` | `/skills/{skill_id}/rollouts` | 查询内容安全的灰度状态与健康指标 |
+| `POST` | `/skills/{skill_id}/rollouts` | 管理员创建项目级稳定灰度 |
+| `POST` | `/skills/{skill_id}/rollouts/{rollout_id}/control` | 管理员调比例、暂停、恢复、推广或回滚 |
 
 实现要点：
 
 - 列表和摘要使用 `TTLCache`，默认 300 秒。
+- Skill 写接口仅管理员可用；创建/控制请求带预期版本或状态，PostgreSQL 行锁与唯一开放灰度索引共同防止并发覆盖。
 - Skill 变更后调用 `_bust_skills()` 清理缓存；运行行为变更必须显式升级 semver。
 - 启动时 `ensure_builtin_pro_skills(session)` 补齐内置 Skill。
 - `_load_skill_package_prompt()` 可把文件包 `SKILL.md` 和 references 拼入 DB Skill 的 `system_prompt`。
@@ -89,6 +97,8 @@ Skill 的产品作用：
 runtime.decide_skill_activation()
   ↓
 IntentRouter 进入 ChatMode.SKILL_EXECUTION
+  ↓
+resolve_skill_release() 按 project > conversation > owner 稳定分桶并冻结精确版本
   ↓
 context_builder 注入项目、客户、干系人、RAG 和 Skill prompt
   ↓
@@ -240,6 +250,7 @@ skills/
 1. 在现有 `ChatRun` 内容安全投影上增加按 Skill 的质量趋势和版本维度统计，不保存原始输入或工具参数。
    - 状态：已完成。项目质量面板按精确版本/包指纹汇总运行数、完成率、分类反馈、错误 Skill 原因、修订效果与启用来源；聚合不读取消息正文、自由文本或用户身份。
 2. 在已落地的正式 semver/status/快照字段上增加灰度流量分配和一键回滚。
+   - 状态：已完成。包含不可变发布历史、项目级稳定分桶、管理员暂停/恢复/推广/回滚、并发陈旧保护和失败率自动止损。
 3. 为其余核心 Skill 增加 golden examples。
 4. 增加 `verification_steps`，让交付物生成后可自动校验。
 5. 设计 Skill 导入/导出格式，统一 DB Skill 与文件包 Skill 的同步方式。

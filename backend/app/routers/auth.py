@@ -10,7 +10,14 @@ from sqlmodel import Session, select
 
 from app.config import LOGIN_RATE_LIMIT_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW_SECONDS
 from app.database import get_session, engine
-from app.models.db import ChatRun, MemoryCandidate, User, UserToken
+from app.models.db import (
+    ChatRun,
+    MemoryCandidate,
+    SkillRelease,
+    SkillRollout,
+    User,
+    UserToken,
+)
 from app.services.time_utils import utc_now_naive
 from app.services.token_cache import invalidate_token_cache
 
@@ -455,6 +462,16 @@ def delete_user(
     ).all():
         chat_run.owner_user_id = None
         session.add(chat_run)
+    for release in session.exec(
+        select(SkillRelease).where(SkillRelease.created_by_user_id == user_id)
+    ).all():
+        release.created_by_user_id = None
+        session.add(release)
+    for rollout in session.exec(
+        select(SkillRollout).where(SkillRollout.created_by_user_id == user_id)
+    ).all():
+        rollout.created_by_user_id = None
+        session.add(rollout)
     session.flush()
     session.delete(user)
     session.commit()

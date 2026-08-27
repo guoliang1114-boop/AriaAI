@@ -5,7 +5,16 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import ChatRun, Conversation, TaskRun, User, UserToken
+from app.models.db import (
+    ChatRun,
+    Conversation,
+    Skill,
+    SkillRelease,
+    SkillRollout,
+    TaskRun,
+    User,
+    UserToken,
+)
 from app.routers.auth import router, _hash, require_admin, get_current_user
 from app.database import get_session
 from tests.test_database import create_test_engine, drop_all_tables
@@ -233,6 +242,41 @@ class AuthUsersCrudTestCase(unittest.TestCase):
                     status="completed",
                 )
             )
+            skill = Skill(name="Retained release", category="quality")
+            session.add(skill)
+            session.flush()
+            baseline = SkillRelease(
+                skill_id=skill.id,
+                skill_name=skill.name,
+                name=skill.name,
+                category=skill.category,
+                package_version="1.0.0",
+                package_sha256="a" * 64,
+                created_by_user_id=self.user.id,
+            )
+            candidate = SkillRelease(
+                skill_id=skill.id,
+                skill_name=skill.name,
+                name=skill.name,
+                category=skill.category,
+                package_version="1.1.0",
+                package_status="preview",
+                package_sha256="b" * 64,
+                created_by_user_id=self.user.id,
+            )
+            session.add(baseline)
+            session.add(candidate)
+            session.flush()
+            session.add(
+                SkillRollout(
+                    skill_id=skill.id,
+                    baseline_release_id=baseline.id,
+                    candidate_release_id=candidate.id,
+                    status="completed",
+                    created_by_user_id=self.user.id,
+                )
+            )
+            retained_skill_id = int(skill.id)
             session.commit()
 
         app = _make_app(self.engine, admin_user=self.admin)
@@ -244,6 +288,15 @@ class AuthUsersCrudTestCase(unittest.TestCase):
                 select(ChatRun).where(ChatRun.run_id == "run-user-delete")
             ).one()
             self.assertIsNone(chat_run.owner_user_id)
+            releases = session.exec(
+                select(SkillRelease).where(SkillRelease.skill_id == retained_skill_id)
+            ).all()
+            rollout = session.exec(
+                select(SkillRollout).where(SkillRollout.skill_id == retained_skill_id)
+            ).one()
+            self.assertTrue(releases)
+            self.assertTrue(all(release.created_by_user_id is None for release in releases))
+            self.assertIsNone(rollout.created_by_user_id)
 
     def test_delete_nonexistent_user(self):
         app = _make_app(self.engine, admin_user=self.admin)

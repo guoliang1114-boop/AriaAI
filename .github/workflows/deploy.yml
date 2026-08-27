@@ -260,6 +260,7 @@ jobs:
                 tests/test_turn_steering.py \
                 tests/test_turn_budget.py \
                 tests/test_turn_retry.py \
+                tests/test_verified_postgres_backup.py \
                 tests/test_chat_actions.py \
                 tests/test_chat_continuity_feedback.py \
                 tests/test_chat_multiturn_golden.py
@@ -268,6 +269,18 @@ jobs:
             # gate. This uses ephemeral SQLite only and never touches the
             # configured production database.
             "$PYTHON" scripts/project_chat_quality_eval.py
+
+            # A verified, custom-format backup is a hard precondition for any
+            # production migration. The helper selects a client compatible with
+            # the server, validates the archive with pg_restore, and prints its
+            # SHA-256 without exposing database credentials.
+            BACKUP_DIR="/www/backups/ariaai"
+            RUN_TAG="${{ github.run_id }}_${{ github.run_attempt }}"
+            mkdir -p "$BACKUP_DIR"
+            chmod 700 "$BACKUP_DIR"
+            BACKUP_PATH="$BACKUP_DIR/ariaai_pre_deploy_$(date -u +%Y%m%dT%H%M%SZ)_${RUN_TAG}.dump"
+            export BACKUP_PATH
+            "$PYTHON" scripts/verified_postgres_backup.py
 
             # Govern historical migration state before applying the latest schema.
             "$PYTHON" scripts/migration_governance.py report

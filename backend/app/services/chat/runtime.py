@@ -41,6 +41,11 @@ from app.services.agent_harness.project_world_state import (
     latest_project_world_state,
 )
 from app.services.agent_harness.run_rollout import get_chat_rollout
+from app.services.agent_harness.skill_releases import (
+    SkillReleaseAssignment,
+    active_skill_view,
+    resolve_skill_release,
+)
 from app.services.agent_harness.turn_interrupt import get_active_turn
 from app.services.agent_harness.conversation_capsule import (
     build_conversation_capsule,
@@ -440,6 +445,8 @@ def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple
             None,
             None,
         )
+    if skill is not None:
+        skill = active_skill_view(session, skill)
     auto_skill: Skill | None = None
     auto_decision: SkillActivationDecision | None = None
     conversation_decision: SkillActivationDecision | None = None
@@ -448,6 +455,7 @@ def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple
         if conv and conv.skill_id:
             sticky_skill = session.get(Skill, conv.skill_id)
             if sticky_skill and sticky_skill.package_status != "deprecated":
+                sticky_skill = active_skill_view(session, sticky_skill)
                 conversation_decision = decide_conversation_skill_activation(req.content, sticky_skill)
                 if conversation_decision.apply:
                     skill = sticky_skill
@@ -870,6 +878,25 @@ def prepare_chat_runtime(
         session.refresh(conv)
     prepare_metrics["conversation_ready_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     conv_id = int(conv.id or 0) if conv is not None else 0
+    skill_release_assignment = SkillReleaseAssignment()
+    if effective_skill is not None:
+        effective_skill, skill_release_assignment = resolve_skill_release(
+            session,
+            effective_skill,
+            project_id=req.project_id,
+            conversation_id=conv_id or req.conversation_id,
+            owner_user_id=owner_user_id,
+        )
+        prepare_metrics["skill_release_id"] = skill_release_assignment.release_id or ""
+        prepare_metrics["skill_release_version"] = effective_skill.package_version
+        prepare_metrics["skill_release_sha256"] = effective_skill.package_sha256
+        prepare_metrics["skill_rollout_id"] = skill_release_assignment.rollout_id or ""
+        prepare_metrics["skill_rollout_variant"] = skill_release_assignment.variant
+        prepare_metrics["skill_rollout_bucket"] = (
+            skill_release_assignment.bucket
+            if skill_release_assignment.bucket is not None
+            else ""
+        )
 
     # 3. Persist user message and its auditable turn inputs.
     turn_recovery = (
@@ -985,6 +1012,7 @@ def prepare_chat_runtime(
         mention_context=req.mention_context.model_dump() if req.mention_context else None,
         context_mode=context_mode,
         accessible_project_ids=_accessible_project_ids(session, owner_user_id),
+        skill_override=effective_skill,
     )
     prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["context_mode"] = context_mode
@@ -1336,6 +1364,10 @@ def prepare_chat_runtime(
         skill_version=effective_skill.package_version if effective_skill else "",
         skill_release_status=effective_skill.package_status if effective_skill else "",
         skill_release_sha256=effective_skill.package_sha256 if effective_skill else "",
+        skill_release_id=skill_release_assignment.release_id,
+        skill_rollout_id=skill_release_assignment.rollout_id,
+        skill_rollout_variant=skill_release_assignment.variant if effective_skill else "",
+        skill_rollout_bucket=skill_release_assignment.bucket,
         skill_activation_source=skill_decision.source,
         skill_activation_reason=skill_decision.reason,
         prepare_metrics=prepare_metrics,

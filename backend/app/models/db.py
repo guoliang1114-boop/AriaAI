@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Column, Index, Text, UniqueConstraint
+from sqlalchemy import Column, Index, Text, UniqueConstraint, text
 from sqlmodel import SQLModel, Field, Relationship
 import json
 
@@ -421,6 +421,10 @@ class ChatRun(SQLModel, table=True):
     skill_version: str = ""
     skill_release_status: str = ""
     skill_release_sha256: str = ""
+    skill_release_id: Optional[int] = Field(default=None, foreign_key="skillrelease.id", index=True)
+    skill_rollout_id: Optional[int] = Field(default=None, foreign_key="skillrollout.id", index=True)
+    skill_rollout_variant: str = Field(default="", index=True)
+    skill_rollout_bucket: Optional[int] = None
     skill_activation_source: str = Field(default="", index=True)
     model: str = ""
     chat_mode: str = Field(default="", index=True)
@@ -594,6 +598,10 @@ class Skill(SQLModel, table=True):
     package_version: str = "1.0.0"   # Published semantic version (file-backed or custom)
     package_status: str = "stable"   # preview | stable | deprecated
     package_sha256: str = ""         # Exact published DB runtime-contract fingerprint
+    # Runtime pointer is deliberately separate from the latest edited package.
+    # Preview releases therefore do not receive production traffic until a
+    # rollout assigns it or an administrator promotes it.
+    active_release_id: Optional[int] = Field(default=None, index=True)
 
     @property
     def tools(self) -> list[str]:
@@ -611,6 +619,63 @@ class Skill(SQLModel, table=True):
     @tools_definition.setter
     def tools_definition(self, value: list[dict]):
         self.tools_definition_json = json.dumps(value)
+
+
+class SkillRelease(SQLModel, table=True):
+    """Immutable snapshot of one exact Skill publishing contract."""
+
+    __table_args__ = (
+        UniqueConstraint("skill_id", "package_sha256", name="uq_skillrelease_skill_sha256"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    skill_id: Optional[int] = Field(default=None, foreign_key="skill.id", index=True)
+    skill_name: str = Field(default="", index=True)
+    name: str = ""
+    category: str = ""
+    description: str = ""
+    system_prompt: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    user_template: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    estimated_time: str = ""
+    max_tokens: int = 4096
+    tools_definition_json: str = Field(default="[]", sa_column=Column(Text, nullable=False, default="[]"))
+    tools_json: str = Field(default="[]", sa_column=Column(Text, nullable=False, default="[]"))
+    package_version: str = Field(default="1.0.0", index=True)
+    package_status: str = Field(default="stable", index=True)
+    package_sha256: str = Field(default="", index=True)
+    source: str = Field(default="update", index=True)  # create | update | sync | migration | rollback
+    rollback_of_release_id: Optional[int] = Field(default=None, foreign_key="skillrelease.id")
+    created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
+class SkillRollout(SQLModel, table=True):
+    """Auditable deterministic traffic policy between two Skill releases."""
+
+    __table_args__ = (
+        Index(
+            "uq_skillrollout_one_open_per_skill",
+            "skill_id",
+            unique=True,
+            postgresql_where=text("status IN ('active', 'paused')"),
+            sqlite_where=text("status IN ('active', 'paused')"),
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    skill_id: Optional[int] = Field(default=None, foreign_key="skill.id", index=True)
+    baseline_release_id: int = Field(foreign_key="skillrelease.id", index=True)
+    candidate_release_id: int = Field(foreign_key="skillrelease.id", index=True)
+    percentage: int = 10
+    status: str = Field(default="active", index=True)  # active | paused | completed | rolled_back
+    min_sample_size: int = 20
+    max_failure_rate: float = 0.25
+    auto_stop: bool = True
+    stop_reason: str = ""
+    created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+    stopped_at: Optional[datetime] = Field(default=None, index=True)
 
 
 # ── Tool Calls ────────────────────────────────────────────────────────────────

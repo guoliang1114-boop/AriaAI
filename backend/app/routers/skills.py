@@ -13,7 +13,15 @@ from sqlmodel import Session, select
 
 from app.config import SKILL_ROOT_PATHS
 from app.database import get_session
-from app.models.db import ChatRun, Conversation, ScheduledTask, Skill
+from app.models.db import (
+    ChatRun,
+    Conversation,
+    ScheduledTask,
+    Skill,
+    SkillRelease,
+    SkillRollout,
+    User,
+)
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.cache import TTLCache
 from app.services.agent_harness.skill_roots import (
@@ -22,9 +30,17 @@ from app.services.agent_harness.skill_roots import (
     SkillRootLoader,
     SkillRootSpec,
 )
+from app.services.agent_harness.skill_releases import (
+    active_skill_view,
+    release_summary,
+    rollout_summary,
+    skill_release_sha256,
+    snapshot_skill_release,
+)
 from app.services.chat.turn_setup import recommend_turn_brief_template
 from app.services.consulting_capabilities import CONSULTING_CAPABILITIES, ConsultingCapability
 from app.services.skill_router import auto_select_skill
+from app.services.time_utils import utc_now_naive
 from app.tools import file_generators as _file_generators  # noqa: F401 - register file generation tools
 from app.tools import office_documents as _office_documents  # noqa: F401 - register office document tools
 from app.tools import project_markdown as _project_markdown  # noqa: F401 - register markdown document tools
@@ -107,7 +123,7 @@ def _bust_skills() -> None:
     _skills_cache.clear()
 
 
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, require_admin
 
 router = APIRouter(
     prefix="/skills",
@@ -181,31 +197,6 @@ def _builtin_skill_hash(skill_def: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _skill_record_release_sha256(skill: Skill) -> str:
-    """Fingerprint the exact published DB contract used by the runtime."""
-
-    payload = {
-        "name": skill.name or "",
-        "category": skill.category or "",
-        "description": skill.description or "",
-        "system_prompt": skill.system_prompt or "",
-        "user_template": skill.user_template or "",
-        "estimated_time": skill.estimated_time or "",
-        "max_tokens": int(skill.max_tokens or 0),
-        "tools_definition_json": skill.tools_definition_json or "[]",
-        "tools_json": skill.tools_json or "[]",
-        "package_version": skill.package_version or "",
-        "package_status": skill.package_status or "",
-    }
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
 def _semver_key(value: str) -> tuple[int, int, int]:
     try:
         major, minor, patch = str(value or "").split(".")
@@ -241,6 +232,22 @@ class SkillUpdate(BaseModel):
         pattern=r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$",
     )
     package_status: Optional[Literal["preview", "stable", "deprecated"]] = None
+
+
+class SkillRolloutCreate(BaseModel):
+    candidate_release_id: int = Field(gt=0)
+    percentage: int = Field(default=10, ge=1, le=100)
+    min_sample_size: int = Field(default=20, ge=1, le=10_000)
+    max_failure_rate: float = Field(default=0.25, ge=0.0, le=1.0)
+    auto_stop: bool = True
+    expected_active_release_sha256: str = Field(min_length=64, max_length=64)
+
+
+class SkillRolloutControl(BaseModel):
+    action: Literal["set_percentage", "pause", "resume", "promote", "rollback"]
+    expected_status: Literal["active", "paused", "completed", "rolled_back"]
+    expected_candidate_sha256: str = Field(min_length=64, max_length=64)
+    percentage: Optional[int] = Field(default=None, ge=1, le=100)
 
 
 class SkillSummary(BaseModel):
@@ -461,32 +468,13 @@ def list_skill_summaries(category: Optional[str] = None, session: Session = Depe
     if cached is not None:
         return cached
 
-    stmt = select(
-        Skill.id,
-        Skill.name,
-        Skill.category,
-        Skill.description,
-        Skill.estimated_time,
-        Skill.package_version,
-        Skill.package_status,
-    ).where(Skill.package_status != "deprecated")
+    stmt = select(Skill).where(Skill.package_status != "deprecated")
     if category:
         stmt = stmt.where(Skill.category == category)
 
-    rows = session.exec(stmt).all()
     result = [
-        SkillSummary(
-            id=row[0],
-            name=row[1],
-            category=row[2],
-            description=row[3],
-            estimated_time=row[4],
-            package_version=row[5],
-            package_status=row[6],
-            created_at=None,
-            updated_at=None,
-        )
-        for row in rows
+        _skill_to_summary(active_skill_view(session, skill))
+        for skill in session.exec(stmt).all()
     ]
     _skills_cache.set(cache_key, result, _SKILLS_TTL)
     return result
@@ -601,6 +589,7 @@ def recommend_turn_setup(
             raise HTTPException(404, "Skill not found")
         if skill.package_status == "deprecated":
             raise HTTPException(409, "Skill release is deprecated")
+        skill = active_skill_view(session, skill)
         return TurnSetupSuggestionResponse(
             template=template,
             skill=TurnSetupSkillAdvice(
@@ -648,11 +637,197 @@ def get_skill(skill_id: int, session: Session = Depends(get_session)):
     return skill
 
 
-@router.post("", status_code=201)
-def create_skill(data: SkillCreate, session: Session = Depends(get_session)):
-    skill = Skill(**data.model_dump())
-    skill.package_sha256 = _skill_record_release_sha256(skill)
+@router.get("/{skill_id}/releases")
+def list_skill_releases(
+    skill_id: int,
+    limit: int = Query(default=20, ge=1, le=100),
+    session: Session = Depends(get_session),
+):
+    skill = session.get(Skill, skill_id)
+    if not skill:
+        raise HTTPException(404, "Skill not found")
+    releases = session.exec(
+        select(SkillRelease)
+        .where(SkillRelease.skill_id == skill_id)
+        .order_by(SkillRelease.created_at.desc(), SkillRelease.id.desc())
+        .limit(limit)
+    ).all()
+    return {
+        "items": [
+            release_summary(release, active_release_id=skill.active_release_id)
+            for release in releases
+        ],
+        "active_release_id": skill.active_release_id,
+    }
+
+
+@router.get("/{skill_id}/rollouts")
+def list_skill_rollouts(
+    skill_id: int,
+    limit: int = Query(default=10, ge=1, le=50),
+    session: Session = Depends(get_session),
+):
+    skill = session.get(Skill, skill_id)
+    if not skill:
+        raise HTTPException(404, "Skill not found")
+    rollouts = session.exec(
+        select(SkillRollout)
+        .where(SkillRollout.skill_id == skill_id)
+        .order_by(SkillRollout.created_at.desc(), SkillRollout.id.desc())
+        .limit(limit)
+    ).all()
+    return {"items": [rollout_summary(session, rollout) for rollout in rollouts]}
+
+
+@router.post("/{skill_id}/rollouts", status_code=201)
+def create_skill_rollout(
+    skill_id: int,
+    data: SkillRolloutCreate,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_admin),
+):
+    skill = session.exec(
+        select(Skill).where(Skill.id == skill_id).with_for_update()
+    ).one_or_none()
+    if not skill:
+        raise HTTPException(404, "Skill not found")
+    if skill.active_release_id is None:
+        snapshot_skill_release(
+            session,
+            skill,
+            source="migration",
+            activate=True,
+        )
+        session.flush()
+    baseline = session.get(SkillRelease, skill.active_release_id)
+    candidate = session.get(SkillRelease, data.candidate_release_id)
+    if baseline is None:
+        raise HTTPException(409, "Active Skill release is unavailable")
+    if baseline.package_sha256 != data.expected_active_release_sha256.lower():
+        raise HTTPException(409, "Active Skill release changed; refresh before rollout")
+    if candidate is None or candidate.skill_id != skill_id:
+        raise HTTPException(404, "Candidate Skill release not found")
+    if candidate.package_status == "deprecated":
+        raise HTTPException(409, "Deprecated Skill releases cannot receive rollout traffic")
+    if candidate.id == baseline.id:
+        raise HTTPException(409, "Candidate must differ from the active release")
+    if _semver_key(candidate.package_version) <= _semver_key(baseline.package_version):
+        raise HTTPException(409, "Candidate release version must be newer than baseline")
+    existing = session.exec(
+        select(SkillRollout).where(
+            SkillRollout.skill_id == skill_id,
+            SkillRollout.status.in_(["active", "paused"]),
+        )
+    ).first()
+    if existing is not None:
+        raise HTTPException(409, "An active or paused Skill rollout already exists")
+    now = utc_now_naive()
+    rollout = SkillRollout(
+        skill_id=skill_id,
+        baseline_release_id=int(baseline.id),
+        candidate_release_id=int(candidate.id),
+        percentage=data.percentage,
+        min_sample_size=data.min_sample_size,
+        max_failure_rate=data.max_failure_rate,
+        auto_stop=data.auto_stop,
+        created_by_user_id=admin.id,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(rollout)
+    session.commit()
+    session.refresh(rollout)
+    return rollout_summary(session, rollout)
+
+
+@router.post("/{skill_id}/rollouts/{rollout_id}/control")
+def control_skill_rollout(
+    skill_id: int,
+    rollout_id: int,
+    data: SkillRolloutControl,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(require_admin),
+):
+    rollout = session.exec(
+        select(SkillRollout)
+        .where(SkillRollout.id == rollout_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).one_or_none()
+    skill = session.get(Skill, skill_id)
+    if not skill or not rollout or rollout.skill_id != skill_id:
+        raise HTTPException(404, "Skill rollout not found")
+    candidate = session.get(SkillRelease, rollout.candidate_release_id)
+    if candidate is None or candidate.package_sha256 != data.expected_candidate_sha256.lower():
+        raise HTTPException(409, "Candidate Skill release changed; refresh before control")
+    if rollout.status != data.expected_status:
+        raise HTTPException(409, "Skill rollout status changed; refresh before control")
+
+    now = utc_now_naive()
+    if data.action == "set_percentage":
+        if rollout.status != "active" or data.percentage is None:
+            raise HTTPException(409, "Only an active rollout can change percentage")
+        rollout.percentage = data.percentage
+    elif data.action == "pause":
+        if rollout.status != "active":
+            raise HTTPException(409, "Only an active rollout can be paused")
+        rollout.status = "paused"
+        skill.active_release_id = rollout.baseline_release_id
+    elif data.action == "resume":
+        if rollout.status != "paused":
+            raise HTTPException(409, "Only a paused rollout can be resumed")
+        other = session.exec(
+            select(SkillRollout).where(
+                SkillRollout.skill_id == skill_id,
+                SkillRollout.status == "active",
+                SkillRollout.id != rollout.id,
+            )
+        ).first()
+        if other is not None:
+            raise HTTPException(409, "Another active Skill rollout already exists")
+        rollout.status = "active"
+        rollout.stop_reason = ""
+        rollout.stopped_at = None
+    elif data.action == "promote":
+        if rollout.status not in {"active", "paused"}:
+            raise HTTPException(409, "Only an active or paused rollout can be promoted")
+        skill.active_release_id = rollout.candidate_release_id
+        rollout.status = "completed"
+        rollout.stop_reason = "promoted_by_admin"
+        rollout.stopped_at = now
+    elif data.action == "rollback":
+        if rollout.status not in {"active", "paused", "completed"}:
+            raise HTTPException(409, "This rollout has already been rolled back")
+        skill.active_release_id = rollout.baseline_release_id
+        rollout.status = "rolled_back"
+        rollout.stop_reason = "rolled_back_by_admin"
+        rollout.stopped_at = now
+
+    rollout.updated_at = now
     session.add(skill)
+    session.add(rollout)
+    session.commit()
+    session.refresh(rollout)
+    _bust_skills()
+    return rollout_summary(session, rollout)
+
+
+@router.post("", status_code=201)
+def create_skill(
+    data: SkillCreate,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_admin),
+):
+    skill = Skill(**data.model_dump())
+    session.add(skill)
+    session.flush()
+    snapshot_skill_release(
+        session,
+        skill,
+        source="create",
+        created_by_user_id=admin.id,
+        activate=True,
+    )
     session.commit()
     session.refresh(skill)
     _bust_skills()
@@ -660,11 +835,32 @@ def create_skill(data: SkillCreate, session: Session = Depends(get_session)):
 
 
 @router.patch("/{skill_id}")
-def update_skill(skill_id: int, data: SkillUpdate, session: Session = Depends(get_session)):
-    skill = session.get(Skill, skill_id)
+def update_skill(
+    skill_id: int,
+    data: SkillUpdate,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_admin),
+):
+    skill = session.exec(
+        select(Skill).where(Skill.id == skill_id).with_for_update()
+    ).one_or_none()
     if not skill:
         raise HTTPException(404, "Skill not found")
     payload = data.model_dump(exclude_none=True)
+    rollout_in_progress = session.exec(
+        select(SkillRollout).where(
+            SkillRollout.skill_id == skill_id,
+            SkillRollout.status.in_(["active", "paused"]),
+        )
+    ).first()
+    if payload and rollout_in_progress is not None:
+        raise HTTPException(409, "Finish or roll back the active Skill rollout before editing")
+    snapshot_skill_release(
+        session,
+        skill,
+        source="migration",
+        activate=skill.active_release_id is None,
+    )
     behavior_fields = {"system_prompt", "user_template", "tools_definition_json"}
     behavior_changed = any(
         field in payload and payload[field] != getattr(skill, field)
@@ -683,8 +879,13 @@ def update_skill(skill_id: int, data: SkillUpdate, session: Session = Depends(ge
         )
     for k, v in payload.items():
         setattr(skill, k, v)
-    skill.package_sha256 = _skill_record_release_sha256(skill)
-    session.add(skill)
+    snapshot_skill_release(
+        session,
+        skill,
+        source="update",
+        created_by_user_id=admin.id,
+        activate=skill.package_status == "stable",
+    )
     session.commit()
     session.refresh(skill)
     _bust_skills()
@@ -709,13 +910,37 @@ def _detach_skill_references(session: Session, skill_id: int) -> None:
     ).all():
         scheduled_task.skill_id = None
         session.add(scheduled_task)
+    for release in session.exec(
+        select(SkillRelease).where(SkillRelease.skill_id == skill_id)
+    ).all():
+        release.skill_id = None
+        session.add(release)
+    for rollout in session.exec(
+        select(SkillRollout).where(SkillRollout.skill_id == skill_id)
+    ).all():
+        rollout.skill_id = None
+        session.add(rollout)
 
 
 @router.delete("/{skill_id}")
-def delete_skill(skill_id: int, session: Session = Depends(get_session)):
-    skill = session.get(Skill, skill_id)
+def delete_skill(
+    skill_id: int,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(require_admin),
+):
+    skill = session.exec(
+        select(Skill).where(Skill.id == skill_id).with_for_update()
+    ).one_or_none()
     if not skill:
         raise HTTPException(404, "Skill not found")
+    rollout_in_progress = session.exec(
+        select(SkillRollout).where(
+            SkillRollout.skill_id == skill_id,
+            SkillRollout.status.in_(["active", "paused"]),
+        )
+    ).first()
+    if rollout_in_progress is not None:
+        raise HTTPException(409, "Finish or roll back the active Skill rollout before deleting")
     _detach_skill_references(session, skill_id)
     session.flush()
     session.delete(skill)
@@ -3080,15 +3305,27 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         session.add(skill)
         changed += 1
 
-    # Fingerprint the exact DB contract consumed by the runtime, including
-    # custom Skills and preserved user edits to built-ins. File-root source
-    # identity remains in ``builtin_hash`` for publish synchronization.
+    # Snapshot the exact DB contract consumed by the runtime, including custom
+    # Skills and preserved user edits to built-ins. File-root source identity
+    # remains in ``builtin_hash`` for publish synchronization.
     session.flush()
     for published_skill in session.exec(select(Skill)).all():
-        release_sha256 = _skill_record_release_sha256(published_skill)
-        if published_skill.package_sha256 != release_sha256:
-            published_skill.package_sha256 = release_sha256
-            session.add(published_skill)
+        previous_sha256 = published_skill.package_sha256
+        previous_active_release_id = published_skill.active_release_id
+        contract_changed = previous_sha256 != skill_release_sha256(published_skill)
+        snapshot_skill_release(
+            session,
+            published_skill,
+            source="sync",
+            activate=(
+                published_skill.active_release_id is None
+                or (published_skill.package_status == "stable" and contract_changed)
+            ),
+        )
+        if (
+            previous_sha256 != published_skill.package_sha256
+            or previous_active_release_id != published_skill.active_release_id
+        ):
             changed += 1
 
     if changed:
@@ -3130,8 +3367,9 @@ def seed_skills(session: Session = Depends(get_session)):
     for s in DEFAULT_SKILLS:
         skill = Skill(**{k: v for k, v in s.items() if k != "tools"})
         skill.tools = s["tools"]
-        skill.package_sha256 = _skill_record_release_sha256(skill)
         session.add(skill)
+        session.flush()
+        snapshot_skill_release(session, skill, source="sync", activate=True)
         created += 1
     session.commit()
     _bust_skills()

@@ -24,6 +24,7 @@ from sqlmodel import Session, select
 
 from app.models.db import Skill
 from app.routers.chat_schemas import SendMessageRequest
+from app.services.agent_harness.skill_releases import active_skill_view
 
 @dataclass(frozen=True)
 class SkillActivationDecision:
@@ -484,9 +485,12 @@ def auto_select_skill(session: Session, req: SendMessageRequest) -> tuple[Skill 
     if not text:
         return None, SkillActivationDecision(False, "empty_message", 0.0, source="auto")
 
-    candidates = list(
-        session.exec(select(Skill).where(Skill.package_status != "deprecated")).all()
-    )
+    candidates = [
+        active_skill_view(session, skill)
+        for skill in session.exec(
+            select(Skill).where(Skill.package_status != "deprecated")
+        ).all()
+    ]
     catalog_fingerprint = published_skill_catalog_fingerprint(candidates)
     normalized_text = _normalize_for_skill_match(text)
     looks_like_question = normalized_text.endswith(("?", "？")) or normalized_text.startswith(

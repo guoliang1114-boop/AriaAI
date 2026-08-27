@@ -1,7 +1,7 @@
 # 项目对话与 Skill 交互全量优化方案
 
 > 更新日期：2026-08-26
-> 对照基线：OpenAI Codex `83d1fe0e67b1323f71febc2925817732b449f1d9`
+> 对照基线：OpenAI Codex `83d1fe0e67b1323f71febc2925817732b449f1d9`；发布快照/重建机制固定于 `343074d4207d572809bd8cea15f4be1d09d98e0b`
 > 产品边界：只吸收源码机制，不运行、不调用、不连接 Codex。
 
 ## 1. 结论
@@ -337,6 +337,16 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 项目对话质量面板新增“Skill 版本质量”，让团队直接看到真实使用版本和效果，不再只依赖静态 prompt 检查；Skill 详情同步展示发布版本与状态。
 - 聚合实现不读取 `Message.content`，不接收自由文本反馈，也不保存反馈者身份；`deprecated` Skill 会退出启动目录、自动路由和发送前明确推荐，但保留历史记录。发布门禁由 41 扩展为 44 场景，新增 `skill_quality_attribution_accuracy`，同时验证版本隔离、退役隔离和内容隐私。
 - 数据迁移由 `031_v1_31` 管理，保持单一 Alembic head 和幂等升级；所有状态、权限、反馈、Run 与审计仍属于 Aria 原生服务，不运行、不调用、不连接 Codex。
+
+### Phase 3G：不可变 Skill 发布、项目灰度与自动止损（已实施）
+
+- 新增不可变 `SkillRelease`。每次创建、编辑或文件包同步都会冻结完整运行契约和精确 SHA-256；`Skill.active_release_id` 单独表示线上版本，因此编辑 `preview` 不会静默改变普通问答、自动路由或项目对话。
+- 新增 Aria 原生 `SkillRollout`。流量按 rollout 与 `project_id` 确定性分桶；无项目时依次退回 conversation、owner 和 Skill 作用域。同一项目跨会话、跨用户始终命中同一候选或基线，避免同一项目答案方法论随机漂移。
+- 每个 Run 冻结 release/rollout/variant/bucket，实际 Context Builder 使用分配到的不可变 prompt 和工具契约。灰度健康只读取 Run 终态与分组，不读取消息正文、Prompt、工具参数或用户身份。
+- 候选终态样本达到管理员配置下限且失败率超过阈值时，系统在 Run 收口事务内锁定灰度并自动切回基线；管理员也可调比例、暂停、恢复、推广和回滚。所有控制都带预期状态/候选指纹，数据库同时保证每个 Skill 只有一个开放灰度。
+- Skill 详情新增“发布治理”，展示线上版本、候选比例、基线/候选终态健康、止损阈值和不可变发布历史；控制操作仅管理员可见。活动灰度期间拒绝 Skill 编辑和删除，避免被测契约漂移。
+- 确定性发布门禁由 44 扩展为 47 场景、16 项指标，新增 `skill_release_governance_accuracy`；数据库迁移由幂等 `032_v1_32` 管理并保持单一 Alembic head。
+- 本阶段只借鉴 Codex rollout recorder 与 reconstruction 的“不可变记录/重建视图分离”原则，并重写为 Aria 的 Python、SQLModel、FastAPI 和 React 实现；不运行、不导入、不连接 Codex，也不引入其 SDK、协议、账号或第二运行时。
 
 ## 11. 官方资料与许可证
 

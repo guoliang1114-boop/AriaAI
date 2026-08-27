@@ -56,7 +56,10 @@ with a Codex runtime. The adapted mechanisms currently cover:
   error-isolated merging, and unambiguous candidate selection.
 - per-turn Skill mention/selection boundaries adapted into relevant-follow-up
   continuation, stale conversation-Skill release, and user-visible activation
-  provenance.
+  provenance; and
+- immutable Skill contract snapshots, reconstructed active views,
+  project-sticky rollout buckets, content-free release health, and fail-back
+  decisions adapted to Aria-native database releases and ChatRun lifecycle.
 - project-bound retained conversation capsules, previous-state fingerprint
   chaining, bounded tool outcomes, unresolved blocker retention, and
   current-turn constraint supersession without remote compaction; and
@@ -67,9 +70,11 @@ with a Codex runtime. The adapted mechanisms currently cover:
   model/tool boundary injection, stale planned-tool supersession, and concise
   turn-understanding receipts without exposing prompts or hidden reasoning.
 
-Latest upstream audit baseline: commit `83d1fe0e67b1323f71febc2925817732b449f1d9`
-(2026-08-24). The specific upstream source path and Aria modification notice
-are recorded in each adapted Python module.
+Recorded upstream audit baselines include commits
+`83d1fe0e67b1323f71febc2925817732b449f1d9` and
+`343074d4207d572809bd8cea15f4be1d09d98e0b`. The specific upstream source path,
+pinned commit, and Aria modification notice are recorded in each adapted
+Python module.
 
 OpenAI Codex is available under the Apache License 2.0:
 

@@ -847,8 +847,66 @@ export interface Skill {
   package_version?: string
   package_status?: 'preview' | 'stable' | 'deprecated'
   package_sha256?: string
+  active_release_id?: number | null
   created_at?: string
   updated_at?: string
+}
+
+export interface SkillReleaseSummary {
+  id: number
+  skill_id?: number | null
+  skill_name: string
+  version: string
+  status: 'preview' | 'stable' | 'deprecated'
+  sha256: string
+  source: 'create' | 'update' | 'sync' | 'migration' | 'rollback' | string
+  rollback_of_release_id?: number | null
+  is_active: boolean
+  created_at: string
+}
+
+export interface SkillReleaseListResponse {
+  items: SkillReleaseSummary[]
+  active_release_id?: number | null
+}
+
+export interface SkillRolloutVariantHealth {
+  run_count: number
+  terminal_count: number
+  completed_count: number
+  failed_count: number
+  cancelled_count: number
+  completion_rate?: number | null
+  failure_rate?: number | null
+}
+
+export interface SkillRolloutSummary {
+  id: number
+  skill_id?: number | null
+  baseline_release?: SkillReleaseSummary | null
+  candidate_release?: SkillReleaseSummary | null
+  percentage: number
+  status: 'active' | 'paused' | 'completed' | 'rolled_back'
+  min_sample_size: number
+  max_failure_rate: number
+  auto_stop: boolean
+  stop_reason?: string | null
+  health: {
+    baseline: SkillRolloutVariantHealth
+    candidate: SkillRolloutVariantHealth
+    privacy: {
+      reads_message_content: boolean
+      stores_prompt_content: boolean
+      stores_user_identity: boolean
+    }
+  }
+  created_at: string
+  updated_at: string
+  stopped_at?: string | null
+}
+
+export interface SkillRolloutListResponse {
+  items: SkillRolloutSummary[]
 }
 
 export interface SkillSummary {

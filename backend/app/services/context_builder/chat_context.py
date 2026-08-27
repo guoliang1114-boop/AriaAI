@@ -3,7 +3,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from app.models.db import ClientRecord, Project
+from app.models.db import ClientRecord, Project, Skill
 from app.services.agent_harness.project_memory_evidence import (
     build_project_memory_evidence,
 )
@@ -62,6 +62,7 @@ def build_chat_context(
     mention_context: Optional[dict] = None,
     context_mode: str = "",
     accessible_project_ids: Optional[list[int]] = None,
+    skill_override: Optional[Skill] = None,
 ) -> ChatContext:
     """Build complete chat context including skill, project, and RAG.
 
@@ -78,7 +79,12 @@ def build_chat_context(
         file_ids = merged_file_ids
 
     # Build skill context
-    skill_ctx = build_skill_context(session, skill_id, default_max_tokens)
+    skill_ctx = build_skill_context(
+        session,
+        skill_id,
+        default_max_tokens,
+        skill_override=skill_override,
+    )
     
     project = session.get(Project, project_id) if project_id else None
     normalized_scope = (knowledge_scope or "project").strip().lower()

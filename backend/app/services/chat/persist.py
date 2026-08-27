@@ -1180,6 +1180,15 @@ async def run_persist(
         skill_activation_source = str(getattr(runtime, "skill_activation_source", "") or "").strip()
         if skill_activation_source:
             metadata["skill_activation_source"] = skill_activation_source
+        metadata["skill_release"] = {
+            "version": str(getattr(runtime, "skill_version", "") or "") or None,
+            "status": str(getattr(runtime, "skill_release_status", "") or "") or None,
+            "sha256": str(getattr(runtime, "skill_release_sha256", "") or "") or None,
+            "release_id": getattr(runtime, "skill_release_id", None),
+            "rollout_id": getattr(runtime, "skill_rollout_id", None),
+            "rollout_variant": str(getattr(runtime, "skill_rollout_variant", "") or "") or None,
+            "rollout_bucket": getattr(runtime, "skill_rollout_bucket", None),
+        }
         skill_progress = _build_completed_skill_progress(
             [event for event in state.tool_call_events if not tool_event_is_omission_marker(event)],
             full_text,

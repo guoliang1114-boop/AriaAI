@@ -6,11 +6,25 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, select
 
-from app.models.db import ChatRun, Conversation, ScheduledTask, Skill, TaskRun, User
+from app.models.db import (
+    ChatRun,
+    Conversation,
+    ScheduledTask,
+    Skill,
+    SkillRelease,
+    SkillRollout,
+    TaskRun,
+    User,
+)
 from app.routers import skills as skills_module
 from app.routers.auth import get_current_user
 from app.routers.skills import router
 from app.services.cache import TTLCache
+from app.services.agent_harness.skill_releases import (
+    evaluate_rollout_stop_loss,
+    resolve_skill_release,
+)
+from app.services.context_builder.skill_context import build_skill_context
 from tests.test_database import create_test_engine, drop_all_tables
 
 
@@ -35,20 +49,20 @@ class SkillsCrudTestCase(unittest.TestCase):
             session.refresh(skill)
             self.skill_id = skill.id
 
-        app = FastAPI()
-        app.include_router(router)
+        self.app = FastAPI()
+        self.app.include_router(router)
 
         def override_session():
             with Session(self.engine) as session:
                 yield session
 
-        app.dependency_overrides[skills_module.get_session] = override_session
+        self.app.dependency_overrides[skills_module.get_session] = override_session
         # R74 router-level auth floor — provide a test user so the
         # ``Depends(get_current_user)`` dep returns instead of 401-ing.
-        app.dependency_overrides[get_current_user] = lambda: User(
+        self.app.dependency_overrides[get_current_user] = lambda: User(
             id=1, email="test@example.com", display_name="Test", is_admin=True
         )
-        self.client = TestClient(app, raise_server_exceptions=False)
+        self.client = TestClient(self.app, raise_server_exceptions=False)
 
     def tearDown(self):
         SQLModel.metadata.drop_all(self.engine)
@@ -165,6 +179,227 @@ class SkillsCrudTestCase(unittest.TestCase):
         self.assertEqual(accepted.status_code, 200)
         self.assertEqual(accepted.json()["package_version"], "1.1.0")
         self.assertEqual(len(accepted.json()["package_sha256"]), 64)
+
+    def test_preview_release_is_snapshotted_without_replacing_live_baseline(self):
+        updated = self.client.patch(
+            f"/skills/{self.skill_id}",
+            json={
+                "system_prompt": "Preview strategy behavior",
+                "package_version": "1.1.0",
+                "package_status": "preview",
+            },
+        )
+        releases = self.client.get(f"/skills/{self.skill_id}/releases")
+
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(releases.status_code, 200)
+        items = releases.json()["items"]
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["version"], "1.1.0")
+        self.assertFalse(items[0]["is_active"])
+        self.assertEqual(items[1]["version"], "1.0.0")
+        self.assertTrue(items[1]["is_active"])
+        live_catalog = self.client.get("/skills/meta/summary").json()
+        self.assertEqual(live_catalog[0]["package_version"], "1.0.0")
+        self.assertEqual(live_catalog[0]["package_status"], "stable")
+
+    def test_admin_canary_control_is_stale_safe_and_reversible(self):
+        updated = self.client.patch(
+            f"/skills/{self.skill_id}",
+            json={
+                "system_prompt": "Candidate strategy behavior",
+                "package_version": "1.1.0",
+                "package_status": "preview",
+            },
+        )
+        self.assertEqual(updated.status_code, 200)
+        releases = self.client.get(f"/skills/{self.skill_id}/releases").json()["items"]
+        candidate = next(item for item in releases if item["version"] == "1.1.0")
+        baseline = next(item for item in releases if item["is_active"])
+
+        stale = self.client.post(
+            f"/skills/{self.skill_id}/rollouts",
+            json={
+                "candidate_release_id": candidate["id"],
+                "percentage": 10,
+                "expected_active_release_sha256": "f" * 64,
+            },
+        )
+        created = self.client.post(
+            f"/skills/{self.skill_id}/rollouts",
+            json={
+                "candidate_release_id": candidate["id"],
+                "percentage": 10,
+                "min_sample_size": 2,
+                "max_failure_rate": 0.4,
+                "expected_active_release_sha256": baseline["sha256"],
+            },
+        )
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(created.status_code, 201)
+        rollout = created.json()
+        self.assertEqual(rollout["percentage"], 10)
+        self.assertEqual(rollout["status"], "active")
+
+        promoted = self.client.post(
+            f"/skills/{self.skill_id}/rollouts/{rollout['id']}/control",
+            json={
+                "action": "promote",
+                "expected_status": "active",
+                "expected_candidate_sha256": candidate["sha256"],
+            },
+        )
+        rolled_back = self.client.post(
+            f"/skills/{self.skill_id}/rollouts/{rollout['id']}/control",
+            json={
+                "action": "rollback",
+                "expected_status": "completed",
+                "expected_candidate_sha256": candidate["sha256"],
+            },
+        )
+        self.assertEqual(promoted.status_code, 200)
+        self.assertEqual(promoted.json()["status"], "completed")
+        self.assertEqual(rolled_back.status_code, 200)
+        self.assertEqual(rolled_back.json()["status"], "rolled_back")
+        current_releases = self.client.get(f"/skills/{self.skill_id}/releases").json()["items"]
+        self.assertEqual(next(item for item in current_releases if item["is_active"])["id"], baseline["id"])
+
+    def test_active_rollout_blocks_skill_edit_and_delete(self):
+        self.client.patch(
+            f"/skills/{self.skill_id}",
+            json={
+                "system_prompt": "Candidate strategy behavior",
+                "package_version": "1.1.0",
+                "package_status": "preview",
+            },
+        )
+        releases = self.client.get(f"/skills/{self.skill_id}/releases").json()["items"]
+        candidate = next(item for item in releases if item["version"] == "1.1.0")
+        baseline = next(item for item in releases if item["is_active"])
+        created = self.client.post(
+            f"/skills/{self.skill_id}/rollouts",
+            json={
+                "candidate_release_id": candidate["id"],
+                "expected_active_release_sha256": baseline["sha256"],
+            },
+        )
+
+        edited = self.client.patch(
+            f"/skills/{self.skill_id}",
+            json={"description": "Must not change during rollout"},
+        )
+        deleted = self.client.delete(f"/skills/{self.skill_id}")
+
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(edited.status_code, 409)
+        self.assertEqual(deleted.status_code, 409)
+        self.assertEqual(
+            self.client.get(f"/skills/{self.skill_id}").json()["description"],
+            "Generate strategy reports",
+        )
+
+    def test_rollout_assignment_is_project_sticky_and_auto_stop_fails_to_baseline(self):
+        self.client.patch(
+            f"/skills/{self.skill_id}",
+            json={
+                "system_prompt": "Candidate strategy behavior",
+                "package_version": "1.1.0",
+                "package_status": "preview",
+            },
+        )
+        releases = self.client.get(f"/skills/{self.skill_id}/releases").json()["items"]
+        candidate = next(item for item in releases if item["version"] == "1.1.0")
+        baseline = next(item for item in releases if item["is_active"])
+        rollout_json = self.client.post(
+            f"/skills/{self.skill_id}/rollouts",
+            json={
+                "candidate_release_id": candidate["id"],
+                "percentage": 50,
+                "min_sample_size": 2,
+                "max_failure_rate": 0.4,
+                "expected_active_release_sha256": baseline["sha256"],
+            },
+        ).json()
+
+        with Session(self.engine) as session:
+            skill = session.get(Skill, self.skill_id)
+            first_skill, first = resolve_skill_release(
+                session,
+                skill,
+                project_id=42,
+                conversation_id=1,
+                owner_user_id=1,
+            )
+            second_skill, second = resolve_skill_release(
+                session,
+                skill,
+                project_id=42,
+                conversation_id=999,
+                owner_user_id=999,
+            )
+            self.assertEqual(first.bucket, second.bucket)
+            self.assertEqual(first.release_id, second.release_id)
+            self.assertEqual(first_skill.package_sha256, second_skill.package_sha256)
+            expected_prompt = (
+                "Candidate strategy behavior"
+                if first.variant == "candidate"
+                else "You are a strategy consultant."
+            )
+            self.assertEqual(first_skill.system_prompt, expected_prompt)
+            self.assertEqual(
+                build_skill_context(
+                    session,
+                    self.skill_id,
+                    skill_override=first_skill,
+                ).skill_prompt,
+                expected_prompt,
+            )
+
+            conversation = Conversation(title="Rollout stop loss")
+            session.add(conversation)
+            session.flush()
+            for index in range(2):
+                task = TaskRun(
+                    conversation_id=conversation.id,
+                    task_type="chat_rollout",
+                    status="failed",
+                )
+                session.add(task)
+                session.flush()
+                session.add(ChatRun(
+                    run_id=f"run-rollout-failure-{index}",
+                    task_run_id=task.id,
+                    conversation_id=conversation.id,
+                    skill_id=self.skill_id,
+                    skill_name="Strategy Report",
+                    skill_release_id=candidate["id"],
+                    skill_rollout_id=rollout_json["id"],
+                    skill_rollout_variant="candidate",
+                    status="failed",
+                ))
+            session.commit()
+            rollout = session.get(SkillRollout, rollout_json["id"])
+            health = evaluate_rollout_stop_loss(session, rollout)
+            session.commit()
+            session.refresh(rollout)
+            session.refresh(skill)
+
+            self.assertTrue(health["auto_stopped"])
+            self.assertEqual(rollout.status, "rolled_back")
+            self.assertEqual(rollout.stop_reason, "candidate_failure_rate_exceeded")
+            self.assertEqual(skill.active_release_id, baseline["id"])
+
+    def test_skill_release_writes_require_admin(self):
+        self.app.dependency_overrides[get_current_user] = lambda: User(
+            id=2, email="member@example.com", display_name="Member", is_admin=False
+        )
+        create = self.client.post("/skills", json={"name": "Blocked", "category": "general"})
+        update = self.client.patch(f"/skills/{self.skill_id}", json={"description": "Blocked"})
+        delete = self.client.delete(f"/skills/{self.skill_id}")
+
+        self.assertEqual(create.status_code, 403)
+        self.assertEqual(update.status_code, 403)
+        self.assertEqual(delete.status_code, 403)
 
     def test_delete_skill(self):
         with Session(self.engine) as session:

@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
-> 更新日期：2026-08-24
-> 状态：Phase 1 + Phase 2A + Phase 2B + Phase 2C + Phase 2D + Phase 2E + Phase 2F + Phase 2G + Phase 2H + Phase 2I + Phase 2J + Phase 2K + Phase 2L + Phase 2M + Phase 2N + Phase 2O + Phase 2P + Phase 2Q + Phase 2R + Phase 2S + Phase 2T + Phase 2U 已实施
+> 更新日期：2026-08-27
+> 状态：Phase 1 至 Phase 2W、项目对话 Phase 3A 至 3G 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -106,6 +106,7 @@ OpenAI 官方资料确认，Codex CLI、SDK、App Server、Skills 等关键组�
 | Skill 前置信息解析 | `codex-rs/skills/src/parser.rs` | `backend/app/services/agent_harness/skill_package.py` | `routers/skills.py` | 校验 `SKILL.md`、修复有限 YAML 歧义、安全加载指定引用 |
 | Skill Root 快照与选择 | `codex-rs/skills/src/loading.rs`、`selection.rs`、`ext/skills/src/loader/` | `backend/app/services/agent_harness/skill_roots.py` | Skill 启动同步 + `skill_router.py` | 有序 Root、不可变内容指纹、增量缓存、坏包隔离和发布态候选选择 |
 | 本轮 Skill 生命周期与回执 | `codex-rs/skills/src/mentions.rs`、`selection.rs`、`core/src/session/turn.rs` | `backend/app/services/skill_router.py` + `web/src/utils/chatRunSkill.ts` | Chat Runtime + Product Run Event + Chat UI | 相关追问续用、无关话题释放、实际 Skill 来源可见，避免旧 Skill 静默接管后续对话 |
+| Skill 不可变发布与灰度 | `codex-rs/rollout/src/recorder.rs`、`core/src/session/rollout_reconstruction.rs`（固定 commit `343074d4207d572809bd8cea15f4be1d09d98e0b`） | `backend/app/services/agent_harness/skill_releases.py` | Skill/ChatRun + 发布治理 API/UI | 完整契约快照、项目稳定分桶、内容安全健康指标、失败自动止损及管理员推广/回滚 |
 
 ### 4.1 工具输出头尾缓冲
 
@@ -721,6 +722,10 @@ Phase 2S 把 Codex apply-patch 的“先冻结基线、写入前重新验证”�
 ### Phase 2W：运行投影、统一时间线与记忆版本守卫（已实施）
 
 参考 Codex 的 rollout recorder、session item 和 Skills package 质量边界，继续只移植最小机制到 Aria：新增不含正文的 `ChatRun` 查询投影，保留既有 `TaskRun/TaskEvent` 作为可恢复执行事实源；实时与持久消息共享统一 Activity Timeline；Memory Candidate 绑定创建时记忆版本，审批发生并发漂移时必须基于当前版本再次确认；全量 Skill 元数据进入确定性质量报告和 CI 门禁。`ChatRun` 随会话/项目删除，用户或 Skill 删除只解除可选引用，避免外键阻塞同时保留内容安全的历史事实。数据库迁移由 `029_v1_29` 与 `030_v1_30` 管理。所有权限、业务状态、审批、记忆版本和 Provider 调用仍属于 Aria 原生服务，不运行、不导入、不连接 Codex。
+
+### Phase 3G：Skill 不可变发布与灰度治理（已实施）
+
+参考 Codex rollout recorder 与 reconstruction 的不可变记录/活动视图分离边界，在 Aria 内新增完整 Skill 契约快照、独立线上指针和项目稳定灰度。候选只在分配到的 Run 中覆盖 Context Builder；Run 冻结精确 release/rollout 身份，内容安全终态聚合负责失败率止损。管理员控制使用预期状态、指纹、行锁和数据库唯一开放灰度约束，支持暂停、恢复、推广和回滚。迁移由 `032_v1_32` 管理，所有版本、流量、权限、审计与运行状态仍属于 Aria，不含 Codex 进程、SDK、协议或通信。
 
 ## 8. 许可证与升级流程
 

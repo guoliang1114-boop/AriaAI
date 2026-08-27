@@ -36,6 +36,7 @@ def build_skill_context(
     session: Session,
     skill_id: Optional[int],
     default_max_tokens: int = 4096,
+    skill_override: Optional[Skill] = None,
 ) -> SkillContext:
     """Build context from a skill definition."""
     skill_prompt = ""
@@ -43,7 +44,11 @@ def build_skill_context(
     max_tokens = default_max_tokens
     
     if skill_id:
-        skill = session.get(Skill, skill_id)
+        skill = (
+            skill_override
+            if skill_override is not None and skill_override.id == skill_id
+            else session.get(Skill, skill_id)
+        )
         if skill:
             skill_prompt = skill.system_prompt
             max_tokens = skill.max_tokens or max_tokens

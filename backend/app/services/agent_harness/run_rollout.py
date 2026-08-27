@@ -19,7 +19,16 @@ from typing import Any, Iterable
 
 from sqlmodel import Session, select
 
-from app.models.db import ChatRun, Conversation, Message, TaskEvent, TaskRun, TaskStep
+from app.models.db import (
+    ChatRun,
+    Conversation,
+    Message,
+    SkillRollout,
+    TaskEvent,
+    TaskRun,
+    TaskStep,
+)
+from app.services.agent_harness.skill_releases import evaluate_rollout_stop_loss
 from app.services.context_builder.assembly import validate_context_assembly_manifest
 from app.services.agent_harness.tool_execution_record import (
     tool_event_is_failure,
@@ -403,6 +412,10 @@ def begin_chat_rollout(bind: Any, runtime: Any, request_content: str, run_id: st
             skill_version=str(getattr(runtime, "skill_version", "") or ""),
             skill_release_status=str(getattr(runtime, "skill_release_status", "") or ""),
             skill_release_sha256=str(getattr(runtime, "skill_release_sha256", "") or ""),
+            skill_release_id=getattr(runtime, "skill_release_id", None),
+            skill_rollout_id=getattr(runtime, "skill_rollout_id", None),
+            skill_rollout_variant=str(getattr(runtime, "skill_rollout_variant", "") or ""),
+            skill_rollout_bucket=getattr(runtime, "skill_rollout_bucket", None),
             skill_activation_source=str(getattr(runtime, "skill_activation_source", "") or ""),
             model=str(getattr(runtime, "selected_model", "") or ""),
             chat_mode=_enum_value(getattr(runtime, "chat_mode", "")),
@@ -588,6 +601,29 @@ def finalize_chat_rollout(
                 int((now - chat_run.started_at).total_seconds() * 1000),
             )
             session.add(chat_run)
+            session.flush()
+            if chat_run.skill_rollout_id:
+                skill_rollout = session.get(SkillRollout, chat_run.skill_rollout_id)
+                if skill_rollout is not None:
+                    health = evaluate_rollout_stop_loss(session, skill_rollout)
+                    if health.get("auto_stopped"):
+                        _append_event(
+                            session,
+                            task,
+                            "skill_rollout_auto_stopped",
+                            {
+                                "skill_rollout_id": skill_rollout.id,
+                                "reason": skill_rollout.stop_reason,
+                                "candidate_terminal_count": health["candidate"]["terminal_count"],
+                                "candidate_failure_rate": health["candidate"]["failure_rate"],
+                            },
+                        )
+                        snapshot = reconstruct_rollout(
+                            _records_for_task(session, task_id),
+                            task_status=task.status,
+                        )
+                        task.output_json = _json_dumps(snapshot)
+                        session.add(task)
         session.commit()
         return snapshot
 
