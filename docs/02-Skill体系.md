@@ -34,6 +34,8 @@ Skill 的产品作用：
 
 注意：当前代码已有内容安全的 `ChatRun` 生命周期投影，可记录本轮实际 Skill、来源、策略和终态；Skill 包也已统一声明 semver 元数据并受 CI 质量门禁约束。独立的 Skill 发布/回滚数据模型仍属于后续演进。
 
+部署时 CI 会从干净 checkout 生成 `.aria-release-manifest.json`。服务器中不在清单内、且一级目录确实包含 `SKILL.md` 的历史包不会被直接删除，而会移动到 `/www/backups/ariaai/stale-skills/<UTC时间>/` 可恢复归档；随后服务器再次执行 Skill 固定计数与质量测试，避免旧包继续进入运行时发现范围。
+
 ## 3. 数据模型
 
 模型位置：`backend/app/models/db.py`
