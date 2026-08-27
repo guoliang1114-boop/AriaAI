@@ -30,6 +30,13 @@ import { formatProjectMemoryUpdatedAt } from '../projects/projectMemoryTime'
 
 type MemoryFilter = 'all' | 'ready' | 'stale' | 'missing'
 
+interface ProjectListQuery {
+  searchQuery: string
+  filter: MemoryFilter
+  page: number
+  pageSize: number
+}
+
 function getMemoryStatus(project: Project): MemoryFilter {
   if ((project.memory_version || 0) === 0) return 'missing'
   if (project.memory_stale) return 'stale'
@@ -81,6 +88,12 @@ export function ProjectMemorySettings() {
   const autoWarmSummariesTriggeredRef = useRef(false)
   const projectRequestIdRef = useRef(0)
   const jobsRequestIdRef = useRef(0)
+  const projectQueryRef = useRef<ProjectListQuery>({
+    searchQuery: '',
+    filter: 'all',
+    page: 1,
+    pageSize: 10,
+  })
 
   const [projects, setProjects] = useState<Project[]>([])
   const [jobs, setJobs] = useState<ProjectMemoryJob[]>([])
@@ -105,13 +118,14 @@ export function ProjectMemorySettings() {
   const [jobActionProjectId, setJobActionProjectId] = useState<number | null>(null)
 
   const fetchProjects = useCallback(() => {
+    const query = projectQueryRef.current
     const requestId = ++projectRequestIdRef.current
     return api.get<ProjectMemoryListResponse>('/projects/memory/list', {
         params: {
-          search: searchQuery.trim() || undefined,
-          status: filter,
-          limit: projectPageSize,
-          offset: (projectPage - 1) * projectPageSize,
+          search: query.searchQuery.trim() || undefined,
+          status: query.filter,
+          limit: query.pageSize,
+          offset: (query.page - 1) * query.pageSize,
         },
       })
       .then((data) => {
@@ -124,8 +138,11 @@ export function ProjectMemorySettings() {
           stale: data.counts?.stale ?? 0,
           missing: data.counts?.missing ?? 0,
         })
-        const lastPage = Math.max(1, Math.ceil((data.total || 0) / projectPageSize))
-        if (projectPage > lastPage) setProjectPage(lastPage)
+        const lastPage = Math.max(1, Math.ceil((data.total || 0) / query.pageSize))
+        if (query.page > lastPage) {
+          projectQueryRef.current = { ...projectQueryRef.current, page: lastPage }
+          setProjectPage(lastPage)
+        }
       })
       .catch((error: unknown) => {
         if (requestId !== projectRequestIdRef.current) return
@@ -137,7 +154,7 @@ export function ProjectMemorySettings() {
         setLoading(false)
         setProjectsLoading(false)
       })
-  }, [filter, isZh, projectPage, projectPageSize, searchQuery, toast])
+  }, [isZh, toast])
 
   const fetchJobs = useCallback((reportError = false) => {
     const requestId = ++jobsRequestIdRef.current
@@ -159,7 +176,7 @@ export function ProjectMemorySettings() {
 
   useEffect(() => {
     void fetchProjects()
-  }, [fetchProjects])
+  }, [fetchProjects, filter, projectPage, projectPageSize, searchQuery])
 
   useEffect(() => {
     void fetchJobs(true)
@@ -809,6 +826,12 @@ export function ProjectMemorySettings() {
               type="button"
               onClick={() => {
                 setProjectsLoading(true)
+                projectRequestIdRef.current += 1
+                projectQueryRef.current = {
+                  ...projectQueryRef.current,
+                  filter: option.key,
+                  page: 1,
+                }
                 setFilter(option.key)
                 setProjectPage(1)
               }}
@@ -860,8 +883,15 @@ export function ProjectMemorySettings() {
           type="text"
           value={searchQuery}
           onChange={(event) => {
+            const nextSearchQuery = event.target.value
             setProjectsLoading(true)
-            setSearchQuery(event.target.value)
+            projectRequestIdRef.current += 1
+            projectQueryRef.current = {
+              ...projectQueryRef.current,
+              searchQuery: nextSearchQuery,
+              page: 1,
+            }
+            setSearchQuery(nextSearchQuery)
             setProjectPage(1)
           }}
           placeholder={isZh ? '搜索项目名称、客户或摘要...' : 'Search by project, client, or summary...'}
@@ -1053,10 +1083,18 @@ export function ProjectMemorySettings() {
             totalItems={projectTotal}
             onPageChange={(nextPage) => {
               setProjectsLoading(true)
+              projectRequestIdRef.current += 1
+              projectQueryRef.current = { ...projectQueryRef.current, page: nextPage }
               setProjectPage(nextPage)
             }}
             onPageSizeChange={(nextPageSize) => {
               setProjectsLoading(true)
+              projectRequestIdRef.current += 1
+              projectQueryRef.current = {
+                ...projectQueryRef.current,
+                page: 1,
+                pageSize: nextPageSize,
+              }
               setProjectPageSize(nextPageSize)
               setProjectPage(1)
             }}

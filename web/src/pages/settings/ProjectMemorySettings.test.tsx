@@ -157,4 +157,47 @@ describe('ProjectMemorySettings', () => {
     expect(screen.getByText('最新结果')).toBeInTheDocument()
     expect(screen.queryByText('过期结果')).not.toBeInTheDocument()
   })
+
+  it('keeps the active search when a background rebuild refreshes the list', async () => {
+    const rebuild = deferred<{
+      processed_count: number
+      queued_count: number
+      rebuilt_count: number
+      rebuilt: []
+    }>()
+    mockPost.mockReturnValueOnce(rebuild.promise)
+    mockGet.mockImplementation((url: string, config?: { params?: { search?: string } }) => {
+      if (url === '/projects/memory/jobs') return Promise.resolve({ jobs: [], batch_rebuild: null })
+      if (url !== '/projects/memory/list') return Promise.resolve({})
+      const allItems = [
+        { id: 1, name: '项目A', client_id: 1, status: 'active', stage: 'execution', category: 'SaaS', created_at: '2025-01-01' },
+        { id: 2, name: '项目B', client_id: 2, status: 'active', stage: 'planning', category: 'Finance', created_at: '2025-01-01' },
+      ]
+      const items = config?.params?.search === '项目B' ? allItems.slice(1) : allItems
+      return Promise.resolve({
+        items,
+        total: items.length,
+        limit: 10,
+        offset: 0,
+        counts: { all: items.length, ready: 0, stale: 0, missing: items.length },
+      })
+    })
+
+    render(<ProjectMemorySettings />)
+    await screen.findByText('项目A')
+    await waitFor(() => expect(mockPost).toHaveBeenCalled())
+
+    fireEvent.change(screen.getByPlaceholderText(/搜索项目/), { target: { value: '项目B' } })
+    await waitFor(() => expect(screen.queryByText('项目A')).not.toBeInTheDocument())
+
+    await act(async () => {
+      rebuild.resolve({ processed_count: 0, queued_count: 0, rebuilt_count: 0, rebuilt: [] })
+    })
+    await waitFor(() => {
+      const projectRequests = mockGet.mock.calls.filter(([url]) => url === '/projects/memory/list')
+      expect(projectRequests.at(-1)?.[1]?.params?.search).toBe('项目B')
+      expect(screen.queryByText('项目A')).not.toBeInTheDocument()
+      expect(screen.getByText('项目B')).toBeInTheDocument()
+    })
+  })
 })
