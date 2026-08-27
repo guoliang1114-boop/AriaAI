@@ -7,12 +7,13 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models.db import Conversation, Message, User
+from app.models.db import ChatRun, Conversation, Message, User
 from app.routers.auth import get_current_user
 from app.routers.chat_security import require_conversation_access, require_project_access
 from app.services.chat.interaction_feedback import (
     FEEDBACK_REASONS,
     aggregate_interaction_metrics,
+    aggregate_skill_run_metrics,
     build_message_feedback,
     parse_message_metadata,
 )
@@ -60,14 +61,21 @@ def get_project_interaction_metrics(
 ):
     require_project_access(session, project_id, current_user)
     messages = session.exec(
-        select(Message)
+        select(Message.id, Message.role, Message.metadata_json)
         .join(Conversation, Message.conversation_id == Conversation.id)
         .where(Conversation.project_id == project_id)
         .order_by(Message.created_at.desc(), Message.id.desc())
+        .limit(limit)
+    ).all()
+    runs = session.exec(
+        select(ChatRun)
+        .where(ChatRun.project_id == project_id)
+        .order_by(ChatRun.started_at.desc(), ChatRun.id.desc())
         .limit(limit)
     ).all()
     return {
         "project_id": project_id,
         "sample_limit": limit,
         **aggregate_interaction_metrics(messages),
+        "skill_runs": aggregate_skill_run_metrics(runs, messages),
     }

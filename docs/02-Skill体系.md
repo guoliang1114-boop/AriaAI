@@ -1,6 +1,6 @@
 # AriaAI Skill 体系
 
-> 更新日期：2026-05-24  
+> 更新日期：2026-08-27
 > 关联文档：[03-Skill标准化规范](./03-Skill标准化规范.md)、[05-对话系统设计与规范](./05-对话系统设计与规范.md)
 
 ## 1. Skill 定位
@@ -32,7 +32,7 @@ Skill 的产品作用：
 | 对话执行 | `ChatMode.SKILL_EXECUTION` 与 `force_skill` |
 | 结果回流 | 项目 Chat 保存为项目文档/笔记，触发记忆 stale/刷新 |
 
-注意：当前代码已有内容安全的 `ChatRun` 生命周期投影，可记录本轮实际 Skill、来源、策略和终态；Skill 包也已统一声明 semver 元数据并受 CI 质量门禁约束。独立的 Skill 发布/回滚数据模型仍属于后续演进。
+注意：当前代码已有内容安全的 `ChatRun` 生命周期投影，可冻结本轮实际 Skill 的 semver、发布状态、包 SHA-256、启用来源、策略和终态；Skill 包也已统一声明 semver 元数据并受 CI 质量门禁约束。灰度流量分配和一键回滚仍属于后续演进。
 
 部署时 CI 会从干净 checkout 生成 `.aria-release-manifest.json`。服务器中不在清单内、且一级目录确实包含 `SKILL.md` 的历史包不会被直接删除，而会移动到 `/www/backups/ariaai/stale-skills/<UTC时间>/` 可恢复归档；随后服务器再次执行 Skill 固定计数与质量测试，避免旧包继续进入运行时发现范围。
 
@@ -52,6 +52,13 @@ Skill 的产品作用：
 | `max_tokens` | 该 Skill 建议输出上限 |
 | `tools_definition_json` | Claude/OpenAI-compatible 工具定义 |
 | `tools_json` | 兼容旧版的工具名称列表 |
+| `package_version` | 当前已发布语义版本；创建/修改必须满足 semver |
+| `package_status` | `preview` / `stable` / `deprecated`；退役版本保留历史但不得进入新一轮启动和自动路由 |
+| `package_sha256` | 文件型 Skill 发布快照的精确 SHA-256；DB-only Skill 可为空 |
+
+每个新 `ChatRun` 会复制 `skill_version`、`skill_release_status`、`skill_release_sha256` 与 `skill_activation_source`。这些是运行时快照，不会因为后来修改或删除 Skill 而变化。迁移前的历史 Run 保持“版本未记录”，不会用当前版本回填并伪造历史归因。
+
+通过 CRUD 修改 `system_prompt`、`user_template` 或工具定义属于运行行为变更，必须同时提交一个严格递增的 `package_version`，降级或复用版本会返回 409。Aria 会对最终 DB 发布契约重新计算 SHA-256；版本号与指纹共同构成质量归因身份，避免同一 semver 下的意外内容漂移混入同一组数据。真正的回滚将通过后续发布历史模型选择旧契约，而不是篡改当前版本号。
 
 ## 4. 路由与缓存
 
@@ -68,7 +75,7 @@ Skill 的产品作用：
 实现要点：
 
 - 列表和摘要使用 `TTLCache`，默认 300 秒。
-- Skill 变更后调用 `_bust_skills()` 清理缓存。
+- Skill 变更后调用 `_bust_skills()` 清理缓存；运行行为变更必须显式升级 semver。
 - 启动时 `ensure_builtin_pro_skills(session)` 补齐内置 Skill。
 - `_load_skill_package_prompt()` 可把文件包 `SKILL.md` 和 references 拼入 DB Skill 的 `system_prompt`。
 
@@ -231,7 +238,8 @@ skills/
 优先级建议：
 
 1. 在现有 `ChatRun` 内容安全投影上增加按 Skill 的质量趋势和版本维度统计，不保存原始输入或工具参数。
-2. 将当前 Skill 包 semver/status 元数据升级为正式的发布、灰度和回滚模型。
-3. 为核心 Skill 增加 golden examples。
+   - 状态：已完成。项目质量面板按精确版本/包指纹汇总运行数、完成率、分类反馈、错误 Skill 原因、修订效果与启用来源；聚合不读取消息正文、自由文本或用户身份。
+2. 在已落地的正式 semver/status/快照字段上增加灰度流量分配和一键回滚。
+3. 为其余核心 Skill 增加 golden examples。
 4. 增加 `verification_steps`，让交付物生成后可自动校验。
 5. 设计 Skill 导入/导出格式，统一 DB Skill 与文件包 Skill 的同步方式。

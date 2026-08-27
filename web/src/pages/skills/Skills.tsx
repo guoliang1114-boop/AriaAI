@@ -1340,21 +1340,30 @@ export function SkillDetailPage() {
               </button>
               <button
                 type="button"
-                onClick={() => navigate(buildSkillChatPath(skill.id, launchSource.searchParams))}
+                disabled={skill.package_status === "deprecated"}
+                onClick={() => {
+                  if (skill.package_status !== "deprecated") {
+                    navigate(buildSkillChatPath(skill.id, launchSource.searchParams));
+                  }
+                }}
                 style={{
                   padding: "7px 14px",
                   fontSize: 12.5,
                   fontWeight: 500,
-                  background: "var(--color-codex-ink)",
+                  background: skill.package_status === "deprecated" ? "var(--color-codex-bg-tint)" : "var(--color-codex-ink)",
                   color: "var(--color-codex-bg-elev)",
                   borderRadius: "var(--codex-r-sm, 3px)",
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 6,
+                  cursor: skill.package_status === "deprecated" ? "not-allowed" : "pointer",
+                  opacity: skill.package_status === "deprecated" ? 0.7 : 1,
                 }}
               >
                 <MessageSquare className="h-3.5 w-3.5" strokeWidth={1.5} />
-                {t("skills.useSkill")}
+                {skill.package_status === "deprecated"
+                  ? (isZh ? "已退役" : "Deprecated")
+                  : t("skills.useSkill")}
               </button>
             </div>
           </div>
@@ -1602,6 +1611,32 @@ export function SkillDetailPage() {
                   </span>
                   <span style={{ color: "var(--color-codex-ink)" }}>{categoryLabel}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span style={{ color: "var(--color-codex-ink-mute)" }}>
+                    {isZh ? "发布版本" : "Release"}
+                  </span>
+                  <span className="font-mono" style={{ color: "var(--color-codex-ink)" }}>
+                    v{skill.package_version || "1.0.0"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span style={{ color: "var(--color-codex-ink-mute)" }}>
+                    {isZh ? "发布状态" : "Status"}
+                  </span>
+                  <span className="font-mono" style={{ color: "var(--color-codex-ink)" }}>
+                    {skill.package_status || "stable"}
+                  </span>
+                </div>
+                {skill.package_sha256 && (
+                  <div className="flex justify-between">
+                    <span style={{ color: "var(--color-codex-ink-mute)" }}>
+                      {isZh ? "发布标识" : "Release ID"}
+                    </span>
+                    <span className="font-mono" style={{ color: "var(--color-codex-ink)" }}>
+                      {skill.package_sha256.slice(0, 12)}
+                    </span>
+                  </div>
+                )}
                 {skill.estimated_time && (
                   <div className="flex justify-between">
                     <span style={{ color: "var(--color-codex-ink-mute)" }}>

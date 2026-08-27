@@ -59,6 +59,8 @@ export function ProjectInteractionMetricsPanel({ projectId }: { projectId: numbe
       .sort((left, right) => right[1] - left[1])
     : []
   const negativeTotal = negativeReasons.reduce((sum, [, count]) => sum + count, 0)
+  const skillRunMetrics = metrics?.skill_runs
+  const skillRuns = skillRunMetrics?.items.slice(0, 6) ?? []
 
   return (
     <div ref={rootRef} style={{ position: 'relative', flexShrink: 0 }}>
@@ -168,14 +170,72 @@ export function ProjectInteractionMetricsPanel({ projectId }: { projectId: numbe
                 )}
               </div>
 
+              <div style={{ marginTop: 14, borderTop: '1px solid var(--line-soft)', paddingTop: 11 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--ink-soft)' }}>Skill 版本质量</div>
+                  <div style={{ fontSize: 9.5, color: 'var(--ink-faint)' }}>
+                    {skillRunMetrics?.versioned_run_count ?? 0}/{skillRunMetrics?.run_count ?? 0} 轮已记录版本
+                  </div>
+                </div>
+                {skillRuns.length === 0 ? (
+                  <div style={{ marginTop: 7, fontSize: 11, color: 'var(--ink-faint)' }}>当前样本中尚无 Skill 运行</div>
+                ) : (
+                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {skillRuns.map((item) => (
+                      <div
+                        key={`${item.skill_id ?? item.skill_name}:${item.version ?? 'legacy'}:${item.release_sha256 ?? ''}`}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'minmax(0, 1fr) 52px 52px 52px',
+                          alignItems: 'center',
+                          gap: 7,
+                          padding: '7px 8px',
+                          background: 'var(--bg-tint)',
+                          border: '1px solid var(--line-soft)',
+                          borderRadius: 'var(--r-sm)',
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div title={item.skill_name} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10.5, color: 'var(--ink-soft)' }}>
+                            {item.skill_name}
+                          </div>
+                          <div style={{ marginTop: 2, fontSize: 9, color: 'var(--ink-faint)' }}>
+                            {item.version ? `v${item.version}` : '历史版本未记录'}
+                            {item.release_status ? ` · ${item.release_status}` : ''}
+                            {item.release_sha256 ? ` · ${item.release_sha256.slice(0, 7)}` : ''}
+                          </div>
+                        </div>
+                        <SkillMetric label="运行" value={`${item.run_count}`} />
+                        <SkillMetric label="完成" value={percent(item.completion_rate)} />
+                        <SkillMetric
+                          label="有帮助"
+                          value={percent(item.helpful_rate)}
+                          warning={item.wrong_skill_count > 0}
+                          title={item.wrong_skill_count > 0 ? `${item.wrong_skill_count} 条反馈认为 Skill 不合适` : undefined}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div style={{ marginTop: 13, padding: '8px 10px', background: 'var(--bg-tint)', borderRadius: 'var(--r-sm)', fontSize: 10.5, color: 'var(--ink-faint)', lineHeight: 1.5 }}>
-                隐私边界：只统计评分、原因与配置采纳状态；不读取或保存对话正文、自由文本反馈和用户身份。
+                隐私边界：只统计 Run 生命周期、Skill 版本、评分、原因与配置采纳状态；不读取或保存对话正文、自由文本反馈和用户身份。
               </div>
               {error && <div style={{ marginTop: 7, color: 'var(--warn)', fontSize: 10.5 }}>刷新失败，当前展示上次结果。</div>}
             </>
           )}
         </section>
       )}
+    </div>
+  )
+}
+
+function SkillMetric({ label, value, warning = false, title }: { label: string; value: string; warning?: boolean; title?: string }) {
+  return (
+    <div title={title} style={{ textAlign: 'right' }}>
+      <div style={{ fontSize: 8.5, color: 'var(--ink-faint)' }}>{label}</div>
+      <div className="num" style={{ marginTop: 2, fontSize: 10.5, color: warning ? 'var(--warn)' : 'var(--ink-soft)' }}>{value}</div>
     </div>
   )
 }

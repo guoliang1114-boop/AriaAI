@@ -62,12 +62,16 @@ class FileBackedSkillPrompt(str):
         package_key: str,
         reference_files: Sequence[str] = (),
         source_fingerprint: str = "",
+        package_version: str = "",
+        package_status: str = "",
         load_error: str = "",
     ) -> "FileBackedSkillPrompt":
         instance = str.__new__(cls, value)
         instance.package_key = package_key
         instance.reference_files = tuple(reference_files)
         instance.source_fingerprint = source_fingerprint
+        instance.package_version = package_version
+        instance.package_status = package_status
         instance.load_error = load_error
         return instance
 
@@ -178,6 +182,8 @@ class LoadedSkillCatalog:
             package_key=package_key,
             reference_files=reference_files,
             source_fingerprint=package.fingerprint,
+            package_version=str(package.document.metadata.get("version") or ""),
+            package_status=str(package.document.metadata.get("status") or ""),
         )
 
 

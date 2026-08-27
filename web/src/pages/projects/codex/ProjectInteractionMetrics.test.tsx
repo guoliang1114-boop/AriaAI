@@ -23,6 +23,34 @@ describe('ProjectInteractionMetricsPanel', () => {
       revision_success_rate: 0.5,
       turn_setup: { requested_count: 4, applied_count: 3, dismissed_count: 1, adoption_rate: 0.75 },
       negative_reasons: { incomplete: 1, inaccurate: 0 },
+      skill_runs: {
+        schema_version: 1,
+        run_count: 3,
+        versioned_run_count: 2,
+        items: [{
+          skill_id: 7,
+          skill_name: '风险评估',
+          version: '1.2.0',
+          release_status: 'stable',
+          release_sha256: 'a'.repeat(64),
+          run_count: 2,
+          completed_count: 2,
+          failed_count: 0,
+          cancelled_count: 0,
+          waiting_confirmation_count: 0,
+          completion_rate: 1,
+          feedback_count: 1,
+          feedback_coverage: 0.5,
+          helpful_count: 1,
+          helpful_rate: 1,
+          wrong_skill_count: 0,
+          revision_feedback_count: 0,
+          revision_success_rate: null,
+          average_duration_ms: 1200,
+          activation_sources: { explicit: 1, auto: 1, conversation: 0, other: 0 },
+        }],
+        privacy: { reads_message_content: false, stores_free_text_feedback: false, stores_user_identity: false },
+      },
       privacy: { stores_message_content: false, stores_free_text_feedback: false, stores_user_identity: false },
     })
 
@@ -31,6 +59,10 @@ describe('ProjectInteractionMetricsPanel', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/chat/projects/9/interaction-metrics'))
     expect(await screen.findByText('80%')).toBeInTheDocument()
     expect(screen.getByText('结果不完整')).toBeInTheDocument()
+    expect(screen.getByText('Skill 版本质量')).toBeInTheDocument()
+    expect(screen.getByText('风险评估')).toBeInTheDocument()
+    expect(screen.getByText('v1.2.0 · stable · aaaaaaa')).toBeInTheDocument()
+    expect(screen.getByText('2/3 轮已记录版本')).toBeInTheDocument()
     expect(screen.getByText(/不读取或保存对话正文/)).toBeInTheDocument()
   })
 })

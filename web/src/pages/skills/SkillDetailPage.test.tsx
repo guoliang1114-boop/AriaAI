@@ -82,4 +82,21 @@ describe('SkillDetailPage', () => {
     expect(screen.getByRole('heading', { name: '最新 Skill' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '过期 Skill' })).not.toBeInTheDocument()
   })
+
+  it('shows release identity and prevents launching a deprecated Skill', async () => {
+    mockSkillId = '3'
+    mockGet.mockResolvedValue({
+      ...skill(3, '退役 Skill'),
+      package_version: '2.0.0',
+      package_status: 'deprecated',
+      package_sha256: 'b'.repeat(64),
+    })
+
+    render(<SkillDetailPage />)
+
+    expect(await screen.findByText('v2.0.0')).toBeInTheDocument()
+    expect(screen.getAllByText('deprecated').length).toBeGreaterThan(0)
+    expect(screen.getByText('bbbbbbbbbbbb')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '已退役' })).toBeDisabled()
+  })
 })

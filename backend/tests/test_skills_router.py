@@ -94,6 +94,51 @@ class SkillsCrudTestCase(unittest.TestCase):
         self.assertIn(resp.status_code, [200, 201])
         data = resp.json()
         self.assertEqual(data["name"], "New Skill")
+        self.assertEqual(data["package_version"], "1.0.0")
+        self.assertEqual(data["package_status"], "stable")
+
+    def test_skill_release_fields_require_semver_and_known_status(self):
+        invalid_version = self.client.post("/skills", json={
+            "name": "Bad version",
+            "category": "general",
+            "package_version": "latest",
+        })
+        invalid_status = self.client.patch(
+            f"/skills/{self.skill_id}",
+            json={"package_status": "unknown"},
+        )
+        valid = self.client.patch(
+            f"/skills/{self.skill_id}",
+            json={"package_version": "1.2.0", "package_status": "preview"},
+        )
+        downgrade = self.client.patch(
+            f"/skills/{self.skill_id}",
+            json={"package_version": "0.9.0"},
+        )
+
+        self.assertEqual(invalid_version.status_code, 422)
+        self.assertEqual(invalid_status.status_code, 422)
+        self.assertEqual(downgrade.status_code, 409)
+        self.assertEqual(valid.status_code, 200)
+        self.assertEqual(valid.json()["package_version"], "1.2.0")
+        self.assertEqual(valid.json()["package_status"], "preview")
+
+    def test_deprecated_skill_is_hidden_from_launch_catalog_and_recommendation(self):
+        deprecated = self.client.patch(
+            f"/skills/{self.skill_id}",
+            json={"package_status": "deprecated"},
+        )
+
+        self.assertEqual(deprecated.status_code, 200)
+        self.assertEqual(self.client.get("/skills/meta/summary").json(), [])
+        self.assertEqual(len(self.client.get("/skills").json()), 1)
+        recommendation = self.client.post("/skills/recommendations/turn", json={
+            "project_id": 3,
+            "content": "Generate Strategy Report",
+            "skill_mode": "explicit",
+            "skill_id": self.skill_id,
+        })
+        self.assertEqual(recommendation.status_code, 409)
 
     def test_update_skill(self):
         resp = self.client.patch(f"/skills/{self.skill_id}", json={
@@ -102,6 +147,24 @@ class SkillsCrudTestCase(unittest.TestCase):
         })
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["name"], "Updated Strategy")
+
+    def test_behavior_change_requires_version_bump_and_refreshes_release_hash(self):
+        rejected = self.client.patch(
+            f"/skills/{self.skill_id}",
+            json={"system_prompt": "Changed runtime behavior"},
+        )
+        accepted = self.client.patch(
+            f"/skills/{self.skill_id}",
+            json={
+                "system_prompt": "Changed runtime behavior",
+                "package_version": "1.1.0",
+            },
+        )
+
+        self.assertEqual(rejected.status_code, 409)
+        self.assertEqual(accepted.status_code, 200)
+        self.assertEqual(accepted.json()["package_version"], "1.1.0")
+        self.assertEqual(len(accepted.json()["package_sha256"]), 64)
 
     def test_delete_skill(self):
         with Session(self.engine) as session:
@@ -157,6 +220,8 @@ class SkillsCrudTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIsInstance(data, (list, dict))
+        self.assertEqual(data[0]["package_version"], "1.0.0")
+        self.assertEqual(data[0]["package_status"], "stable")
 
     def test_turn_setup_recommends_brief_and_exact_skill_without_executing(self):
         resp = self.client.post("/skills/recommendations/turn", json={
@@ -257,6 +322,9 @@ class SkillsCrudTestCase(unittest.TestCase):
         self.assertIn('deck_type: "proposal"', skill.system_prompt)
         self.assertIn("客户可审阅", skill.user_template)
         self.assertEqual(skill.max_tokens, 32768)
+        self.assertEqual(skill.package_version, "1.0.0")
+        self.assertEqual(skill.package_status, "stable")
+        self.assertEqual(len(skill.package_sha256), 64)
         self.assertEqual(
             skill.tools,
             [

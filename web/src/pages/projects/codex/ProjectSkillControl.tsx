@@ -129,7 +129,7 @@ export function ProjectSkillControl({
             <SkillControlOption
               key={skill.id}
               label={skill.name}
-              description={skill.description || skill.category}
+              description={`${skill.description || skill.category}${skill.package_version ? ` · v${skill.package_version}` : ''}${skill.package_status && skill.package_status !== 'stable' ? ` · ${skill.package_status}` : ''}`}
               selected={selection.mode === 'explicit' && selection.skillId === skill.id}
               onClick={() => choose({ mode: 'explicit', skillId: skill.id, name: skill.name })}
             />

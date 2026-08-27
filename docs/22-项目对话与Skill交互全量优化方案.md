@@ -329,6 +329,15 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 48 个 Skill 包统一 `version/domain/last_updated/status` 元数据并加入确定性 CI 质量门禁；首批十个高优先级包补齐专业参考资料、质量检查清单和最小示例，并确保文件内容进入实际 Skill system prompt。
 - 本阶段继续保持 Aria 原生权限、事件、数据库和 Provider 路径；不运行、不导入、不连接 Codex 进程、SDK、App Server 或通信协议。
 
+### Phase 3F：版本化 Skill 运行质量闭环（已实施）
+
+- 文件型 Skill 的 `version/status` 与精确发布 SHA-256 在发布同步时进入 Aria 数据库；DB-only Skill 创建和修改同样受 semver 与 `preview/stable/deprecated` 状态校验。修改 system prompt、输入模板或工具定义必须显式升级版本，最终 DB 运行契约会重新计算指纹；Skill 库详情和项目选择器可查看实际发布版本。
+- 每个新 `ChatRun` 冻结本轮 `skill_version`、发布状态、包指纹和启用来源。后续更新或删除 Skill 不会改变历史事实；迁移前 Run 明确显示“历史版本未记录”，不以当前版本反向填充。
+- 项目交互质量接口把内容安全的 Run 投影与 Assistant 固定分类反馈按消息 ID 关联，按 Skill 版本/指纹汇总运行数、完成率、反馈覆盖、帮助率、Skill 不合适原因、修订成功率、平均耗时及显式/自动/沿用来源。
+- 项目对话质量面板新增“Skill 版本质量”，让团队直接看到真实使用版本和效果，不再只依赖静态 prompt 检查；Skill 详情同步展示发布版本与状态。
+- 聚合实现不读取 `Message.content`，不接收自由文本反馈，也不保存反馈者身份；`deprecated` Skill 会退出启动目录、自动路由和发送前明确推荐，但保留历史记录。发布门禁由 41 扩展为 44 场景，新增 `skill_quality_attribution_accuracy`，同时验证版本隔离、退役隔离和内容隐私。
+- 数据迁移由 `031_v1_31` 管理，保持单一 Alembic head 和幂等升级；所有状态、权限、反馈、Run 与审计仍属于 Aria 原生服务，不运行、不调用、不连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

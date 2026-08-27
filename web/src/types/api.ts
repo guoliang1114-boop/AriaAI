@@ -709,6 +709,38 @@ export interface ProjectInteractionMetrics {
     adoption_rate: number | null
   }
   negative_reasons: Record<string, number>
+  skill_runs: {
+    schema_version: number
+    run_count: number
+    versioned_run_count: number
+    items: Array<{
+      skill_id: number | null
+      skill_name: string
+      version: string | null
+      release_status: string | null
+      release_sha256: string | null
+      run_count: number
+      completed_count: number
+      failed_count: number
+      cancelled_count: number
+      waiting_confirmation_count: number
+      completion_rate: number | null
+      feedback_count: number
+      feedback_coverage: number | null
+      helpful_count: number
+      helpful_rate: number | null
+      wrong_skill_count: number
+      revision_feedback_count: number
+      revision_success_rate: number | null
+      average_duration_ms: number
+      activation_sources: Record<'explicit' | 'auto' | 'conversation' | 'other', number>
+    }>
+    privacy: {
+      reads_message_content: boolean
+      stores_free_text_feedback: boolean
+      stores_user_identity: boolean
+    }
+  }
   privacy: {
     stores_message_content: boolean
     stores_free_text_feedback: boolean
@@ -812,6 +844,9 @@ export interface Skill {
   estimated_time: string
   tools_definition_json: string
   max_tokens?: number
+  package_version?: string
+  package_status?: 'preview' | 'stable' | 'deprecated'
+  package_sha256?: string
   created_at?: string
   updated_at?: string
 }
@@ -822,6 +857,8 @@ export interface SkillSummary {
   category: string
   description: string
   estimated_time: string
+  package_version?: string
+  package_status?: 'preview' | 'stable' | 'deprecated'
   created_at?: string
   updated_at?: string
 }

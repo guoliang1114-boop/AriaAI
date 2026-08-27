@@ -157,6 +157,8 @@ def _refresh_file_backed_skill_def(
         return None, refreshed_prompt.load_error
     refreshed = dict(skill_def)
     refreshed["system_prompt"] = refreshed_prompt
+    refreshed["package_version"] = refreshed_prompt.package_version or "1.0.0"
+    refreshed["package_status"] = refreshed_prompt.package_status or "stable"
     return refreshed, ""
 
 
@@ -168,6 +170,8 @@ def _builtin_skill_hash(skill_def: dict[str, Any]) -> str:
         "description": skill_def.get("description", ""),
         "system_prompt": prompt,
         "source_fingerprint": getattr(prompt, "source_fingerprint", ""),
+        "package_version": skill_def.get("package_version", "1.0.0"),
+        "package_status": skill_def.get("package_status", "stable"),
         "user_template": skill_def.get("user_template", ""),
         "estimated_time": skill_def.get("estimated_time", ""),
         "max_tokens": skill_def.get("max_tokens", 0),
@@ -175,6 +179,39 @@ def _builtin_skill_hash(skill_def: dict[str, Any]) -> str:
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _skill_record_release_sha256(skill: Skill) -> str:
+    """Fingerprint the exact published DB contract used by the runtime."""
+
+    payload = {
+        "name": skill.name or "",
+        "category": skill.category or "",
+        "description": skill.description or "",
+        "system_prompt": skill.system_prompt or "",
+        "user_template": skill.user_template or "",
+        "estimated_time": skill.estimated_time or "",
+        "max_tokens": int(skill.max_tokens or 0),
+        "tools_definition_json": skill.tools_definition_json or "[]",
+        "tools_json": skill.tools_json or "[]",
+        "package_version": skill.package_version or "",
+        "package_status": skill.package_status or "",
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _semver_key(value: str) -> tuple[int, int, int]:
+    try:
+        major, minor, patch = str(value or "").split(".")
+        return int(major), int(minor), int(patch)
+    except (TypeError, ValueError):
+        return 0, 0, 0
 
 
 class SkillCreate(BaseModel):
@@ -185,6 +222,11 @@ class SkillCreate(BaseModel):
     user_template: str = ""
     estimated_time: str = ""
     tools_definition_json: str = "[]"  # Claude function calling spec
+    package_version: str = Field(
+        default="1.0.0",
+        pattern=r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$",
+    )
+    package_status: Literal["preview", "stable", "deprecated"] = "stable"
 
 
 class SkillUpdate(BaseModel):
@@ -194,6 +236,11 @@ class SkillUpdate(BaseModel):
     user_template: Optional[str] = None
     estimated_time: Optional[str] = None
     tools_definition_json: Optional[str] = None
+    package_version: Optional[str] = Field(
+        default=None,
+        pattern=r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$",
+    )
+    package_status: Optional[Literal["preview", "stable", "deprecated"]] = None
 
 
 class SkillSummary(BaseModel):
@@ -202,6 +249,8 @@ class SkillSummary(BaseModel):
     category: str
     description: str
     estimated_time: str
+    package_version: str = "1.0.0"
+    package_status: str = "stable"
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -371,6 +420,8 @@ def _skill_to_summary(skill: Skill) -> SkillSummary:
         category=skill.category,
         description=skill.description,
         estimated_time=skill.estimated_time,
+        package_version=skill.package_version,
+        package_status=skill.package_status,
         created_at=None,
         updated_at=None,
     )
@@ -416,7 +467,9 @@ def list_skill_summaries(category: Optional[str] = None, session: Session = Depe
         Skill.category,
         Skill.description,
         Skill.estimated_time,
-    )
+        Skill.package_version,
+        Skill.package_status,
+    ).where(Skill.package_status != "deprecated")
     if category:
         stmt = stmt.where(Skill.category == category)
 
@@ -428,6 +481,8 @@ def list_skill_summaries(category: Optional[str] = None, session: Session = Depe
             category=row[2],
             description=row[3],
             estimated_time=row[4],
+            package_version=row[5],
+            package_status=row[6],
             created_at=None,
             updated_at=None,
         )
@@ -544,6 +599,8 @@ def recommend_turn_setup(
         skill = session.get(Skill, req.skill_id)
         if not skill:
             raise HTTPException(404, "Skill not found")
+        if skill.package_status == "deprecated":
+            raise HTTPException(409, "Skill release is deprecated")
         return TurnSetupSuggestionResponse(
             template=template,
             skill=TurnSetupSkillAdvice(
@@ -594,6 +651,7 @@ def get_skill(skill_id: int, session: Session = Depends(get_session)):
 @router.post("", status_code=201)
 def create_skill(data: SkillCreate, session: Session = Depends(get_session)):
     skill = Skill(**data.model_dump())
+    skill.package_sha256 = _skill_record_release_sha256(skill)
     session.add(skill)
     session.commit()
     session.refresh(skill)
@@ -607,8 +665,25 @@ def update_skill(skill_id: int, data: SkillUpdate, session: Session = Depends(ge
     if not skill:
         raise HTTPException(404, "Skill not found")
     payload = data.model_dump(exclude_none=True)
+    behavior_fields = {"system_prompt", "user_template", "tools_definition_json"}
+    behavior_changed = any(
+        field in payload and payload[field] != getattr(skill, field)
+        for field in behavior_fields
+    )
+    next_version = payload.get("package_version")
+    version_changed = next_version is not None and next_version != skill.package_version
+    if version_changed and _semver_key(next_version) <= _semver_key(skill.package_version):
+        raise HTTPException(409, "package_version must increase monotonically")
+    if behavior_changed and (
+        not version_changed
+    ):
+        raise HTTPException(
+            409,
+            "Skill behavior changes require a new package_version",
+        )
     for k, v in payload.items():
         setattr(skill, k, v)
+    skill.package_sha256 = _skill_record_release_sha256(skill)
     session.add(skill)
     session.commit()
     session.refresh(skill)
@@ -2922,7 +2997,16 @@ def ensure_builtin_pro_skills(session: Session) -> int:
             patched = False
             source_changed = (existing_skill.builtin_hash or "") != builtin_hash
             if source_changed:
-                for field in ("description", "system_prompt", "user_template", "estimated_time", "category", "max_tokens"):
+                for field in (
+                    "description",
+                    "system_prompt",
+                    "user_template",
+                    "estimated_time",
+                    "category",
+                    "max_tokens",
+                    "package_version",
+                    "package_status",
+                ):
                     next_value = skill_def.get(field, getattr(existing_skill, field))
                     if getattr(existing_skill, field) != next_value:
                         setattr(existing_skill, field, next_value)
@@ -2996,6 +3080,17 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         session.add(skill)
         changed += 1
 
+    # Fingerprint the exact DB contract consumed by the runtime, including
+    # custom Skills and preserved user edits to built-ins. File-root source
+    # identity remains in ``builtin_hash`` for publish synchronization.
+    session.flush()
+    for published_skill in session.exec(select(Skill)).all():
+        release_sha256 = _skill_record_release_sha256(published_skill)
+        if published_skill.package_sha256 != release_sha256:
+            published_skill.package_sha256 = release_sha256
+            session.add(published_skill)
+            changed += 1
+
     if changed:
         session.commit()
         _bust_skills()
@@ -3035,6 +3130,7 @@ def seed_skills(session: Session = Depends(get_session)):
     for s in DEFAULT_SKILLS:
         skill = Skill(**{k: v for k, v in s.items() if k != "tools"})
         skill.tools = s["tools"]
+        skill.package_sha256 = _skill_record_release_sha256(skill)
         session.add(skill)
         created += 1
     session.commit()

@@ -424,6 +424,9 @@ def published_skill_catalog_fingerprint(skills: list[Skill]) -> str:
             "category": skill.category or "",
             "builtin_key": skill.builtin_key or "",
             "builtin_hash": skill.builtin_hash or "",
+            "package_version": skill.package_version or "",
+            "package_status": skill.package_status or "",
+            "package_sha256": skill.package_sha256 or "",
         }
         for skill in sorted(
             skills,
@@ -481,7 +484,9 @@ def auto_select_skill(session: Session, req: SendMessageRequest) -> tuple[Skill 
     if not text:
         return None, SkillActivationDecision(False, "empty_message", 0.0, source="auto")
 
-    candidates = list(session.exec(select(Skill)).all())
+    candidates = list(
+        session.exec(select(Skill).where(Skill.package_status != "deprecated")).all()
+    )
     catalog_fingerprint = published_skill_catalog_fingerprint(candidates)
     normalized_text = _normalize_for_skill_match(text)
     looks_like_question = normalized_text.endswith(("?", "？")) or normalized_text.startswith(

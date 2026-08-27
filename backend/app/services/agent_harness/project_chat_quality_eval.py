@@ -29,7 +29,10 @@ from app.services.agent_harness.project_world_state import (
     compare_project_world_states,
     format_project_world_state_change_for_prompt,
 )
-from app.services.chat.interaction_feedback import aggregate_interaction_metrics
+from app.services.chat.interaction_feedback import (
+    aggregate_interaction_metrics,
+    aggregate_skill_run_metrics,
+)
 from app.services.chat.turn_recovery import (
     build_turn_recovery_preview,
     format_turn_recovery_for_prompt,
@@ -129,9 +132,33 @@ def _skill_selection_results() -> tuple[int, int, list[dict[str, Any]]]:
                         "passed": ok,
                     }
                 )
+            session.add(
+                Skill(
+                    name="供应链诊断",
+                    description="供应链风险与韧性诊断",
+                    category="运营",
+                    package_status="deprecated",
+                )
+            )
+            session.commit()
+            selected, decision = auto_select_skill(
+                session,
+                SendMessageRequest(content="供应链诊断", project_id=26),
+            )
+            deprecated_ok = selected is None
+            passed += int(deprecated_ok)
+            details.append(
+                {
+                    "content": "供应链诊断",
+                    "expected": None,
+                    "actual": selected.name if selected else None,
+                    "reason": decision.reason,
+                    "passed": deprecated_ok,
+                }
+            )
     finally:
         engine.dispose()
-    return passed, len(_SKILL_CASES), details
+    return passed, len(details), details
 
 
 def _lifecycle_results() -> tuple[int, int, list[dict[str, Any]]]:
@@ -571,6 +598,69 @@ def _interaction_feedback_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _skill_run_quality_results() -> tuple[int, int, list[dict[str, Any]]]:
+    messages = [
+        SimpleNamespace(
+            id=81,
+            role="assistant",
+            content="PRIVATE-SKILL-ANSWER",
+            metadata_json=json.dumps(
+                {
+                    "interaction_feedback": {
+                        "schema_version": 1,
+                        "rating": "helpful",
+                        "reasons": [],
+                    }
+                }
+            ),
+        )
+    ]
+    runs = [
+        SimpleNamespace(
+            skill_id=7,
+            skill_name="舞弊风险评估",
+            skill_version="1.0.0",
+            skill_release_status="stable",
+            skill_release_sha256="a" * 64,
+            skill_activation_source="auto",
+            status="completed",
+            duration_ms=120,
+            assistant_message_id=81,
+        ),
+        SimpleNamespace(
+            skill_id=7,
+            skill_name="舞弊风险评估",
+            skill_version="1.1.0",
+            skill_release_status="stable",
+            skill_release_sha256="b" * 64,
+            skill_activation_source="explicit",
+            status="failed",
+            duration_ms=80,
+            assistant_message_id=None,
+        ),
+    ]
+    metrics = aggregate_skill_run_metrics(runs, messages)
+    details = [
+        {
+            "case": "skill_quality_separates_exact_release_versions",
+            "passed": metrics.get("run_count") == 2
+            and len(metrics.get("items") or []) == 2
+            and {item.get("version") for item in metrics.get("items") or []}
+            == {"1.0.0", "1.1.0"},
+        },
+        {
+            "case": "skill_quality_is_content_and_identity_free",
+            "passed": metrics.get("privacy") == {
+                "reads_message_content": False,
+                "stores_free_text_feedback": False,
+                "stores_user_identity": False,
+            }
+            and "PRIVATE" not in json.dumps(metrics),
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -589,6 +679,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "project_world_state_accuracy": _project_world_state_results(),
         "turn_recovery_safety_rate": _turn_recovery_results(),
         "interaction_feedback_privacy_rate": _interaction_feedback_results(),
+        "skill_quality_attribution_accuracy": _skill_run_quality_results(),
     }
     metrics = {
         name: {

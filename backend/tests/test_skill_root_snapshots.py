@@ -55,6 +55,30 @@ def test_structured_disable_skill_skips_lookup_and_clears_conversation_skill() -
     assert conflict_skill is None
 
 
+def test_deprecated_explicit_skill_cannot_enter_runtime() -> None:
+    deprecated = Skill(
+        id=9,
+        name="Retired workflow",
+        category="general",
+        package_status="deprecated",
+    )
+
+    class DeprecatedLookup:
+        def get(self, *_args, **_kwargs):
+            return deprecated
+
+    skill, decision, effective_skill_id, effective_skill = _resolve_effective_skill(
+        DeprecatedLookup(),
+        SendMessageRequest(content="运行", project_id=7, skill_id=9, force_skill=True),
+    )
+
+    assert skill is deprecated
+    assert decision.reason == "skill_release_deprecated"
+    assert decision.clear_conversation_skill is True
+    assert effective_skill_id is None
+    assert effective_skill is None
+
+
 def _write_skill(
     root: Path,
     key: str,
@@ -88,6 +112,23 @@ def test_ordered_roots_use_first_valid_package_key(tmp_path: Path) -> None:
 
     assert str(catalog.prompt("demo")) == "High-priority instructions."
     assert any(issue.code == "shadowed_package" for issue in catalog.issues)
+
+
+def test_catalog_prompt_carries_release_metadata_and_exact_fingerprint(tmp_path: Path) -> None:
+    root = tmp_path / "skills"
+    skill_dir = root / "demo"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Demonstration workflow\n"
+        "version: 2.3.0\nstatus: preview\n---\nFollow the workflow.\n",
+        encoding="utf-8",
+    )
+
+    prompt = SkillRootLoader().load([SkillRootSpec(root)]).prompt("demo")
+
+    assert prompt.package_version == "2.3.0"
+    assert prompt.package_status == "preview"
+    assert len(prompt.source_fingerprint) == 64
 
 
 def test_unchanged_roots_hit_cache_and_only_changed_root_refreshes(tmp_path: Path) -> None:

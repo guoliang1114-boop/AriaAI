@@ -74,6 +74,7 @@ export function AboutSettings() {
             '项目记忆候选加入基线版本冲突守卫，记忆页展示版本历史和差异摘要，重复候选不再制造空版本。',
             '项目对话新增隐私安全的质量指标面板，反馈、修订和配置建议效果可量化。',
             '48 个 Skill 统一版本元数据并加入 CI 质量门禁，首批高优先级专业 Skill 补齐参考资料和示例。',
+            'Skill 发布版本、状态和包指纹进入正式运行快照，项目质量面板可按版本查看完成率和用户反馈。',
           ]
         : [
             'Unified Product Run Event activity timeline across live and persisted Skill, step, tool, artifact, error, and confirmation states.',
@@ -81,6 +82,7 @@ export function AboutSettings() {
             'Memory candidate version-conflict guards, visible snapshot history and diffs, and no-op duplicate acceptance.',
             'Privacy-safe project interaction quality metrics for feedback, revisions, and turn setup adoption.',
             'Version metadata and CI quality gates for all 48 Skills, with richer references and examples for the first priority set.',
+            'Formal Skill release version/status/fingerprint snapshots and project-level outcome metrics by exact release.',
           ],
     },
     {

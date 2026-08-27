@@ -23,6 +23,9 @@ class ChatRuntime:
     project_id: int | None = None
     skill_id: int | None = None
     skill_name: str = ""
+    skill_version: str = ""
+    skill_release_status: str = ""
+    skill_release_sha256: str = ""
     skill_activation_source: str = ""
     skill_activation_reason: str = ""
     prepare_metrics: dict | None = None

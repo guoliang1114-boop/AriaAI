@@ -418,6 +418,10 @@ class ChatRun(SQLModel, table=True):
     assistant_message_id: Optional[int] = Field(default=None, foreign_key="message.id", index=True)
     skill_id: Optional[int] = Field(default=None, foreign_key="skill.id", index=True)
     skill_name: str = ""
+    skill_version: str = ""
+    skill_release_status: str = ""
+    skill_release_sha256: str = ""
+    skill_activation_source: str = Field(default="", index=True)
     model: str = ""
     chat_mode: str = Field(default="", index=True)
     action_policy: str = Field(default="", index=True)
@@ -587,6 +591,9 @@ class Skill(SQLModel, table=True):
     tools_json: str = "[]"          # JSON list of tool names
     builtin_key: str = ""           # Stable source key for built-in Skill sync
     builtin_hash: str = ""          # Source hash; changed files update built-ins on startup
+    package_version: str = "1.0.0"   # Published semantic version (file-backed or custom)
+    package_status: str = "stable"   # preview | stable | deprecated
+    package_sha256: str = ""         # Exact published DB runtime-contract fingerprint
 
     @property
     def tools(self) -> list[str]:

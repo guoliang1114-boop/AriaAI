@@ -13,7 +13,10 @@ from app.services.agent_harness.project_world_state import (
     compare_project_world_states,
     format_project_world_state_change_for_prompt,
 )
-from app.services.chat.interaction_feedback import aggregate_interaction_metrics
+from app.services.chat.interaction_feedback import (
+    aggregate_interaction_metrics,
+    aggregate_skill_run_metrics,
+)
 from app.services.chat.turn_recovery import (
     build_turn_recovery_preview,
     format_turn_recovery_for_prompt,
@@ -248,3 +251,96 @@ def test_feedback_aggregation_ignores_malformed_metadata() -> None:
     assert metrics["assistant_turn_count"] == 1
     assert metrics["feedback_count"] == 0
     assert metrics["helpful_rate"] is None
+
+
+def test_skill_run_metrics_group_exact_versions_without_reading_content() -> None:
+    messages = [
+        SimpleNamespace(
+            id=21,
+            role="assistant",
+            content="PRIVATE-ANSWER-V1",
+            metadata_json=json.dumps(
+                {
+                    "interaction_feedback": {
+                        "schema_version": 1,
+                        "rating": "unhelpful",
+                        "reasons": ["wrong_skill"],
+                    }
+                }
+            ),
+        ),
+        SimpleNamespace(
+            id=22,
+            role="assistant",
+            content="PRIVATE-ANSWER-V2",
+            metadata_json=json.dumps(
+                {
+                    "interaction_feedback": {
+                        "schema_version": 1,
+                        "rating": "helpful",
+                        "reasons": [],
+                    },
+                    "turn_revision": {"source_message_id": 21},
+                }
+            ),
+        ),
+    ]
+    runs = [
+        SimpleNamespace(
+            skill_id=7,
+            skill_name="风险评估",
+            skill_version="1.0.0",
+            skill_release_status="stable",
+            skill_release_sha256="a" * 64,
+            skill_activation_source="auto",
+            status="completed",
+            duration_ms=100,
+            assistant_message_id=21,
+        ),
+        SimpleNamespace(
+            skill_id=7,
+            skill_name="风险评估",
+            skill_version="1.1.0",
+            skill_release_status="stable",
+            skill_release_sha256="b" * 64,
+            skill_activation_source="explicit",
+            status="completed",
+            duration_ms=300,
+            assistant_message_id=22,
+        ),
+        SimpleNamespace(
+            skill_id=7,
+            skill_name="风险评估",
+            skill_version="1.1.0",
+            skill_release_status="stable",
+            skill_release_sha256="b" * 64,
+            skill_activation_source="conversation",
+            status="failed",
+            duration_ms=200,
+            assistant_message_id=None,
+        ),
+        SimpleNamespace(skill_id=None, skill_name="", status="completed"),
+    ]
+
+    metrics = aggregate_skill_run_metrics(runs, messages)
+
+    assert metrics["run_count"] == 3
+    assert metrics["versioned_run_count"] == 3
+    assert [item["version"] for item in metrics["items"]] == ["1.1.0", "1.0.0"]
+    current = metrics["items"][0]
+    assert current["run_count"] == 2
+    assert current["completion_rate"] == 0.5
+    assert current["helpful_rate"] == 1.0
+    assert current["revision_success_rate"] == 1.0
+    assert current["average_duration_ms"] == 250
+    assert current["activation_sources"] == {
+        "explicit": 1,
+        "auto": 0,
+        "conversation": 1,
+        "other": 0,
+    }
+    previous = metrics["items"][1]
+    assert previous["wrong_skill_count"] == 1
+    serialized = json.dumps(metrics, ensure_ascii=False)
+    assert "PRIVATE" not in serialized
+    assert metrics["privacy"]["reads_message_content"] is False

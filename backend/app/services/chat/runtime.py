@@ -425,6 +425,21 @@ def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple
             None,
         )
     skill = session.get(Skill, req.skill_id) if req.skill_id else None
+    if skill is not None and skill.package_status == "deprecated":
+        return (
+            skill,
+            SkillActivationDecision(
+                False,
+                "skill_release_deprecated",
+                1.0,
+                source="explicit",
+                candidate_skill_id=skill.id,
+                candidate_skill_name=skill.name,
+                clear_conversation_skill=True,
+            ),
+            None,
+            None,
+        )
     auto_skill: Skill | None = None
     auto_decision: SkillActivationDecision | None = None
     conversation_decision: SkillActivationDecision | None = None
@@ -432,11 +447,21 @@ def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple
         conv = session.get(Conversation, req.conversation_id)
         if conv and conv.skill_id:
             sticky_skill = session.get(Skill, conv.skill_id)
-            if sticky_skill:
+            if sticky_skill and sticky_skill.package_status != "deprecated":
                 conversation_decision = decide_conversation_skill_activation(req.content, sticky_skill)
                 if conversation_decision.apply:
                     skill = sticky_skill
                     auto_decision = conversation_decision
+            elif sticky_skill:
+                conversation_decision = SkillActivationDecision(
+                    False,
+                    "conversation_skill_release_deprecated",
+                    1.0,
+                    source="conversation",
+                    candidate_skill_id=sticky_skill.id,
+                    candidate_skill_name=sticky_skill.name,
+                    clear_conversation_skill=True,
+                )
     if skill is None:
         task_route = rule_based_project_task_route(req.content) if req.project_id else None
         office_output_kind = str(getattr(task_route, "output_kind", "") or "").lower() if task_route else ""
@@ -1308,6 +1333,9 @@ def prepare_chat_runtime(
         temperature=temperature,
         skill_id=effective_skill_id,
         skill_name=effective_skill.name if effective_skill else "",
+        skill_version=effective_skill.package_version if effective_skill else "",
+        skill_release_status=effective_skill.package_status if effective_skill else "",
+        skill_release_sha256=effective_skill.package_sha256 if effective_skill else "",
         skill_activation_source=skill_decision.source,
         skill_activation_reason=skill_decision.reason,
         prepare_metrics=prepare_metrics,
