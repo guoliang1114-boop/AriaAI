@@ -62,6 +62,17 @@ class ClientMemoryRoutingTest(unittest.TestCase):
         self.assertIn("Alice / Sponsor", bundle["prompt"])
         self.assertNotIn("Pilot before scale", bundle["prompt"])
 
+    def test_current_relationship_phrase_selects_focused_relationship_memory(self):
+        bundle = build_client_memory_prompt_bundle(
+            _client(),
+            "Summarize current relationship",
+            force=True,
+        )
+
+        self.assertEqual(bundle["selection"]["retrieval_mode"], "focused")
+        self.assertIn("relationship", bundle["selection"]["query_facets"])
+        self.assertIn("relationship_signals", bundle["selection"]["selected_slots"])
+
     def test_client_scope_forces_bounded_overview(self):
         mode, facets, slots = select_client_memory_slots("summarize", force=True)
 

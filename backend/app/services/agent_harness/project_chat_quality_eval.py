@@ -363,6 +363,11 @@ def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
     )
     unrelated = build_client_memory_prompt_bundle(client, "项目交付进度是什么？")
     relationship = build_client_memory_prompt_bundle(client, "客户关系与决策机制如何？")
+    current_relationship = build_client_memory_prompt_bundle(
+        client,
+        "Summarize current relationship",
+        force=True,
+    )
     user = build_user_memory_prompt_bundle(
         {
             "response_preferences": {
@@ -388,6 +393,13 @@ def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
             "case": "relationship_turn_routes_client_memory",
             "passed": "decision_patterns" in relationship["selection"]["selected_slots"]
             and "lessons_learned" not in relationship["selection"]["selected_slots"],
+        },
+        {
+            "case": "natural_english_relationship_phrase_routes_focused_memory",
+            "passed": current_relationship["selection"]["retrieval_mode"] == "focused"
+            and "relationship" in current_relationship["selection"]["query_facets"]
+            and "relationship_signals"
+            in current_relationship["selection"]["selected_slots"],
         },
         {
             "case": "current_turn_overrides_saved_preferences",

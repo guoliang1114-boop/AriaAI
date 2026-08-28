@@ -91,7 +91,8 @@ _CLIENT_MEMORY_FACET_TERMS = {
     ),
     "relationship": (
         "客户关系", "合作关系", "当前关系", "关系状态", "客户画像", "敏感话题",
-        "client relationship", "customer relationship", "relationship with", "client profile",
+        "client relationship", "customer relationship", "current relationship",
+        "relationship with", "client profile",
     ),
     "portfolio": (
         "客户项目", "跨项目", "所有项目", "项目组合", "portfolio", "cross-project",

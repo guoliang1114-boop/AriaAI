@@ -354,7 +354,7 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 用户偏好在注入前确定性识别本轮明确的语言、语气、格式和详略要求；只移除同维度的旧偏好，保留称呼、工作方式和未冲突偏好。当前用户要求始终优先，不再把互相矛盾的新旧指令同时交给模型自行猜测。
 - `context_receipt.memory.layers` 以 `user/client/project` 三层展示状态、版本、召回模式、槽位与条目计数、截断和被本轮覆盖的偏好维度；新增 `client_memory_stale` 与 `user_preference_overridden` 告警。回执不包含偏好值、客户记忆正文、项目正文、名称、用户身份或 Prompt。
 - 流式与历史项目对话均展示每层本轮是否使用、使用数量、新鲜度，以及“本轮要求覆盖已保存的语言/语气/格式/详略偏好”，让用户能够理解 Aria 为什么这样回答。
-- 确定性发布门禁由 47 扩展为 51 个场景、17 项指标，新增 `layered_memory_routing_accuracy`，覆盖无关问题不注入、客户关系精准路由、本轮要求覆盖旧偏好和回执无正文四类边界。
+- 确定性发布门禁由 47 扩展为 52 个场景、17 项指标，新增 `layered_memory_routing_accuracy`，覆盖无关问题不注入、中英文客户关系精准路由、本轮要求覆盖旧偏好和回执无正文边界。
 - 本阶段复用既有 `UserMemory`、`ClientRecord.client_memory_json`、项目记忆 JSON、Context Assembly、Instruction Manifest 和 Product Run Event，不新增数据库迁移。机制参考 Codex 固定世界状态身份与指令优先级边界后重写为 Aria Python/React 实现，不运行、不导入、不连接 Codex。
 
 ## 11. 官方资料与许可证
