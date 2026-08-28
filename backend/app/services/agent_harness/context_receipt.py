@@ -98,6 +98,20 @@ def build_context_receipt(run_id: str, runtime: Any) -> dict[str, Any]:
         warnings.append("project_memory_stale")
     if bool(memory.get("truncated", False)):
         warnings.append("memory_retrieval_truncated")
+    for layer in list(memory.get("layers") or []):
+        if not isinstance(layer, dict):
+            continue
+        layer_scope = str(layer.get("scope") or "")
+        if (
+            layer_scope == "client"
+            and str(layer.get("status") or "") == "stale"
+            and int(layer.get("selected_item_count") or 0) > 0
+        ):
+            warnings.append("client_memory_stale")
+        if layer_scope == "user" and list(layer.get("overridden_dimensions") or []):
+            warnings.append("user_preference_overridden")
+        if bool(layer.get("truncated", False)):
+            warnings.append("memory_retrieval_truncated")
     if skill_status == "ambiguous":
         warnings.append("skill_match_ambiguous")
     if evidence["compacted"]:

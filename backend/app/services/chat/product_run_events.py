@@ -180,16 +180,89 @@ TURN_RECEIPT_MAX_CONSTRAINTS = 8
 TURN_RECEIPT_CONSTRAINT_MAX_CHARS = 160
 STEERING_PREVIEW_MAX_CHARS = 160
 CONTEXT_RECEIPT_MAX_CANDIDATES = 3
+CONTEXT_RECEIPT_MAX_MEMORY_LAYERS = 3
 
 _CONTEXT_SCOPES = frozenset({"chat", "project", "client_portfolio", "workspace"})
 _MEMORY_STATUSES = frozenset({"not_applicable", "missing", "stale", "ready"})
 _MEMORY_RETRIEVAL_MODES = frozenset({"none", "overview", "focused", "full"})
+_MEMORY_LAYER_SCOPES = frozenset({"user", "client", "project"})
+_MEMORY_OVERRIDE_DIMENSIONS = frozenset({"language", "tone", "format", "verbosity"})
+_MEMORY_LAYER_SLOTS = {
+    "user": frozenset(
+        {
+            "personal_info.preferred_name",
+            "response_preferences.language",
+            "response_preferences.tone",
+            "response_preferences.format",
+            "work_style.ask_before_destructive",
+            "work_style.confirmation_policy",
+            "collaboration_style.proactive_care",
+            "appearance",
+            "other_preference",
+        }
+    ),
+    "client": frozenset(
+        {
+            "client_profile",
+            "decision_patterns",
+            "key_contacts",
+            "structured_stakeholders",
+            "lessons_learned",
+            "relationship_signals",
+            "project_history",
+            "sensitive_topics",
+        }
+    ),
+    "project": frozenset(
+        {
+            "project_brief",
+            "current_stage",
+            "current_objective",
+            "recent_progress",
+            "key_risks",
+            "open_questions",
+            "next_actions",
+            "important_documents",
+            "financial_status",
+            "delivery_signals",
+            "stakeholder_notes",
+            "client_stakeholders",
+        }
+    ),
+}
+_MEMORY_LAYER_FACETS = {
+    "user": frozenset(),
+    "client": frozenset(
+        {
+            "overview",
+            "comprehensive",
+            "decision",
+            "stakeholder",
+            "lessons",
+            "relationship",
+            "portfolio",
+        }
+    ),
+    "project": frozenset(
+        {
+            "overview",
+            "comprehensive",
+            "risk",
+            "delivery",
+            "financial",
+            "stakeholder",
+            "documents",
+        }
+    ),
+}
 _SKILL_RECEIPT_STATUSES = frozenset({"applied", "ambiguous", "not_used"})
 _SKILL_USAGE_MODES = frozenset({"none", "advisory", "workflow"})
 _CONTEXT_WARNING_CODES = frozenset(
     {
         "project_memory_missing",
         "project_memory_stale",
+        "client_memory_stale",
+        "user_preference_overridden",
         "memory_retrieval_truncated",
         "skill_match_ambiguous",
         "context_compacted",
@@ -246,6 +319,81 @@ def _require_positive_int(value: Any, label: str) -> int:
 
 def _maybe_timestamp(timestamp: str | None) -> str:
     return timestamp if timestamp else _now_iso()
+
+
+def _normalize_memory_layer(value: dict) -> dict[str, Any]:
+    """Normalize one privacy-safe memory layer without accepting raw values."""
+
+    scope = _require_in(
+        str(value.get("scope") or ""),
+        _MEMORY_LAYER_SCOPES,
+        "context_receipt.memory.layer.scope",
+    )
+    status = _require_in(
+        str(value.get("status") or ""),
+        _MEMORY_STATUSES,
+        "context_receipt.memory.layer.status",
+    )
+    retrieval_mode = _require_in(
+        str(value.get("retrieval_mode") or "none"),
+        _MEMORY_RETRIEVAL_MODES,
+        "context_receipt.memory.layer.retrieval_mode",
+    )
+    try:
+        version = max(0, int(value.get("version") or 0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("context_receipt.memory.layer.version is invalid") from exc
+    selected_slots = list(dict.fromkeys(
+        _require_in(
+            str(slot).strip(),
+            _MEMORY_LAYER_SLOTS[scope],
+            "context_receipt.memory.layer.selected_slot",
+        )
+        for slot in list(value.get("selected_slots") or [])[:12]
+        if str(slot).strip()
+    ))
+    query_facets = list(dict.fromkeys(
+        _require_in(
+            str(facet).strip(),
+            _MEMORY_LAYER_FACETS[scope],
+            "context_receipt.memory.layer.query_facet",
+        )
+        for facet in list(value.get("query_facets") or [])[:5]
+        if str(facet).strip()
+    ))
+    counts: dict[str, int] = {}
+    for key in (
+        "selected_slot_count",
+        "available_slot_count",
+        "omitted_slot_count",
+        "selected_item_count",
+    ):
+        try:
+            counts[key] = max(0, int(value.get(key) or 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"context_receipt.memory.layer.{key} is invalid") from exc
+    counts["selected_slot_count"] = len(selected_slots)
+    overridden_dimensions = [
+        _require_in(
+            str(dimension),
+            _MEMORY_OVERRIDE_DIMENSIONS,
+            "context_receipt.memory.layer.overridden_dimension",
+        )
+        for dimension in list(value.get("overridden_dimensions") or [])[:4]
+    ]
+    if scope != "user" and overridden_dimensions:
+        raise ValueError("only the user memory layer may expose overridden dimensions")
+    return {
+        "scope": scope,
+        "status": status,
+        "version": version,
+        "retrieval_mode": retrieval_mode,
+        "query_facets": query_facets,
+        "selected_slots": selected_slots,
+        **counts,
+        "truncated": bool(value.get("truncated", False)),
+        "overridden_dimensions": list(dict.fromkeys(overridden_dimensions)),
+    }
 
 
 # ----------------------------------------------------------------------
@@ -389,6 +537,16 @@ def context_receipt(
             memory_counts[key] = max(0, int(memory.get(key) or 0))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"context_receipt.memory.{key} is invalid") from exc
+    memory_layers: list[dict[str, Any]] = []
+    seen_layer_scopes: set[str] = set()
+    for layer in list(memory.get("layers") or [])[:CONTEXT_RECEIPT_MAX_MEMORY_LAYERS]:
+        if not isinstance(layer, dict):
+            continue
+        normalized_layer = _normalize_memory_layer(layer)
+        if normalized_layer["scope"] in seen_layer_scopes:
+            raise ValueError("context_receipt.memory.layers contains a duplicate scope")
+        seen_layer_scopes.add(normalized_layer["scope"])
+        memory_layers.append(normalized_layer)
 
     skill_status = _require_in(
         str(skill.get("status") or ""),
@@ -461,6 +619,7 @@ def context_receipt(
             "selected_slots": selected_slots,
             **memory_counts,
             "truncated": bool(memory.get("truncated", False)),
+            "layers": memory_layers,
         },
         "skill": normalized_skill,
         "evidence": normalized_evidence,

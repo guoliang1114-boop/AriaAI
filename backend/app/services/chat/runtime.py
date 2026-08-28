@@ -1086,21 +1086,45 @@ def prepare_chat_runtime(
     system = _append_turn_contract_frame(system, turn_contract.to_dict())
     system = _append_capability_frame(system, intent_decision, runtime_tools)
 
-    # V0.0.4 track B: inject the current user's explicit preferences (language,
-    # tone, reporting style, …) so AI behaviour stays consistent across
-    # projects without re-asking every turn. Skipped when there's no user_id
-    # or no UserMemory row.
+    # Inject the current user's explicit preferences after removing saved
+    # dimensions superseded by this turn. A content-free missing/selection
+    # layer is still recorded when there is no usable UserMemory row.
     from app.services.chat.user_memory_prompt import (
-        format_user_memory_for_prompt,
-        load_user_memory_preferences,
+        build_user_memory_prompt_bundle,
+        load_user_memory_record,
     )
 
-    user_memory_prefs = load_user_memory_preferences(session, owner_user_id)
-    user_memory_section = format_user_memory_for_prompt(user_memory_prefs)
+    user_memory_record = load_user_memory_record(session, owner_user_id) or {}
+    user_memory_bundle = build_user_memory_prompt_bundle(
+        user_memory_record.get("preferences"),
+        current_turn_request,
+        user_constraints=turn_contract.user_constraints,
+        version=int(user_memory_record.get("version") or 0),
+    )
+    user_memory_section = str(user_memory_bundle.get("prompt") or "")
+    user_memory_selection = dict(user_memory_bundle.get("selection") or {})
+    receipt_memory = chat_ctx.context_receipt.setdefault("memory", {})
+    existing_layers = sorted(
+        [
+            dict(layer)
+            for layer in list(receipt_memory.get("layers") or [])
+            if isinstance(layer, dict) and str(layer.get("scope") or "") != "user"
+        ],
+        key=lambda layer: {"client": 0, "project": 1}.get(
+            str(layer.get("scope") or ""), 2
+        ),
+    )
+    receipt_memory["layers"] = [user_memory_selection, *existing_layers]
+    prepare_metrics["user_memory_selection"] = user_memory_selection
+    prepare_metrics["context_receipt_base"] = dict(chat_ctx.context_receipt or {})
     if user_memory_section:
         system = f"{system.rstrip()}\n\n{user_memory_section}\n"
         prepare_metrics["user_memory_injected"] = True
         prepare_metrics["user_memory_chars"] = len(user_memory_section)
+    if user_memory_selection.get("overridden_dimensions"):
+        prepare_metrics["user_memory_overridden_dimensions"] = list(
+            user_memory_selection["overridden_dimensions"]
+        )
 
     # Conversation Capsule v1 is rebuilt from authoritative current state and
     # message metadata on every turn. It is intentionally provider-neutral and

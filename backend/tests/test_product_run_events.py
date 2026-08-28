@@ -160,6 +160,31 @@ class ContextReceiptTest(unittest.TestCase):
                 "available_slot_count": 8,
                 "omitted_slot_count": 5,
                 "selected_item_count": 6,
+                "layers": [
+                    {
+                        "scope": "user",
+                        "status": "ready",
+                        "version": 2,
+                        "retrieval_mode": "focused",
+                        "selected_slots": ["response_preferences.tone"],
+                        "selected_slot_count": 1,
+                        "available_slot_count": 3,
+                        "omitted_slot_count": 2,
+                        "selected_item_count": 1,
+                        "overridden_dimensions": ["language"],
+                    },
+                    {
+                        "scope": "client",
+                        "status": "stale",
+                        "version": 5,
+                        "retrieval_mode": "focused",
+                        "selected_slots": ["decision_patterns"],
+                        "selected_slot_count": 1,
+                        "available_slot_count": 4,
+                        "omitted_slot_count": 3,
+                        "selected_item_count": 2,
+                    },
+                ],
             },
             skill={
                 "status": "applied",
@@ -179,17 +204,71 @@ class ContextReceiptTest(unittest.TestCase):
                 "user_preferences": False,
                 "compacted": False,
             },
-            warnings=["project_memory_stale"],
+            warnings=[
+                "project_memory_stale",
+                "client_memory_stale",
+                "user_preference_overridden",
+            ],
         )
 
         self.assertEqual(event["type"], EventType.CONTEXT_RECEIPT)
         self.assertEqual(event["memory"]["version"], 4)
         self.assertEqual(event["memory"]["retrieval_mode"], "focused")
         self.assertEqual(event["memory"]["selected_item_count"], 6)
+        self.assertEqual(
+            [layer["scope"] for layer in event["memory"]["layers"]],
+            ["user", "client"],
+        )
+        self.assertEqual(
+            event["memory"]["layers"][0]["overridden_dimensions"],
+            ["language"],
+        )
         self.assertEqual(event["skill"]["usage_mode"], "advisory")
         self.assertEqual(event["evidence"]["knowledge_reference_count"], 2)
         self.assertNotIn("prompt", event)
         self.assertNotIn("content", event)
+
+    def test_context_receipt_rejects_overrides_on_non_user_layer(self):
+        with self.assertRaises(ValueError):
+            context_receipt(
+                make_run_id(),
+                scope="project",
+                memory={
+                    "status": "ready",
+                    "version": 1,
+                    "layers": [
+                        {
+                            "scope": "client",
+                            "status": "ready",
+                            "version": 1,
+                            "overridden_dimensions": ["tone"],
+                        }
+                    ],
+                },
+                skill={"status": "not_used", "usage_mode": "none"},
+                evidence={},
+            )
+
+    def test_context_receipt_rejects_arbitrary_layer_slot_names(self):
+        with self.assertRaises(ValueError):
+            context_receipt(
+                make_run_id(),
+                scope="chat",
+                memory={
+                    "status": "not_applicable",
+                    "version": 0,
+                    "layers": [
+                        {
+                            "scope": "user",
+                            "status": "ready",
+                            "version": 1,
+                            "selected_slots": ["PRIVATE_CUSTOM_KEY"],
+                        }
+                    ],
+                },
+                skill={"status": "not_used", "usage_mode": "none"},
+                evidence={},
+            )
 
     def test_context_receipt_bounds_ambiguous_candidates(self):
         event = context_receipt(

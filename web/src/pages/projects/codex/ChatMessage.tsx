@@ -14,6 +14,7 @@ import type {
 import type { ContextReceiptEvent } from '../../../types/productRunEvent'
 import type { RunActivityTimeline } from '../../../stores/runActivityReducer'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
+import { contextMemoryLayerLabel } from '../../../utils/contextReceipt'
 import { CxIcon } from './CxIcons'
 import { ProjectChatActivityTimeline } from './ProjectChatActivityTimeline'
 import { SkillCandidateButtons } from './SkillCandidateButtons'
@@ -593,6 +594,7 @@ function PersistentContextReceipt({
   const retrievalLabel = receipt.memory.selected_item_count > 0
     ? ` · ${receipt.memory.retrieval_mode === 'full' ? '全量' : '按问题'}召回 ${receipt.memory.selected_item_count} 条记忆`
     : ''
+  const memoryLayerLabels = (receipt.memory.layers || []).map(contextMemoryLayerLabel)
   const worldStateLabel = receipt.world_state
     ? ` · 项目状态 ${receipt.world_state.current_version}${receipt.world_state.changed ? ' 有变化' : ''}`
     : ''
@@ -607,6 +609,11 @@ function PersistentContextReceipt({
           ? ` · ${receipt.evidence.history_message_count} 条近期对话`
           : ''}
       </div>
+      {memoryLayerLabels.length > 0 && (
+        <div style={{ marginTop: 4, paddingLeft: 14 }}>
+          {memoryLayerLabels.map((label) => <div key={label}>{label}</div>)}
+        </div>
+      )}
       {receipt.world_state?.changed && (
         <div style={{ marginTop: 4, paddingLeft: 14, color: 'var(--warn)' }}>
           项目状态变更 · {receipt.world_state.changed_categories.map((category) => {

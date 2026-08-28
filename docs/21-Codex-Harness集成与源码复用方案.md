@@ -727,6 +727,10 @@ Phase 2S 把 Codex apply-patch 的“先冻结基线、写入前重新验证”�
 
 参考 Codex rollout recorder 与 reconstruction 的不可变记录/活动视图分离边界，在 Aria 内新增完整 Skill 契约快照、独立线上指针和项目稳定灰度。候选只在分配到的 Run 中覆盖 Context Builder；Run 冻结精确 release/rollout 身份，内容安全终态聚合负责失败率止损。管理员控制使用预期状态、指纹、行锁和数据库唯一开放灰度约束，支持暂停、恢复、推广和回滚。迁移由 `032_v1_32` 管理，所有版本、流量、权限、审计与运行状态仍属于 Aria，不含 Codex 进程、SDK、协议或通信。
 
+### Phase 3H：分层记忆选择与指令冲突显式化（已实施）
+
+参考 `codex-rs/core/src/context/world_state/mod.rs` 的稳定状态身份和 `codex-rs/codex-home/src/instructions/mod.rs` 的近层指令优先级，在 Aria 内将现有项目记忆召回扩展为用户、客户、项目三层选择。客户记忆按问题切面进入提示词；用户层在注入前删除与本轮语言、语气、格式和详略要求冲突的旧偏好；Context Receipt 只记录层、版本、槽位、数量和固定覆盖维度。所有记忆、选择、权限与事件仍由 Aria 原生服务拥有，不含 Codex runtime、SDK、协议或通信，也不新增数据库迁移。
+
 ## 8. 许可证与升级流程
 
 Aria 主项目继续使用 MIT License；从 Codex 改编的具体文件同时受 Apache License 2.0 的适用要求约束。

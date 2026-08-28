@@ -68,6 +68,22 @@ describe('chat receipt normalization', () => {
         omitted_slot_count: 2,
         selected_item_count: 2,
         truncated: false,
+        layers: [
+          {
+            scope: 'user',
+            status: 'ready',
+            version: 2,
+            retrieval_mode: 'focused',
+            query_facets: [],
+            selected_slots: ['response_preferences.tone'],
+            selected_slot_count: 1,
+            available_slot_count: 2,
+            omitted_slot_count: 1,
+            selected_item_count: 1,
+            truncated: false,
+            overridden_dimensions: ['language'],
+          },
+        ],
       },
       skill: {
         status: 'applied',
@@ -95,7 +111,10 @@ describe('chat receipt normalization', () => {
 
     expect(valid && toContextReceiptEvent(valid)).toMatchObject({
       run_id: 'run_1',
-      memory: { version: 3 },
+      memory: {
+        version: 3,
+        layers: [{ scope: 'user', overridden_dimensions: ['language'] }],
+      },
     })
     expect(incomplete && toContextReceiptEvent(incomplete)).toBeNull()
   })

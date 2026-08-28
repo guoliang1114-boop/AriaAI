@@ -17,6 +17,7 @@ import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../../types/pr
 import type { RunActivityTimeline } from '../../../../stores/runActivityReducer'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
+import { contextMemoryLayerLabel } from '../../../../utils/contextReceipt'
 import { CxConfirmDialog, CxSkeleton } from '../../../../components/codex'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
@@ -1893,6 +1894,7 @@ function ProjectContextReceiptSummary({
   const memoryRetrievalLabel = receipt.memory.selected_item_count > 0
     ? `${receipt.memory.retrieval_mode === 'full' ? '全量' : '按问题'}召回 ${receipt.memory.selected_item_count} 条记忆 / ${receipt.memory.selected_slot_count} 个槽位`
     : ''
+  const memoryLayerLabels = (receipt.memory.layers || []).map(contextMemoryLayerLabel)
   const evidenceBits = [
     receipt.evidence.knowledge_reference_count > 0
       ? `${receipt.evidence.knowledge_reference_count} 条知识证据`
@@ -1908,6 +1910,8 @@ function ProjectContextReceiptSummary({
     [
       'project_memory_missing',
       'project_memory_stale',
+      'client_memory_stale',
+      'user_preference_overridden',
       'skill_match_ambiguous',
       'project_world_state_changed',
     ].includes(warning),
@@ -1927,6 +1931,11 @@ function ProjectContextReceiptSummary({
         {memoryRetrievalLabel ? ` · ${memoryRetrievalLabel}` : ''} · {skillLabel}
       </div>
       {evidenceBits.length > 0 && <div style={{ marginTop: 2 }}>{evidenceBits.join(' · ')}</div>}
+      {memoryLayerLabels.length > 0 && (
+        <div style={{ marginTop: 2 }}>
+          {memoryLayerLabels.map((label) => <div key={label}>{label}</div>)}
+        </div>
+      )}
       {receipt.world_state && (
         <div style={{ marginTop: 2 }}>
           项目状态版本 · {receipt.world_state.current_version}

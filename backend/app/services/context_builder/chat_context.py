@@ -8,7 +8,7 @@ from app.services.agent_harness.project_memory_evidence import (
     build_project_memory_evidence,
 )
 from app.services.context_builder.assembly import ContextSourceInput
-from app.services.context_builder.memory_formatters import _format_client_memory_for_prompt
+from app.services.context_builder.memory_formatters import build_client_memory_prompt_bundle
 from app.services.context_builder.project_context import build_project_context
 from app.services.context_builder.rag_context import build_rag_context
 from app.services.context_builder.skill_context import (
@@ -87,6 +87,11 @@ def build_chat_context(
     )
     
     project = session.get(Project, project_id) if project_id else None
+    client = None
+    if project is not None and project.client.strip():
+        client = session.exec(
+            select(ClientRecord).where(ClientRecord.name.ilike(project.client.strip()))
+        ).first()
     normalized_scope = (knowledge_scope or "project").strip().lower()
     normalized_context_mode = (context_mode or "").strip().lower()
     explicit_context_mode = bool(normalized_context_mode)
@@ -142,15 +147,34 @@ def build_chat_context(
     else:
         project_context = build_lightweight_workspace_context(session, accessible_project_ids)
 
-    if knowledge_scope == "client" and project is not None and not portfolio_context:
-        if project and project.client.strip():
-            client = session.exec(
-                select(ClientRecord).where(ClientRecord.name.ilike(project.client.strip()))
-            ).first()
-            if client:
-                client_memory_context = _format_client_memory_for_prompt(client)
-                if client_memory_context:
-                    project_context = client_memory_context + "\n\n" + project_context
+    client_memory_bundle = (
+        build_client_memory_prompt_bundle(
+            client,
+            content if not (portfolio_context or workspace_inventory_context) else "",
+            force=normalized_scope == "client" and not portfolio_context,
+        )
+        if client is not None
+        else {
+            "prompt": "",
+            "selection": {
+                "scope": "client",
+                "status": "missing",
+                "version": 0,
+                "retrieval_mode": "none",
+                "query_facets": [],
+                "selected_slots": [],
+                "selected_slot_count": 0,
+                "available_slot_count": 0,
+                "omitted_slot_count": 0,
+                "selected_item_count": 0,
+                "truncated": False,
+                "overridden_dimensions": [],
+            },
+        }
+    )
+    client_memory_context = str(client_memory_bundle.get("prompt") or "")
+    if client_memory_context:
+        project_context = client_memory_context + "\n\n" + project_context
 
     if skill_id and project_context.strip():
         skill_briefing = (
@@ -192,6 +216,17 @@ def build_chat_context(
         memory_status = "not_applicable"
         memory_version = 0
 
+    project_memory_layer = {
+        "scope": "project",
+        "status": memory_status,
+        "version": memory_version,
+        **dict(project_memory_bundle.get("selection") or {}),
+        "overridden_dimensions": [],
+    }
+    memory_layers = [project_memory_layer]
+    if client is not None or normalized_scope == "client":
+        memory_layers.append(dict(client_memory_bundle.get("selection") or {}))
+
     context_receipt = {
         "scope": context_scope,
         "project": (
@@ -204,6 +239,7 @@ def build_chat_context(
             "version": memory_version,
             "raw_context_available": bool(project_context.strip()),
             **dict(project_memory_bundle.get("selection") or {}),
+            "layers": memory_layers,
         },
         "evidence": {
             "workspace_context": bool(project_context.strip()),
@@ -212,6 +248,50 @@ def build_chat_context(
         },
     }
     
+    context_sources = [
+        ContextSourceInput(
+            source_id="skill_instructions",
+            kind="instructions",
+            trust="workspace",
+            content=skill_ctx.skill_prompt or "",
+            metadata={"skill_selected": bool(skill_id)},
+        ),
+        ContextSourceInput(
+            source_id="workspace_context",
+            kind="workspace",
+            trust="workspace",
+            content=project_context or "",
+            metadata={
+                "context_mode": normalized_context_mode or "auto",
+                "knowledge_scope": normalized_scope,
+                "project_scoped": bool(project_id),
+                "context_scope": context_scope,
+                "memory_status": memory_status,
+                "memory_version": memory_version,
+                "memory_retrieval": dict(project_memory_bundle.get("selection") or {}),
+            },
+        ),
+    ]
+    if client_memory_context:
+        context_sources.append(
+            ContextSourceInput(
+                source_id="client_memory",
+                kind="memory",
+                trust="workspace",
+                content=client_memory_context,
+                metadata={"selection": dict(client_memory_bundle.get("selection") or {})},
+            )
+        )
+    context_sources.append(
+        ContextSourceInput(
+            source_id="retrieved_knowledge",
+            kind="retrieval",
+            trust="retrieved",
+            content=rag_data["text"] or "",
+            metadata={"reference_count": len(rag_data["sources"] or [])},
+        )
+    )
+
     return ChatContext(
         skill_prompt=skill_ctx.skill_prompt,
         project_context=project_context,
@@ -222,35 +302,5 @@ def build_chat_context(
         tools=_merge_project_chat_tools(skill_ctx.tools, project_id),
         max_tokens=skill_ctx.max_tokens or default_max_tokens,
         context_receipt=context_receipt,
-        context_sources=[
-            ContextSourceInput(
-                source_id="skill_instructions",
-                kind="instructions",
-                trust="workspace",
-                content=skill_ctx.skill_prompt or "",
-                metadata={"skill_selected": bool(skill_id)},
-            ),
-            ContextSourceInput(
-                source_id="workspace_context",
-                kind="workspace",
-                trust="workspace",
-                content=project_context or "",
-                metadata={
-                    "context_mode": normalized_context_mode or "auto",
-                    "knowledge_scope": normalized_scope,
-                    "project_scoped": bool(project_id),
-                    "context_scope": context_scope,
-                    "memory_status": memory_status,
-                    "memory_version": memory_version,
-                    "memory_retrieval": dict(project_memory_bundle.get("selection") or {}),
-                },
-            ),
-            ContextSourceInput(
-                source_id="retrieved_knowledge",
-                kind="retrieval",
-                trust="retrieved",
-                content=rag_data["text"] or "",
-                metadata={"reference_count": len(rag_data["sources"] or [])},
-            ),
-        ],
+        context_sources=context_sources,
     )

@@ -66,6 +66,8 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - stable instruction-layer identities and precedence adapted into a bounded,
   no-content manifest covering platform policy, current user requests, project
   scope, active task state, Skills, preferences, evidence, and history; and
+- query-aware user/client/project memory-layer selection and deterministic
+  current-turn preference supersession, with content-free routing receipts; and
 - expected-turn-bound active-run steering, text-only mailbox delivery, safe
   model/tool boundary injection, stale planned-tool supersession, and concise
   turn-understanding receipts without exposing prompts or hidden reasoning.

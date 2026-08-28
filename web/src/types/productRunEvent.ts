@@ -85,16 +85,35 @@ export interface TurnReceiptEvent {
 
 export type ContextReceiptScope = "chat" | "project" | "client_portfolio" | "workspace";
 export type ContextMemoryStatus = "not_applicable" | "missing" | "stale" | "ready";
+export type ContextMemoryLayerScope = "user" | "client" | "project";
+export type ContextMemoryOverrideDimension = "language" | "tone" | "format" | "verbosity";
 export type ContextSkillStatus = "applied" | "ambiguous" | "not_used";
 export type ContextSkillUsageMode = "none" | "advisory" | "workflow";
 export type ContextWarningCode =
   | "project_memory_missing"
   | "project_memory_stale"
+  | "client_memory_stale"
+  | "user_preference_overridden"
   | "memory_retrieval_truncated"
   | "skill_match_ambiguous"
   | "context_compacted"
   | "project_world_state_changed"
   | "project_world_state_truncated";
+
+export interface ContextMemoryLayer {
+  scope: ContextMemoryLayerScope;
+  status: ContextMemoryStatus;
+  version: number;
+  retrieval_mode: "none" | "overview" | "focused" | "full";
+  query_facets: string[];
+  selected_slots: string[];
+  selected_slot_count: number;
+  available_slot_count: number;
+  omitted_slot_count: number;
+  selected_item_count: number;
+  truncated: boolean;
+  overridden_dimensions: ContextMemoryOverrideDimension[];
+}
 
 export interface ContextReceiptEvent {
   type: "context_receipt";
@@ -114,6 +133,8 @@ export interface ContextReceiptEvent {
     omitted_slot_count: number;
     selected_item_count: number;
     truncated: boolean;
+    /** Optional for persisted v1 receipts created before layered routing shipped. */
+    layers?: ContextMemoryLayer[];
   };
   skill: {
     status: ContextSkillStatus;

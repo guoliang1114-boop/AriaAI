@@ -571,7 +571,7 @@ Model Layer（外部推理服务）
 |---|---|---|---|---|
 | `run_started` | run 已开始，前端立即进入 loading | `run_id`, `timestamp` | `display_mode`, `skill` | `display_mode` 必须在 run 创建时提供；`skill` = `{name, id?}`，存在则 UI 渲染 Skill 横幅 |
 | `turn_receipt` | 模型开始前展示本轮理解 | `run_id`, `summary`, `mode`, `target_scope`, `execution_scope`, `expected_response`, `write_allowed`, `requires_confirmation`, `steering_supported` | - | 只允许来自 Turn Contract 的产品字段，不得包含提示词或隐藏推理 |
-| `context_receipt` | 展示本轮实际采用的项目记忆、Skill 与证据概况 | `run_id`, `schema_version`, `scope`, `project`, `skill`, `evidence`, `warnings` | - | `project.memory` 可含召回模式、查询切面、选中槽位、证据数与截断状态；整体仅包含状态、计数、ID、版本和有限候选，不得包含提示词、记忆正文、文件内容、工具参数或隐藏推理 |
+| `context_receipt` | 展示本轮实际采用的用户/客户/项目记忆、Skill 与证据概况 | `run_id`, `schema_version`, `scope`, `project`, `memory`, `skill`, `evidence`, `warnings` | - | `memory.layers` 最多包含 `user/client/project` 三层的状态、版本、召回模式、选中槽位/条目计数、截断和固定偏好覆盖维度；整体仅包含状态、计数、ID、版本和有限候选，不得包含偏好值、提示词、记忆正文、文件内容、工具参数、用户身份或隐藏推理 |
 | `steering_applied` | 运行中追加要求已进入安全边界 | `run_id`, `steering_id`, `sequence`, `content_preview` | `message_id` | 必须绑定已鉴权的同一 Run；preview ≤ 160 字 |
 | `status` | 产品级状态文案 | `run_id`, `message` | `display_mode`, `progress` | `message` 长度 ≤ 50 字，面向用户 |
 | `text_delta` | 模型文本增量 | `run_id`, `content` | - | `content` 为 UTF-8 文本片段，禁止在后端批量缓存后发送 |

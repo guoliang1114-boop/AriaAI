@@ -9,7 +9,10 @@ from sqlmodel import Session, SQLModel
 
 from app.models.db import User, UserMemory
 from app.services.chat.user_memory_prompt import (
+    build_user_memory_prompt_bundle,
+    classify_user_preference_overrides,
     format_user_memory_for_prompt,
+    load_user_memory_record,
     load_user_memory_preferences,
 )
 from tests.test_database import create_test_engine, drop_all_tables
@@ -134,6 +137,85 @@ class FormatUserMemoryTest(unittest.TestCase):
         self.assertIn("下一步行动", out)
         self.assertNotIn("collaboration_style.proactive_care: work_partner", out)
 
+    def test_current_turn_explicitly_overrides_conflicting_saved_preferences(self):
+        bundle = build_user_memory_prompt_bundle(
+            {
+                "response_preferences": {
+                    "language": "zh",
+                    "tone": "formal",
+                    "verbosity": "detailed",
+                    "format": "table",
+                },
+                "work_style": {"conclusion_first": True},
+            },
+            "请改成英文回答，并且更简短",
+            version=7,
+        )
+
+        self.assertNotIn("response_preferences.language: zh", bundle["prompt"])
+        self.assertNotIn("response_preferences.verbosity: detailed", bundle["prompt"])
+        self.assertIn("response_preferences.tone: formal", bundle["prompt"])
+        self.assertEqual(
+            bundle["selection"]["overridden_dimensions"],
+            ["language", "verbosity"],
+        )
+        self.assertEqual(bundle["selection"]["version"], 7)
+        self.assertNotIn("formal", str(bundle["selection"]))
+
+    def test_topic_words_do_not_false_positive_as_preference_overrides(self):
+        self.assertEqual(
+            classify_user_preference_overrides("分析英文市场报告的风险和格式问题"),
+            (),
+        )
+
+    def test_override_is_reported_only_when_matching_saved_preference_exists(self):
+        bundle = build_user_memory_prompt_bundle(
+            {"response_preferences": {"tone": "formal"}},
+            "请用英文回答",
+        )
+        self.assertEqual(bundle["selection"]["overridden_dimensions"], [])
+        self.assertIn("response_preferences.tone: formal", bundle["prompt"])
+
+    def test_arbitrary_preference_keys_are_not_exposed_in_receipt(self):
+        bundle = build_user_memory_prompt_bundle(
+            {"PRIVATE_KEY_WITH_NAME": "private value"},
+        )
+
+        self.assertEqual(bundle["selection"]["selected_slots"], ["other_preference"])
+        self.assertNotIn("PRIVATE", json.dumps(bundle["selection"]))
+
+    def test_colloquial_request_overrides_tone_and_verbosity(self):
+        bundle = build_user_memory_prompt_bundle(
+            {
+                "response_preferences": {
+                    "tone": "formal",
+                    "verbosity": "detailed",
+                }
+            },
+            "改成简洁口语",
+        )
+        self.assertEqual(
+            bundle["selection"]["overridden_dimensions"],
+            ["tone", "verbosity"],
+        )
+
+    def test_negative_current_turn_instructions_suppress_saved_dimensions(self):
+        bundle = build_user_memory_prompt_bundle(
+            {
+                "response_preferences": {
+                    "language": "en",
+                    "tone": "formal",
+                    "format": "table",
+                    "verbosity": "detailed",
+                }
+            },
+            "不要英文，不用正式语气，不要表格，也不要太详细",
+        )
+        self.assertEqual(
+            bundle["selection"]["overridden_dimensions"],
+            ["language", "tone", "format", "verbosity"],
+        )
+
 
 class LoadUserMemoryFromDbTest(unittest.TestCase):
     def setUp(self):
@@ -170,6 +252,11 @@ class LoadUserMemoryFromDbTest(unittest.TestCase):
         with Session(self.engine) as session:
             prefs = load_user_memory_preferences(session, 1)
         self.assertEqual(prefs, {"language": "zh", "tone": "direct"})
+
+        with Session(self.engine) as session:
+            record = load_user_memory_record(session, 1)
+        self.assertEqual(record["version"], 1)
+        self.assertEqual(record["preferences"], prefs)
 
     def test_returns_none_for_malformed_json(self):
         with Session(self.engine) as session:

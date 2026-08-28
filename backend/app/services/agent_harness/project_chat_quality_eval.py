@@ -14,12 +14,13 @@ from typing import Any
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models.db import Project, Skill
+from app.models.db import ClientRecord, Project, Skill
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.mode_registry import ActionPolicy, ToolAccessPolicy
 from app.services.chat.runtime import _resolve_effective_skill
 from app.services.chat.turn_contract import build_turn_contract
 from app.services.chat.turn_setup import recommend_turn_brief_template
+from app.services.chat.user_memory_prompt import build_user_memory_prompt_bundle
 from app.services.chat_store import build_message_metadata
 from app.services.agent_harness.project_memory_evidence import (
     select_project_memory_slots,
@@ -42,6 +43,7 @@ from app.services.chat.turn_recovery import (
     format_turn_recovery_for_prompt,
 )
 from app.services.context_builder.memory_formatters import (
+    build_client_memory_prompt_bundle,
     _format_project_memory_for_prompt,
 )
 from app.services.conversation_state import merge_user_constraints
@@ -342,6 +344,64 @@ def _memory_retrieval_results() -> tuple[int, int, list[dict[str, Any]]]:
                 "passed": passed,
             }
         )
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
+def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
+    client = ClientRecord(
+        name="Eval Client",
+        client_memory_version=3,
+        client_memory_stale=False,
+        client_memory_json=json.dumps(
+            {
+                "client_profile": "PRIVATE PROFILE",
+                "decision_patterns": ["PRIVATE DECISION"],
+                "lessons_learned": ["PRIVATE LESSON"],
+                "relationship_signals": ["PRIVATE RELATIONSHIP"],
+            }
+        ),
+    )
+    unrelated = build_client_memory_prompt_bundle(client, "项目交付进度是什么？")
+    relationship = build_client_memory_prompt_bundle(client, "客户关系与决策机制如何？")
+    user = build_user_memory_prompt_bundle(
+        {
+            "response_preferences": {
+                "language": "zh",
+                "tone": "formal",
+                "verbosity": "detailed",
+            }
+        },
+        "请改成英文回答，并且更简短",
+        version=4,
+    )
+    selection_json = json.dumps(
+        [unrelated["selection"], relationship["selection"], user["selection"]],
+        ensure_ascii=False,
+    )
+    details = [
+        {
+            "case": "unrelated_turn_skips_client_memory",
+            "passed": unrelated["prompt"] == ""
+            and unrelated["selection"]["retrieval_mode"] == "none",
+        },
+        {
+            "case": "relationship_turn_routes_client_memory",
+            "passed": "decision_patterns" in relationship["selection"]["selected_slots"]
+            and "lessons_learned" not in relationship["selection"]["selected_slots"],
+        },
+        {
+            "case": "current_turn_overrides_saved_preferences",
+            "passed": user["selection"]["overridden_dimensions"] == ["language", "verbosity"]
+            and "response_preferences.language: zh" not in user["prompt"]
+            and "response_preferences.tone: formal" in user["prompt"],
+        },
+        {
+            "case": "layered_memory_receipt_is_content_free",
+            "passed": "PRIVATE" not in selection_json
+            and "zh" not in selection_json
+            and "formal" not in selection_json,
+        },
+    ]
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
@@ -765,6 +825,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "structured_reference_accuracy": _structured_reference_results(),
         "memory_freshness_guard_rate": _memory_results(),
         "memory_retrieval_precision_rate": _memory_retrieval_results(),
+        "layered_memory_routing_accuracy": _layered_memory_results(),
         "constraint_retention_rate": _constraint_results(),
         "turn_brief_accuracy": _turn_brief_results(),
         "turn_setup_recommendation_accuracy": _turn_setup_results(),

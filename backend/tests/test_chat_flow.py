@@ -4787,6 +4787,13 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertIsNone(mocked_retrieve.call_args.kwargs.get("client_id"))
         self.assertEqual(ctx.rag_context, "")
         self.assertEqual(ctx.rag_sources, [])
+        client_layer = next(
+            layer
+            for layer in ctx.context_receipt["memory"]["layers"]
+            if layer["scope"] == "client"
+        )
+        self.assertEqual(client_layer["status"], "missing")
+        self.assertEqual(client_layer["selected_item_count"], 0)
 
     def test_build_chat_context_client_scope_injects_client_memory_when_available(self):
         with Session(self.engine) as session:
@@ -4828,6 +4835,14 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertIn("Structured Client Memory", ctx.project_context)
         self.assertIn("Budget closes in Q4", ctx.project_context)
         self.assertIn("Current project description", ctx.project_context)
+        client_layer = next(
+            layer
+            for layer in ctx.context_receipt["memory"]["layers"]
+            if layer["scope"] == "client"
+        )
+        self.assertEqual(client_layer["status"], "ready")
+        self.assertEqual(client_layer["retrieval_mode"], "focused")
+        self.assertGreater(client_layer["selected_item_count"], 0)
 
     def test_build_chat_context_file_ids_do_not_attach_sibling_project_files(self):
         with Session(self.engine) as session:

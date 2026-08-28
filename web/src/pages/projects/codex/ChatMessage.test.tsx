@@ -78,6 +78,61 @@ describe('ProjectChatMessage', () => {
     expect(onSkillSelect).toHaveBeenCalledWith(7, '舞弊风险评估')
   })
 
+  it('shows layered memory routing and current-turn preference overrides', () => {
+    const layeredReceipt: ContextReceiptEvent = {
+      ...ambiguousReceipt,
+      memory: {
+        ...ambiguousReceipt.memory,
+        layers: [
+          {
+            scope: 'user',
+            status: 'ready',
+            version: 2,
+            retrieval_mode: 'focused',
+            query_facets: [],
+            selected_slots: ['response_preferences.tone'],
+            selected_slot_count: 1,
+            available_slot_count: 3,
+            omitted_slot_count: 2,
+            selected_item_count: 1,
+            truncated: false,
+            overridden_dimensions: ['language', 'verbosity'],
+          },
+          {
+            scope: 'client',
+            status: 'stale',
+            version: 5,
+            retrieval_mode: 'focused',
+            query_facets: ['relationship'],
+            selected_slots: ['relationship_signals'],
+            selected_slot_count: 1,
+            available_slot_count: 4,
+            omitted_slot_count: 3,
+            selected_item_count: 2,
+            truncated: false,
+            overridden_dimensions: [],
+          },
+        ],
+      },
+      warnings: ['user_preference_overridden', 'client_memory_stale'],
+    }
+    const message: Message = {
+      id: 19,
+      conversation_id: 4,
+      role: 'assistant',
+      content: '已按本轮要求回答。',
+      metadata_json: JSON.stringify({ context_receipt: layeredReceipt }),
+      created_at: '2026-08-25T00:00:00Z',
+    }
+
+    render(<ProjectChatMessage message={message} projectId={3} />)
+    fireEvent.click(screen.getByText(/本轮依据/))
+
+    expect(screen.getByText(/个人偏好 v2：使用 1 项/)).toBeInTheDocument()
+    expect(screen.getByText(/覆盖已保存的语言、详略偏好/)).toBeInTheDocument()
+    expect(screen.getByText(/客户记忆 v5：使用 2 项.*待刷新/)).toBeInTheDocument()
+  })
+
   it('shows a persisted user Brief and restores its exact turn controls', () => {
     const onTurnBriefReuse = vi.fn()
     const message: Message = {

@@ -20,6 +20,34 @@ def _runtime(**overrides):
                 "omitted_slot_count": 5,
                 "selected_item_count": 6,
                 "truncated": False,
+                "layers": [
+                    {
+                        "scope": "user",
+                        "status": "ready",
+                        "version": 2,
+                        "retrieval_mode": "focused",
+                        "selected_slots": ["response_preferences.tone"],
+                        "selected_slot_count": 1,
+                        "available_slot_count": 2,
+                        "omitted_slot_count": 1,
+                        "selected_item_count": 1,
+                        "truncated": False,
+                        "overridden_dimensions": ["language"],
+                    },
+                    {
+                        "scope": "client",
+                        "status": "stale",
+                        "version": 4,
+                        "retrieval_mode": "focused",
+                        "selected_slots": ["decision_patterns"],
+                        "selected_slot_count": 1,
+                        "available_slot_count": 3,
+                        "omitted_slot_count": 2,
+                        "selected_item_count": 1,
+                        "truncated": False,
+                        "overridden_dimensions": [],
+                    },
+                ],
             },
             "evidence": {
                 "workspace_context": True,
@@ -60,6 +88,9 @@ def test_build_context_receipt_reports_advisory_skill_and_stale_memory():
     assert event["evidence"]["knowledge_reference_count"] == 1
     assert event["evidence"]["history_message_count"] == 7
     assert "project_memory_stale" in event["warnings"]
+    assert "client_memory_stale" in event["warnings"]
+    assert "user_preference_overridden" in event["warnings"]
+    assert [layer["scope"] for layer in event["memory"]["layers"]] == ["user", "client"]
 
 
 def test_build_context_receipt_reports_ambiguous_skill_candidates_without_prompt():
