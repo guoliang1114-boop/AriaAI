@@ -71,6 +71,9 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - stable project/client memory-slot identities, canonical content digests,
   bounded source references, targeted freshness invalidation, and verified
   slot overlays adapted to Aria-native business entities; and
+- content-addressed project/client memory-fact identities, first/last-seen and
+  active/retired lifecycle reconstruction, digest verification, and explicit
+  matched/scoped/legacy/unresolved source relationships; and
 - expected-turn-bound active-run steering, text-only mailbox delivery, safe
   model/tool boundary injection, stale planned-tool supersession, and concise
   turn-understanding receipts without exposing prompts or hidden reasoning.

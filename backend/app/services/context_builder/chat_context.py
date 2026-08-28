@@ -8,6 +8,11 @@ from app.services.agent_harness.project_memory_evidence import (
     build_project_memory_evidence,
 )
 from app.services.client_contexts import get_client_memory_payload
+from app.services.memory_facts import (
+    fact_states_by_slot,
+    get_client_memory_fact_states,
+    get_project_memory_fact_states,
+)
 from app.services.memory_slots import (
     load_client_memory_slot_view,
     load_project_memory_slot_view,
@@ -134,6 +139,9 @@ def build_chat_context(
             content,
             memory_payload=project_memory,
             slot_states=project_slot_states,
+            fact_states=fact_states_by_slot(
+                get_project_memory_fact_states(session, int(project.id or 0))
+            ),
         )
     else:
         project_slot_states = {}
@@ -175,6 +183,9 @@ def build_chat_context(
             force=normalized_scope == "client" and not portfolio_context,
             memory_payload=client_memory,
             slot_states=client_slot_states,
+            fact_states=fact_states_by_slot(
+                get_client_memory_fact_states(session, int(client.id or 0))
+            ),
         )
     else:
         client_memory_bundle = {
@@ -193,6 +204,9 @@ def build_chat_context(
                 "stale_slots": [],
                 "stale_slot_count": 0,
                 "evidence_ref_count": 0,
+                "matched_fact_count": 0,
+                "scoped_fact_count": 0,
+                "unresolved_fact_count": 0,
                 "truncated": False,
                 "overridden_dimensions": [],
             },

@@ -24,6 +24,7 @@ MAX_INVALID_MEMORY_CITATIONS = 12
 _CITATION_PATTERN = re.compile(r"(?<![A-Za-z0-9_])\[M([1-9][0-9]{0,2})\]")
 _CITATION_KEY_PATTERN = re.compile(r"M[1-9][0-9]{0,2}\Z")
 _CONTENT_DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+_MEMORY_FACT_KEY_PATTERN = re.compile(r"pmf_[0-9a-f]{24}\Z")
 _EMBEDDED_CITATION_PATTERN = re.compile(r"\[([KM][1-9][0-9]{0,2})\]")
 _EVIDENCE_STATUSES = {
     "available",
@@ -228,11 +229,13 @@ def build_project_memory_evidence(
     *,
     memory_payload: dict[str, Any] | None = None,
     slot_states: dict[str, dict[str, Any]] | None = None,
+    fact_states: dict[str, dict[int, dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Build an ephemeral prompt plus a no-content evidence manifest."""
 
     memory = memory_payload or get_project_memory_payload(project)
     slot_states = slot_states or {}
+    fact_states = fact_states or {}
     memory_version = max(0, int(project.memory_version or 0))
     retrieval_mode, facets, selected_slots = select_project_memory_slots(query)
     if slot_states:
@@ -243,7 +246,7 @@ def build_project_memory_evidence(
         )
     else:
         stale_slots = selected_slots if project.memory_stale else ()
-    evidence_ref_count = sum(
+    slot_evidence_ref_count = sum(
         max(0, int((slot_states.get(slot) or {}).get("evidence_count") or 0))
         for slot in selected_slots
     )
@@ -261,7 +264,10 @@ def build_project_memory_evidence(
         "selected_item_count": 0,
         "stale_slots": list(stale_slots),
         "stale_slot_count": len(stale_slots),
-        "evidence_ref_count": evidence_ref_count,
+        "evidence_ref_count": slot_evidence_ref_count if not fact_states else 0,
+        "matched_fact_count": 0,
+        "scoped_fact_count": 0,
+        "unresolved_fact_count": 0,
         "truncated": False,
     }
     if not memory or memory_version <= 0:
@@ -282,6 +288,7 @@ def build_project_memory_evidence(
                     "slot_label": _SLOT_LABELS[slot],
                     "item_index": item_index,
                     "content": normalized,
+                    "fact_state": (fact_states.get(slot) or {}).get(item_index),
                 }
             )
         if len(rendered_items) >= MAX_MEMORY_EVIDENCE_ITEMS:
@@ -303,8 +310,16 @@ def build_project_memory_evidence(
                 "content_sha256": content_sha256,
             }
         )[:24]
-        entries.append(
-            {
+        fact_state = item.get("fact_state") if isinstance(item.get("fact_state"), dict) else {}
+        provenance_status = str(fact_state.get("provenance_status") or "unresolved")
+        if provenance_status not in {"matched", "scoped", "legacy", "unresolved"}:
+            provenance_status = "unresolved"
+        fact_status = str(fact_state.get("status") or "missing")
+        if fact_status not in {"ready", "stale", "corrupt", "missing"}:
+            fact_status = "missing"
+        fact_evidence_count = max(0, min(6, int(fact_state.get("evidence_count") or 0)))
+        fact_key = str(fact_state.get("fact_key") or "")
+        entry = {
                 "evidence_id": evidence_id,
                 "citation_key": f"M{len(entries) + 1}",
                 "source_type": "project_memory",
@@ -314,7 +329,25 @@ def build_project_memory_evidence(
                 "slot_label": item["slot_label"],
                 "item_index": item["item_index"],
                 "content_sha256": content_sha256,
+                "memory_fact_key": fact_key if _MEMORY_FACT_KEY_PATTERN.fullmatch(fact_key) else "",
+                "provenance_status": provenance_status,
+                "fact_status": fact_status,
+                "fact_evidence_count": fact_evidence_count,
             }
+        entries.append(entry)
+
+    if fact_states:
+        selection["evidence_ref_count"] = sum(
+            int(entry["fact_evidence_count"]) for entry in entries
+        )
+        selection["matched_fact_count"] = sum(
+            entry["provenance_status"] == "matched" for entry in entries
+        )
+        selection["scoped_fact_count"] = sum(
+            entry["provenance_status"] in {"scoped", "legacy"} for entry in entries
+        )
+        selection["unresolved_fact_count"] = sum(
+            entry["provenance_status"] == "unresolved" for entry in entries
         )
 
     digest_payload = _manifest_digest_payload(
@@ -360,6 +393,10 @@ def build_project_memory_evidence(
         "square-bracket form [M1], not full-width brackets or a separate source list. "
         "Never invent a memory citation key. "
         "If selected memory is insufficient, say so and rely on newer raw project evidence.",
+        "- Fact provenance: MATCHED means a source label deterministically matches the fact; "
+        "SCOPED means sources were read for the containing slot but are not a direct citation; "
+        "LEGACY means exact historical provenance is unavailable; UNRESOLVED means no source. "
+        "Do not describe SCOPED, LEGACY, or UNRESOLVED facts as independently verified.",
     ]
     if effective_stale:
         prompt_lines.append(
@@ -370,8 +407,9 @@ def build_project_memory_evidence(
         )
     for item, entry in zip(rendered_items, entries):
         stale_marker = " [STALE SLOT]" if item["slot"] in stale_slots else ""
+        provenance_marker = str(entry.get("provenance_status") or "unresolved").upper()
         prompt_lines.append(
-            f"- {item['slot_label']}{stale_marker} "
+            f"- {item['slot_label']}{stale_marker} [PROVENANCE:{provenance_marker}] "
             f"[{entry['citation_key']}]: {item['content']}"
         )
     return {
@@ -434,6 +472,28 @@ def validate_project_memory_evidence_manifest(value: Any) -> tuple[bool, str]:
         content_sha256 = str(entry.get("content_sha256") or "")
         if not _CONTENT_DIGEST_PATTERN.fullmatch(content_sha256):
             return False, "invalid memory evidence content digest"
+        fact_key = str(entry.get("memory_fact_key") or "")
+        if fact_key and not _MEMORY_FACT_KEY_PATTERN.fullmatch(fact_key):
+            return False, "invalid memory fact identity"
+        if entry.get("provenance_status") is not None and entry.get(
+            "provenance_status"
+        ) not in {"matched", "scoped", "legacy", "unresolved"}:
+            return False, "invalid memory fact provenance status"
+        if entry.get("fact_status") is not None and entry.get("fact_status") not in {
+            "ready",
+            "stale",
+            "corrupt",
+            "missing",
+        }:
+            return False, "invalid memory fact status"
+        if entry.get("fact_evidence_count") is not None:
+            fact_evidence_count = entry.get("fact_evidence_count")
+            if (
+                not isinstance(fact_evidence_count, int)
+                or isinstance(fact_evidence_count, bool)
+                or not 0 <= fact_evidence_count <= 6
+            ):
+                return False, "invalid memory fact evidence count"
         expected_evidence_id = "memory_evidence_" + _sha256(
             {
                 "project_id": project_id,
@@ -493,7 +553,7 @@ def validate_project_memory_evidence_manifest(value: Any) -> tuple[bool, str]:
 
 
 def project_memory_reference(entry: dict[str, Any]) -> dict[str, Any]:
-    return {
+    reference = {
         "schema_version": PROJECT_MEMORY_EVIDENCE_SCHEMA_VERSION,
         "type": "memory",
         "id": int(entry["project_id"]),
@@ -504,6 +564,17 @@ def project_memory_reference(entry: dict[str, Any]) -> dict[str, Any]:
         "memory_slot": str(entry["slot"]),
         "content_sha256": str(entry["content_sha256"]),
     }
+    fact_key = str(entry.get("memory_fact_key") or "")
+    if fact_key:
+        reference["memory_fact_key"] = fact_key
+        reference["provenance_status"] = str(
+            entry.get("provenance_status") or "unresolved"
+        )
+        reference["fact_evidence_count"] = max(
+            0,
+            int(entry.get("fact_evidence_count") or 0),
+        )
+    return reference
 
 
 def resolve_project_memory_citations(

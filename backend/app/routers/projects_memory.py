@@ -40,6 +40,7 @@ from app.services.project_contexts import (
 from app.services.project_core import get_project_or_404
 from app.routers.projects_deps import complete_with_selected_model, stream_with_selected_model
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
+from app.services.memory_facts import get_project_memory_fact_states
 from app.services.memory_slots import get_project_memory_slot_states
 from app.services.time_utils import utc_now_naive
 from app.routers.projects_deps import get_current_user
@@ -251,6 +252,31 @@ def get_project_memory_slots(project_id: int, session: Session = Depends(get_ses
         "slot_count": len(slots),
         "stale_slot_count": stale_count,
         "slots": slots,
+    }
+
+
+@router.get("/{project_id}/memory/facts")
+def get_project_memory_facts(project_id: int, session: Session = Depends(get_session)):
+    project = get_project_or_404(session, project_id)
+    facts = get_project_memory_fact_states(session, project_id)
+    return {
+        "scope": "project",
+        "entity_id": project_id,
+        "memory_version": int(project.memory_version or 0),
+        "fact_count": len(facts),
+        "stale_fact_count": sum(
+            item["status"] in {"stale", "corrupt"} for item in facts
+        ),
+        "matched_fact_count": sum(
+            item["provenance_status"] == "matched" for item in facts
+        ),
+        "scoped_fact_count": sum(
+            item["provenance_status"] in {"scoped", "legacy"} for item in facts
+        ),
+        "unresolved_fact_count": sum(
+            item["provenance_status"] == "unresolved" for item in facts
+        ),
+        "facts": facts,
     }
 
 

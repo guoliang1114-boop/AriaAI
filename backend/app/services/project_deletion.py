@@ -20,6 +20,7 @@ from app.models.db import (
     ProjectFileVersion,
     ProjectFolder,
     ProjectMember,
+    ProjectMemoryFact,
     ProjectMemorySnapshot,
     ProjectMemorySlot,
     ProjectMemorySummary,
@@ -214,6 +215,12 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
         select(ProjectMemorySlot).where(ProjectMemorySlot.project_id == project_id)
     ).all():
         session.delete(slot)
+    session.flush()
+
+    for fact in session.exec(
+        select(ProjectMemoryFact).where(ProjectMemoryFact.project_id == project_id)
+    ).all():
+        session.delete(fact)
     session.flush()
 
     for scheduled_task in session.exec(select(ScheduledTask).where(ScheduledTask.project_id == project_id)).all():

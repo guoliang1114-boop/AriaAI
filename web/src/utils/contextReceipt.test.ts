@@ -19,6 +19,9 @@ function layer(overrides: Partial<ContextMemoryLayer> = {}): ContextMemoryLayer 
     omitted_slot_count: 7,
     selected_item_count: 3,
     evidence_ref_count: 4,
+    matched_fact_count: 2,
+    scoped_fact_count: 1,
+    unresolved_fact_count: 0,
     truncated: false,
     overridden_dimensions: [],
     ...overrides,
@@ -29,12 +32,19 @@ function layer(overrides: Partial<ContextMemoryLayer> = {}): ContextMemoryLayer 
 describe('contextMemoryLayerLabel', () => {
   it('shows slot-level freshness and provenance without memory content', () => {
     expect(contextMemoryLayerLabel(layer())).toBe(
-      '项目记忆 v7：使用 3 项 / 2 个槽位（待刷新）；其中 1 个已用槽位待刷新；4 个来源引用',
+      '项目记忆 v7：使用 3 项 / 2 个槽位（待刷新）；其中 1 个已用槽位待刷新；4 个来源引用；事实溯源 2 条匹配 / 1 条范围来源 / 0 条待补证',
     )
   })
 
   it('keeps persisted pre-slot-ledger receipts compatible', () => {
-    expect(contextMemoryLayerLabel(layer({ stale_slots: undefined, stale_slot_count: undefined, evidence_ref_count: undefined })))
+    expect(contextMemoryLayerLabel(layer({
+      stale_slots: undefined,
+      stale_slot_count: undefined,
+      evidence_ref_count: undefined,
+      matched_fact_count: undefined,
+      scoped_fact_count: undefined,
+      unresolved_fact_count: undefined,
+    })))
       .toContain('项目记忆 v7：使用 3 项 / 2 个槽位（待刷新）')
   })
 })

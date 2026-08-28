@@ -117,8 +117,10 @@ def mark_client_memory_stale(session: Session, client_id: int, trigger: str = "d
     if not client:
         return
     from app.services.memory_slots import mark_client_memory_slots_stale
+    from app.services.memory_facts import mark_client_memory_facts_stale
 
     mark_client_memory_slots_stale(session, client_id, trigger)
+    mark_client_memory_facts_stale(session, client_id, trigger)
     client.client_memory_stale = True
     session.add(client)
     session.commit()
@@ -340,8 +342,10 @@ def save_client_memory(
         )
     )
     from app.services.memory_slots import sync_client_memory_slots
+    from app.services.memory_facts import sync_client_memory_facts
 
     sync_client_memory_slots(session, client, memory)
+    sync_client_memory_facts(session, client, memory)
     session.commit()
     session.refresh(client)
     return get_client_memory_payload(client)

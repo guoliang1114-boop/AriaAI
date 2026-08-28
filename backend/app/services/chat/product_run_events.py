@@ -368,6 +368,9 @@ def _normalize_memory_layer(value: dict) -> dict[str, Any]:
         "omitted_slot_count",
         "selected_item_count",
         "evidence_ref_count",
+        "matched_fact_count",
+        "scoped_fact_count",
+        "unresolved_fact_count",
     ):
         try:
             counts[key] = max(0, int(value.get(key) or 0))
@@ -547,6 +550,9 @@ def context_receipt(
         "omitted_slot_count",
         "selected_item_count",
         "evidence_ref_count",
+        "matched_fact_count",
+        "scoped_fact_count",
+        "unresolved_fact_count",
     ):
         try:
             memory_counts[key] = max(0, int(memory.get(key) or 0))

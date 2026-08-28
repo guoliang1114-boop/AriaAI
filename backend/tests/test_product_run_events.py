@@ -163,6 +163,9 @@ class ContextReceiptTest(unittest.TestCase):
                 "omitted_slot_count": 5,
                 "selected_item_count": 6,
                 "evidence_ref_count": 9,
+                "matched_fact_count": 3,
+                "scoped_fact_count": 2,
+                "unresolved_fact_count": 1,
                 "layers": [
                     {
                         "scope": "user",
@@ -189,6 +192,9 @@ class ContextReceiptTest(unittest.TestCase):
                         "stale_slots": ["decision_patterns"],
                         "stale_slot_count": 1,
                         "evidence_ref_count": 3,
+                        "matched_fact_count": 1,
+                        "scoped_fact_count": 1,
+                        "unresolved_fact_count": 0,
                     },
                 ],
             },
@@ -224,6 +230,9 @@ class ContextReceiptTest(unittest.TestCase):
         self.assertEqual(event["memory"]["stale_slots"], ["key_risks"])
         self.assertEqual(event["memory"]["stale_slot_count"], 1)
         self.assertEqual(event["memory"]["evidence_ref_count"], 9)
+        self.assertEqual(event["memory"]["matched_fact_count"], 3)
+        self.assertEqual(event["memory"]["scoped_fact_count"], 2)
+        self.assertEqual(event["memory"]["unresolved_fact_count"], 1)
         self.assertEqual(
             [layer["scope"] for layer in event["memory"]["layers"]],
             ["user", "client"],
@@ -236,6 +245,7 @@ class ContextReceiptTest(unittest.TestCase):
             event["memory"]["layers"][1]["stale_slots"],
             ["decision_patterns"],
         )
+        self.assertEqual(event["memory"]["layers"][1]["matched_fact_count"], 1)
         self.assertEqual(event["skill"]["usage_mode"], "advisory")
         self.assertEqual(event["evidence"]["knowledge_reference_count"], 2)
         self.assertNotIn("prompt", event)

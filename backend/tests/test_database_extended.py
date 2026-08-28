@@ -1,9 +1,22 @@
 """Extended tests for database module — get_database_migration_governance."""
+from datetime import datetime
+import importlib.util
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 from app.database import _normalize_alembic_revision, get_database_migration_governance
+
+
+def _load_memory_fact_migration():
+    backend_dir = Path(__file__).resolve().parents[1]
+    migration_path = backend_dir / "alembic" / "versions" / "034_v1_34_memory_fact_ledger.py"
+    spec = importlib.util.spec_from_file_location("aria_migration_034", migration_path)
+    if spec is None or spec.loader is None:
+        raise AssertionError("unable to load memory fact migration")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class NormalizeAlembicRevisionExtendedTestCase(unittest.TestCase):
@@ -90,6 +103,40 @@ class DatabaseHealthTestCase(unittest.TestCase):
         self.assertIn("tables", result)
         self.assertIsInstance(result["tables"], list)
         self.assertGreater(result["table_count"], 0)
+
+
+class MemoryFactMigrationTestCase(unittest.TestCase):
+    def test_sqlite_text_timestamps_are_normalized_before_backfill(self):
+        migration = _load_memory_fact_migration()
+
+        self.assertEqual(
+            migration._parse_datetime("2026-08-28 03:05:19.123456"),
+            datetime(2026, 8, 28, 3, 5, 19, 123456),
+        )
+        self.assertEqual(
+            migration._parse_datetime("2026-08-28T03:05:19Z"),
+            datetime(2026, 8, 28, 3, 5, 19),
+        )
+        fallback = datetime(2026, 1, 1)
+        self.assertEqual(migration._parse_datetime("not-a-time", fallback), fallback)
+
+    def test_fact_backfill_identity_and_flattening_match_runtime_contract(self):
+        migration = _load_memory_fact_migration()
+        from app.services.memory_facts import _fact_key as runtime_fact_key
+
+        value = {"pinned": ["Vendor delay"], "ai": ["Budget risk"]}
+
+        facts = migration._flatten(value, "key_risks", project_scope=True)
+
+        self.assertEqual(facts, [("pinned", "Vendor delay"), ("ai", "Budget risk")])
+        self.assertEqual(
+            migration._fact_key("project", "key_risks", "pinned", "Vendor delay"),
+            "pmf_01194eaa6b1f0d85a9bf2fd8",
+        )
+        self.assertEqual(
+            migration._fact_key("project", "key_risks", "pinned", "Vendor delay"),
+            runtime_fact_key("project", "key_risks", "pinned", "Vendor delay"),
+        )
 
 
 class AlembicMigrationGraphTestCase(unittest.TestCase):

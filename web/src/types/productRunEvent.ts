@@ -115,6 +115,9 @@ export interface ContextMemoryLayer {
   omitted_slot_count: number;
   selected_item_count: number;
   evidence_ref_count?: number;
+  matched_fact_count?: number;
+  scoped_fact_count?: number;
+  unresolved_fact_count?: number;
   truncated: boolean;
   overridden_dimensions: ContextMemoryOverrideDimension[];
 }
@@ -139,6 +142,9 @@ export interface ContextReceiptEvent {
     omitted_slot_count: number;
     selected_item_count: number;
     evidence_ref_count?: number;
+    matched_fact_count?: number;
+    scoped_fact_count?: number;
+    unresolved_fact_count?: number;
     truncated: boolean;
     /** Optional for persisted v1 receipts created before layered routing shipped. */
     layers?: ContextMemoryLayer[];

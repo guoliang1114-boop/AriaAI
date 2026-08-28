@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models.db import (
+    ClientMemoryFact,
     ClientMemorySlot,
     ClientRecord,
     KnowledgeDocument,
@@ -232,6 +233,10 @@ def delete_client(client_id: int, session: Session = Depends(get_session)):
         select(ClientMemorySlot).where(ClientMemorySlot.client_id == client_id)
     ).all():
         session.delete(slot)
+    for fact in session.exec(
+        select(ClientMemoryFact).where(ClientMemoryFact.client_id == client_id)
+    ).all():
+        session.delete(fact)
     session.delete(client)
     session.commit()
     clients_cache.delete(_CLIENTS_KEY)

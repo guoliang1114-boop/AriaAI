@@ -147,6 +147,50 @@ class ProjectMemorySlot(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
 
 
+class ProjectMemoryFact(SQLModel, table=True):
+    """Content-addressed project-memory fact with independent provenance."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "slot_key",
+            "fact_key",
+            name="uq_projectmemoryfact_project_slot_fact",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    slot_key: str = Field(index=True)
+    fact_key: str = Field(index=True)
+    source_kind: str = Field(default="item", index=True)
+    ordinal: int = 0
+    first_seen_memory_version: int = Field(default=0, index=True)
+    last_seen_memory_version: int = Field(default=0, index=True)
+    value_json: str = Field(
+        default="null",
+        sa_column=Column(Text, nullable=False, default="null"),
+    )
+    value_sha256: str = Field(default="", index=True)
+    evidence_refs_json: str = Field(
+        default="[]",
+        sa_column=Column(Text, nullable=False, default="[]"),
+    )
+    evidence_count: int = 0
+    provenance_status: str = Field(default="unresolved", index=True)
+    is_active: bool = Field(default=True, index=True)
+    is_stale: bool = Field(default=True, index=True)
+    stale_reason: str = ""
+    stale_at: Optional[datetime] = None
+    retired_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
 class ClientMemorySummary(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clientrecord.id", index=True)
@@ -200,6 +244,50 @@ class ClientMemorySlot(SQLModel, table=True):
     is_stale: bool = Field(default=True, index=True)
     stale_reason: str = ""
     stale_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
+class ClientMemoryFact(SQLModel, table=True):
+    """Content-addressed client-memory fact with independent provenance."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "client_id",
+            "slot_key",
+            "fact_key",
+            name="uq_clientmemoryfact_client_slot_fact",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(
+        foreign_key="clientrecord.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    slot_key: str = Field(index=True)
+    fact_key: str = Field(index=True)
+    source_kind: str = Field(default="item", index=True)
+    ordinal: int = 0
+    first_seen_memory_version: int = Field(default=0, index=True)
+    last_seen_memory_version: int = Field(default=0, index=True)
+    value_json: str = Field(
+        default="null",
+        sa_column=Column(Text, nullable=False, default="null"),
+    )
+    value_sha256: str = Field(default="", index=True)
+    evidence_refs_json: str = Field(
+        default="[]",
+        sa_column=Column(Text, nullable=False, default="[]"),
+    )
+    evidence_count: int = 0
+    provenance_status: str = Field(default="unresolved", index=True)
+    is_active: bool = Field(default=True, index=True)
+    is_stale: bool = Field(default=True, index=True)
+    stale_reason: str = ""
+    stale_at: Optional[datetime] = None
+    retired_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utc_now_naive)
     updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
 

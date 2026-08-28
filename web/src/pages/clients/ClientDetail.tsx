@@ -28,6 +28,7 @@ import type {
   ClientMemoryStatusResponse,
   ClientMemorySummaryType,
   ClientStakeholder,
+  MemoryFactListResponse,
   MemorySlotListResponse,
 } from '../../types/api'
 import { formatDateOnly, formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
@@ -83,6 +84,7 @@ export function ClientDetail() {
   const [editForm, setEditForm] = useState<Partial<Client>>({})
   const [memoryStatus, setMemoryStatus] = useState<ClientMemoryStatusResponse | null>(null)
   const [memorySlots, setMemorySlots] = useState<MemorySlotListResponse | null>(null)
+  const [memoryFacts, setMemoryFacts] = useState<MemoryFactListResponse | null>(null)
   const [rebuildingMemory, setRebuildingMemory] = useState(false)
   const [loadedClientId, setLoadedClientId] = useState<string | null>(null)
   const requestIdRef = useRef(0)
@@ -122,15 +124,17 @@ export function ClientDetail() {
         api.get<Client>(`/clients/${id}`),
         api.get<ClientMemoryStatusResponse>(`/clients/${id}/memory/status`),
         api.get<MemorySlotListResponse>(`/clients/${id}/memory/slots`),
+        api.get<MemoryFactListResponse>(`/clients/${id}/memory/facts`),
         api.get<Project[]>(`/clients/${id}/projects`),
         api.get<ClientStakeholder[]>(`/clients/${id}/stakeholders`),
       ])
-      .then(([clientData, memoryData, slotData, projectsData, stakeholderData]) => {
+      .then(([clientData, memoryData, slotData, factData, projectsData, stakeholderData]) => {
         if (requestId !== requestIdRef.current) return
         setClient(clientData)
         setEditForm(clientData || {})
         setMemoryStatus(memoryData)
         setMemorySlots(slotData)
+        setMemoryFacts(factData)
         setProjects(projectsData)
         setStakeholders(stakeholderData)
         setLoadedClientId(id || null)
@@ -142,6 +146,7 @@ export function ClientDetail() {
         setEditForm({})
         setMemoryStatus(null)
         setMemorySlots(null)
+        setMemoryFacts(null)
         setProjects([])
         setStakeholders([])
         setLoadedClientId(id || null)
@@ -203,7 +208,12 @@ export function ClientDetail() {
         memory_stale: response.memory_stale,
         memory_updated_at: response.memory_updated_at,
       })
-      setMemorySlots(await api.get<MemorySlotListResponse>(`/clients/${client.id}/memory/slots`))
+      const [slotData, factData] = await Promise.all([
+        api.get<MemorySlotListResponse>(`/clients/${client.id}/memory/slots`),
+        api.get<MemoryFactListResponse>(`/clients/${client.id}/memory/facts`),
+      ])
+      setMemorySlots(slotData)
+      setMemoryFacts(factData)
     } catch (error) {
       console.error('Failed to rebuild client memory:', error)
     } finally {
@@ -451,6 +461,7 @@ export function ClientDetail() {
                     memoryState={memoryState}
                     memoryStatus={memoryStatus}
                     memorySlots={memorySlots}
+                    memoryFacts={memoryFacts}
                     memorySummary={memorySummary}
                     rebuildingMemory={rebuildingMemory}
                     onRefresh={handleRebuildMemory}
@@ -880,6 +891,7 @@ function ClientMemoryPanel({
   memoryState,
   memoryStatus,
   memorySlots,
+  memoryFacts,
   memorySummary,
   onRefresh,
   rebuildingMemory,
@@ -894,6 +906,7 @@ function ClientMemoryPanel({
   memoryState: { label: string; tone: CxStatusTone; versionLabel: string }
   memoryStatus: ClientMemoryStatusResponse | null
   memorySlots: MemorySlotListResponse | null
+  memoryFacts: MemoryFactListResponse | null
   memorySummary: string
   onRefresh: () => void
   rebuildingMemory: boolean
@@ -905,6 +918,12 @@ function ClientMemoryPanel({
   onRefreshSummary: () => void
 }) {
   const activeTab = CLIENT_SUMMARY_TABS.find((item) => item.key === activeSummary) ?? CLIENT_SUMMARY_TABS[0]
+  const factsBySlot = new Map<string, MemoryFactListResponse['facts']>()
+  for (const fact of memoryFacts?.facts ?? []) {
+    const facts = factsBySlot.get(fact.slot_key) ?? []
+    facts.push(fact)
+    factsBySlot.set(fact.slot_key, facts)
+  }
   return (
     <>
       <CxPanel
@@ -934,12 +953,21 @@ function ClientMemoryPanel({
         {memorySlots?.slots.length ? (
           <div className="mt-4 space-y-2 border-t pt-4" style={{ borderColor: 'var(--color-codex-line-soft)' }}>
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{ color: 'var(--color-codex-ink-mute)' }}>
-              <span>{isZh ? '槽位账本与真实来源' : 'Slot ledger and real sources'}</span>
-              <span>
-                {isZh
-                  ? `${memorySlots.slot_count - memorySlots.stale_slot_count} 可用 · ${memorySlots.stale_slot_count} 待刷新`
-                  : `${memorySlots.slot_count - memorySlots.stale_slot_count} ready · ${memorySlots.stale_slot_count} stale`}
-              </span>
+              <span>{isZh ? '事实级记忆与真实来源' : 'Fact-level memory and real sources'}</span>
+              <div className="flex flex-wrap justify-end gap-x-3 gap-y-1">
+                <span>
+                  {isZh
+                    ? `${memorySlots.slot_count - memorySlots.stale_slot_count} 槽位可用 · ${memorySlots.stale_slot_count} 待刷新`
+                    : `${memorySlots.slot_count - memorySlots.stale_slot_count} slots ready · ${memorySlots.stale_slot_count} stale`}
+                </span>
+                {memoryFacts ? (
+                  <span>
+                    {isZh
+                      ? `${memoryFacts.matched_fact_count} 匹配 · ${memoryFacts.scoped_fact_count} 范围 · ${memoryFacts.unresolved_fact_count} 待补证`
+                      : `${memoryFacts.matched_fact_count} matched · ${memoryFacts.scoped_fact_count} scoped · ${memoryFacts.unresolved_fact_count} unresolved`}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <div className="grid gap-2 lg:grid-cols-2">
               {memorySlots.slots.map((slot) => (
@@ -960,6 +988,44 @@ function ClientMemoryPanel({
                       : isZh ? '尚无可定位来源' : 'No locatable source yet'}
                     {slot.evidence_count > 3 ? ` +${slot.evidence_count - 3}` : ''}
                   </div>
+                  {(factsBySlot.get(slot.slot_key) ?? []).slice(0, 3).map((fact) => (
+                    <div
+                      key={fact.fact_key}
+                      className="mt-2 rounded border px-2 py-1.5 text-[11px]"
+                      style={{ borderColor: 'var(--color-codex-line-soft)', background: 'var(--color-codex-bg)' }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="min-w-0 break-words" style={{ color: 'var(--color-codex-ink)' }}>
+                          {fact.value_preview || (isZh ? '内容校验失败' : 'Content integrity check failed')}
+                        </span>
+                        <span
+                          className="shrink-0"
+                          style={{ color: fact.provenance_status === 'matched' ? 'var(--color-codex-good)' : 'var(--color-codex-warn)' }}
+                        >
+                          {fact.provenance_status === 'matched'
+                            ? (isZh ? '来源匹配' : 'matched')
+                            : fact.provenance_status === 'scoped'
+                              ? (isZh ? '范围来源' : 'scoped')
+                              : fact.provenance_status === 'legacy'
+                                ? (isZh ? '历史聚合' : 'legacy')
+                                : (isZh ? '待补证' : 'unresolved')}
+                        </span>
+                      </div>
+                      {fact.evidence_refs.length ? (
+                        <div className="mt-1" style={{ color: 'var(--color-codex-ink-mute)' }}>
+                          {fact.evidence_refs.slice(0, 2).map((source) => source.source_label).join(' · ')}
+                          {fact.evidence_count > 2 ? ` +${fact.evidence_count - 2}` : ''}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                  {(factsBySlot.get(slot.slot_key)?.length ?? 0) > 3 ? (
+                    <div className="mt-1 text-[11px]" style={{ color: 'var(--color-codex-ink-mute)' }}>
+                      {isZh
+                        ? `另有 ${(factsBySlot.get(slot.slot_key)?.length ?? 0) - 3} 条事实`
+                        : `${(factsBySlot.get(slot.slot_key)?.length ?? 0) - 3} more facts`}
+                    </div>
+                  ) : null}
                   {slot.stale_reason ? (
                     <div className="mt-1 text-[11px]" style={{ color: 'var(--color-codex-warn)' }}>{slot.stale_reason}</div>
                   ) : null}

@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
 > 更新日期：2026-08-28
-> 状态：Phase 1 至 Phase 2W、项目对话 Phase 3A 至 3I 已实施
+> 状态：Phase 1 至 Phase 2W、项目对话 Phase 3A 至 3J 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -734,6 +734,10 @@ Phase 2S 把 Codex apply-patch 的“先冻结基线、写入前重新验证”�
 ### Phase 3I：持久化槽位账本与定向新鲜度（已实施）
 
 继续参考 `codex-rs/core/src/context/world_state/mod.rs` 的稳定状态身份和内容摘要边界，但把机制重写为 Aria 的业务记忆模型。新增项目 12 槽位、客户 8 槽位的持久账本，每个槽位独立保存版本、所属聚合版本、规范 JSON 的 SHA-256、有界真实来源引用、新鲜度与原因。重建与原综合 JSON 双写；财务、进展、待办、里程碑、文件和干系人变更只使相关槽位失效。Provider 仅对当轮选中槽位应用新鲜度守卫，因此某个财务槽位陈旧不再降级文档问答。Context Receipt 只增加选中陈旧槽位和来源计数，不保存记忆正文或 Prompt。迁移由幂等 `033_v1_33` 管理；全过程不运行、不导入、不连接 Codex。
+
+### Phase 3J：事实级记忆身份、生命周期与诚实溯源（已实施）
+
+继续参考 `codex-rs/core/src/context/world_state/mod.rs`（固定提交 `83d1fe0e67b1323f71febc2925817732b449f1d9`）的稳定内容身份和重建边界，将槽位内容拆成 Aria 原生事实账本。项目/客户事实使用内容寻址 key，独立记录首次/最近出现记忆版本、active/retired 生命周期、规范内容 SHA-256、新鲜度、来源关系和有界证据。`matched` 只用于来源标签确定性命中，`scoped` 不被描述为直接验证，历史与无来源分别保留 `legacy` / `unresolved`。项目 `M*` Evidence Manifest、引用、Context Receipt 以及项目/客户记忆 UI 都能展示事实级状态；幂等 `034_v1_34` 回填历史槽位，56 场景发布门禁验证身份与溯源。不运行、不导入、不连接 Codex。
 
 ## 8. 许可证与升级流程
 

@@ -4,6 +4,8 @@ import { useToast } from '../../../../contexts/ToastContext'
 import type {
   MemoryCandidate,
   MemoryCandidateListResponse,
+  MemoryFactListResponse,
+  MemoryFactState,
   MemorySlotListResponse,
   MemorySlotState,
   MemorySnapshotDiffResponse,
@@ -322,6 +324,7 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
   const memoryCandidatesRequestIdRef = useRef(0)
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([])
   const [slotLedger, setSlotLedger] = useState<MemorySlotListResponse | null>(null)
+  const [factLedger, setFactLedger] = useState<MemoryFactListResponse | null>(null)
   const [candidateBusyId, setCandidateBusyId] = useState<number | null>(null)
   const [versionSnapshots, setVersionSnapshots] = useState<ProjectMemorySnapshot[]>([])
   const [selectedVersionDiff, setSelectedVersionDiff] = useState<MemorySnapshotDiffResponse | null>(null)
@@ -345,12 +348,18 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
   }, [projectId])
 
   const loadSlotLedger = useCallback(() => {
-    return api
-      .get<MemorySlotListResponse>(`/projects/${projectId}/memory/slots`)
-      .then(setSlotLedger)
+    return Promise.all([
+      api.get<MemorySlotListResponse>(`/projects/${projectId}/memory/slots`),
+      api.get<MemoryFactListResponse>(`/projects/${projectId}/memory/facts`),
+    ])
+      .then(([slotsResponse, factsResponse]) => {
+        setSlotLedger(slotsResponse)
+        setFactLedger(factsResponse)
+      })
       .catch((error: unknown) => {
-        console.error('Failed to load project memory slot ledger:', error)
+        console.error('Failed to load project memory ledger:', error)
         setSlotLedger(null)
+        setFactLedger(null)
       })
   }, [projectId])
 
@@ -358,6 +367,13 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
     () => new Map((slotLedger?.slots ?? []).map((slot) => [slot.slot_key, slot])),
     [slotLedger],
   )
+  const factStatesBySlot = useMemo(() => {
+    const result = new Map<string, MemoryFactState[]>()
+    for (const fact of factLedger?.facts ?? []) {
+      result.set(fact.slot_key, [...(result.get(fact.slot_key) ?? []), fact])
+    }
+    return result
+  }, [factLedger])
 
   useEffect(() => {
     void loadMemoryCandidates()
@@ -782,6 +798,7 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
                 meta={s.meta}
                 data={s.data}
                 slotState={slotStateByKey.get(s.meta.key)}
+                factStates={factStatesBySlot.get(s.meta.key) ?? []}
                 onOpenAnchors={() => setActiveAnchorSlot(s.meta)}
               />
             ))
@@ -1048,6 +1065,7 @@ interface SlotSectionProps {
   meta: SlotMeta
   data: SlotData
   slotState?: MemorySlotState
+  factStates: MemoryFactState[]
   onOpenAnchors: () => void
 }
 
@@ -1063,12 +1081,21 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   legacy_memory_aggregate: '历史整块记忆',
 }
 
-function SlotSection({ meta, data, slotState, onOpenAnchors }: SlotSectionProps) {
+const FACT_PROVENANCE_LABELS: Record<MemoryFactState['provenance_status'], string> = {
+  matched: '来源标签已匹配',
+  scoped: '槽位范围来源',
+  legacy: '历史来源未完整',
+  unresolved: '待补充证据',
+}
+
+function SlotSection({ meta, data, slotState, factStates, onOpenAnchors }: SlotSectionProps) {
   const empty = data.ai.length + data.pinned.length === 0
   const isAnchorable = EDITABLE_SLOT_KEYS.has(meta.key)
   const [sourcesOpen, setSourcesOpen] = useState(false)
-  const showSources = (slotState?.evidence_count ?? 0) > 0
+  const showSources = factStates.length > 0 || (slotState?.evidence_count ?? 0) > 0
   const slotStale = slotState?.status === 'stale' || slotState?.status === 'corrupt'
+  const matchedFactCount = factStates.filter((fact) => fact.provenance_status === 'matched').length
+  const unresolvedFactCount = factStates.filter((fact) => fact.provenance_status === 'unresolved').length
 
   return (
     <section
@@ -1292,7 +1319,8 @@ function SlotSection({ meta, data, slotState, onOpenAnchors }: SlotSectionProps)
               ▶
             </span>
             <span>
-              真实依据 · {slotState?.evidence_count ?? 0} 个来源
+              逐条溯源 · {factStates.length} 条事实 · {matchedFactCount} 条匹配
+              {unresolvedFactCount > 0 ? ` · ${unresolvedFactCount} 条待补证` : ''}
             </span>
           </button>
           {sourcesOpen && (
@@ -1307,15 +1335,35 @@ function SlotSection({ meta, data, slotState, onOpenAnchors }: SlotSectionProps)
                 lineHeight: 1.7,
               }}
             >
-              {(slotState?.evidence_refs ?? []).map((source) => (
+              {factStates.map((fact) => (
                 <div
-                  key={`${source.source_type}:${source.source_id}`}
-                  style={{ display: 'grid', gridTemplateColumns: '88px 1fr', gap: 8, padding: '3px 0' }}
+                  key={fact.fact_key}
+                  style={{ padding: '7px 0', borderBottom: '1px solid var(--line-soft)' }}
                 >
-                  <span style={{ color: 'var(--ink-mute)' }}>
-                    {SOURCE_TYPE_LABELS[source.source_type] ?? source.source_type}
-                  </span>
-                  <span style={{ wordBreak: 'break-word' }}>{source.source_label}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                    <span style={{ color: 'var(--ink)', wordBreak: 'break-word' }}>
+                      {fact.value_preview || '内容校验失败'}
+                    </span>
+                    <span style={{ flexShrink: 0, color: fact.provenance_status === 'matched' ? 'var(--good)' : fact.provenance_status === 'unresolved' ? 'var(--warn)' : 'var(--ink-mute)' }}>
+                      {FACT_PROVENANCE_LABELS[fact.provenance_status]}
+                    </span>
+                  </div>
+                  {fact.evidence_refs.map((source) => (
+                    <div
+                      key={`${fact.fact_key}:${source.source_type}:${source.source_id}:${source.relation}`}
+                      style={{ display: 'grid', gridTemplateColumns: '88px 1fr', gap: 8, padding: '2px 0', fontSize: 11.5 }}
+                    >
+                      <span style={{ color: 'var(--ink-mute)' }}>
+                        {SOURCE_TYPE_LABELS[source.source_type] ?? source.source_type}
+                      </span>
+                      <span style={{ wordBreak: 'break-word' }}>{source.source_label}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {factStates.length === 0 && (slotState?.evidence_refs ?? []).map((source) => (
+                <div key={`${source.source_type}:${source.source_id}`}>
+                  {SOURCE_TYPE_LABELS[source.source_type] ?? source.source_type} · {source.source_label}
                 </div>
               ))}
               <div
@@ -1326,7 +1374,7 @@ function SlotSection({ meta, data, slotState, onOpenAnchors }: SlotSectionProps)
                   lineHeight: 1.55,
                 }}
               >
-                来源由后端在槽位写入时记录；历史迁移数据会明确标注无法还原精确来源
+                “来源标签已匹配”表示可确定性对上该事实；“槽位范围来源”只表示重建时读过，不冒充直接引用
               </div>
               {slotStale && slotState?.stale_reason && (
                 <div style={{ marginTop: 6, color: 'var(--warn)' }}>

@@ -136,6 +136,41 @@ export interface MemorySlotListResponse {
   slots: MemorySlotState[]
 }
 
+export interface MemoryFactEvidenceRef extends MemorySlotEvidenceRef {
+  relation: 'label_match' | 'slot_scope' | 'legacy_aggregate' | string
+}
+
+export interface MemoryFactState {
+  fact_key: string
+  slot_key: string
+  source_kind: 'pinned' | 'ai' | 'item' | 'value' | string
+  ordinal: number
+  first_seen_memory_version: number
+  last_seen_memory_version: number
+  status: 'ready' | 'stale' | 'corrupt' | 'retired'
+  provenance_status: 'matched' | 'scoped' | 'legacy' | 'unresolved'
+  value_sha256: string
+  value_preview: string
+  evidence_count: number
+  evidence_refs: MemoryFactEvidenceRef[]
+  stale_reason: string
+  stale_at?: string | null
+  retired_at?: string | null
+  updated_at?: string | null
+}
+
+export interface MemoryFactListResponse {
+  scope: 'project' | 'client'
+  entity_id: number
+  memory_version: number
+  fact_count: number
+  stale_fact_count: number
+  matched_fact_count: number
+  scoped_fact_count: number
+  unresolved_fact_count: number
+  facts: MemoryFactState[]
+}
+
 export interface ProjectMemoryListResponse {
   items: Project[]
   total: number

@@ -426,6 +426,34 @@ def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
         "应该查看哪些项目文件？",
         slot_states=project_slot_states,
     )
+    document_fact_project = build_project_memory_evidence(
+        project,
+        "应该查看哪些项目文件？",
+        slot_states=project_slot_states,
+        fact_states={
+            "important_documents": {
+                0: {
+                    "fact_key": "pmf_0123456789abcdef01234567",
+                    "status": "ready",
+                    "provenance_status": "matched",
+                    "evidence_count": 1,
+                }
+            }
+        },
+    )
+    relationship_fact_client = build_client_memory_prompt_bundle(
+        client,
+        "Summarize current relationship",
+        force=True,
+        fact_states={
+            "relationship_signals": {
+                0: {
+                    "provenance_status": "scoped",
+                    "evidence_count": 2,
+                }
+            }
+        },
+    )
     user = build_user_memory_prompt_bundle(
         {
             "response_preferences": {
@@ -486,6 +514,21 @@ def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
             "passed": "PRIVATE" not in selection_json
             and "zh" not in selection_json
             and "formal" not in selection_json,
+        },
+        {
+            "case": "project_memory_manifest_carries_fact_identity_and_provenance",
+            "passed": any(
+                entry.get("memory_fact_key") == "pmf_0123456789abcdef01234567"
+                and entry.get("provenance_status") == "matched"
+                and entry.get("fact_evidence_count") == 1
+                for entry in document_fact_project["manifest"]["entries"]
+            )
+            and document_fact_project["selection"]["matched_fact_count"] == 1,
+        },
+        {
+            "case": "client_memory_scoped_provenance_is_not_overclaimed",
+            "passed": "[PROVENANCE:SCOPED]" in relationship_fact_client["prompt"]
+            and relationship_fact_client["selection"]["scoped_fact_count"] == 1,
         },
     ]
     return sum(int(item["passed"]) for item in details), len(details), details

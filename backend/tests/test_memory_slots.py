@@ -4,10 +4,13 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.db import (
+    ClientMemoryFact,
     ClientMemorySlot,
     ClientRecord,
+    ClientStakeholder,
     Project,
     ProjectFile,
+    ProjectMemoryFact,
     ProjectMemorySlot,
     ProjectPayment,
     ProjectTodo,
@@ -27,6 +30,11 @@ from app.services.memory_slots import (
     get_project_memory_slot_states,
     load_client_memory_slot_view,
     load_project_memory_slot_view,
+)
+from app.services.memory_facts import (
+    fact_states_by_slot,
+    get_client_memory_fact_states,
+    get_project_memory_fact_states,
 )
 from app.services.project_contexts import (
     get_project_memory_payload,
@@ -402,5 +410,224 @@ def test_chat_context_receipt_uses_selected_slot_freshness_not_parent_flag():
                 "financial_status",
                 "key_risks",
             }
+    finally:
+        engine.dispose()
+
+
+def test_project_memory_facts_keep_stable_identity_and_retire_removed_value():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            session.add(
+                ProjectFile(
+                    project_id=project.id,
+                    name="proposal.pdf",
+                    file_type="pdf",
+                    path="proposal.pdf",
+                )
+            )
+            session.commit()
+
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+            first = get_project_memory_fact_states(session, project.id)
+            proposal = next(
+                fact
+                for fact in first
+                if fact["slot_key"] == "important_documents"
+            )
+            assert proposal["provenance_status"] == "matched"
+            assert proposal["evidence_refs"][0]["relation"] == "label_match"
+            assert proposal["first_seen_memory_version"] == 1
+            assert proposal["last_seen_memory_version"] == 1
+
+            save_project_memory(
+                session,
+                project.id,
+                _project_memory(next_actions=["Send final steering deck"]),
+                trigger="test_changed_action",
+            )
+            active = get_project_memory_fact_states(session, project.id)
+            proposal_again = next(
+                fact
+                for fact in active
+                if fact["slot_key"] == "important_documents"
+            )
+            all_facts = get_project_memory_fact_states(
+                session,
+                project.id,
+                include_retired=True,
+            )
+
+            assert proposal_again["fact_key"] == proposal["fact_key"]
+            assert proposal_again["first_seen_memory_version"] == 1
+            assert proposal_again["last_seen_memory_version"] == 2
+            assert any(
+                fact["slot_key"] == "next_actions"
+                and fact["status"] == "retired"
+                and fact["value_preview"] == "Prepare steering deck"
+                for fact in all_facts
+            )
+            assert len(session.exec(select(ProjectMemoryFact)).all()) > len(active)
+    finally:
+        engine.dispose()
+
+
+def test_fact_staleness_and_integrity_are_independent_per_project_slot():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+
+            mark_project_memory_stale(session, project.id, trigger="payment_created")
+            states = get_project_memory_fact_states(session, project.id)
+            stale_slots = {fact["slot_key"] for fact in states if fact["status"] == "stale"}
+            assert stale_slots == {"financial_status", "key_risks"}
+
+            row = session.exec(
+                select(ProjectMemoryFact).where(
+                    ProjectMemoryFact.project_id == project.id,
+                    ProjectMemoryFact.slot_key == "important_documents",
+                )
+            ).one()
+            row.value_json = '"tampered without matching digest"'
+            session.add(row)
+            session.commit()
+
+            corrupted = get_project_memory_fact_states(session, project.id)
+            document = next(
+                fact for fact in corrupted if fact["slot_key"] == "important_documents"
+            )
+            assert document["status"] == "corrupt"
+            assert document["value_preview"] == ""
+    finally:
+        engine.dispose()
+
+
+def test_client_fact_provenance_matches_structured_stakeholder_source():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            client = ClientRecord(name="Acme")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            session.add(
+                ClientStakeholder(
+                    client_id=client.id,
+                    name="Alice Chen",
+                    role="CFO",
+                )
+            )
+            session.commit()
+            memory = _client_memory(
+                structured_stakeholders=[
+                    {"name": "Alice Chen", "role": "CFO", "concerns": "ROI"}
+                ]
+            )
+
+            save_client_memory(session, client.id, memory, trigger="test")
+            facts = get_client_memory_fact_states(session, client.id)
+            stakeholder = next(
+                fact
+                for fact in facts
+                if fact["slot_key"] == "structured_stakeholders"
+            )
+            assert stakeholder["provenance_status"] == "matched"
+            assert stakeholder["evidence_refs"][0]["source_type"] == "client_stakeholder"
+            assert stakeholder["evidence_refs"][0]["relation"] == "label_match"
+            assert session.exec(select(ClientMemoryFact)).all()
+    finally:
+        engine.dispose()
+
+
+def test_question_context_exposes_fact_identity_and_honest_provenance_counts():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            session.add(
+                ProjectFile(
+                    project_id=project.id,
+                    name="proposal.pdf",
+                    file_type="pdf",
+                    path="proposal.pdf",
+                )
+            )
+            session.commit()
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+
+            context = build_chat_context(
+                session,
+                project_id=project.id,
+                knowledge_scope="project",
+                content="应该查看哪些项目文件？",
+            )
+            memory = context.context_receipt["memory"]
+            manifest = context.project_memory_evidence_manifest
+            entry = next(
+                item
+                for item in manifest["entries"]
+                if item["slot"] == "important_documents"
+            )
+
+            assert entry["memory_fact_key"].startswith("pmf_")
+            assert entry["provenance_status"] == "matched"
+            assert entry["fact_status"] == "ready"
+            assert entry["fact_evidence_count"] == 1
+            assert memory["matched_fact_count"] >= 1
+            assert "[PROVENANCE:MATCHED]" in context.project_context
+    finally:
+        engine.dispose()
+
+
+def test_client_prompt_bundle_reports_fact_level_provenance():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            client = ClientRecord(name="Acme")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            session.add(ClientStakeholder(client_id=client.id, name="Alice Chen", role="CFO"))
+            session.commit()
+            save_client_memory(
+                session,
+                client.id,
+                _client_memory(
+                    structured_stakeholders=[{"name": "Alice Chen", "role": "CFO"}]
+                ),
+                trigger="test",
+            )
+            client = session.get(ClientRecord, client.id)
+            memory, slots = load_client_memory_slot_view(
+                session,
+                client,
+                get_client_memory_payload(client),
+            )
+            bundle = build_client_memory_prompt_bundle(
+                client,
+                "Who are the client stakeholders?",
+                force=True,
+                memory_payload=memory,
+                slot_states=slots,
+                fact_states=fact_states_by_slot(
+                    get_client_memory_fact_states(session, client.id)
+                ),
+            )
+
+            assert bundle["selection"]["matched_fact_count"] >= 1
+            assert bundle["selection"]["evidence_ref_count"] >= 1
+            assert "[PROVENANCE:MATCHED]" in bundle["prompt"]
     finally:
         engine.dispose()

@@ -234,8 +234,10 @@ def mark_project_memory_stale(session: Session, project_id: int, trigger: str = 
     if not project:
         return
     from app.services.memory_slots import mark_project_memory_slots_stale
+    from app.services.memory_facts import mark_project_memory_facts_stale
 
     mark_project_memory_slots_stale(session, project_id, trigger)
+    mark_project_memory_facts_stale(session, project_id, trigger)
     project.memory_stale = True
     if project.memory_rebuild_status != "rebuilding":
         project.memory_rebuild_status = "idle"
@@ -762,8 +764,10 @@ def save_project_memory(
         )
     )
     from app.services.memory_slots import sync_project_memory_slots
+    from app.services.memory_facts import sync_project_memory_facts
 
     sync_project_memory_slots(session, project, memory)
+    sync_project_memory_facts(session, project, memory)
     session.commit()
     session.refresh(project)
     return get_project_memory_payload(project)

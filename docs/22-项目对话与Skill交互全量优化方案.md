@@ -366,6 +366,15 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 幂等迁移 `033_v1_33` 回填历史聚合记忆，发布门禁扩展为 54 个场景。当前仍保留综合 JSON 作双写兼容视图；事实级证据条目和 slot-level 局部重建属于下一阶段。
 - 该机制参考 Codex 固定 world-state identity 和 digest 边界后重写为 Aria Python/SQLModel/React 实现；不运行、不导入、不连接 Codex。
 
+### Phase 3J：项目/客户事实级记忆溯源（已实施）
+
+- 新增 Aria 原生 `ProjectMemoryFact` / `ClientMemoryFact`，把槽位中的标量、列表项及 pinned/AI 条目拆成内容寻址事实。未变化事实跨重建保留同一 identity 和首次出现版本；移除事实进入 retired，不会被静默覆盖或伪装成新事实。
+- 每条事实独立保存 SHA-256、新鲜度、来源关系与最多 6 个证据引用。`matched` 代表来源标签确定性命中；`scoped` 仅代表重建该槽位时读过；`legacy` 表示历史聚合无法恢复精确来源；`unresolved` 明确待补证。
+- 项目问答 `M*` Manifest 和用户可见引用增加 fact identity、provenance、fact status 与证据数；Context Receipt 只展示匹配/范围来源/待补证数量，不保存事实正文。客户提示词同样带可信度守卫。
+- 项目和客户记忆页支持逐事实查看内容摘要、来源强度和实际来源；损坏内容不会被渲染为有效事实。删除项目/客户时事实账本级联清理，业务权限继续复用原路由边界。
+- 幂等迁移 `034_v1_34` 从 `033_v1_33` 槽位回填历史事实；确定性发布门禁由 54 扩展为 56 场景、继续保持 17 项指标全通过。
+- 该机制固定参考 Codex world-state 身份/摘要边界后重写为 Aria Python/SQLModel/FastAPI/React；不运行、不导入、不连接 Codex。下一阶段是 slot-level 局部重建和结构化 source ID 直连，不把标签匹配夸大为语义证明。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

@@ -197,7 +197,7 @@ def build_project_slot_evidence_refs(
         _source_ref(
             "project_progress",
             item.id,
-            f"Progress update #{item.id}",
+            f"Progress: {item.content}",
             item.created_at,
         )
         for item in progress
@@ -244,7 +244,16 @@ def build_project_slot_evidence_refs(
         _source_ref(
             "project_payment",
             item.id,
-            f"{item.payment_type} · {item.payment_date}",
+            " · ".join(
+                part
+                for part in (
+                    str(item.payment_type or "payment"),
+                    str(item.payment_date or ""),
+                    str(item.amount or ""),
+                    str(item.note or ""),
+                )
+                if part
+            ),
             None,
         )
         for item in payments
@@ -455,7 +464,7 @@ def sync_client_memory_slots(
     )
 
 
-def _project_slots_for_trigger(trigger: str) -> tuple[str, ...]:
+def project_memory_slots_for_trigger(trigger: str) -> tuple[str, ...]:
     normalized = str(trigger or "data_changed").strip().lower()
     selected: set[str] = set()
     if any(term in normalized for term in ("payment", "financial", "contract_amount")):
@@ -497,7 +506,7 @@ def _project_slots_for_trigger(trigger: str) -> tuple[str, ...]:
     return tuple(slot for slot in PROJECT_MEMORY_SLOT_KEYS if slot in selected)
 
 
-def _client_slots_for_trigger(trigger: str) -> tuple[str, ...]:
+def client_memory_slots_for_trigger(trigger: str) -> tuple[str, ...]:
     normalized = str(trigger or "data_changed").strip().lower()
     if "stakeholder" in normalized:
         return (
@@ -552,7 +561,7 @@ def mark_project_memory_slots_stale(
         owner_id=project_id,
         owner_field="project_id",
         model=ProjectMemorySlot,
-        slot_keys=_project_slots_for_trigger(trigger),
+        slot_keys=project_memory_slots_for_trigger(trigger),
         trigger=trigger,
     )
 
@@ -567,7 +576,7 @@ def mark_client_memory_slots_stale(
         owner_id=client_id,
         owner_field="client_id",
         model=ClientMemorySlot,
-        slot_keys=_client_slots_for_trigger(trigger),
+        slot_keys=client_memory_slots_for_trigger(trigger),
         trigger=trigger,
     )
 

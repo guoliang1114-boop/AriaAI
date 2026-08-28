@@ -31,11 +31,17 @@ export function contextMemoryLayerLabel(layer: ContextMemoryLayer): string {
   const evidenceLabel = (layer.evidence_ref_count ?? 0) > 0
     ? `；${layer.evidence_ref_count} 个来源引用`
     : ''
+  const factTraceCount = (layer.matched_fact_count ?? 0)
+    + (layer.scoped_fact_count ?? 0)
+    + (layer.unresolved_fact_count ?? 0)
+  const factTraceLabel = factTraceCount > 0
+    ? `；事实溯源 ${layer.matched_fact_count ?? 0} 条匹配 / ${layer.scoped_fact_count ?? 0} 条范围来源 / ${layer.unresolved_fact_count ?? 0} 条待补证`
+    : ''
   const overrideLabels = layer.overridden_dimensions.map(
     (dimension) => OVERRIDE_DIMENSION_LABELS[dimension],
   )
   const overrideLabel = overrideLabels.length > 0
     ? `；本轮要求覆盖已保存的${overrideLabels.join('、')}偏好`
     : ''
-  return `${MEMORY_SCOPE_LABELS[layer.scope]}${versionLabel}：${usageLabel}${freshnessLabel}${slotFreshnessLabel}${evidenceLabel}${overrideLabel}`
+  return `${MEMORY_SCOPE_LABELS[layer.scope]}${versionLabel}：${usageLabel}${freshnessLabel}${slotFreshnessLabel}${evidenceLabel}${factTraceLabel}${overrideLabel}`
 }
