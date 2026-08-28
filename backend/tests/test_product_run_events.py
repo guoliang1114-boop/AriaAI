@@ -156,10 +156,13 @@ class ContextReceiptTest(unittest.TestCase):
                 "retrieval_mode": "focused",
                 "query_facets": ["risk"],
                 "selected_slots": ["key_risks", "open_questions", "next_actions"],
+                "stale_slots": ["key_risks"],
                 "selected_slot_count": 3,
+                "stale_slot_count": 1,
                 "available_slot_count": 8,
                 "omitted_slot_count": 5,
                 "selected_item_count": 6,
+                "evidence_ref_count": 9,
                 "layers": [
                     {
                         "scope": "user",
@@ -183,6 +186,9 @@ class ContextReceiptTest(unittest.TestCase):
                         "available_slot_count": 4,
                         "omitted_slot_count": 3,
                         "selected_item_count": 2,
+                        "stale_slots": ["decision_patterns"],
+                        "stale_slot_count": 1,
+                        "evidence_ref_count": 3,
                     },
                 ],
             },
@@ -215,6 +221,9 @@ class ContextReceiptTest(unittest.TestCase):
         self.assertEqual(event["memory"]["version"], 4)
         self.assertEqual(event["memory"]["retrieval_mode"], "focused")
         self.assertEqual(event["memory"]["selected_item_count"], 6)
+        self.assertEqual(event["memory"]["stale_slots"], ["key_risks"])
+        self.assertEqual(event["memory"]["stale_slot_count"], 1)
+        self.assertEqual(event["memory"]["evidence_ref_count"], 9)
         self.assertEqual(
             [layer["scope"] for layer in event["memory"]["layers"]],
             ["user", "client"],
@@ -222,6 +231,10 @@ class ContextReceiptTest(unittest.TestCase):
         self.assertEqual(
             event["memory"]["layers"][0]["overridden_dimensions"],
             ["language"],
+        )
+        self.assertEqual(
+            event["memory"]["layers"][1]["stale_slots"],
+            ["decision_patterns"],
         )
         self.assertEqual(event["skill"]["usage_mode"], "advisory")
         self.assertEqual(event["evidence"]["knowledge_reference_count"], 2)
@@ -265,6 +278,21 @@ class ContextReceiptTest(unittest.TestCase):
                             "selected_slots": ["PRIVATE_CUSTOM_KEY"],
                         }
                     ],
+                },
+                skill={"status": "not_used", "usage_mode": "none"},
+                evidence={},
+            )
+
+    def test_context_receipt_rejects_stale_slot_that_was_not_selected(self):
+        with self.assertRaises(ValueError):
+            context_receipt(
+                make_run_id(),
+                scope="project",
+                memory={
+                    "status": "stale",
+                    "version": 2,
+                    "selected_slots": ["key_risks"],
+                    "stale_slots": ["financial_status"],
                 },
                 skill={"status": "not_used", "usage_mode": "none"},
                 evidence={},

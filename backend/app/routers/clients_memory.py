@@ -30,6 +30,7 @@ from app.services.client_contexts import (
     save_client_memory,
 )
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
+from app.services.memory_slots import get_client_memory_slot_states
 from app.services.project_contexts import normalize_summary_language
 from app.services.project_llm import complete_with_selected_model
 from app.services.time_utils import utc_now_naive
@@ -406,6 +407,23 @@ def get_client_memory_status(client_id: int, session: Session = Depends(get_sess
         memory_rebuild_status=client.client_memory_rebuild_status,
         memory_rebuild_failed_at=client.client_memory_rebuild_failed_at.isoformat() if client.client_memory_rebuild_failed_at else None,
     )
+
+
+@router.get("/{client_id}/memory/slots")
+def get_client_memory_slots(client_id: int, session: Session = Depends(get_session)):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    slots = get_client_memory_slot_states(session, client_id)
+    stale_count = sum(item["status"] in {"stale", "corrupt"} for item in slots)
+    return {
+        "scope": "client",
+        "entity_id": client_id,
+        "memory_version": int(client.client_memory_version or 0),
+        "slot_count": len(slots),
+        "stale_slot_count": stale_count,
+        "slots": slots,
+    }
 
 
 @router.get("/{client_id}/memory/snapshots")

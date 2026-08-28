@@ -571,7 +571,7 @@ Model Layer（外部推理服务）
 |---|---|---|---|---|
 | `run_started` | run 已开始，前端立即进入 loading | `run_id`, `timestamp` | `display_mode`, `skill` | `display_mode` 必须在 run 创建时提供；`skill` = `{name, id?}`，存在则 UI 渲染 Skill 横幅 |
 | `turn_receipt` | 模型开始前展示本轮理解 | `run_id`, `summary`, `mode`, `target_scope`, `execution_scope`, `expected_response`, `write_allowed`, `requires_confirmation`, `steering_supported` | - | 只允许来自 Turn Contract 的产品字段，不得包含提示词或隐藏推理 |
-| `context_receipt` | 展示本轮实际采用的用户/客户/项目记忆、Skill 与证据概况 | `run_id`, `schema_version`, `scope`, `project`, `memory`, `skill`, `evidence`, `warnings` | - | `memory.layers` 最多包含 `user/client/project` 三层的状态、版本、召回模式、选中槽位/条目计数、截断和固定偏好覆盖维度；整体仅包含状态、计数、ID、版本和有限候选，不得包含偏好值、提示词、记忆正文、文件内容、工具参数、用户身份或隐藏推理 |
+| `context_receipt` | 展示本轮实际采用的用户/客户/项目记忆、Skill 与证据概况 | `run_id`, `schema_version`, `scope`, `project`, `memory`, `skill`, `evidence`, `warnings` | - | `memory.layers` 最多包含 `user/client/project` 三层的状态、版本、召回模式、选中槽位/条目计数、选中陈旧槽位、来源引用计数、截断和固定偏好覆盖维度；`stale_slots` 必须是 `selected_slots` 的子集。整体仅包含状态、计数、ID、版本和有限候选，不得包含偏好值、提示词、记忆正文、文件内容、工具参数、用户身份或隐藏推理 |
 | `steering_applied` | 运行中追加要求已进入安全边界 | `run_id`, `steering_id`, `sequence`, `content_preview` | `message_id` | 必须绑定已鉴权的同一 Run；preview ≤ 160 字 |
 | `status` | 产品级状态文案 | `run_id`, `message` | `display_mode`, `progress` | `message` 长度 ≤ 50 字，面向用户 |
 | `text_delta` | 模型文本增量 | `run_id`, `content` | - | `content` 为 UTF-8 文本片段，禁止在后端批量缓存后发送 |
@@ -889,6 +889,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 目标：降低扩展新工具、新 Skill、新交付物的成本。
 
 当前进展（2026-08-26）：前九批已经落地。第一批统一 `ToolExecutionRecord v1`（版本、调用 ID、status、outcome、终态、摘要、错误、重试与耗时），Rollout、Evaluation、Persist 和前端 Store 共用该契约；原始工具输入/输出不进入长期台账，超限时保留最近记录并显式报告省略数。第二批统一 `ToolCapabilityManifest v1`：17 个现有工具的权限、副作用、并行、重试、项目作用域、结果类型、展示名和 Product Run Event 进入一个注册事实源，未知工具失败关闭，Artifact Ready 事件保留来源工具。第三批统一 `Context Assembly Manifest v1`：Skill、项目/客户、RAG、工作记忆、工具历史、意图与 Turn Contract、用户偏好、会话历史和工具目录拥有稳定来源身份，最终 Provider 请求与预算清单绑定，Trace、Rollout、Evaluation 共享同一份无原文 Manifest。第四批统一 `RunOutputRecord v1`：Artifact 必须在 `UPLOADS_DIR` 内真实存在并通过项目文件证据、实际字节数与 SHA-256 校验后，才可进入 `GeneratedFile`、`artifact_ready` 和完成裁决；Memory Candidate 使用独立表、来源消息/Run、权限边界和 `pending → accepted/rejected` 裁决，接受后保留为重建不可覆盖的正式记忆锚点。第五批统一 `KnowledgeEvidenceManifest v1`：RAG 原文只进入 Provider 上下文，消息、Trace 与 Artifact 仅保存来源元数据、稳定 `K*` 引用键和内容摘要；最终回答只展示实际回指的合法来源，跨项目显式文档 ID 在检索前按成员范围过滤。第六批把知识 ingestion 改造为数据库持久化任务：用幂等键、lease、心跳时间、可恢复 checkpoint、语义失败分类和有界退避统一后台恢复，API 与前端只展示安全状态，不泄露原文、路径或 job payload。第七批建立历史知识受控迁移：预检库内元数据与文件内容摘要，用 plan fingerprint 锁定执行基线，通过持久映射、无损复制、重复内容复用和逐文档 checkpoint 进行批次切换，同时收紧旧管理 API 的项目/客户权限。第八批统一 `Project Memory Evidence Manifest v1`：用问题切面和槽位预算只向 Provider 注入当轮相关的项目记忆，为每条内容分配稳定 `M*` 引用；消息、Context Receipt、Trace 和 Evaluation 仅保存无正文的选择元数据与内容摘要，非法回指不会进入用户可见引用。第九批补齐真实使用闭环与连续性：Assistant Message 支持匿名分类反馈及项目级质量聚合，配置建议记录采用/关闭结果；中断 Run 可由服务器基于持久 Rollout 生成安全恢复合同并一键新建续跑 Turn；项目实体状态通过 hash-only World State 形成每轮版本与分类变更摘要。该批复用 Aria 已移植并注明来源的 Codex Rollout/重建机制，没有引入 Codex 进程、协议、SDK 或数据库迁移。
+
+补充进展（2026-08-28）：第十批已将项目/客户记忆改造为持久化槽位账本与兼容聚合双写，新增独立槽位版本、规范内容 SHA-256、真实来源引用、变更到槽位的定向失效和读前完整性校验。Context Harness 只对当轮选中且陈旧/损坏的槽位降级，Context Receipt 仅回传陈旧槽位和来源计数。幂等迁移由 `033_v1_33` 管理，不引入 Codex 运行时、SDK、协议或通信。
 
 范围：
 

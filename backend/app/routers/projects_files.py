@@ -147,7 +147,7 @@ def list_trashed_files(project_id: int, session: Session = Depends(get_session))
 @router.post("/{project_id}/files/{file_id}/restore")
 def restore_file(project_id: int, file_id: int, session: Session = Depends(get_session)):
     restored = restore_project_file(session, project_id, file_id)
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
     _bust_project(project_id)
     return _refresh_instance(session, restored)
 
@@ -167,7 +167,7 @@ def create_project_document(
         uploads_dir=UPLOADS_DIR,
         init_default_folders=init_default_project_folders,
     )
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
     _bust_project(project_id)
     return _refresh_instance(session, project_file)
 
@@ -194,7 +194,7 @@ def update_project_document(
         name=data.name,
         folder_id=data.folder_id,
     )
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
     _bust_project(project_id)
     return _refresh_instance(session, result)
 
@@ -259,7 +259,7 @@ def save_conversation_markdown(
             change_source="conversation_markdown_merge",
         )
         session.commit()
-        _mark_project_memory_stale(session, project_id)
+        _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
         _bust_project(project_id)
         return {
             "ok": True,
@@ -292,7 +292,7 @@ def save_conversation_markdown(
         uploads_dir=UPLOADS_DIR,
         summary=f"Saved from conversation: {conv.title or 'Untitled Conversation'}",
     )
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
     _bust_project(project_id)
     return {
         "ok": True,
@@ -360,7 +360,7 @@ def save_message_to_document(
             change_source="message_markdown_merge",
         )
         session.commit()
-        _mark_project_memory_stale(session, project_id)
+        _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
         _bust_project(project_id)
         return {
             "ok": True,
@@ -394,7 +394,7 @@ def save_message_to_document(
         uploads_dir=UPLOADS_DIR,
         summary=f"Saved from conversation: {conv.title or 'Untitled Conversation'}",
     )
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
     _bust_project(project_id)
     return {
         "ok": True,
@@ -507,7 +507,6 @@ def move_project_file(
         project_file.folder_id = folder.id if folder else None
     session.add(project_file)
     session.commit()
-    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return _refresh_instance(session, project_file)
 
@@ -527,7 +526,7 @@ def restore_file_version(project_id: int, file_id: int, version_id: int, session
         content=version.content_snapshot,
         name=version.name,
     )
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
     _bust_project(project_id)
     return {"ok": True, "restored_version_id": version_id, "file": result}
 
@@ -558,7 +557,7 @@ def upload_file(
         _auto_summarize_file, pf.id, str(dest_file), file_type, project_id, folder_id
     )
 
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
     _bust_project(project_id)
     return _refresh_instance(session, pf)
 
@@ -566,7 +565,7 @@ def upload_file(
 @router.delete("/{project_id}/files/{file_id}")
 def delete_file(project_id: int, file_id: int, session: Session = Depends(get_session)):
     archive_project_file(session, project_id, file_id, reason="Manual project file delete")
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
     _bust_project(project_id)
     return {"ok": True, "archived": True}
 
@@ -599,7 +598,6 @@ def create_folder(project_id: int, data: FolderCreate, session: Session = Depend
         name=data.name,
         sort_order=data.sort_order,
     )
-    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return _refresh_instance(session, folder)
 
@@ -607,6 +605,5 @@ def create_folder(project_id: int, data: FolderCreate, session: Session = Depend
 @router.delete("/{project_id}/folders/{folder_id}")
 def delete_folder(project_id: int, folder_id: int, session: Session = Depends(get_session)):
     delete_project_folder(session, project_id, folder_id)
-    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return {"ok": True}

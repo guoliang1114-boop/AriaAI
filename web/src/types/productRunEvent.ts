@@ -107,10 +107,14 @@ export interface ContextMemoryLayer {
   retrieval_mode: "none" | "overview" | "focused" | "full";
   query_facets: string[];
   selected_slots: string[];
+  /** Optional for persisted v1 receipts created before slot-level freshness shipped. */
+  stale_slots?: string[];
   selected_slot_count: number;
+  stale_slot_count?: number;
   available_slot_count: number;
   omitted_slot_count: number;
   selected_item_count: number;
+  evidence_ref_count?: number;
   truncated: boolean;
   overridden_dimensions: ContextMemoryOverrideDimension[];
 }
@@ -128,10 +132,13 @@ export interface ContextReceiptEvent {
     retrieval_mode: "none" | "overview" | "focused" | "full";
     query_facets: string[];
     selected_slots: string[];
+    stale_slots?: string[];
     selected_slot_count: number;
+    stale_slot_count?: number;
     available_slot_count: number;
     omitted_slot_count: number;
     selected_item_count: number;
+    evidence_ref_count?: number;
     truncated: boolean;
     /** Optional for persisted v1 receipts created before layered routing shipped. */
     layers?: ContextMemoryLayer[];

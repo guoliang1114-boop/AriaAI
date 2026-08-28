@@ -241,6 +241,7 @@ jobs:
                 tests/test_knowledge_job_recovery.py \
                 tests/test_knowledge_legacy_migration.py \
                 tests/test_layered_memory_routing.py \
+                tests/test_memory_slots.py \
                 tests/test_product_run_events.py \
                 tests/test_project_chat_quality_eval.py \
                 tests/test_project_memory_evidence.py \

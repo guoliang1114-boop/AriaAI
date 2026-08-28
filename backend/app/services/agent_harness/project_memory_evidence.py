@@ -222,12 +222,32 @@ def _manifest_digest_payload(
     }
 
 
-def build_project_memory_evidence(project: Project, query: str = "") -> dict[str, Any]:
+def build_project_memory_evidence(
+    project: Project,
+    query: str = "",
+    *,
+    memory_payload: dict[str, Any] | None = None,
+    slot_states: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Build an ephemeral prompt plus a no-content evidence manifest."""
 
-    memory = get_project_memory_payload(project)
+    memory = memory_payload or get_project_memory_payload(project)
+    slot_states = slot_states or {}
     memory_version = max(0, int(project.memory_version or 0))
     retrieval_mode, facets, selected_slots = select_project_memory_slots(query)
+    if slot_states:
+        stale_slots = tuple(
+            slot
+            for slot in selected_slots
+            if str((slot_states.get(slot) or {}).get("status") or "") != "ready"
+        )
+    else:
+        stale_slots = selected_slots if project.memory_stale else ()
+    evidence_ref_count = sum(
+        max(0, int((slot_states.get(slot) or {}).get("evidence_count") or 0))
+        for slot in selected_slots
+    )
+    effective_stale = bool(stale_slots)
     available_slot_count = _available_slot_count(memory)
     selection = {
         "retrieval_mode": retrieval_mode,
@@ -239,6 +259,9 @@ def build_project_memory_evidence(project: Project, query: str = "") -> dict[str
             bool(_memory_slot_items(memory, slot)) for slot in selected_slots
         )),
         "selected_item_count": 0,
+        "stale_slots": list(stale_slots),
+        "stale_slot_count": len(stale_slots),
+        "evidence_ref_count": evidence_ref_count,
         "truncated": False,
     }
     if not memory or memory_version <= 0:
@@ -298,7 +321,7 @@ def build_project_memory_evidence(project: Project, query: str = "") -> dict[str
         entries,
         project_id=int(project.id or 0),
         memory_version=memory_version,
-        memory_stale=bool(project.memory_stale),
+        memory_stale=effective_stale,
         retrieval_mode=retrieval_mode,
         query_facets=facets,
         selected_slots=selected_slots,
@@ -308,7 +331,7 @@ def build_project_memory_evidence(project: Project, query: str = "") -> dict[str
         "manifest_id": "pme_manifest_" + _sha256(digest_payload)[:24],
         "project_id": int(project.id or 0),
         "memory_version": memory_version,
-        "memory_stale": bool(project.memory_stale),
+        "memory_stale": effective_stale,
         "retrieval_mode": retrieval_mode,
         "query_facets": list(facets),
         "selected_slots": list(selected_slots),
@@ -324,7 +347,7 @@ def build_project_memory_evidence(project: Project, query: str = "") -> dict[str
     selection["selected_item_count"] = len(entries)
     heading = (
         "**Structured Project Memory (STALE):**"
-        if project.memory_stale
+        if effective_stale
         else "**Structured Project Memory:**"
     )
     prompt_lines = [
@@ -338,15 +361,18 @@ def build_project_memory_evidence(project: Project, query: str = "") -> dict[str
         "Never invent a memory citation key. "
         "If selected memory is insufficient, say so and rely on newer raw project evidence.",
     ]
-    if project.memory_stale:
+    if effective_stale:
         prompt_lines.append(
-            "- Memory freshness: STALE. Treat this synthesized memory as provisional; "
-            "prefer newer milestones, todos, progress updates, files, and current user input. "
-            "If the answer materially depends on a stale item, disclose that limitation."
+            "- Memory freshness: only these selected slots are stale or invalid: "
+            f"{', '.join(stale_slots)}. Treat values from those slots as provisional; "
+            "other selected slots remain usable; prefer newer milestones, todos, progress "
+            "updates, files, and current user input for stale slots."
         )
     for item, entry in zip(rendered_items, entries):
+        stale_marker = " [STALE SLOT]" if item["slot"] in stale_slots else ""
         prompt_lines.append(
-            f"- {item['slot_label']} [{entry['citation_key']}]: {item['content']}"
+            f"- {item['slot_label']}{stale_marker} "
+            f"[{entry['citation_key']}]: {item['content']}"
         )
     return {
         "prompt": "\n".join(prompt_lines) if entries else "",

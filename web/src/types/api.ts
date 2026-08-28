@@ -107,6 +107,35 @@ export interface ProjectMemoryResponse {
   memory_rebuild_failed_at?: string | null
 }
 
+export interface MemorySlotEvidenceRef {
+  source_type: string
+  source_id: string
+  source_label: string
+  captured_at: string
+}
+
+export interface MemorySlotState {
+  slot_key: string
+  slot_version: number
+  aggregate_memory_version: number
+  status: 'ready' | 'stale' | 'corrupt'
+  value_sha256: string
+  evidence_count: number
+  evidence_refs: MemorySlotEvidenceRef[]
+  stale_reason: string
+  stale_at?: string | null
+  updated_at?: string | null
+}
+
+export interface MemorySlotListResponse {
+  scope: 'project' | 'client'
+  entity_id: number
+  memory_version: number
+  slot_count: number
+  stale_slot_count: number
+  slots: MemorySlotState[]
+}
+
 export interface ProjectMemoryListResponse {
   items: Project[]
   total: number

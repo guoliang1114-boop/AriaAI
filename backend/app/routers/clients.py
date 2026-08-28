@@ -14,7 +14,13 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models.db import ClientRecord, KnowledgeDocument, MemoryCandidate, Project
+from app.models.db import (
+    ClientMemorySlot,
+    ClientRecord,
+    KnowledgeDocument,
+    MemoryCandidate,
+    Project,
+)
 from app.services import scheduler as scheduler_service
 from app.services.cache import clients_cache
 from app.services.client_contexts import build_client_memory_summary_prompt
@@ -222,6 +228,10 @@ def delete_client(client_id: int, session: Session = Depends(get_session)):
         select(MemoryCandidate).where(MemoryCandidate.client_id == client_id)
     ).all():
         session.delete(candidate)
+    for slot in session.exec(
+        select(ClientMemorySlot).where(ClientMemorySlot.client_id == client_id)
+    ).all():
+        session.delete(slot)
     session.delete(client)
     session.commit()
     clients_cache.delete(_CLIENTS_KEY)

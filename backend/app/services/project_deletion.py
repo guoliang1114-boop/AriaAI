@@ -21,6 +21,7 @@ from app.models.db import (
     ProjectFolder,
     ProjectMember,
     ProjectMemorySnapshot,
+    ProjectMemorySlot,
     ProjectMemorySummary,
     ProjectPayment,
     ProjectProgressUpdate,
@@ -207,6 +208,12 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
 
     for snapshot in session.exec(select(ProjectMemorySnapshot).where(ProjectMemorySnapshot.project_id == project_id)).all():
         session.delete(snapshot)
+    session.flush()
+
+    for slot in session.exec(
+        select(ProjectMemorySlot).where(ProjectMemorySlot.project_id == project_id)
+    ).all():
+        session.delete(slot)
     session.flush()
 
     for scheduled_task in session.exec(select(ScheduledTask).where(ScheduledTask.project_id == project_id)).all():

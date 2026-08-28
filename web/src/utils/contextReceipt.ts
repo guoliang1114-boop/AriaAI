@@ -24,11 +24,18 @@ export function contextMemoryLayerLabel(layer: ContextMemoryLayer): string {
       ? '未设置或未生成'
       : '本轮未调用'
   const freshnessLabel = layer.status === 'stale' ? '（待刷新）' : ''
+  const staleSlotCount = layer.stale_slot_count ?? layer.stale_slots?.length ?? 0
+  const slotFreshnessLabel = staleSlotCount > 0
+    ? `；其中 ${staleSlotCount} 个已用槽位待刷新`
+    : ''
+  const evidenceLabel = (layer.evidence_ref_count ?? 0) > 0
+    ? `；${layer.evidence_ref_count} 个来源引用`
+    : ''
   const overrideLabels = layer.overridden_dimensions.map(
     (dimension) => OVERRIDE_DIMENSION_LABELS[dimension],
   )
   const overrideLabel = overrideLabels.length > 0
     ? `；本轮要求覆盖已保存的${overrideLabels.join('、')}偏好`
     : ''
-  return `${MEMORY_SCOPE_LABELS[layer.scope]}${versionLabel}：${usageLabel}${freshnessLabel}${overrideLabel}`
+  return `${MEMORY_SCOPE_LABELS[layer.scope]}${versionLabel}：${usageLabel}${freshnessLabel}${slotFreshnessLabel}${evidenceLabel}${overrideLabel}`
 }

@@ -367,12 +367,25 @@ def _normalize_memory_layer(value: dict) -> dict[str, Any]:
         "available_slot_count",
         "omitted_slot_count",
         "selected_item_count",
+        "evidence_ref_count",
     ):
         try:
             counts[key] = max(0, int(value.get(key) or 0))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"context_receipt.memory.layer.{key} is invalid") from exc
     counts["selected_slot_count"] = len(selected_slots)
+    stale_slots = list(dict.fromkeys(
+        _require_in(
+            str(slot).strip(),
+            _MEMORY_LAYER_SLOTS[scope],
+            "context_receipt.memory.layer.stale_slot",
+        )
+        for slot in list(value.get("stale_slots") or [])[:12]
+        if str(slot).strip()
+    ))
+    if any(slot not in selected_slots for slot in stale_slots):
+        raise ValueError("context_receipt.memory.layer.stale_slots must be selected")
+    counts["stale_slot_count"] = len(stale_slots)
     overridden_dimensions = [
         _require_in(
             str(dimension),
@@ -390,6 +403,7 @@ def _normalize_memory_layer(value: dict) -> dict[str, Any]:
         "retrieval_mode": retrieval_mode,
         "query_facets": query_facets,
         "selected_slots": selected_slots,
+        "stale_slots": stale_slots,
         **counts,
         "truncated": bool(value.get("truncated", False)),
         "overridden_dimensions": list(dict.fromkeys(overridden_dimensions)),
@@ -532,11 +546,24 @@ def context_receipt(
         "available_slot_count",
         "omitted_slot_count",
         "selected_item_count",
+        "evidence_ref_count",
     ):
         try:
             memory_counts[key] = max(0, int(memory.get(key) or 0))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"context_receipt.memory.{key} is invalid") from exc
+    stale_slots = list(dict.fromkeys(
+        _require_in(
+            str(slot).strip(),
+            _MEMORY_LAYER_SLOTS["project"],
+            "context_receipt.memory.stale_slot",
+        )
+        for slot in list(memory.get("stale_slots") or [])[:12]
+        if str(slot).strip()
+    ))
+    if any(slot not in selected_slots for slot in stale_slots):
+        raise ValueError("context_receipt.memory.stale_slots must be selected")
+    memory_counts["stale_slot_count"] = len(stale_slots)
     memory_layers: list[dict[str, Any]] = []
     seen_layer_scopes: set[str] = set()
     for layer in list(memory.get("layers") or [])[:CONTEXT_RECEIPT_MAX_MEMORY_LAYERS]:
@@ -617,6 +644,7 @@ def context_receipt(
             "retrieval_mode": memory_retrieval_mode,
             "query_facets": query_facets,
             "selected_slots": selected_slots,
+            "stale_slots": stale_slots,
             **memory_counts,
             "truncated": bool(memory.get("truncated", False)),
             "layers": memory_layers,

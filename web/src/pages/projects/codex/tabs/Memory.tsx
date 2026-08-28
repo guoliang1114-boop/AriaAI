@@ -4,6 +4,8 @@ import { useToast } from '../../../../contexts/ToastContext'
 import type {
   MemoryCandidate,
   MemoryCandidateListResponse,
+  MemorySlotListResponse,
+  MemorySlotState,
   MemorySnapshotDiffResponse,
   ProjectDetail as ProjectDetailType,
   ProjectMemorySnapshot,
@@ -16,7 +18,7 @@ import {
   CxMemoryRebuildButton,
 } from '../CxMemoryActions'
 import { EDITABLE_SLOT_KEYS } from '../projectActionMutations'
-import { formatUpdatedRelative, useProjectConversations } from '../useProjectsApi'
+import { formatUpdatedRelative } from '../useProjectsApi'
 
 interface MemoryProps {
   projectId: number
@@ -151,20 +153,6 @@ function formatMemoryTrigger(trigger: string): string {
   return labels[trigger] ?? trigger.replaceAll('_', ' ')
 }
 
-/** Light-weight "what fed this rebuild" snapshot. We can't (cheaply)
- * map individual slot items back to specific source docs / messages —
- * that needs LLM-side citations and a schema change. Instead we
- * surface the **pool** the LLM saw at the time of memory_updated_at:
- * file names and conversation titles that existed on or before that
- * timestamp. Click-to-expand on each slot reveals the same pool so
- * the user can sanity-check "AI didn't make this up". */
-interface MemorySnapshot {
-  fileCount: number
-  conversationCount: number
-  fileNames: string[]
-  conversationTitles: string[]
-}
-
 const PINNED_BLOCKS: Array<{ key: PinnedBlock['key']; title: string; tone: PinnedBlock['tone'] }> = [
   { key: 'key_risks', title: '风险锚点', tone: 'bad' },
   { key: 'open_questions', title: '待确认问题', tone: 'warn' },
@@ -245,32 +233,11 @@ function computeHealth(
 export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
   const { project, files, milestones } = detail
   const stale = !!project.memory_stale
-  const { data: conversations } = useProjectConversations(projectId)
 
   const memory = useMemo(
     () => readMemoryDict(project.context_memory_json),
     [project.context_memory_json],
   )
-
-  // Pool of source material that existed at the time of the last
-  // rebuild — used for the per-slot "依据" footer. We snapshot to
-  // memory_updated_at so that newly added files / conversations don't
-  // get falsely attributed to an older rebuild.
-  const snapshot = useMemo<MemorySnapshot>(() => {
-    const memoryTs = parseIsoMillis(project.memory_updated_at)
-    const eligibleFiles = files.filter(
-      (f) => !f.deleted_at && (memoryTs === 0 || parseIsoMillis(f.uploaded_at) <= memoryTs),
-    )
-    const eligibleConvs = conversations.filter(
-      (c) => memoryTs === 0 || parseIsoMillis(c.created_at) <= memoryTs,
-    )
-    return {
-      fileCount: eligibleFiles.length,
-      conversationCount: eligibleConvs.length,
-      fileNames: eligibleFiles.map((f) => f.name),
-      conversationTitles: eligibleConvs.map((c) => c.title || '未命名对话'),
-    }
-  }, [files, conversations, project.memory_updated_at])
 
   const slots = useMemo(() => {
     if (!memory) return [] as Array<{ meta: SlotMeta; data: SlotData }>
@@ -354,6 +321,7 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
   const toast = useToast()
   const memoryCandidatesRequestIdRef = useRef(0)
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([])
+  const [slotLedger, setSlotLedger] = useState<MemorySlotListResponse | null>(null)
   const [candidateBusyId, setCandidateBusyId] = useState<number | null>(null)
   const [versionSnapshots, setVersionSnapshots] = useState<ProjectMemorySnapshot[]>([])
   const [selectedVersionDiff, setSelectedVersionDiff] = useState<MemorySnapshotDiffResponse | null>(null)
@@ -376,9 +344,28 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
       })
   }, [projectId])
 
+  const loadSlotLedger = useCallback(() => {
+    return api
+      .get<MemorySlotListResponse>(`/projects/${projectId}/memory/slots`)
+      .then(setSlotLedger)
+      .catch((error: unknown) => {
+        console.error('Failed to load project memory slot ledger:', error)
+        setSlotLedger(null)
+      })
+  }, [projectId])
+
+  const slotStateByKey = useMemo(
+    () => new Map((slotLedger?.slots ?? []).map((slot) => [slot.slot_key, slot])),
+    [slotLedger],
+  )
+
   useEffect(() => {
     void loadMemoryCandidates()
   }, [loadMemoryCandidates])
+
+  useEffect(() => {
+    void loadSlotLedger()
+  }, [loadSlotLedger, project.memory_version])
 
   const loadMemoryVersions = useCallback(() => {
     return api
@@ -516,7 +503,11 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
               </div>
               {project.memory_version != null && (
                 <CxStatus tone={stale ? 'warn' : 'good'}>
-                  {stale ? '需刷新' : '已同步'}
+                  {slotLedger && slotLedger.stale_slot_count > 0
+                    ? `${slotLedger.stale_slot_count} 个槽位需刷新`
+                    : stale
+                      ? '需刷新'
+                      : '已同步'}
                 </CxStatus>
               )}
               {project.memory_rebuild_status && project.memory_rebuild_status !== 'idle' && (
@@ -790,7 +781,7 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
                 key={s.meta.key}
                 meta={s.meta}
                 data={s.data}
-                snapshot={snapshot}
+                slotState={slotStateByKey.get(s.meta.key)}
                 onOpenAnchors={() => setActiveAnchorSlot(s.meta)}
               />
             ))
@@ -1056,20 +1047,28 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
 interface SlotSectionProps {
   meta: SlotMeta
   data: SlotData
-  snapshot: MemorySnapshot
+  slotState?: MemorySlotState
   onOpenAnchors: () => void
 }
 
-function SlotSection({ meta, data, snapshot, onOpenAnchors }: SlotSectionProps) {
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  project: '项目记录',
+  project_progress: '进展记录',
+  milestone: '里程碑',
+  project_todo: '待办',
+  project_file: '项目文件',
+  project_payment: '财务记录',
+  client_stakeholder: '客户干系人',
+  memory_candidate: '已确认记忆候选',
+  legacy_memory_aggregate: '历史整块记忆',
+}
+
+function SlotSection({ meta, data, slotState, onOpenAnchors }: SlotSectionProps) {
   const empty = data.ai.length + data.pinned.length === 0
   const isAnchorable = EDITABLE_SLOT_KEYS.has(meta.key)
   const [sourcesOpen, setSourcesOpen] = useState(false)
-  // Footer only renders when there's an AI-written part (pinned-only
-  // slots don't have an AI rebuild backing them) and at least one
-  // source existed at the time of the rebuild.
-  const showSources =
-    data.ai.length > 0 &&
-    (snapshot.fileCount > 0 || snapshot.conversationCount > 0)
+  const showSources = (slotState?.evidence_count ?? 0) > 0
+  const slotStale = slotState?.status === 'stale' || slotState?.status === 'corrupt'
 
   return (
     <section
@@ -1128,12 +1127,23 @@ function SlotSection({ meta, data, snapshot, onOpenAnchors }: SlotSectionProps) 
             </h3>
             <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginTop: 2 }}>
               {meta.provenance}
+              {slotState ? ` · 槽位 v${slotState.slot_version}` : ''}
               {isAnchorable && data.pinned.length > 0
                 ? ` · ${data.pinned.length} 项已固定`
                 : ''}
             </div>
           </div>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {slotState && (
+            <CxStatus tone={slotStale ? 'warn' : 'good'}>
+              {slotState.status === 'corrupt'
+                ? '校验失败'
+                : slotState.status === 'stale'
+                  ? '待刷新'
+                  : '已验证'}
+            </CxStatus>
+          )}
         {isAnchorable && (
           <button
             type="button"
@@ -1154,6 +1164,7 @@ function SlotSection({ meta, data, snapshot, onOpenAnchors }: SlotSectionProps) 
             <span style={{ fontSize: 12 }}>★</span> 管理锚点
           </button>
         )}
+        </div>
       </div>
 
       {empty ? (
@@ -1268,7 +1279,7 @@ function SlotSection({ meta, data, snapshot, onOpenAnchors }: SlotSectionProps) 
               border: 'none',
               cursor: 'pointer',
             }}
-            title="AI 重新汇总时读取的文档与对话池 · 点击展开查看清单"
+            title="后端在该槽位写入时记录的真实来源 · 点击展开查看"
           >
             <span
               style={{
@@ -1281,7 +1292,7 @@ function SlotSection({ meta, data, snapshot, onOpenAnchors }: SlotSectionProps) 
               ▶
             </span>
             <span>
-              依据 · {snapshot.fileCount} 篇文档 · {snapshot.conversationCount} 次对话
+              真实依据 · {slotState?.evidence_count ?? 0} 个来源
             </span>
           </button>
           {sourcesOpen && (
@@ -1296,62 +1307,17 @@ function SlotSection({ meta, data, snapshot, onOpenAnchors }: SlotSectionProps) 
                 lineHeight: 1.7,
               }}
             >
-              {snapshot.fileCount > 0 && (
-                <div style={{ marginBottom: snapshot.conversationCount > 0 ? 8 : 0 }}>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--ink-mute)',
-                      marginBottom: 3,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.06em',
-                    }}
-                  >
-                    文档
-                  </div>
-                  {snapshot.fileNames.map((n, i) => (
-                    <div
-                      key={`f-${i}`}
-                      style={{
-                        display: 'flex',
-                        gap: 6,
-                        padding: '2px 0',
-                      }}
-                    >
-                      <span style={{ color: 'var(--ink-faint)' }}>·</span>
-                      <span style={{ wordBreak: 'break-word' }}>{n}</span>
-                    </div>
-                  ))}
+              {(slotState?.evidence_refs ?? []).map((source) => (
+                <div
+                  key={`${source.source_type}:${source.source_id}`}
+                  style={{ display: 'grid', gridTemplateColumns: '88px 1fr', gap: 8, padding: '3px 0' }}
+                >
+                  <span style={{ color: 'var(--ink-mute)' }}>
+                    {SOURCE_TYPE_LABELS[source.source_type] ?? source.source_type}
+                  </span>
+                  <span style={{ wordBreak: 'break-word' }}>{source.source_label}</span>
                 </div>
-              )}
-              {snapshot.conversationCount > 0 && (
-                <div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--ink-mute)',
-                      marginBottom: 3,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.06em',
-                    }}
-                  >
-                    对话
-                  </div>
-                  {snapshot.conversationTitles.map((t, i) => (
-                    <div
-                      key={`c-${i}`}
-                      style={{
-                        display: 'flex',
-                        gap: 6,
-                        padding: '2px 0',
-                      }}
-                    >
-                      <span style={{ color: 'var(--ink-faint)' }}>·</span>
-                      <span style={{ wordBreak: 'break-word' }}>{t}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              ))}
               <div
                 style={{
                   marginTop: 8,
@@ -1360,8 +1326,13 @@ function SlotSection({ meta, data, snapshot, onOpenAnchors }: SlotSectionProps) 
                   lineHeight: 1.55,
                 }}
               >
-                这是 AI 上次重建时可见的全部素材池 · 不代表每条都被引用
+                来源由后端在槽位写入时记录；历史迁移数据会明确标注无法还原精确来源
               </div>
+              {slotStale && slotState?.stale_reason && (
+                <div style={{ marginTop: 6, color: 'var(--warn)' }}>
+                  过期原因 · {slotState.stale_reason.replaceAll('_', ' ')}
+                </div>
+              )}
             </div>
           )}
         </div>

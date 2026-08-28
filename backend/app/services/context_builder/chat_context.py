@@ -7,6 +7,12 @@ from app.models.db import ClientRecord, Project, Skill
 from app.services.agent_harness.project_memory_evidence import (
     build_project_memory_evidence,
 )
+from app.services.client_contexts import get_client_memory_payload
+from app.services.memory_slots import (
+    load_client_memory_slot_view,
+    load_project_memory_slot_view,
+)
+from app.services.project_contexts import get_project_memory_payload
 from app.services.context_builder.assembly import ContextSourceInput
 from app.services.context_builder.memory_formatters import build_client_memory_prompt_bundle
 from app.services.context_builder.project_context import build_project_context
@@ -117,11 +123,21 @@ def build_chat_context(
         workspace_inventory_context = build_workspace_project_inventory_context(
             session, content, force=force_inventory, accessible_project_ids=accessible_project_ids
         )
-    project_memory_bundle = (
-        build_project_memory_evidence(project, content)
-        if project is not None and not portfolio_context and not workspace_inventory_context
-        else {"prompt": "", "manifest": {}, "selection": {}}
-    )
+    if project is not None and not portfolio_context and not workspace_inventory_context:
+        project_memory, project_slot_states = load_project_memory_slot_view(
+            session,
+            project,
+            get_project_memory_payload(project),
+        )
+        project_memory_bundle = build_project_memory_evidence(
+            project,
+            content,
+            memory_payload=project_memory,
+            slot_states=project_slot_states,
+        )
+    else:
+        project_slot_states = {}
+        project_memory_bundle = {"prompt": "", "manifest": {}, "selection": {}}
     if current_project_only and project_id:
         project_context = build_project_context(
             session,
@@ -147,14 +163,21 @@ def build_chat_context(
     else:
         project_context = build_lightweight_workspace_context(session, accessible_project_ids)
 
-    client_memory_bundle = (
-        build_client_memory_prompt_bundle(
+    if client is not None:
+        client_memory, client_slot_states = load_client_memory_slot_view(
+            session,
+            client,
+            get_client_memory_payload(client),
+        )
+        client_memory_bundle = build_client_memory_prompt_bundle(
             client,
             content if not (portfolio_context or workspace_inventory_context) else "",
             force=normalized_scope == "client" and not portfolio_context,
+            memory_payload=client_memory,
+            slot_states=client_slot_states,
         )
-        if client is not None
-        else {
+    else:
+        client_memory_bundle = {
             "prompt": "",
             "selection": {
                 "scope": "client",
@@ -167,11 +190,13 @@ def build_chat_context(
                 "available_slot_count": 0,
                 "omitted_slot_count": 0,
                 "selected_item_count": 0,
+                "stale_slots": [],
+                "stale_slot_count": 0,
+                "evidence_ref_count": 0,
                 "truncated": False,
                 "overridden_dimensions": [],
             },
         }
-    )
     client_memory_context = str(client_memory_bundle.get("prompt") or "")
     if client_memory_context:
         project_context = client_memory_context + "\n\n" + project_context
@@ -207,7 +232,7 @@ def build_chat_context(
     if context_scope == "project" and project is not None:
         if int(project.memory_version or 0) <= 0:
             memory_status = "missing"
-        elif project.memory_stale:
+        elif list((project_memory_bundle.get("selection") or {}).get("stale_slots") or []):
             memory_status = "stale"
         else:
             memory_status = "ready"

@@ -311,6 +311,7 @@ jobs:
                         "tests/test_knowledge_job_recovery.py",
                         "tests/test_knowledge_legacy_migration.py",
                         "tests/test_layered_memory_routing.py",
+                        "tests/test_memory_slots.py",
                         "tests/test_knowledge_v005_api.py",
                         "tests/test_knowledge_v005_models.py",
                         "tests/test_knowledge_v005_permissions.py",

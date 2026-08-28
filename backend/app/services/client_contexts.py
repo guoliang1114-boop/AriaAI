@@ -116,6 +116,9 @@ def mark_client_memory_stale(session: Session, client_id: int, trigger: str = "d
     client = session.get(ClientRecord, client_id)
     if not client:
         return
+    from app.services.memory_slots import mark_client_memory_slots_stale
+
+    mark_client_memory_slots_stale(session, client_id, trigger)
     client.client_memory_stale = True
     session.add(client)
     session.commit()
@@ -336,6 +339,9 @@ def save_client_memory(
             created_at=client.client_memory_updated_at,
         )
     )
+    from app.services.memory_slots import sync_client_memory_slots
+
+    sync_client_memory_slots(session, client, memory)
     session.commit()
     session.refresh(client)
     return get_client_memory_payload(client)

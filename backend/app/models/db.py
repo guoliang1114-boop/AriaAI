@@ -110,6 +110,43 @@ class ProjectMemorySnapshot(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now_naive, index=True)
 
 
+class ProjectMemorySlot(SQLModel, table=True):
+    """Durable, independently versioned projection of one project-memory slot."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "slot_key",
+            name="uq_projectmemoryslot_project_slot",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    slot_key: str = Field(index=True)
+    slot_version: int = Field(default=1)
+    aggregate_memory_version: int = Field(default=0, index=True)
+    value_json: str = Field(
+        default="null",
+        sa_column=Column(Text, nullable=False, default="null"),
+    )
+    value_sha256: str = Field(default="", index=True)
+    evidence_refs_json: str = Field(
+        default="[]",
+        sa_column=Column(Text, nullable=False, default="[]"),
+    )
+    evidence_count: int = 0
+    is_stale: bool = Field(default=True, index=True)
+    stale_reason: str = ""
+    stale_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
 class ClientMemorySummary(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clientrecord.id", index=True)
@@ -128,6 +165,43 @@ class ClientMemorySnapshot(SQLModel, table=True):
     trigger: str = Field(default="", index=True)
     memory_json: str = ""
     created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
+class ClientMemorySlot(SQLModel, table=True):
+    """Durable, independently versioned projection of one client-memory slot."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "client_id",
+            "slot_key",
+            name="uq_clientmemoryslot_client_slot",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(
+        foreign_key="clientrecord.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    slot_key: str = Field(index=True)
+    slot_version: int = Field(default=1)
+    aggregate_memory_version: int = Field(default=0, index=True)
+    value_json: str = Field(
+        default="null",
+        sa_column=Column(Text, nullable=False, default="null"),
+    )
+    value_sha256: str = Field(default="", index=True)
+    evidence_refs_json: str = Field(
+        default="[]",
+        sa_column=Column(Text, nullable=False, default="[]"),
+    )
+    evidence_count: int = 0
+    is_stale: bool = Field(default=True, index=True)
+    stale_reason: str = ""
+    stale_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
 
 
 class Milestone(SQLModel, table=True):

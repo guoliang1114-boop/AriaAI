@@ -23,6 +23,7 @@ from app.services.chat.turn_setup import recommend_turn_brief_template
 from app.services.chat.user_memory_prompt import build_user_memory_prompt_bundle
 from app.services.chat_store import build_message_metadata
 from app.services.agent_harness.project_memory_evidence import (
+    build_project_memory_evidence,
     select_project_memory_slots,
 )
 from app.services.agent_harness.skill_releases import (
@@ -368,6 +369,63 @@ def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
         "Summarize current relationship",
         force=True,
     )
+    client.client_memory_stale = True
+    client_slot_states = {
+        "lessons_learned": {"status": "ready", "evidence_count": 2},
+        "project_history": {"status": "ready", "evidence_count": 1},
+        "client_profile": {"status": "ready", "evidence_count": 1},
+        "decision_patterns": {"status": "stale", "evidence_count": 2},
+        "relationship_signals": {"status": "stale", "evidence_count": 2},
+    }
+    fresh_lessons = build_client_memory_prompt_bundle(
+        client,
+        "What lessons did we learn from this client?",
+        slot_states=client_slot_states,
+    )
+    stale_relationship = build_client_memory_prompt_bundle(
+        client,
+        "Summarize current relationship",
+        slot_states=client_slot_states,
+    )
+    project = Project(
+        id=77,
+        name="Eval Project",
+        client="Eval Client",
+        context_memory_json=json.dumps(
+            {
+                "project_brief": "PROJECT BRIEF",
+                "current_stage": "delivery",
+                "current_objective": "Deliver",
+                "key_risks": ["PAYMENT RISK"],
+                "financial_status": "PAYMENT PENDING",
+                "important_documents": [{"name": "pack.pdf", "reason": "Evidence"}],
+                "delivery_signals": ["On track"],
+            }
+        ),
+        memory_version=4,
+        memory_stale=True,
+    )
+    project_slot_states = {
+        "project_brief": {"status": "ready", "evidence_count": 1},
+        "current_stage": {"status": "ready", "evidence_count": 1},
+        "current_objective": {"status": "ready", "evidence_count": 1},
+        "financial_status": {"status": "stale", "evidence_count": 2},
+        "key_risks": {"status": "stale", "evidence_count": 2},
+        "open_questions": {"status": "ready", "evidence_count": 1},
+        "next_actions": {"status": "ready", "evidence_count": 1},
+        "important_documents": {"status": "ready", "evidence_count": 1},
+        "delivery_signals": {"status": "ready", "evidence_count": 1},
+    }
+    financial_project = build_project_memory_evidence(
+        project,
+        "项目回款风险是什么？",
+        slot_states=project_slot_states,
+    )
+    document_project = build_project_memory_evidence(
+        project,
+        "应该查看哪些项目文件？",
+        slot_states=project_slot_states,
+    )
     user = build_user_memory_prompt_bundle(
         {
             "response_preferences": {
@@ -400,6 +458,22 @@ def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
             and "relationship" in current_relationship["selection"]["query_facets"]
             and "relationship_signals"
             in current_relationship["selection"]["selected_slots"],
+        },
+        {
+            "case": "client_slot_freshness_is_scoped_to_selected_facets",
+            "passed": fresh_lessons["selection"]["status"] == "ready"
+            and fresh_lessons["selection"]["stale_slots"] == []
+            and stale_relationship["selection"]["status"] == "stale"
+            and "relationship_signals"
+            in stale_relationship["selection"]["stale_slots"],
+        },
+        {
+            "case": "project_slot_freshness_is_scoped_to_selected_facets",
+            "passed": financial_project["manifest"]["memory_stale"] is True
+            and set(financial_project["selection"]["stale_slots"])
+            == {"financial_status", "key_risks"}
+            and document_project["manifest"]["memory_stale"] is False
+            and document_project["selection"]["stale_slots"] == [],
         },
         {
             "case": "current_turn_overrides_saved_preferences",

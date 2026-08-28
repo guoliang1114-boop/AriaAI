@@ -357,6 +357,15 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 确定性发布门禁由 47 扩展为 52 个场景、17 项指标，新增 `layered_memory_routing_accuracy`，覆盖无关问题不注入、中英文客户关系精准路由、本轮要求覆盖旧偏好和回执无正文边界。
 - 本阶段复用既有 `UserMemory`、`ClientRecord.client_memory_json`、项目记忆 JSON、Context Assembly、Instruction Manifest 和 Product Run Event，不新增数据库迁移。机制参考 Codex 固定世界状态身份与指令优先级边界后重写为 Aria Python/React 实现，不运行、不导入、不连接 Codex。
 
+### Phase 3I：项目/客户记忆槽位账本、真实来源与定向失效（已实施）
+
+- 新增 Aria 原生 `ProjectMemorySlot` 与 `ClientMemorySlot`，分别管理 12/8 个稳定槽位。每个槽位拥有独立版本、聚合记忆版本、内容 SHA-256、有界 evidence refs、新鲜度和失效原因。
+- 项目/客户重建保持综合 JSON 与 slot 双写，仅内容变化的槽位增加独立版本。项目财务、待办、里程碑、进展、文件和干系人变化以及客户/项目关系变化会定向标记受影响槽位，未知变更才保守地失效全部槽位。
+- 重建时从实际读取的项目、客户、进展、里程碑、待办、文件、付款、干系人和 accepted candidate 生成来源引用；项目记忆页展示这些真实来源，不再把所有文件/对话伪装为每个槽位的依据。
+- Provider 读取前会校验槽位 SHA-256，并只降级本轮问题选中且陈旧的槽位。Context Receipt 新增 `stale_slots` / `stale_slot_count` / `evidence_ref_count`，前端能说清“这次用了几个陈旧槽位、几个真实来源”，但不泄露正文、Prompt 或隐藏推理。
+- 幂等迁移 `033_v1_33` 回填历史聚合记忆，发布门禁扩展为 54 个场景。当前仍保留综合 JSON 作双写兼容视图；事实级证据条目和 slot-level 局部重建属于下一阶段。
+- 该机制参考 Codex 固定 world-state identity 和 digest 边界后重写为 Aria Python/SQLModel/React 实现；不运行、不导入、不连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

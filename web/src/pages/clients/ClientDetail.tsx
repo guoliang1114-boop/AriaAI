@@ -28,6 +28,7 @@ import type {
   ClientMemoryStatusResponse,
   ClientMemorySummaryType,
   ClientStakeholder,
+  MemorySlotListResponse,
 } from '../../types/api'
 import { formatDateOnly, formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
 import { useClientMemorySummary } from './useClientMemorySummary'
@@ -81,6 +82,7 @@ export function ClientDetail() {
   const [isEditing, setIsEditing] = useState(false)
   const [editForm, setEditForm] = useState<Partial<Client>>({})
   const [memoryStatus, setMemoryStatus] = useState<ClientMemoryStatusResponse | null>(null)
+  const [memorySlots, setMemorySlots] = useState<MemorySlotListResponse | null>(null)
   const [rebuildingMemory, setRebuildingMemory] = useState(false)
   const [loadedClientId, setLoadedClientId] = useState<string | null>(null)
   const requestIdRef = useRef(0)
@@ -119,14 +121,16 @@ export function ClientDetail() {
     return Promise.all([
         api.get<Client>(`/clients/${id}`),
         api.get<ClientMemoryStatusResponse>(`/clients/${id}/memory/status`),
+        api.get<MemorySlotListResponse>(`/clients/${id}/memory/slots`),
         api.get<Project[]>(`/clients/${id}/projects`),
         api.get<ClientStakeholder[]>(`/clients/${id}/stakeholders`),
       ])
-      .then(([clientData, memoryData, projectsData, stakeholderData]) => {
+      .then(([clientData, memoryData, slotData, projectsData, stakeholderData]) => {
         if (requestId !== requestIdRef.current) return
         setClient(clientData)
         setEditForm(clientData || {})
         setMemoryStatus(memoryData)
+        setMemorySlots(slotData)
         setProjects(projectsData)
         setStakeholders(stakeholderData)
         setLoadedClientId(id || null)
@@ -137,6 +141,7 @@ export function ClientDetail() {
         setClient(null)
         setEditForm({})
         setMemoryStatus(null)
+        setMemorySlots(null)
         setProjects([])
         setStakeholders([])
         setLoadedClientId(id || null)
@@ -198,6 +203,7 @@ export function ClientDetail() {
         memory_stale: response.memory_stale,
         memory_updated_at: response.memory_updated_at,
       })
+      setMemorySlots(await api.get<MemorySlotListResponse>(`/clients/${client.id}/memory/slots`))
     } catch (error) {
       console.error('Failed to rebuild client memory:', error)
     } finally {
@@ -444,6 +450,7 @@ export function ClientDetail() {
                     isZh={isZh}
                     memoryState={memoryState}
                     memoryStatus={memoryStatus}
+                    memorySlots={memorySlots}
                     memorySummary={memorySummary}
                     rebuildingMemory={rebuildingMemory}
                     onRefresh={handleRebuildMemory}
@@ -852,10 +859,27 @@ const CLIENT_SUMMARY_TABS: Array<{ key: ClientMemorySummaryType; zh: string; en:
   { key: 'delivery', zh: 'AI 交付准备摘要', en: 'AI delivery readiness', descZh: '提炼客户的交付偏好、执行摩擦和启动前准备重点。', descEn: 'Highlight delivery preferences, execution friction, and readiness signals.' },
 ]
 
+const CLIENT_MEMORY_SLOT_LABELS: Record<string, { zh: string; en: string }> = {
+  client_profile: { zh: '客户画像', en: 'Client profile' },
+  decision_patterns: { zh: '决策模式', en: 'Decision patterns' },
+  key_contacts: { zh: '关键联系人', en: 'Key contacts' },
+  structured_stakeholders: { zh: '结构化干系人', en: 'Structured stakeholders' },
+  lessons_learned: { zh: '经验沉淀', en: 'Lessons learned' },
+  project_history: { zh: '项目历史', en: 'Project history' },
+  sensitive_topics: { zh: '敏感话题', en: 'Sensitive topics' },
+  relationship_signals: { zh: '关系信号', en: 'Relationship signals' },
+}
+
+function getClientMemorySlotLabel(slotKey: string, isZh: boolean) {
+  const label = CLIENT_MEMORY_SLOT_LABELS[slotKey]
+  return label ? (isZh ? label.zh : label.en) : slotKey
+}
+
 function ClientMemoryPanel({
   isZh,
   memoryState,
   memoryStatus,
+  memorySlots,
   memorySummary,
   onRefresh,
   rebuildingMemory,
@@ -869,6 +893,7 @@ function ClientMemoryPanel({
   isZh: boolean
   memoryState: { label: string; tone: CxStatusTone; versionLabel: string }
   memoryStatus: ClientMemoryStatusResponse | null
+  memorySlots: MemorySlotListResponse | null
   memorySummary: string
   onRefresh: () => void
   rebuildingMemory: boolean
@@ -906,6 +931,43 @@ function ClientMemoryPanel({
             {isZh ? '刷新记忆' : 'Refresh'}
           </ButtonLike>
         </div>
+        {memorySlots?.slots.length ? (
+          <div className="mt-4 space-y-2 border-t pt-4" style={{ borderColor: 'var(--color-codex-line-soft)' }}>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{ color: 'var(--color-codex-ink-mute)' }}>
+              <span>{isZh ? '槽位账本与真实来源' : 'Slot ledger and real sources'}</span>
+              <span>
+                {isZh
+                  ? `${memorySlots.slot_count - memorySlots.stale_slot_count} 可用 · ${memorySlots.stale_slot_count} 待刷新`
+                  : `${memorySlots.slot_count - memorySlots.stale_slot_count} ready · ${memorySlots.stale_slot_count} stale`}
+              </span>
+            </div>
+            <div className="grid gap-2 lg:grid-cols-2">
+              {memorySlots.slots.map((slot) => (
+                <div
+                  key={slot.slot_key}
+                  className="rounded-md border px-3 py-2"
+                  style={{ borderColor: 'var(--color-codex-line-soft)', background: 'var(--color-codex-bg-tint)' }}
+                >
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span style={{ color: 'var(--color-codex-ink)' }}>{getClientMemorySlotLabel(slot.slot_key, isZh)}</span>
+                    <span style={{ color: slot.status === 'ready' ? 'var(--color-codex-good)' : 'var(--color-codex-warn)' }}>
+                      v{slot.slot_version} · {slot.status === 'ready' ? (isZh ? '已验证' : 'verified') : slot.status === 'corrupt' ? (isZh ? '校验失败' : 'corrupt') : (isZh ? '待刷新' : 'stale')}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[11px] leading-5" style={{ color: 'var(--color-codex-ink-mute)' }}>
+                    {slot.evidence_refs.length
+                      ? slot.evidence_refs.slice(0, 3).map((source) => source.source_label).join(' · ')
+                      : isZh ? '尚无可定位来源' : 'No locatable source yet'}
+                    {slot.evidence_count > 3 ? ` +${slot.evidence_count - 3}` : ''}
+                  </div>
+                  {slot.stale_reason ? (
+                    <div className="mt-1 text-[11px]" style={{ color: 'var(--color-codex-warn)' }}>{slot.stale_reason}</div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </CxPanel>
 
       <CxPanel

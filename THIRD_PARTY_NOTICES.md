@@ -68,6 +68,9 @@ with a Codex runtime. The adapted mechanisms currently cover:
   scope, active task state, Skills, preferences, evidence, and history; and
 - query-aware user/client/project memory-layer selection and deterministic
   current-turn preference supersession, with content-free routing receipts; and
+- stable project/client memory-slot identities, canonical content digests,
+  bounded source references, targeted freshness invalidation, and verified
+  slot overlays adapted to Aria-native business entities; and
 - expected-turn-bound active-run steering, text-only mailbox delivery, safe
   model/tool boundary injection, stale planned-tool supersession, and concise
   turn-understanding receipts without exposing prompts or hidden reasoning.

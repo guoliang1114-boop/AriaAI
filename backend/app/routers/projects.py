@@ -263,8 +263,17 @@ async def update_project(
     require_project_access(session, project_id, current_user, require_write=True)
     existing = session.get(Project, project_id)
     previous_status = existing.status if existing else None
-    project = update_project_record(session, project_id, data.model_dump(exclude_none=True))
-    _mark_project_memory_stale(session, project_id)
+    changes = data.model_dump(exclude_none=True)
+    project = update_project_record(session, project_id, changes)
+    trigger_parts: list[str] = []
+    if "status" in changes:
+        trigger_parts.append("project_status")
+    if "contract_amount" in changes:
+        trigger_parts.append("project_financial")
+    if any(key not in {"status", "contract_amount"} for key in changes):
+        trigger_parts.append("project_profile")
+    stale_trigger = "_".join(trigger_parts or ["project_profile"]) + "_changed"
+    _mark_project_memory_stale(session, project_id, trigger=stale_trigger)
     try:
         await _auto_promote_archived_project_to_client_memory(
             session,
@@ -336,7 +345,7 @@ def create_milestone(
         priority=data.priority,
         due_date=data.due_date,
     )
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="milestone_created")
     _bust_project(project_id)
     return _refresh_instance(session, ms)
 
@@ -351,7 +360,7 @@ def update_milestone(
 ):
     require_project_access(session, project_id, current_user, require_write=True)
     ms = update_project_milestone(session, project_id, ms_id, data.model_dump(exclude_none=True))
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="milestone_updated")
     _bust_project(project_id)
     return _refresh_instance(session, ms)
 
@@ -365,7 +374,7 @@ def delete_milestone(
 ):
     require_project_access(session, project_id, current_user, require_write=True)
     delete_project_milestone(session, project_id, ms_id)
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="milestone_deleted")
     _bust_project(project_id)
     return {"ok": True}
 
@@ -404,7 +413,7 @@ def create_progress_update(
         risk=data.risk.strip(),
         created_by_user_id=current_user.id,
     )
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="progress_created")
     _bust_project(project_id)
     return serialize_progress_update(_refresh_instance(session, update))
 
@@ -437,7 +446,7 @@ def add_payment(
         note=data.note,
         payment_type=data.payment_type,
     )
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="payment_created")
     _bust_project(project_id)
     return _refresh_instance(session, payment)
 
@@ -451,7 +460,7 @@ def delete_payment(
 ):
     require_project_access(session, project_id, current_user, require_write=True)
     delete_project_payment(session, project_id, payment_id)
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="payment_deleted")
     _bust_project(project_id)
     return {"ok": True}
 
@@ -468,7 +477,7 @@ def save_project_note(
     """Append or overwrite project notes."""
     require_project_access(session, project_id, current_user, require_write=True)
     project = save_project_notes(session, project_id, body.content, append=body.append)
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="project_notes_changed")
     _bust_project(project_id)
     return {"notes": project.notes}
 
@@ -502,7 +511,7 @@ def create_todo(
         due_date=body.due_date,
         assigned_to_user_id=body.assigned_to_user_id,
     )
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="todo_created")
     _bust_project(project_id)
     return serialize_todo(todo)
 
@@ -517,7 +526,7 @@ def update_todo(
 ):
     require_project_access(session, project_id, current_user, require_write=True)
     todo = update_project_todo(session, project_id, todo_id, body.model_dump(exclude_none=True))
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="todo_updated")
     _bust_project(project_id)
     return serialize_todo(todo)
 
@@ -531,7 +540,7 @@ def delete_todo(
 ):
     require_project_access(session, project_id, current_user, require_write=True)
     delete_project_todo(session, project_id, todo_id)
-    _mark_project_memory_stale(session, project_id)
+    _mark_project_memory_stale(session, project_id, trigger="todo_deleted")
     _bust_project(project_id)
     return {"ok": True}
 
@@ -575,7 +584,6 @@ def add_member(
     require_project_access(session, project_id, current_user, require_write=True)
     ensure_project_exists(session, project_id)
     member, user = add_project_member(session, project_id, body.user_id, role=body.role)
-    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return MemberOut(
         id=member.id,
@@ -596,7 +604,6 @@ def remove_member(
 ):
     require_project_access(session, project_id, current_user, require_write=True)
     remove_project_member(session, project_id, user_id)
-    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return {"ok": True}
 
