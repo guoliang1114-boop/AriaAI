@@ -72,10 +72,20 @@ from app.services.project_contexts import (
     parse_project_memory_multi_summary,
     parse_project_memory_multi_summary_with_missing,
     parse_project_memory,
+    parse_project_memory_patch,
     save_project_memory,
     save_project_context_summary,
     save_project_memory_summary_cache,
     stream_llm_text_chunks,
+)
+from app.services.memory_rebuilds import (
+    MemoryPatchValidationError,
+    MemoryRebuildConflict,
+    plan_project_memory_rebuild,
+)
+from app.services.memory_slots import (
+    PROJECT_MEMORY_SLOT_KEYS,
+    get_project_memory_slot_states,
 )
 from app.services.project_deletion import delete_project_cascade
 from app.services.project_details import build_project_detail
@@ -478,16 +488,10 @@ async def _auto_promote_archived_project_to_client_memory(
 
     project_memory = get_project_memory_payload(project)
     if (project.memory_version or 0) == 0 or project.memory_stale:
-        project_data = build_project_memory_data(session, project_id)
-        raw_project_memory = await complete_with_selected_model(
-            messages=[{"role": "user", "content": build_project_memory_prompt(project_data)}],
-            max_tokens=2200,
-        )
-        parsed_project_memory = parse_project_memory(raw_project_memory, project)
-        project_memory = save_project_memory(
+        project_memory = await _rebuild_project_memory(
             session,
             project_id,
-            parsed_project_memory,
+            project,
             trigger="archive_promotion_prepare",
         )
         project = session.get(Project, project_id) or project
@@ -580,6 +584,8 @@ def _is_retryable_summary_warm_error(exc: Exception) -> bool:
 
 
 def _is_retryable_project_memory_rebuild_error(exc: Exception) -> bool:
+    if isinstance(exc, MemoryRebuildConflict):
+        return True
     message = str(exc).lower()
     return (
         "429" in message
@@ -1224,6 +1230,7 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
             )
             _bust_project(project_id)
         except Exception as exc:
+            session.rollback()
             project = get_project_or_404(session, project_id)
             retry_count = 0
             if trigger.startswith("retry:"):
@@ -1310,14 +1317,79 @@ async def _rebuild_project_memory(
     project: Optional[Project] = None,
     trigger: str = "manual",
 ) -> dict:
-    project = project or get_project_or_404(session, project_id)
-    _, project_memory_data, coverage = build_project_memory_data(session, project_id)
+    session.expire_all()
+    project = get_project_or_404(session, project_id)
+    plan = plan_project_memory_rebuild(
+        memory_version=int(project.memory_version or 0),
+        parent_stale=bool(project.memory_stale),
+        trigger=trigger,
+        slot_states=get_project_memory_slot_states(session, project_id),
+    )
     try:
+        _, project_memory_data, coverage = build_project_memory_data(
+            session,
+            project_id,
+            plan.slot_keys if plan.is_partial else None,
+        )
         raw_memory = await complete_with_selected_model(
-            messages=[{"role": "user", "content": build_project_memory_prompt(project_memory_data)}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": build_project_memory_prompt(
+                        project_memory_data,
+                        plan.slot_keys if plan.is_partial else None,
+                    ),
+                }
+            ],
             max_tokens=2200,
         )
+        if plan.is_partial:
+            try:
+                parsed_memory = parse_project_memory_patch(
+                    raw_memory,
+                    project,
+                    plan.slot_keys,
+                )
+            except MemoryPatchValidationError:
+                _, full_data, full_coverage = build_project_memory_data(
+                    session,
+                    project_id,
+                )
+                full_raw = await complete_with_selected_model(
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": build_project_memory_prompt(full_data),
+                        }
+                    ],
+                    max_tokens=2200,
+                )
+                parsed_memory = parse_project_memory(full_raw, project)
+                return save_project_memory(
+                    session,
+                    project_id,
+                    parsed_memory,
+                    trigger=trigger,
+                    coverage=full_coverage,
+                    rebuilt_slots=PROJECT_MEMORY_SLOT_KEYS,
+                    rebuild_mode="full_fallback",
+                    fallback_reason="invalid_partial_payload",
+                    rebuild_plan=plan,
+                )
+        else:
+            parsed_memory = parse_project_memory(raw_memory, project)
+        return save_project_memory(
+            session,
+            project_id,
+            parsed_memory,
+            trigger=trigger,
+            coverage=coverage,
+            rebuilt_slots=plan.slot_keys,
+            rebuild_mode=plan.mode,
+            rebuild_plan=plan,
+        )
     except Exception as e:
+        session.rollback()
         _set_project_memory_failure(
             session,
             project,
@@ -1325,8 +1397,6 @@ async def _rebuild_project_memory(
             message=str(e),
         )
         raise
-    parsed_memory = parse_project_memory(raw_memory, project)
-    return save_project_memory(session, project_id, parsed_memory, trigger=trigger, coverage=coverage)
 
 
 async def _ensure_project_memory(

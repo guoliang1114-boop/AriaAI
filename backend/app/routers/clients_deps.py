@@ -7,6 +7,7 @@ import sys
 from datetime import timedelta
 from typing import Optional
 
+from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -32,9 +33,16 @@ from app.services.client_contexts import (
     get_client_memory_payload,
     mark_client_memory_stale,
     parse_client_memory,
+    parse_client_memory_patch,
     save_client_memory_summary_cache,
     save_client_memory,
 )
+from app.services.memory_rebuilds import (
+    MemoryPatchValidationError,
+    MemoryRebuildConflict,
+    plan_client_memory_rebuild,
+)
+from app.services.memory_slots import CLIENT_MEMORY_SLOT_KEYS, get_client_memory_slot_states
 from app.services.project_contexts import normalize_summary_language
 from app.services.project_llm import complete_with_selected_model
 from app.services.time_utils import utc_now_naive
@@ -473,18 +481,71 @@ async def _rebuild_client_memory(
     *,
     trigger: str = "manual",
 ) -> dict:
-    client, client_data, source_project_ids = build_client_memory_data(session, client_id)
+    session.expire_all()
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    plan = plan_client_memory_rebuild(
+        memory_version=int(client.client_memory_version or 0),
+        parent_stale=bool(client.client_memory_stale),
+        trigger=trigger,
+        slot_states=get_client_memory_slot_states(session, client_id),
+    )
+    client, client_data, source_project_ids = build_client_memory_data(
+        session,
+        client_id,
+        plan.slot_keys if plan.is_partial else None,
+    )
     raw_memory = await _current_complete_with_selected_model()(
-        messages=[{"role": "user", "content": build_client_memory_prompt(client_data)}],
+        messages=[
+            {
+                "role": "user",
+                "content": build_client_memory_prompt(
+                    client_data,
+                    plan.slot_keys if plan.is_partial else None,
+                ),
+            }
+        ],
         max_tokens=2200,
     )
-    parsed_memory = parse_client_memory(raw_memory, client)
+    fallback_reason = ""
+    if plan.is_partial:
+        try:
+            parsed_memory = parse_client_memory_patch(raw_memory, client, plan.slot_keys)
+            rebuilt_slots = plan.slot_keys
+            rebuild_mode = "partial"
+        except MemoryPatchValidationError:
+            client, full_data, source_project_ids = build_client_memory_data(
+                session,
+                client_id,
+            )
+            full_raw = await _current_complete_with_selected_model()(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": build_client_memory_prompt(full_data),
+                    }
+                ],
+                max_tokens=2200,
+            )
+            parsed_memory = parse_client_memory(full_raw, client)
+            rebuilt_slots = CLIENT_MEMORY_SLOT_KEYS
+            rebuild_mode = "full_fallback"
+            fallback_reason = "invalid_partial_payload"
+    else:
+        parsed_memory = parse_client_memory(raw_memory, client)
+        rebuilt_slots = plan.slot_keys
+        rebuild_mode = "full"
     return save_client_memory(
         session,
         client_id,
         parsed_memory,
         trigger=trigger,
         source_project_ids=source_project_ids,
+        rebuilt_slots=rebuilt_slots,
+        rebuild_mode=rebuild_mode,
+        fallback_reason=fallback_reason,
+        rebuild_plan=plan,
     )
 
 
@@ -494,6 +555,8 @@ def _is_retryable_summary_warm_error(exc: Exception) -> bool:
 
 
 def _is_retryable_client_memory_rebuild_error(exc: Exception) -> bool:
+    if isinstance(exc, MemoryRebuildConflict):
+        return True
     message = str(exc).lower()
     return (
         "429" in message
@@ -706,6 +769,7 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
             )
             clients_cache.delete(_CLIENTS_KEY)
         except Exception as exc:
+            session.rollback()
             client = session.get(ClientRecord, client_id)
             if client:
                 if _is_retryable_client_memory_rebuild_error(exc):

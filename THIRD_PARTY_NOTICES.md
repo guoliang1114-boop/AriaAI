@@ -74,6 +74,9 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - content-addressed project/client memory-fact identities, first/last-seen and
   active/retired lifecycle reconstruction, digest verification, and explicit
   matched/scoped/legacy/unresolved source relationships; and
+- slot-level reconstruction planning, captured state fingerprints,
+  verify-before-write conflict rejection, bounded partial patches, and safe
+  full-rebuild fallback adapted to Aria-native memory ledgers; and
 - expected-turn-bound active-run steering, text-only mailbox delivery, safe
   model/tool boundary injection, stale planned-tool supersession, and concise
   turn-understanding receipts without exposing prompts or hidden reasoning.

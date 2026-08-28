@@ -8,6 +8,12 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import Project, ProjectMemorySnapshot, ProjectMemorySummary
+from app.services.memory_rebuilds import (
+    MemoryPatchValidationError,
+    MemoryRebuildPlan,
+    assert_memory_rebuild_baseline,
+)
+from app.services.memory_slots import PROJECT_MEMORY_SLOT_KEYS
 from app.services.project_files import list_project_files
 from app.services.project_financials import list_project_payments
 from app.services.project_milestones import list_project_milestones
@@ -300,18 +306,74 @@ def build_project_context_data(session: Session, project_id: int) -> tuple[Proje
     return project, "\n".join(lines)
 
 
-def build_project_memory_data(session: Session, project_id: int) -> tuple[Project, str, dict[str, Any]]:
-    """Full context for structured memory rebuild."""
+def build_project_memory_data(
+    session: Session,
+    project_id: int,
+    slot_keys: tuple[str, ...] | None = None,
+) -> tuple[Project, str, dict[str, Any]]:
+    """Load only the source families needed by the requested memory slots."""
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
 
-    milestones = list_project_milestones(session, project_id)
-    files = list_project_files(session, project_id)
-    todos = list_project_todos(session, project_id)
-    payments = list_project_payments(session, project_id)
-    progress_updates = list_project_progress_updates(session, project_id, limit=MAX_MEMORY_PROGRESS_UPDATES)
-    client_stakeholders = list_client_stakeholder_dicts_by_name(session, project.client)
+    selected = set(slot_keys or PROJECT_MEMORY_SLOT_KEYS)
+    needs_progress = bool(
+        selected
+        & {
+            "current_objective",
+            "recent_progress",
+            "key_risks",
+            "open_questions",
+            "next_actions",
+            "delivery_signals",
+        }
+    )
+    needs_milestones = bool(
+        selected
+        & {
+            "current_stage",
+            "current_objective",
+            "recent_progress",
+            "key_risks",
+            "open_questions",
+            "next_actions",
+            "delivery_signals",
+        }
+    )
+    needs_todos = bool(
+        selected
+        & {
+            "current_objective",
+            "recent_progress",
+            "open_questions",
+            "next_actions",
+            "delivery_signals",
+        }
+    )
+    needs_files = bool(selected & {"important_documents", "delivery_signals"})
+    needs_payments = bool(selected & {"financial_status", "key_risks"})
+    needs_stakeholders = bool(
+        selected & {"stakeholder_notes", "client_stakeholders"}
+    )
+
+    milestones = list_project_milestones(session, project_id) if needs_milestones else []
+    files = list_project_files(session, project_id) if needs_files else []
+    todos = list_project_todos(session, project_id) if needs_todos else []
+    payments = list_project_payments(session, project_id) if needs_payments else []
+    progress_updates = (
+        list_project_progress_updates(
+            session,
+            project_id,
+            limit=MAX_MEMORY_PROGRESS_UPDATES,
+        )
+        if needs_progress
+        else []
+    )
+    client_stakeholders = (
+        list_client_stakeholder_dicts_by_name(session, project.client)
+        if needs_stakeholders
+        else []
+    )
 
     lines = [
         f"Project: {project.name}",
@@ -319,11 +381,32 @@ def build_project_memory_data(session: Session, project_id: int) -> tuple[Projec
         f"Status: {project.status}",
         f"Contract amount: {project.contract_amount}",
     ]
-    if project.description:
+    if project.description and selected & {
+        "project_brief",
+        "current_stage",
+        "current_objective",
+        "key_risks",
+        "open_questions",
+        "delivery_signals",
+    }:
         lines.append(f"Description: {project.description[:MAX_MEMORY_DESCRIPTION_CHARS]}")
-    if project.notes:
+    if project.notes and selected & {
+        "project_brief",
+        "current_stage",
+        "current_objective",
+        "key_risks",
+        "open_questions",
+        "delivery_signals",
+    }:
         lines.append(f"Notes:\n{project.notes[:MAX_MEMORY_DESCRIPTION_CHARS]}")
-    if project.md_notes:
+    if project.md_notes and selected & {
+        "project_brief",
+        "current_stage",
+        "current_objective",
+        "key_risks",
+        "open_questions",
+        "delivery_signals",
+    }:
         lines.append(f"Markdown notes:\n{project.md_notes[:MAX_MEMORY_DESCRIPTION_CHARS]}")
     if progress_updates:
         lines.append(f"Progress updates ({len(progress_updates)} recent):")
@@ -370,30 +453,62 @@ def build_project_memory_data(session: Session, project_id: int) -> tuple[Projec
     if stakeholder_context:
         lines.append(stakeholder_context)
 
-    coverage = {
-        "milestones_total": len(milestones),
-        "files_total": len(files),
-        "todos_total": len(todos),
-        "payments_total": len(payments),
-        "client_stakeholders_total": len(client_stakeholders),
-        "client_stakeholders": client_stakeholders,
-        "built_at": utc_now_naive().isoformat(),
-    }
+    coverage: dict[str, Any] = {"built_at": utc_now_naive().isoformat()}
+    if needs_milestones:
+        coverage["milestones_total"] = len(milestones)
+    if needs_files:
+        coverage["files_total"] = len(files)
+    if needs_todos:
+        coverage["todos_total"] = len(todos)
+    if needs_payments:
+        coverage["payments_total"] = len(payments)
+    if needs_stakeholders:
+        coverage.update(
+            {
+                "client_stakeholders_total": len(client_stakeholders),
+                "client_stakeholders": client_stakeholders,
+            }
+        )
 
     return project, "\n".join(lines), coverage
 
 
-def build_project_memory_prompt(project_data: str) -> str:
+def build_project_memory_prompt(
+    project_data: str,
+    slot_keys: tuple[str, ...] | None = None,
+) -> str:
+    selected = tuple(slot_keys or PROJECT_MEMORY_SLOT_KEYS)
+    exact_keys = ", ".join(selected)
+    partial_instruction = (
+        "This is a partial rebuild. Return every requested key and no unrequested keys. "
+        if slot_keys is not None
+        else ""
+    )
+    rules: list[str] = []
+    if set(selected) & {
+        "recent_progress",
+        "key_risks",
+        "open_questions",
+        "next_actions",
+        "delivery_signals",
+        "stakeholder_notes",
+    }:
+        rules.append(
+            "Requested narrative collection slots must be arrays of strings."
+        )
+    if "important_documents" in selected:
+        rules.append(
+            "important_documents must be an array of objects with keys name and reason."
+        )
+    if "client_stakeholders" in selected:
+        rules.append(
+            "client_stakeholders must be an array of objects with keys name, role, influence_type, relationship_status, concerns, communication_preference, note."
+        )
     return (
         "You are building a structured long-term memory for a consulting project. "
         "Use only the project data below. Do not invent missing facts. "
-        "Return valid JSON only with these exact keys: "
-        "project_brief, current_stage, current_objective, recent_progress, key_risks, "
-        "open_questions, next_actions, important_documents, financial_status, delivery_signals, stakeholder_notes, client_stakeholders. "
-        "Rules: "
-        "recent_progress, key_risks, open_questions, next_actions, delivery_signals, stakeholder_notes must be arrays of strings. "
-        "important_documents must be an array of objects with keys name and reason. "
-        "client_stakeholders must be an array of objects with keys name, role, influence_type, relationship_status, concerns, communication_preference, note. "
+        f"{partial_instruction}Return valid JSON only with these exact keys: {exact_keys}. "
+        f"Rules: {' '.join(rules)} "
         "Keep each item concise and concrete. Prefer empty string or empty arrays over guessing. "
         "Write in the same language as the project.\n\n"
         f"Project data:\n{project_data}"
@@ -707,18 +822,124 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
     return memory
 
 
+def parse_project_memory_patch(
+    raw: str,
+    project: Project,
+    slot_keys: tuple[str, ...],
+) -> dict[str, Any]:
+    """Strictly validate and merge an LLM response for selected project slots."""
+
+    try:
+        parsed = json.loads(_extract_first_json_object(raw))
+    except json.JSONDecodeError as exc:
+        raise MemoryPatchValidationError("partial project memory is not valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise MemoryPatchValidationError("partial project memory must be an object")
+
+    selected = tuple(slot_keys)
+    missing = [key for key in selected if key not in parsed]
+    if missing:
+        raise MemoryPatchValidationError(
+            f"partial project memory is missing slots: {', '.join(missing)}"
+        )
+
+    existing = _get_existing_raw_memory(project)
+    memory = {**_default_project_memory(project), **existing}
+    string_slots = {
+        "project_brief",
+        "current_stage",
+        "current_objective",
+        "financial_status",
+    }
+    list_slots = {"recent_progress", "next_actions", "delivery_signals"}
+    for key in selected:
+        value = parsed[key]
+        if key in string_slots:
+            if not isinstance(value, str):
+                raise MemoryPatchValidationError(f"slot {key} must be a string")
+            memory[key] = value.strip()
+        elif key in list_slots:
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise MemoryPatchValidationError(f"slot {key} must be an array of strings")
+            memory[key] = [item.strip() for item in value if item.strip()]
+        elif key in EDITABLE_MEMORY_SLOTS:
+            valid_list = isinstance(value, list) and all(isinstance(item, str) for item in value)
+            valid_dict = isinstance(value, dict) and all(
+                isinstance(value.get(part, []), list)
+                and all(isinstance(item, str) for item in value.get(part, []))
+                for part in ("ai", "pinned")
+            )
+            if not (valid_list or valid_dict):
+                raise MemoryPatchValidationError(
+                    f"slot {key} must be an array of strings or editable slot object"
+                )
+            existing_slot = existing.get(key, {})
+            existing_pinned = (
+                [str(item).strip() for item in existing_slot.get("pinned", []) if str(item).strip()]
+                if isinstance(existing_slot, dict)
+                else []
+            )
+            memory[key] = _normalize_editable_slot(value, pinned=existing_pinned)
+        elif key == "important_documents":
+            if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+                raise MemoryPatchValidationError(
+                    "slot important_documents must be an array of objects"
+                )
+            memory[key] = [
+                {"name": str(item.get("name", "")), "reason": str(item.get("reason", ""))}
+                for item in value
+            ]
+        elif key == "client_stakeholders":
+            if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+                raise MemoryPatchValidationError(
+                    "slot client_stakeholders must be an array of objects"
+                )
+            memory[key] = value
+        else:
+            raise MemoryPatchValidationError(f"unknown project memory slot: {key}")
+
+    _merge_accepted_memory_candidates(memory, existing)
+    memory["rebuild_log"] = existing.get("rebuild_log", []) if isinstance(existing.get("rebuild_log"), list) else []
+    memory["_coverage"] = existing.get("_coverage", {}) if isinstance(existing.get("_coverage"), dict) else {}
+    return memory
+
+
 def save_project_memory(
     session: Session,
     project_id: int,
     memory: dict[str, Any],
     trigger: str = "manual",
     coverage: dict[str, Any] | None = None,
+    *,
+    rebuilt_slots: tuple[str, ...] | None = None,
+    rebuild_mode: str | None = None,
+    fallback_reason: str = "",
+    rebuild_plan: MemoryRebuildPlan | None = None,
 ) -> dict[str, Any]:
+    if rebuild_plan is not None:
+        session.expire_all()
     project = session.exec(
         select(Project).where(Project.id == project_id).with_for_update()
     ).first()
     if not project:
         raise HTTPException(404, "Project not found")
+
+    selected_slots = tuple(rebuilt_slots or PROJECT_MEMORY_SLOT_KEYS)
+    if not selected_slots or any(key not in PROJECT_MEMORY_SLOT_KEYS for key in selected_slots):
+        raise ValueError("rebuilt_slots contains an unknown project memory slot")
+    if rebuild_plan is not None:
+        from app.services.memory_slots import get_project_memory_slot_states
+
+        assert_memory_rebuild_baseline(
+            rebuild_plan,
+            current_memory_version=int(project.memory_version or 0),
+            current_slot_states=get_project_memory_slot_states(
+                session,
+                project_id,
+                for_update=True,
+            ),
+            rebuilt_slots=selected_slots,
+        )
 
     memory = _merge_accepted_memory_candidates(
         dict(memory),
@@ -730,13 +951,16 @@ def save_project_memory(
     rebuild_log = memory.get("rebuild_log", [])
     if not isinstance(rebuild_log, list):
         rebuild_log = []
-    rebuild_log.append(
-        {
-            "at": project.memory_updated_at.isoformat(),
-            "trigger": trigger,
-            "version": project.memory_version,
-        }
-    )
+    log_entry: dict[str, Any] = {
+        "at": project.memory_updated_at.isoformat(),
+        "trigger": trigger,
+        "version": project.memory_version,
+    }
+    if rebuild_mode:
+        log_entry.update({"mode": rebuild_mode, "rebuilt_slots": list(selected_slots)})
+    if fallback_reason:
+        log_entry["fallback_reason"] = fallback_reason
+    rebuild_log.append(log_entry)
     memory["rebuild_log"] = rebuild_log[-10:]
     memory["_coverage"] = {
         **(memory.get("_coverage", {}) if isinstance(memory.get("_coverage"), dict) else {}),
@@ -747,12 +971,26 @@ def save_project_memory(
         memory["client_stakeholders"] = coverage["client_stakeholders"]
     memory["memory_version"] = project.memory_version
     memory["last_updated_at"] = project.memory_updated_at.isoformat()
-    memory["stale"] = False
-    project.context_memory_json = json.dumps(memory, ensure_ascii=False)
-    project.memory_stale = False
     project.memory_rebuild_status = "idle"
     project.memory_rebuild_failed_at = None
     project.updated_at = utc_now_naive()
+    session.add(project)
+    from app.services.memory_slots import sync_project_memory_slots
+    from app.services.memory_facts import sync_project_memory_facts
+
+    sync_project_memory_slots(session, project, memory, slot_keys=selected_slots)
+    sync_project_memory_facts(session, project, memory, slot_keys=selected_slots)
+    session.flush()
+    from app.services.memory_slots import get_project_memory_slot_states
+
+    current_states = get_project_memory_slot_states(session, project_id)
+    project.memory_stale = (
+        {state["slot_key"] for state in current_states}
+        != set(PROJECT_MEMORY_SLOT_KEYS)
+        or any(state["status"] != "ready" for state in current_states)
+    )
+    memory["stale"] = project.memory_stale
+    project.context_memory_json = json.dumps(memory, ensure_ascii=False)
     session.add(project)
     session.add(
         ProjectMemorySnapshot(
@@ -763,11 +1001,6 @@ def save_project_memory(
             created_at=project.memory_updated_at,
         )
     )
-    from app.services.memory_slots import sync_project_memory_slots
-    from app.services.memory_facts import sync_project_memory_facts
-
-    sync_project_memory_slots(session, project, memory)
-    sync_project_memory_facts(session, project, memory)
     session.commit()
     session.refresh(project)
     return get_project_memory_payload(project)

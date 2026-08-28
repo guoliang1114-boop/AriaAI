@@ -49,6 +49,11 @@ from app.services.context_builder.memory_formatters import (
 )
 from app.services.conversation_state import merge_user_constraints
 from app.services.intent_router import classify_chat_intent
+from app.services.memory_rebuilds import (
+    plan_client_memory_rebuild,
+    plan_project_memory_rebuild,
+)
+from app.services.memory_slots import CLIENT_MEMORY_SLOT_KEYS, PROJECT_MEMORY_SLOT_KEYS
 from app.services.skill_router import (
     auto_select_skill,
     decide_conversation_skill_activation,
@@ -943,6 +948,77 @@ def _skill_release_governance_results() -> tuple[int, int, list[dict[str, Any]]]
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _memory_rebuild_planning_results() -> tuple[int, int, list[dict[str, Any]]]:
+    def states(keys: tuple[str, ...], stale: set[str]) -> list[dict[str, Any]]:
+        return [
+            {
+                "slot_key": key,
+                "slot_version": 2,
+                "status": "stale" if key in stale else "ready",
+                "value_sha256": f"sha:{key}",
+                "stale_at": "2026-08-28" if key in stale else None,
+                "updated_at": "2026-08-27",
+            }
+            for key in keys
+        ]
+
+    payment_slots = {"key_risks", "financial_status"}
+    project_partial = plan_project_memory_rebuild(
+        memory_version=5,
+        parent_stale=True,
+        trigger="payment_updated",
+        slot_states=states(PROJECT_MEMORY_SLOT_KEYS, payment_slots),
+    )
+    project_manual = plan_project_memory_rebuild(
+        memory_version=5,
+        parent_stale=True,
+        trigger="manual",
+        slot_states=states(PROJECT_MEMORY_SLOT_KEYS, payment_slots),
+    )
+    incomplete = plan_project_memory_rebuild(
+        memory_version=5,
+        parent_stale=True,
+        trigger="payment_updated",
+        slot_states=states(PROJECT_MEMORY_SLOT_KEYS[:-1], payment_slots),
+    )
+    stakeholder_slots = {
+        "decision_patterns",
+        "key_contacts",
+        "structured_stakeholders",
+        "relationship_signals",
+        "sensitive_topics",
+    }
+    client_partial = plan_client_memory_rebuild(
+        memory_version=4,
+        parent_stale=True,
+        trigger="stakeholder_updated",
+        slot_states=states(CLIENT_MEMORY_SLOT_KEYS, stakeholder_slots),
+    )
+    details = [
+        {
+            "case": "payment_change_rebuilds_only_financial_project_slots",
+            "passed": project_partial.mode == "partial"
+            and set(project_partial.slot_keys) == payment_slots,
+        },
+        {
+            "case": "manual_project_rebuild_remains_explicitly_full",
+            "passed": project_manual.mode == "full"
+            and project_manual.slot_keys == PROJECT_MEMORY_SLOT_KEYS,
+        },
+        {
+            "case": "incomplete_slot_ledger_falls_back_to_full_rebuild",
+            "passed": incomplete.mode == "full"
+            and incomplete.reason == "slot_ledger_incomplete",
+        },
+        {
+            "case": "stakeholder_change_rebuilds_only_affected_client_slots",
+            "passed": client_partial.mode == "partial"
+            and set(client_partial.slot_keys) == stakeholder_slots,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -964,6 +1040,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "interaction_feedback_privacy_rate": _interaction_feedback_results(),
         "skill_quality_attribution_accuracy": _skill_run_quality_results(),
         "skill_release_governance_accuracy": _skill_release_governance_results(),
+        "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
     }
     metrics = {
         name: {

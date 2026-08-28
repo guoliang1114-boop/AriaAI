@@ -42,6 +42,7 @@ from app.routers.projects_deps import complete_with_selected_model, stream_with_
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
 from app.services.memory_facts import get_project_memory_fact_states
 from app.services.memory_slots import get_project_memory_slot_states
+from app.services.memory_rebuilds import latest_memory_rebuild_metadata
 from app.services.time_utils import utc_now_naive
 from app.routers.projects_deps import get_current_user
 from app.routers.projects_deps import (
@@ -245,6 +246,9 @@ def get_project_memory_slots(project_id: int, session: Session = Depends(get_ses
     project = get_project_or_404(session, project_id)
     slots = get_project_memory_slot_states(session, project_id)
     stale_count = sum(item["status"] in {"stale", "corrupt"} for item in slots)
+    rebuild_metadata = latest_memory_rebuild_metadata(
+        get_project_memory_payload(project)
+    )
     return {
         "scope": "project",
         "entity_id": project_id,
@@ -252,6 +256,7 @@ def get_project_memory_slots(project_id: int, session: Session = Depends(get_ses
         "slot_count": len(slots),
         "stale_slot_count": stale_count,
         "slots": slots,
+        **rebuild_metadata,
     }
 
 
@@ -300,6 +305,8 @@ async def update_project_memory_slot(
         raw_memory,
         trigger=f"slot_update:{slot_name}",
         coverage=coverage,
+        rebuilt_slots=(slot_name,),
+        rebuild_mode="targeted_edit",
     )
     _schedule_project_memory_summary_warm(
         project_id,

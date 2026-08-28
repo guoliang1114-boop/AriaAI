@@ -739,6 +739,10 @@ Phase 2S 把 Codex apply-patch 的“先冻结基线、写入前重新验证”�
 
 继续参考 `codex-rs/core/src/context/world_state/mod.rs`（固定提交 `83d1fe0e67b1323f71febc2925817732b449f1d9`）的稳定内容身份和重建边界，将槽位内容拆成 Aria 原生事实账本。项目/客户事实使用内容寻址 key，独立记录首次/最近出现记忆版本、active/retired 生命周期、规范内容 SHA-256、新鲜度、来源关系和有界证据。`matched` 只用于来源标签确定性命中，`scoped` 不被描述为直接验证，历史与无来源分别保留 `legacy` / `unresolved`。项目 `M*` Evidence Manifest、引用、Context Receipt 以及项目/客户记忆 UI 都能展示事实级状态；幂等 `034_v1_34` 回填历史槽位，56 场景发布门禁验证身份与溯源。不运行、不导入、不连接 Codex。
 
+### Phase 3K：槽位级局部重建与并发基线守卫（已实施）
+
+继续参考 `codex-rs/core/src/context/world_state/mod.rs`（固定提交 `83d1fe0e67b1323f71febc2925817732b449f1d9`）的状态捕获/重建边界。Aria 在调度执行时读取持久槽位账本，以实际 stale/corrupt 集合规划局部或全量重建；局部路径只加载目标槽位所需来源、要求模型返回严格 key/type patch，并只同步目标槽位及事实。生成前的聚合版本、槽位版本、摘要与 stale 时间形成基线，保存事务再次锁定验证；漂移结果拒绝写入并进入既有有界重试。局部结果无效时只额外调用一次全量重建并记录 `full_fallback`，手动/账本缺失/全陈旧路径保守全量。API 和项目/客户 UI 展示最近模式与槽位数，确定性门禁扩展为 60 场景、18 项指标。无需数据库迁移，不运行、不导入、不连接 Codex。
+
 ## 8. 许可证与升级流程
 
 Aria 主项目继续使用 MIT License；从 Codex 改编的具体文件同时受 Apache License 2.0 的适用要求约束。

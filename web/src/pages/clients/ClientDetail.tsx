@@ -32,6 +32,7 @@ import type {
   MemorySlotListResponse,
 } from '../../types/api'
 import { formatDateOnly, formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
+import { formatMemoryRebuildSummary } from '../../utils/memoryRebuild'
 import { useClientMemorySummary } from './useClientMemorySummary'
 
 interface Client {
@@ -960,6 +961,9 @@ function ClientMemoryPanel({
                     ? `${memorySlots.slot_count - memorySlots.stale_slot_count} 槽位可用 · ${memorySlots.stale_slot_count} 待刷新`
                     : `${memorySlots.slot_count - memorySlots.stale_slot_count} slots ready · ${memorySlots.stale_slot_count} stale`}
                 </span>
+                {formatMemoryRebuildSummary(memorySlots, isZh) ? (
+                  <span>{formatMemoryRebuildSummary(memorySlots, isZh)}</span>
+                ) : null}
                 {memoryFacts ? (
                   <span>
                     {isZh

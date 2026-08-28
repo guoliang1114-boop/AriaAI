@@ -375,6 +375,15 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 幂等迁移 `034_v1_34` 从 `033_v1_33` 槽位回填历史事实；确定性发布门禁由 54 扩展为 56 场景、继续保持 17 项指标全通过。
 - 该机制固定参考 Codex world-state 身份/摘要边界后重写为 Aria Python/SQLModel/FastAPI/React；不运行、不导入、不连接 Codex。下一阶段是 slot-level 局部重建和结构化 source ID 直连，不把标签匹配夸大为语义证明。
 
+### Phase 3K：项目/客户槽位级局部重建（已实施）
+
+- 重建执行不再由最后一个调度 trigger 猜测范围，而是读取全部持久槽位状态并按实际 stale/corrupt 子集规划；版本为零、账本不完整、手动请求或全部槽位失效时保守全量。
+- 项目局部路径按目标槽位选择性读取进展、里程碑、待办、文件、付款和干系人；客户局部路径按目标槽位选择性读取项目历史与干系人。Prompt 只声明目标 key，严格 parser 要求所有目标 key/type 合法。
+- 局部保存只更新目标 slot 的值、版本、来源和 fact active/retired 生命周期，未选槽位保留原 aggregate version 与 fact last-seen version；其他仍陈旧槽位会继续保持父记忆 stale，不会被一次局部成功误清除。
+- 模型生成前捕获 aggregate memory version 和目标 slot 的版本、状态、摘要、stale/updated 时间；写入事务内重新锁定验证。并发业务变化会触发 conflict 并使用现有有界重试，避免旧生成覆盖新事实。
+- 局部 payload 缺 key、JSON 或类型不合法时自动进行一次全量安全回退，重建日志/API/UI 展示 `partial/full/full_fallback/targeted_edit` 及实际槽位范围。用户定点编辑和候选接受同样只双写目标槽位。
+- 确定性发布门禁由 56 扩展为 60 场景、18 项指标；聚焦测试覆盖范围规划、未选事实不退休、自动回退和并发基线拒绝。本阶段不新增数据库迁移，不运行、不导入、不连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

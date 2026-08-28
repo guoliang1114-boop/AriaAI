@@ -8,6 +8,12 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import ClientMemorySnapshot, ClientMemorySummary, ClientRecord, Project
+from app.services.memory_rebuilds import (
+    MemoryPatchValidationError,
+    MemoryRebuildPlan,
+    assert_memory_rebuild_baseline,
+)
+from app.services.memory_slots import CLIENT_MEMORY_SLOT_KEYS
 from app.services.project_contexts import _resolve_output_language, normalize_summary_language
 from app.services.stakeholder_contexts import (
     format_client_stakeholders_for_prompt,
@@ -145,18 +151,52 @@ def mark_client_memory_stale_by_name(session: Session, client_name: str, trigger
     mark_client_memory_stale(session, client.id, trigger=trigger)
 
 
-def build_client_memory_data(session: Session, client_id: int) -> tuple[ClientRecord, str, list[int]]:
+def build_client_memory_data(
+    session: Session,
+    client_id: int,
+    slot_keys: tuple[str, ...] | None = None,
+) -> tuple[ClientRecord, str, list[int]]:
     client = session.get(ClientRecord, client_id)
     if not client:
         raise HTTPException(404, "Client not found")
 
+    selected = set(slot_keys or CLIENT_MEMORY_SLOT_KEYS)
+    needs_stakeholders = bool(
+        selected
+        & {
+            "key_contacts",
+            "structured_stakeholders",
+            "decision_patterns",
+            "relationship_signals",
+            "sensitive_topics",
+        }
+    )
+    needs_projects = bool(
+        selected
+        & {
+            "client_profile",
+            "decision_patterns",
+            "lessons_learned",
+            "relationship_signals",
+            "project_history",
+            "sensitive_topics",
+        }
+    )
     normalized = (client.name or "").strip().lower()
-    structured_stakeholders = list_client_stakeholder_dicts(session, client_id)
-    projects = [
-        project
-        for project in session.exec(select(Project).order_by(Project.updated_at.desc())).all()
-        if (project.client or "").strip().lower() == normalized
-    ]
+    structured_stakeholders = (
+        list_client_stakeholder_dicts(session, client_id) if needs_stakeholders else []
+    )
+    projects = (
+        [
+            project
+            for project in session.exec(
+                select(Project).order_by(Project.updated_at.desc())
+            ).all()
+            if (project.client or "").strip().lower() == normalized
+        ]
+        if needs_projects
+        else []
+    )
 
     lines = [
         f"Client: {client.name}",
@@ -194,16 +234,40 @@ def build_client_memory_data(session: Session, client_id: int) -> tuple[ClientRe
     return client, "\n".join(lines), [project.id for project in projects]
 
 
-def build_client_memory_prompt(client_data: str) -> str:
+def build_client_memory_prompt(
+    client_data: str,
+    slot_keys: tuple[str, ...] | None = None,
+) -> str:
+    selected = tuple(slot_keys or CLIENT_MEMORY_SLOT_KEYS)
+    exact_keys = ", ".join(selected)
+    partial_instruction = (
+        "This is a partial rebuild. Return every requested key and no unrequested keys. "
+        if slot_keys is not None
+        else ""
+    )
+    rules: list[str] = []
+    if set(selected) & {
+        "decision_patterns",
+        "lessons_learned",
+        "relationship_signals",
+        "sensitive_topics",
+    }:
+        rules.append("Requested narrative collection slots must be arrays of strings.")
+    if "key_contacts" in selected:
+        rules.append("key_contacts must be an array of objects with keys name, role, note.")
+    if "structured_stakeholders" in selected:
+        rules.append(
+            "structured_stakeholders must be an array of objects with keys name, role, influence_type, relationship_status, concerns, communication_preference, note."
+        )
+    if "project_history" in selected:
+        rules.append(
+            "project_history must be an array of objects with keys project_name, status, outcome, key_factor."
+        )
     return (
         "You are building long-term client memory for a consulting team. "
         "Use only the client and project evidence below. Do not invent missing facts. "
-        "Return valid JSON only with these exact keys: "
-        "client_profile, decision_patterns, key_contacts, structured_stakeholders, lessons_learned, relationship_signals, project_history, sensitive_topics. "
-        "Rules: decision_patterns, lessons_learned, relationship_signals, sensitive_topics must be arrays of strings. "
-        "key_contacts must be an array of objects with keys name, role, note. "
-        "structured_stakeholders must be an array of objects with keys name, role, influence_type, relationship_status, concerns, communication_preference, note. "
-        "project_history must be an array of objects with keys project_name, status, outcome, key_factor. "
+        f"{partial_instruction}Return valid JSON only with these exact keys: {exact_keys}. "
+        f"Rules: {' '.join(rules)} "
         "Prefer concise, reusable guidance for future projects.\n\n"
         f"Client data:\n{client_data}"
     )
@@ -278,6 +342,64 @@ def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
     return memory
 
 
+def parse_client_memory_patch(
+    raw: str,
+    client: ClientRecord,
+    slot_keys: tuple[str, ...],
+) -> dict[str, Any]:
+    """Strictly validate and merge an LLM response for selected client slots."""
+
+    try:
+        parsed = json.loads(_extract_first_json_object(raw))
+    except json.JSONDecodeError as exc:
+        raise MemoryPatchValidationError("partial client memory is not valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise MemoryPatchValidationError("partial client memory must be an object")
+
+    selected = tuple(slot_keys)
+    missing = [key for key in selected if key not in parsed]
+    if missing:
+        raise MemoryPatchValidationError(
+            f"partial client memory is missing slots: {', '.join(missing)}"
+        )
+
+    existing = get_client_memory_payload(client)
+    memory = {**_default_client_memory(client), **existing}
+    string_slots = {"client_profile"}
+    list_string_slots = {
+        "decision_patterns",
+        "lessons_learned",
+        "relationship_signals",
+        "sensitive_topics",
+    }
+    list_object_slots = {
+        "key_contacts",
+        "structured_stakeholders",
+        "project_history",
+    }
+    for key in selected:
+        value = parsed[key]
+        if key in string_slots:
+            if not isinstance(value, str):
+                raise MemoryPatchValidationError(f"slot {key} must be a string")
+            memory[key] = value.strip()
+        elif key in list_string_slots:
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise MemoryPatchValidationError(f"slot {key} must be an array of strings")
+            memory[key] = [item.strip() for item in value if item.strip()]
+        elif key in list_object_slots:
+            if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+                raise MemoryPatchValidationError(f"slot {key} must be an array of objects")
+            memory[key] = value
+        else:
+            raise MemoryPatchValidationError(f"unknown client memory slot: {key}")
+
+    memory["rebuild_log"] = existing.get("rebuild_log", []) if isinstance(existing.get("rebuild_log"), list) else []
+    memory["source_project_ids"] = existing.get("source_project_ids", []) if isinstance(existing.get("source_project_ids"), list) else []
+    _merge_accepted_memory_candidates(memory, existing)
+    return memory
+
+
 def save_client_memory(
     session: Session,
     client_id: int,
@@ -285,12 +407,35 @@ def save_client_memory(
     *,
     trigger: str = "manual",
     source_project_ids: list[int] | None = None,
+    rebuilt_slots: tuple[str, ...] | None = None,
+    rebuild_mode: str | None = None,
+    fallback_reason: str = "",
+    rebuild_plan: MemoryRebuildPlan | None = None,
 ) -> dict[str, Any]:
+    if rebuild_plan is not None:
+        session.expire_all()
     client = session.exec(
         select(ClientRecord).where(ClientRecord.id == client_id).with_for_update()
     ).first()
     if not client:
         raise HTTPException(404, "Client not found")
+
+    selected_slots = tuple(rebuilt_slots or CLIENT_MEMORY_SLOT_KEYS)
+    if not selected_slots or any(key not in CLIENT_MEMORY_SLOT_KEYS for key in selected_slots):
+        raise ValueError("rebuilt_slots contains an unknown client memory slot")
+    if rebuild_plan is not None:
+        from app.services.memory_slots import get_client_memory_slot_states
+
+        assert_memory_rebuild_baseline(
+            rebuild_plan,
+            current_memory_version=int(client.client_memory_version or 0),
+            current_slot_states=get_client_memory_slot_states(
+                session,
+                client_id,
+                for_update=True,
+            ),
+            rebuilt_slots=selected_slots,
+        )
 
     memory = _merge_accepted_memory_candidates(
         dict(memory),
@@ -301,18 +446,19 @@ def save_client_memory(
     client.client_memory_updated_at = utc_now_naive()
     memory["memory_version"] = client.client_memory_version
     memory["last_updated_at"] = client.client_memory_updated_at.isoformat()
-    memory["stale"] = False
-
     rebuild_log = memory.get("rebuild_log", [])
     if not isinstance(rebuild_log, list):
         rebuild_log = []
-    rebuild_log.append(
-        {
-            "at": client.client_memory_updated_at.isoformat(),
-            "trigger": trigger,
-            "version": client.client_memory_version,
-        }
-    )
+    log_entry: dict[str, Any] = {
+        "at": client.client_memory_updated_at.isoformat(),
+        "trigger": trigger,
+        "version": client.client_memory_version,
+    }
+    if rebuild_mode:
+        log_entry.update({"mode": rebuild_mode, "rebuilt_slots": list(selected_slots)})
+    if fallback_reason:
+        log_entry["fallback_reason"] = fallback_reason
+    rebuild_log.append(log_entry)
     memory["rebuild_log"] = rebuild_log[-10:]
 
     existing_source_ids = memory.get("source_project_ids", [])
@@ -323,14 +469,33 @@ def save_client_memory(
         *[int(item) for item in (source_project_ids or [])],
     ]
     memory["source_project_ids"] = list(dict.fromkeys(merged_source_ids))
-    structured_stakeholders = list_client_stakeholder_dicts(session, client_id)
-    if structured_stakeholders:
+    structured_stakeholders = (
+        list_client_stakeholder_dicts(session, client_id)
+        if "structured_stakeholders" in selected_slots
+        else []
+    )
+    if "structured_stakeholders" in selected_slots:
         memory["structured_stakeholders"] = structured_stakeholders
 
-    client.client_memory_json = json.dumps(memory, ensure_ascii=False)
-    client.client_memory_stale = False
     client.client_memory_rebuild_status = "idle"
     client.client_memory_rebuild_failed_at = None
+    session.add(client)
+    from app.services.memory_slots import sync_client_memory_slots
+    from app.services.memory_facts import sync_client_memory_facts
+
+    sync_client_memory_slots(session, client, memory, slot_keys=selected_slots)
+    sync_client_memory_facts(session, client, memory, slot_keys=selected_slots)
+    session.flush()
+    from app.services.memory_slots import get_client_memory_slot_states
+
+    current_states = get_client_memory_slot_states(session, client_id)
+    client.client_memory_stale = (
+        {state["slot_key"] for state in current_states}
+        != set(CLIENT_MEMORY_SLOT_KEYS)
+        or any(state["status"] != "ready" for state in current_states)
+    )
+    memory["stale"] = client.client_memory_stale
+    client.client_memory_json = json.dumps(memory, ensure_ascii=False)
     session.add(client)
     session.add(
         ClientMemorySnapshot(
@@ -341,11 +506,6 @@ def save_client_memory(
             created_at=client.client_memory_updated_at,
         )
     )
-    from app.services.memory_slots import sync_client_memory_slots
-    from app.services.memory_facts import sync_client_memory_facts
-
-    sync_client_memory_slots(session, client, memory)
-    sync_client_memory_facts(session, client, memory)
     session.commit()
     session.refresh(client)
     return get_client_memory_payload(client)

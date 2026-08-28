@@ -543,6 +543,8 @@ def accept_memory_candidate(
             memory,
             trigger=f"memory_candidate:{candidate.id}",
             coverage=memory.get("_coverage") if isinstance(memory.get("_coverage"), dict) else {},
+            rebuilt_slots=(target_slot,),
+            rebuild_mode="targeted_edit",
         )
         sync_candidate_source_message(session, candidate)
         session.commit()
@@ -564,6 +566,8 @@ def accept_memory_candidate(
             memory,
             trigger=f"memory_candidate:{candidate.id}",
             source_project_ids=[candidate.project_id] if candidate.project_id else None,
+            rebuilt_slots=(target_slot,),
+            rebuild_mode="targeted_edit",
         )
         sync_candidate_source_message(session, candidate)
         session.commit()

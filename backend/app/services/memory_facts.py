@@ -255,7 +255,11 @@ def _sync_fact_rows(
 
     for row in rows:
         identity = (row.slot_key, row.fact_key)
-        if row.is_active and identity not in active_identities:
+        if (
+            row.slot_key in slot_keys
+            and row.is_active
+            and identity not in active_identities
+        ):
             row.is_active = False
             row.retired_at = now
             row.updated_at = now
@@ -266,16 +270,24 @@ def sync_project_memory_facts(
     session: Session,
     project: Project,
     memory: dict[str, Any],
+    *,
+    slot_keys: Iterable[str] | None = None,
 ) -> None:
     if project.id is None:
         return
+    requested = set(slot_keys) if slot_keys is not None else None
+    selected = tuple(
+        slot_key
+        for slot_key in PROJECT_MEMORY_SLOT_KEYS
+        if requested is None or slot_key in requested
+    )
     _sync_fact_rows(
         session,
         scope="project",
         owner_id=project.id,
         owner_field="project_id",
         model=ProjectMemoryFact,
-        slot_keys=PROJECT_MEMORY_SLOT_KEYS,
+        slot_keys=selected,
         memory_version=max(0, int(project.memory_version or 0)),
         memory=memory,
         evidence_by_slot=build_project_slot_evidence_refs(session, project),
@@ -286,16 +298,24 @@ def sync_client_memory_facts(
     session: Session,
     client: ClientRecord,
     memory: dict[str, Any],
+    *,
+    slot_keys: Iterable[str] | None = None,
 ) -> None:
     if client.id is None:
         return
+    requested = set(slot_keys) if slot_keys is not None else None
+    selected = tuple(
+        slot_key
+        for slot_key in CLIENT_MEMORY_SLOT_KEYS
+        if requested is None or slot_key in requested
+    )
     _sync_fact_rows(
         session,
         scope="client",
         owner_id=client.id,
         owner_field="client_id",
         model=ClientMemoryFact,
-        slot_keys=CLIENT_MEMORY_SLOT_KEYS,
+        slot_keys=selected,
         memory_version=max(0, int(client.client_memory_version or 0)),
         memory=memory,
         evidence_by_slot=build_client_slot_evidence_refs(session, client, memory),

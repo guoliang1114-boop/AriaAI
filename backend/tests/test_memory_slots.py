@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import json
+from unittest.mock import AsyncMock, patch
+
+import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -30,6 +35,11 @@ from app.services.memory_slots import (
     get_project_memory_slot_states,
     load_client_memory_slot_view,
     load_project_memory_slot_view,
+)
+from app.services.memory_rebuilds import (
+    MemoryRebuildConflict,
+    plan_client_memory_rebuild,
+    plan_project_memory_rebuild,
 )
 from app.services.memory_facts import (
     fact_states_by_slot,
@@ -629,5 +639,258 @@ def test_client_prompt_bundle_reports_fact_level_provenance():
             assert bundle["selection"]["matched_fact_count"] >= 1
             assert bundle["selection"]["evidence_ref_count"] >= 1
             assert "[PROVENANCE:MATCHED]" in bundle["prompt"]
+    finally:
+        engine.dispose()
+
+
+def test_memory_rebuild_planner_selects_stale_subset_and_preserves_canonical_order():
+    project_states = [
+        {
+            "slot_key": key,
+            "slot_version": 1,
+            "status": "stale" if key in {"key_risks", "financial_status"} else "ready",
+            "value_sha256": key,
+            "stale_at": "2026-08-28" if key in {"key_risks", "financial_status"} else None,
+            "updated_at": "2026-08-27",
+        }
+        for key in PROJECT_MEMORY_SLOT_KEYS
+    ]
+    plan = plan_project_memory_rebuild(
+        memory_version=3,
+        parent_stale=True,
+        trigger="payment_created",
+        slot_states=project_states,
+    )
+    manual = plan_project_memory_rebuild(
+        memory_version=3,
+        parent_stale=True,
+        trigger="manual",
+        slot_states=project_states,
+    )
+
+    assert plan.mode == "partial"
+    assert plan.slot_keys == ("key_risks", "financial_status")
+    assert manual.mode == "full"
+    assert manual.slot_keys == PROJECT_MEMORY_SLOT_KEYS
+
+
+def test_client_rebuild_planner_selects_stakeholder_slots():
+    stale = {
+        "decision_patterns",
+        "key_contacts",
+        "structured_stakeholders",
+        "relationship_signals",
+        "sensitive_topics",
+    }
+    states = [
+        {
+            "slot_key": key,
+            "slot_version": 1,
+            "status": "stale" if key in stale else "ready",
+            "value_sha256": key,
+            "stale_at": "2026-08-28" if key in stale else None,
+            "updated_at": "2026-08-27",
+        }
+        for key in CLIENT_MEMORY_SLOT_KEYS
+    ]
+
+    plan = plan_client_memory_rebuild(
+        memory_version=2,
+        parent_stale=True,
+        trigger="stakeholder_updated",
+        slot_states=states,
+    )
+
+    assert plan.mode == "partial"
+    assert set(plan.slot_keys) == stale
+
+
+def test_project_partial_rebuild_updates_only_selected_slots_and_facts():
+    from app.routers import projects_deps
+
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+            original_states = {
+                state["slot_key"]: state
+                for state in get_project_memory_slot_states(session, project.id)
+            }
+            original_document_fact = next(
+                fact
+                for fact in get_project_memory_fact_states(session, project.id)
+                if fact["slot_key"] == "important_documents"
+            )
+            mark_project_memory_stale(session, project.id, trigger="payment_created")
+
+            response = json.dumps(
+                {
+                    "key_risks": ["Invoice overdue"],
+                    "financial_status": "Invoice overdue by 7 days",
+                }
+            )
+            mocked = AsyncMock(return_value=response)
+            with patch.object(projects_deps, "complete_with_selected_model", mocked):
+                memory = asyncio.run(
+                    projects_deps._rebuild_project_memory(
+                        session,
+                        project.id,
+                        trigger="payment_created",
+                    )
+                )
+
+            states = {
+                state["slot_key"]: state
+                for state in get_project_memory_slot_states(session, project.id)
+            }
+            document_fact = next(
+                fact
+                for fact in get_project_memory_fact_states(session, project.id)
+                if fact["slot_key"] == "important_documents"
+            )
+            prompt = mocked.await_args.kwargs["messages"][0]["content"]
+
+            assert mocked.await_count == 1
+            assert "financial_status" in prompt
+            assert "important_documents" not in prompt.split("Project data:", 1)[0]
+            assert "Uploaded files" not in prompt
+            assert states["financial_status"]["aggregate_memory_version"] == 2
+            assert states["important_documents"]["aggregate_memory_version"] == 1
+            assert states["important_documents"]["slot_version"] == original_states["important_documents"]["slot_version"]
+            assert document_fact["fact_key"] == original_document_fact["fact_key"]
+            assert document_fact["last_seen_memory_version"] == 1
+            assert memory["rebuild_log"][-1]["mode"] == "partial"
+            assert memory["rebuild_log"][-1]["rebuilt_slots"] == [
+                "key_risks",
+                "financial_status",
+            ]
+            assert session.get(Project, project.id).memory_stale is False
+    finally:
+        engine.dispose()
+
+
+def test_project_partial_rebuild_uses_full_fallback_for_invalid_patch():
+    from app.routers import projects_deps
+
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+            mark_project_memory_stale(session, project.id, trigger="payment_created")
+            full_payload = _project_memory(financial_status="Paid")
+            mocked = AsyncMock(
+                side_effect=[
+                    '{"financial_status":"Paid"}',
+                    json.dumps(full_payload),
+                ]
+            )
+
+            with patch.object(projects_deps, "complete_with_selected_model", mocked):
+                memory = asyncio.run(
+                    projects_deps._rebuild_project_memory(
+                        session,
+                        project.id,
+                        trigger="payment_created",
+                    )
+                )
+
+            assert mocked.await_count == 2
+            assert memory["rebuild_log"][-1]["mode"] == "full_fallback"
+            assert memory["rebuild_log"][-1]["fallback_reason"] == "invalid_partial_payload"
+            assert memory["rebuild_log"][-1]["rebuilt_slots"] == list(PROJECT_MEMORY_SLOT_KEYS)
+    finally:
+        engine.dispose()
+
+
+def test_project_partial_rebuild_rejects_changed_slot_baseline():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+            mark_project_memory_stale(session, project.id, trigger="payment_created")
+            project = session.get(Project, project.id)
+            plan = plan_project_memory_rebuild(
+                memory_version=project.memory_version,
+                parent_stale=project.memory_stale,
+                trigger="payment_created",
+                slot_states=get_project_memory_slot_states(session, project.id),
+            )
+            mark_project_memory_stale(session, project.id, trigger="payment_updated")
+
+            with pytest.raises(MemoryRebuildConflict):
+                save_project_memory(
+                    session,
+                    project.id,
+                    _project_memory(financial_status="Paid"),
+                    trigger="payment_created",
+                    rebuilt_slots=plan.slot_keys,
+                    rebuild_mode="partial",
+                    rebuild_plan=plan,
+                )
+
+            session.rollback()
+            assert session.get(Project, project.id).memory_version == 1
+    finally:
+        engine.dispose()
+
+
+def test_client_partial_rebuild_updates_only_stale_stakeholder_slots():
+    from app.routers import clients_deps
+
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            client = ClientRecord(name="Acme")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            save_client_memory(session, client.id, _client_memory(), trigger="test")
+            mark_client_memory_stale(session, client.id, trigger="stakeholder_updated")
+            response = json.dumps(
+                {
+                    "decision_patterns": ["CFO decides"],
+                    "key_contacts": [],
+                    "structured_stakeholders": [],
+                    "relationship_signals": ["Sponsor engaged"],
+                    "sensitive_topics": ["Budget timing"],
+                }
+            )
+            mocked = AsyncMock(return_value=response)
+
+            with patch.object(
+                clients_deps,
+                "_current_complete_with_selected_model",
+                return_value=mocked,
+            ):
+                memory = asyncio.run(
+                    clients_deps._rebuild_client_memory(
+                        session,
+                        client.id,
+                        trigger="stakeholder_updated",
+                    )
+                )
+
+            states = {
+                state["slot_key"]: state
+                for state in get_client_memory_slot_states(session, client.id)
+            }
+            assert mocked.await_count == 1
+            assert states["relationship_signals"]["aggregate_memory_version"] == 2
+            assert states["lessons_learned"]["aggregate_memory_version"] == 1
+            assert memory["lessons_learned"] == ["Pilot before scale"]
+            assert memory["rebuild_log"][-1]["mode"] == "partial"
+            assert session.get(ClientRecord, client.id).client_memory_stale is False
     finally:
         engine.dispose()

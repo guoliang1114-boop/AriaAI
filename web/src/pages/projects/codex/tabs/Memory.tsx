@@ -21,6 +21,7 @@ import {
 } from '../CxMemoryActions'
 import { EDITABLE_SLOT_KEYS } from '../projectActionMutations'
 import { formatUpdatedRelative } from '../useProjectsApi'
+import { formatMemoryRebuildSummary } from '../../../../utils/memoryRebuild'
 
 interface MemoryProps {
   projectId: number
@@ -515,6 +516,9 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
                     ? `更新于 ${formatUpdatedRelative(project.memory_updated_at)}`
                     : '尚未建立记忆'}
                   {memory && pinnedTotal > 0 ? ` · ${pinnedTotal} 个固定锚点` : ''}
+                  {formatMemoryRebuildSummary(slotLedger)
+                    ? ` · ${formatMemoryRebuildSummary(slotLedger)}`
+                    : ''}
                 </div>
               </div>
               {project.memory_version != null && (

@@ -32,6 +32,7 @@ from app.services.client_contexts import (
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
 from app.services.memory_facts import get_client_memory_fact_states
 from app.services.memory_slots import get_client_memory_slot_states
+from app.services.memory_rebuilds import latest_memory_rebuild_metadata
 from app.services.project_contexts import normalize_summary_language
 from app.services.project_llm import complete_with_selected_model
 from app.services.time_utils import utc_now_naive
@@ -417,6 +418,7 @@ def get_client_memory_slots(client_id: int, session: Session = Depends(get_sessi
         raise HTTPException(status_code=404, detail="Client not found")
     slots = get_client_memory_slot_states(session, client_id)
     stale_count = sum(item["status"] in {"stale", "corrupt"} for item in slots)
+    rebuild_metadata = latest_memory_rebuild_metadata(get_client_memory_payload(client))
     return {
         "scope": "client",
         "entity_id": client_id,
@@ -424,6 +426,7 @@ def get_client_memory_slots(client_id: int, session: Session = Depends(get_sessi
         "slot_count": len(slots),
         "stale_slot_count": stale_count,
         "slots": slots,
+        **rebuild_metadata,
     }
 
 
@@ -662,19 +665,7 @@ async def summarize_client_memory(
 
     memory = get_client_memory_payload(client)
     if (client.client_memory_version or 0) == 0 or client.client_memory_stale:
-        client, client_data, source_project_ids = build_client_memory_data(session, client_id)
-        raw_memory = await _current_complete_with_selected_model()(
-            messages=[{"role": "user", "content": build_client_memory_prompt(client_data)}],
-            max_tokens=2200,
-        )
-        parsed_memory = parse_client_memory(raw_memory, client)
-        memory = save_client_memory(
-            session,
-            client_id,
-            parsed_memory,
-            trigger="on_demand",
-            source_project_ids=source_project_ids,
-        )
+        memory = await _rebuild_client_memory(session, client_id, trigger="on_demand")
         _schedule_client_memory_summary_warm(
             client_id,
             summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,

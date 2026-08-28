@@ -430,15 +430,23 @@ def sync_project_memory_slots(
     session: Session,
     project: Project,
     memory: dict[str, Any],
+    *,
+    slot_keys: Iterable[str] | None = None,
 ) -> None:
     if project.id is None:
         return
+    requested = set(slot_keys) if slot_keys is not None else None
+    selected = tuple(
+        slot_key
+        for slot_key in PROJECT_MEMORY_SLOT_KEYS
+        if requested is None or slot_key in requested
+    )
     _sync_slot_rows(
         session,
         owner_id=project.id,
         owner_field="project_id",
         model=ProjectMemorySlot,
-        slot_keys=PROJECT_MEMORY_SLOT_KEYS,
+        slot_keys=selected,
         aggregate_memory_version=int(project.memory_version or 0),
         memory=memory,
         evidence_by_slot=build_project_slot_evidence_refs(session, project),
@@ -449,15 +457,23 @@ def sync_client_memory_slots(
     session: Session,
     client: ClientRecord,
     memory: dict[str, Any],
+    *,
+    slot_keys: Iterable[str] | None = None,
 ) -> None:
     if client.id is None:
         return
+    requested = set(slot_keys) if slot_keys is not None else None
+    selected = tuple(
+        slot_key
+        for slot_key in CLIENT_MEMORY_SLOT_KEYS
+        if requested is None or slot_key in requested
+    )
     _sync_slot_rows(
         session,
         owner_id=client.id,
         owner_field="client_id",
         model=ClientMemorySlot,
-        slot_keys=CLIENT_MEMORY_SLOT_KEYS,
+        slot_keys=selected,
         aggregate_memory_version=int(client.client_memory_version or 0),
         memory=memory,
         evidence_by_slot=build_client_slot_evidence_refs(session, client, memory),
@@ -615,24 +631,34 @@ def _slot_state(row: ProjectMemorySlot | ClientMemorySlot) -> dict[str, Any]:
 def get_project_memory_slot_states(
     session: Session,
     project_id: int,
+    *,
+    for_update: bool = False,
 ) -> list[dict[str, Any]]:
-    rows = session.exec(
+    statement = (
         select(ProjectMemorySlot)
         .where(ProjectMemorySlot.project_id == project_id)
         .order_by(ProjectMemorySlot.slot_key)
-    ).all()
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    rows = session.exec(statement).all()
     return [_slot_state(row) for row in rows]
 
 
 def get_client_memory_slot_states(
     session: Session,
     client_id: int,
+    *,
+    for_update: bool = False,
 ) -> list[dict[str, Any]]:
-    rows = session.exec(
+    statement = (
         select(ClientMemorySlot)
         .where(ClientMemorySlot.client_id == client_id)
         .order_by(ClientMemorySlot.slot_key)
-    ).all()
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    rows = session.exec(statement).all()
     return [_slot_state(row) for row in rows]
 
 

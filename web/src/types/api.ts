@@ -74,6 +74,15 @@ export interface ProjectMemoryClientPromotion {
   trigger: string
 }
 
+export interface MemoryRebuildLogEntry {
+  at: string
+  trigger: string
+  version: number
+  mode?: 'partial' | 'full' | 'full_fallback' | 'targeted_edit' | string
+  rebuilt_slots?: string[]
+  fallback_reason?: string
+}
+
 export interface ProjectMemory {
   project_brief: string
   current_stage: string
@@ -92,7 +101,7 @@ export interface ProjectMemory {
   memory_version: number
   last_updated_at: string
   stale: boolean
-  rebuild_log?: Array<{ at: string; trigger: string; version: number }>
+  rebuild_log?: MemoryRebuildLogEntry[]
   _coverage?: Record<string, number | string>
   _client_promotion?: ProjectMemoryClientPromotion
 }
@@ -134,6 +143,9 @@ export interface MemorySlotListResponse {
   slot_count: number
   stale_slot_count: number
   slots: MemorySlotState[]
+  last_rebuild_mode?: 'partial' | 'full' | 'full_fallback' | 'targeted_edit' | string | null
+  last_rebuilt_slots?: string[]
+  last_rebuild_fallback_reason?: string | null
 }
 
 export interface MemoryFactEvidenceRef extends MemorySlotEvidenceRef {
@@ -354,7 +366,7 @@ export interface ClientMemory {
   memory_version: number
   last_updated_at: string
   stale: boolean
-  rebuild_log?: Array<{ at: string; trigger: string; version: number }>
+  rebuild_log?: MemoryRebuildLogEntry[]
   source_project_ids?: number[]
 }
 
