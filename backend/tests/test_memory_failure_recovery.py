@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -22,6 +23,7 @@ from app.models.db import (
     User,
 )
 from app.routers import (
+    clients,
     clients_deps,
     clients_memory,
     clients_stakeholders,
@@ -75,6 +77,13 @@ def _sqlite_engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     SQLModel.metadata.create_all(engine)
     return engine
 
@@ -1017,6 +1026,103 @@ def test_manual_stakeholder_crud_locks_client_before_child() -> None:
                     session,
                 )
                 assert locked_entities == [ClientRecord, ClientStakeholder]
+    finally:
+        engine.dispose()
+
+
+def test_stakeholder_delete_respects_history_foreign_key_order() -> None:
+    engine = _sqlite_engine()
+    try:
+        with Session(engine) as setup:
+            client = ClientRecord(name="FK client")
+            setup.add(client)
+            setup.commit()
+            setup.refresh(client)
+            stakeholder = ClientStakeholder(
+                client_id=int(client.id),
+                name="Alice",
+                role="Sponsor",
+            )
+            setup.add(stakeholder)
+            setup.commit()
+            setup.refresh(stakeholder)
+            history = ClientStakeholderHistory(
+                stakeholder_id=int(stakeholder.id),
+                client_id=int(client.id),
+                field_name="role",
+                old_value="CEO",
+                new_value="Chair",
+                trigger="manual",
+            )
+            setup.add(history)
+            setup.commit()
+            setup.refresh(history)
+            client_id = int(client.id)
+            stakeholder_id = int(stakeholder.id)
+            history_id = int(history.id)
+
+        with Session(engine) as session, patch.object(
+            clients_stakeholders,
+            "_mark_client_memory_stale",
+        ), patch.object(
+            clients_stakeholders,
+            "mark_project_memories_stale_by_client_name",
+        ):
+            clients_stakeholders.delete_client_stakeholder(
+                client_id,
+                stakeholder_id,
+                session,
+            )
+
+        with Session(engine) as verify:
+            assert verify.get(ClientStakeholderHistory, history_id) is None
+            assert verify.get(ClientStakeholder, stakeholder_id) is None
+            assert verify.get(ClientRecord, client_id) is not None
+    finally:
+        engine.dispose()
+
+
+def test_client_delete_respects_owned_record_foreign_key_order() -> None:
+    engine = _sqlite_engine()
+    try:
+        with Session(engine) as setup:
+            client = ClientRecord(name="FK graph client")
+            setup.add(client)
+            setup.commit()
+            setup.refresh(client)
+            stakeholder = ClientStakeholder(
+                client_id=int(client.id),
+                name="Alice",
+                role="Sponsor",
+            )
+            setup.add(stakeholder)
+            setup.commit()
+            setup.refresh(stakeholder)
+            history = ClientStakeholderHistory(
+                stakeholder_id=int(stakeholder.id),
+                client_id=int(client.id),
+                field_name="role",
+                old_value="CEO",
+                new_value="Chair",
+                trigger="manual",
+            )
+            setup.add(history)
+            setup.commit()
+            setup.refresh(history)
+            client_id = int(client.id)
+            stakeholder_id = int(stakeholder.id)
+            history_id = int(history.id)
+
+        with Session(engine) as session, patch.object(
+            clients,
+            "mark_project_memories_stale_by_client_name",
+        ):
+            clients.delete_client(client_id, session)
+
+        with Session(engine) as verify:
+            assert verify.get(ClientStakeholderHistory, history_id) is None
+            assert verify.get(ClientStakeholder, stakeholder_id) is None
+            assert verify.get(ClientRecord, client_id) is None
     finally:
         engine.dispose()
 

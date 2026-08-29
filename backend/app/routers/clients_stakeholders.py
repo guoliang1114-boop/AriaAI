@@ -450,6 +450,10 @@ def delete_client_stakeholder(
         )
     ).all():
         session.delete(history)
+    # ClientStakeholderHistory has legacy non-cascading foreign keys and no
+    # ORM relationship to teach SQLAlchemy's unit-of-work how to order these
+    # deletes. Flush the child rows before deleting their parent.
+    session.flush()
     session.delete(stakeholder)
     session.commit()
     _mark_client_memory_stale(session, client_id, trigger="stakeholder_deleted")

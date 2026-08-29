@@ -275,6 +275,11 @@ def delete_client(client_id: int, session: Session = Depends(get_session)):
         )
     ).all():
         session.delete(history)
+    # The history table's legacy foreign keys do not cascade and the mapped
+    # objects have no relationship that guarantees unit-of-work ordering.
+    # Persist both document detachment and history removal before deleting
+    # stakeholder and other client-owned parent rows.
+    session.flush()
     for stakeholder in session.exec(
         select(ClientStakeholder).where(ClientStakeholder.client_id == client_id)
     ).all():
@@ -299,6 +304,9 @@ def delete_client(client_id: int, session: Session = Depends(get_session)):
         select(ClientMemoryFact).where(ClientMemoryFact.client_id == client_id)
     ).all():
         session.delete(fact)
+    # Keep the final owner delete in its own flush phase so every explicit
+    # child deletion is visible to databases with immediate FK enforcement.
+    session.flush()
     session.delete(client)
     session.commit()
     mark_project_memories_stale_by_client_name(
