@@ -43,7 +43,6 @@ from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snap
 from app.services.memory_facts import get_project_memory_fact_states
 from app.services.memory_slots import get_project_memory_slot_states
 from app.services.memory_rebuilds import latest_memory_rebuild_metadata
-from app.services.time_utils import utc_now_naive
 from app.routers.projects_deps import get_current_user
 from app.routers.projects_deps import (
     _get_project_memory_lock,
@@ -271,6 +270,9 @@ def get_project_memory_facts(project_id: int, session: Session = Depends(get_ses
         "fact_count": len(facts),
         "stale_fact_count": sum(
             item["status"] in {"stale", "corrupt"} for item in facts
+        ),
+        "direct_fact_count": sum(
+            item["provenance_status"] == "direct" for item in facts
         ),
         "matched_fact_count": sum(
             item["provenance_status"] == "matched" for item in facts
@@ -648,7 +650,32 @@ async def run_project_memory_jobs_now(
 
     project = get_project_or_404(session, project_id)
     if project.memory_stale or (project.memory_version or 0) == 0:
-        saved_memory = await _rebuild_project_memory(session, project_id, project, trigger="manual_queue_run")
+        expected_memory_version = int(project.memory_version or 0)
+        expected_rebuild_status = project.memory_rebuild_status
+        try:
+            saved_memory = await _rebuild_project_memory(
+                session,
+                project_id,
+                project,
+                trigger="manual_queue_run",
+            )
+        except Exception as exc:
+            # The scheduler job has already been removed, so a failed manual
+            # run must leave a durable terminal state instead of an orphaned
+            # ``queued`` owner with no job available to execute it.
+            session.rollback()
+            _set_project_memory_failure(
+                session,
+                project_id,
+                stage="rebuild",
+                message=str(exc),
+                expected_memory_version=expected_memory_version,
+                expected_rebuild_status=expected_rebuild_status,
+                mark_rebuild_failed=True,
+            )
+            if session.get(Project, project_id):
+                _bust_project(project_id)
+            raise
         _schedule_project_memory_summary_warm(
             project_id,
             summary_types=["overview", "risk", "stakeholder"],
@@ -768,6 +795,10 @@ async def summarize_project_memory(
     session_bind = session.get_bind()
 
     if body.stream:
+        # The stream uses fresh short-lived sessions for cache reads/writes;
+        # release the request session before the provider can block.
+        session.rollback()
+
         async def event_stream():
             accumulated: list[str] = []
             async with summary_lock:
@@ -881,11 +912,14 @@ async def summarize_project_memory(
             )
 
         try:
+            session.rollback()
             content = await complete_with_selected_model(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1400,
             )
         except Exception as e:
+            session.expire_all()
+            project = session.get(Project, project_id) or project
             _set_project_memory_failure(
                 session,
                 project,
@@ -893,6 +927,26 @@ async def summarize_project_memory(
                 message=str(e),
             )
             raise
+        session.expire_all()
+        current_project = session.get(Project, project_id)
+        if current_project is None:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Project was removed during summary generation.",
+            )
+        current_prompt = build_project_memory_view_prompt(
+            get_project_memory_payload(current_project),
+            current_project.name,
+            summary_type,
+            body.language,
+        )
+        if current_prompt != prompt:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Project memory changed during summary generation; retry with current data.",
+            )
         cached = save_project_memory_summary_cache(
             session,
             project_id=project_id,
@@ -1024,7 +1078,9 @@ async def generate_project_memory_summaries(
             summary_types=summary_types,
             language=body.language,
         )
+        project_name = project.name
         try:
+            session.rollback()
             raw_content = await complete_with_selected_model(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=3200,
@@ -1035,12 +1091,14 @@ async def generate_project_memory_summaries(
             )
             for missing_summary_type in missing_summary_types:
                 summary_contents[missing_summary_type] = await _generate_single_project_memory_summary_content(
-                    project,
+                    project_name,
                     memory_payload,
                     missing_summary_type,
                     body.language,
                 )
         except Exception as e:
+            session.expire_all()
+            project = session.get(Project, project_id) or project
             _set_project_memory_failure(
                 session,
                 project,
@@ -1048,6 +1106,27 @@ async def generate_project_memory_summaries(
                 message=str(e),
             )
             raise
+
+        session.expire_all()
+        current_project = session.get(Project, project_id)
+        if current_project is None:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Project was removed during summary generation.",
+            )
+        current_prompt = build_project_memory_multi_summary_prompt(
+            get_project_memory_payload(current_project),
+            current_project.name,
+            summary_types=summary_types,
+            language=body.language,
+        )
+        if current_prompt != prompt:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Project memory changed during summary generation; retry with current data.",
+            )
 
         saved_summaries: dict[str, ProjectMemorySummary] = {}
         for summary_type, content in summary_contents.items():

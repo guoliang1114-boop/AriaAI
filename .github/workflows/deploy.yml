@@ -6,8 +6,12 @@ on:
   workflow_dispatch: # Support manual runs
 
 concurrency:
-  group: production-deploy-${{ github.ref }}
-  cancel-in-progress: true
+  # Shared with production DB E2E and restore workflows so migrations,
+  # restarts, isolated tests, and restores can never overlap.
+  group: production-database-maintenance
+  # Never terminate a deployment after it may have started backup, migration,
+  # or process replacement. New pushes wait for the active release to finish.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -60,9 +64,9 @@ jobs:
           python -m pip install --retries 5 --timeout 60 -r requirements.txt || \
           python -m pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
 
-      # PostgreSQL-backed tests run on the deployment server below, before
-      # production migration/restart. They are forced onto the separate
-      # ariaai_test database so no test can mutate production data.
+      # The deployment server runs pure/unit checks plus read-only database
+      # governance checks below. Database-mutating E2E tests belong to the
+      # separate Production Database E2E workflow and use an isolated schema.
 
       - name: Backend Smoke Check
         run: |
@@ -225,8 +229,9 @@ jobs:
                 engine.dispose()
             PY
 
-            # Run the focused harness suite. These files use pure unit tests or
-            # isolated in-memory/file SQLite databases and never the server DB.
+            # Run the focused harness suite. Behavioral tests use pure unit or
+            # isolated SQLite fixtures; database governance/health checks are
+            # read-only against the configured server database.
             "$PYTHON" -m pytest -q \
                 tests/test_agent_harness_native.py \
                 tests/test_activity_timeline_persist.py \
@@ -241,9 +246,14 @@ jobs:
                 tests/test_knowledge_job_recovery.py \
                 tests/test_knowledge_legacy_migration.py \
                 tests/test_layered_memory_routing.py \
+                tests/test_memory_fact_source_trust.py \
+                tests/test_memory_failure_recovery.py \
+                tests/test_memory_source_attributions.py \
+                tests/test_memory_source_fingerprints.py \
                 tests/test_memory_slots.py \
                 tests/test_product_run_events.py \
                 tests/test_project_chat_quality_eval.py \
+                tests/test_project_deletion.py \
                 tests/test_project_memory_evidence.py \
                 tests/test_run_evaluation.py \
                 tests/test_run_output_record.py \

@@ -12,6 +12,7 @@ import type {
   Reference,
 } from '../../../types/api'
 import type { ContextReceiptEvent } from '../../../types/productRunEvent'
+import { parseChatStreamEvent, toContextReceiptEvent } from '../../../types/chatStreamEvent'
 import type { RunActivityTimeline } from '../../../stores/runActivityReducer'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 import { contextMemoryLayerLabel } from '../../../utils/contextReceipt'
@@ -85,6 +86,10 @@ function parseActivityTimeline(value: unknown): RunActivityTimeline | null {
         items: Array.isArray(step.items) ? step.items : [],
       }))
     : []
+  const contextReceiptEvent = parseChatStreamEvent(raw.context_receipt)
+  const contextReceipt = contextReceiptEvent
+    ? toContextReceiptEvent(contextReceiptEvent)
+    : undefined
   return {
     ...raw,
     run_id: raw.run_id,
@@ -92,6 +97,7 @@ function parseActivityTimeline(value: unknown): RunActivityTimeline | null {
     artifacts: Array.isArray(raw.artifacts) ? raw.artifacts : [],
     memory_candidates: Array.isArray(raw.memory_candidates) ? raw.memory_candidates : [],
     steering: Array.isArray(raw.steering) ? raw.steering : [],
+    context_receipt: contextReceipt || undefined,
     text: typeof raw.text === 'string' ? raw.text : '',
   }
 }
@@ -108,9 +114,8 @@ function parseMeta(raw: string | undefined): ParsedMeta {
     const refs = normalizeKnowledgeReferences(meta.references)
     const arts = Array.isArray(meta.artifacts) ? (meta.artifacts as GeneratedArtifact[]) : []
     const prog = Array.isArray(meta.skill_progress) ? (meta.skill_progress as ProgressStep[]) : []
-    const receipt = meta.context_receipt && typeof meta.context_receipt === 'object'
-      ? (meta.context_receipt as ContextReceiptEvent)
-      : null
+    const receiptEvent = parseChatStreamEvent(meta.context_receipt)
+    const receipt = receiptEvent ? toContextReceiptEvent(receiptEvent) : null
     const rawFeedback = meta.interaction_feedback && typeof meta.interaction_feedback === 'object'
       ? meta.interaction_feedback as Record<string, unknown>
       : null

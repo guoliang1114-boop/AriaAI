@@ -16,6 +16,7 @@ import type {
   ToolProgressStatus,
   TurnReceiptEvent,
 } from "../types/productRunEvent";
+import { toContextReceiptEvent } from "../types/chatStreamEvent";
 
 export type StepStatus = ToolProgressStatus | "completed" | "failed";
 
@@ -181,8 +182,12 @@ export function reduceRunActivity(
     case "turn_receipt":
       return { ...current, receipt: event };
 
-    case "context_receipt":
-      return { ...current, context_receipt: event };
+    case "context_receipt": {
+      const contextReceipt = toContextReceiptEvent(event);
+      return contextReceipt
+        ? { ...current, context_receipt: contextReceipt }
+        : current;
+    }
 
     case "steering_applied":
       return {

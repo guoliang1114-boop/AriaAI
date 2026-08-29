@@ -16,8 +16,12 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.db import (
     ClientMemoryFact,
+    ClientMemorySnapshot,
+    ClientMemorySummary,
     ClientMemorySlot,
     ClientRecord,
+    ClientStakeholder,
+    ClientStakeholderHistory,
     KnowledgeDocument,
     MemoryCandidate,
     Project,
@@ -26,6 +30,7 @@ from app.services import scheduler as scheduler_service
 from app.services.cache import clients_cache
 from app.services.client_contexts import build_client_memory_summary_prompt
 from app.services.project_ai import extract_json_array_from_text
+from app.services.project_contexts import mark_project_memories_stale_by_client_name
 from app.services.project_llm import complete_with_selected_model
 from app.routers.clients_deps import (
     _CLIENTS_KEY,
@@ -201,30 +206,87 @@ def get_client(client_id: int, session: Session = Depends(get_session)):
 
 @router.put("/{client_id}", response_model=ClientOut)
 def update_client(client_id: int, body: ClientUpdate, session: Session = Depends(get_session)):
-    client = session.get(ClientRecord, client_id)
+    client = session.exec(
+        select(ClientRecord)
+        .where(ClientRecord.id == client_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
 
+    previous_name = client.name
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(client, field, value)
     session.add(client)
     session.commit()
     session.refresh(client)
+    updated_name = str(client.name or "")
     _mark_client_memory_stale(session, client_id, trigger="client_updated")
+    if _normalized_name(previous_name) != _normalized_name(updated_name):
+        mark_project_memories_stale_by_client_name(
+            session,
+            previous_name,
+            trigger="client_renamed",
+        )
+        mark_project_memories_stale_by_client_name(
+            session,
+            updated_name,
+            trigger="client_renamed",
+        )
+    session.expire_all()
+    client = session.exec(
+        select(ClientRecord)
+        .where(ClientRecord.id == client_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if client is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Client was deleted during update; reload the client list.",
+        )
     clients_cache.delete(_CLIENTS_KEY)
     return _client_out(client, session)
 
 
 @router.delete("/{client_id}", status_code=204)
 def delete_client(client_id: int, session: Session = Depends(get_session)):
-    client = session.get(ClientRecord, client_id)
+    # Serialize with client-memory writers before touching slot/fact children.
+    # This preserves the shared owner -> child lock order and avoids a delete
+    # versus rebuild deadlock on PostgreSQL.
+    client = session.exec(
+        select(ClientRecord)
+        .where(ClientRecord.id == client_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    client_name = client.name
 
     docs = session.exec(select(KnowledgeDocument).where(KnowledgeDocument.client_id == client_id)).all()
     for document in docs:
         document.client_id = None
         session.add(document)
+    for history in session.exec(
+        select(ClientStakeholderHistory).where(
+            ClientStakeholderHistory.client_id == client_id
+        )
+    ).all():
+        session.delete(history)
+    for stakeholder in session.exec(
+        select(ClientStakeholder).where(ClientStakeholder.client_id == client_id)
+    ).all():
+        session.delete(stakeholder)
+    for summary in session.exec(
+        select(ClientMemorySummary).where(ClientMemorySummary.client_id == client_id)
+    ).all():
+        session.delete(summary)
+    for snapshot in session.exec(
+        select(ClientMemorySnapshot).where(ClientMemorySnapshot.client_id == client_id)
+    ).all():
+        session.delete(snapshot)
     for candidate in session.exec(
         select(MemoryCandidate).where(MemoryCandidate.client_id == client_id)
     ).all():
@@ -239,6 +301,11 @@ def delete_client(client_id: int, session: Session = Depends(get_session)):
         session.delete(fact)
     session.delete(client)
     session.commit()
+    mark_project_memories_stale_by_client_name(
+        session,
+        client_name,
+        trigger="client_deleted",
+    )
     clients_cache.delete(_CLIENTS_KEY)
 
 

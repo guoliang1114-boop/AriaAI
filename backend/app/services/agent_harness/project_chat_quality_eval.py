@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models.db import ClientRecord, Project, Skill
+from app.models.db import ClientRecord, Project, ProjectPayment, Skill
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.mode_registry import ActionPolicy, ToolAccessPolicy
 from app.services.chat.runtime import _resolve_effective_skill
@@ -54,6 +54,13 @@ from app.services.memory_rebuilds import (
     plan_project_memory_rebuild,
 )
 from app.services.memory_slots import CLIENT_MEMORY_SLOT_KEYS, PROJECT_MEMORY_SLOT_KEYS
+from app.services.memory_facts import (
+    MODEL_SOURCE_ATTRIBUTIONS_KEY,
+    bind_model_source_attributions,
+    capture_project_memory_source_snapshots,
+    get_project_memory_fact_states,
+)
+from app.services.project_contexts import save_project_memory
 from app.services.skill_router import (
     auto_select_skill,
     decide_conversation_skill_activation,
@@ -453,6 +460,7 @@ def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
         fact_states={
             "relationship_signals": {
                 0: {
+                    "status": "ready",
                     "provenance_status": "scoped",
                     "evidence_count": 2,
                 }
@@ -1019,6 +1027,120 @@ def _memory_rebuild_planning_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _memory_direct_source_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Model-declared source IDs remain private and fail closed to the prompt pool."""
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            project = Project(name="Direct source eval", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            payment = ProjectPayment(
+                project_id=int(project.id or 0),
+                amount=1000,
+                payment_date="2026-08-28",
+                payment_type="received",
+                note="Deposit received",
+            )
+            session.add(payment)
+            session.commit()
+            session.refresh(payment)
+            source_handles = [f"project_payment:{payment.id}"]
+            source_snapshots = capture_project_memory_source_snapshots(
+                session,
+                project,
+                source_handles,
+            )
+            memory = {
+                "financial_status": "Deposit received",
+                MODEL_SOURCE_ATTRIBUTIONS_KEY: bind_model_source_attributions(
+                    [
+                        {
+                            "slot_key": "financial_status",
+                            "fact_index": 0,
+                            "source_ids": source_handles,
+                        }
+                    ],
+                    ("financial_status",),
+                    {"financial_status": {0: ("value", "Deposit received")}},
+                ),
+            }
+            save_project_memory(
+                session,
+                int(project.id or 0),
+                memory,
+                trigger="quality_eval_direct_source",
+                coverage={
+                    "_source_snapshots": source_snapshots,
+                },
+                rebuilt_slots=("financial_status",),
+                rebuild_mode="partial",
+            )
+            fact = get_project_memory_fact_states(
+                session,
+                int(project.id or 0),
+            )[0]
+            persisted = session.get(Project, project.id).context_memory_json
+
+            changed = {"financial_status": "Unverified collection forecast"}
+            changed[MODEL_SOURCE_ATTRIBUTIONS_KEY] = bind_model_source_attributions(
+                [
+                    {
+                        "slot_key": "financial_status",
+                        "fact_index": 0,
+                        "source_ids": source_handles,
+                    }
+                ],
+                ("financial_status",),
+                {
+                    "financial_status": {
+                        0: ("value", "Unverified collection forecast")
+                    }
+                },
+            )
+            save_project_memory(
+                session,
+                int(project.id or 0),
+                changed,
+                trigger="quality_eval_missing_prompt_source",
+                rebuilt_slots=("financial_status",),
+                rebuild_mode="partial",
+            )
+            rejected = get_project_memory_fact_states(
+                session,
+                int(project.id or 0),
+            )[0]
+            details = [
+                {
+                    "case": "prompt_visible_source_id_becomes_direct_fact_link",
+                    "passed": fact["provenance_status"] == "direct"
+                    and fact["evidence_refs"][0]["relation"] == "direct_source_id",
+                },
+                {
+                    "case": "private_source_attribution_is_not_persisted",
+                    "passed": MODEL_SOURCE_ATTRIBUTIONS_KEY not in persisted,
+                },
+                {
+                    "case": "source_id_outside_captured_prompt_pool_is_rejected",
+                    "passed": rejected["provenance_status"] != "direct"
+                    and all(
+                        ref["relation"] != "direct_source_id"
+                        for ref in rejected["evidence_refs"]
+                    ),
+                },
+            ]
+    finally:
+        engine.dispose()
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1041,6 +1163,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "skill_quality_attribution_accuracy": _skill_run_quality_results(),
         "skill_release_governance_accuracy": _skill_release_governance_results(),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
+        "memory_direct_source_accuracy": _memory_direct_source_results(),
     }
     metrics = {
         name: {

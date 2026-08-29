@@ -77,6 +77,10 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - slot-level reconstruction planning, captured state fingerprints,
   verify-before-write conflict rejection, bounded partial patches, and safe
   full-rebuild fallback adapted to Aria-native memory ledgers; and
+- model-visible stable source handles, private bounded fact-to-source
+  attribution declarations, exact validation against the Aria-owned per-slot
+  source whitelist, and direct/matched/scoped provenance fallback adapted to
+  Aria-native project and client memory rebuilds; and
 - expected-turn-bound active-run steering, text-only mailbox delivery, safe
   model/tool boundary injection, stale planned-tool supersession, and concise
   turn-understanding receipts without exposing prompts or hidden reasoning.

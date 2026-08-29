@@ -186,6 +186,21 @@ class AlembicMigrationGraphTestCase(unittest.TestCase):
 
 
 class TestDatabaseUtilityIsolationTestCase(unittest.TestCase):
+    def test_drop_all_tables_supports_sqlite(self):
+        from sqlalchemy import inspect, text
+        from sqlmodel import create_engine
+
+        from tests import test_database as test_database_module
+
+        engine = create_engine("sqlite://")
+        try:
+            with engine.begin() as connection:
+                connection.execute(text("CREATE TABLE sample (id INTEGER PRIMARY KEY)"))
+            test_database_module.drop_all_tables(engine)
+            self.assertEqual(inspect(engine).get_table_names(), [])
+        finally:
+            engine.dispose()
+
     def test_safe_schema_pattern_rejects_public(self):
         from tests import test_database as test_database_module
 

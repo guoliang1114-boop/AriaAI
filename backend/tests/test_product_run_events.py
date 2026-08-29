@@ -163,9 +163,11 @@ class ContextReceiptTest(unittest.TestCase):
                 "omitted_slot_count": 5,
                 "selected_item_count": 6,
                 "evidence_ref_count": 9,
-                "matched_fact_count": 3,
+                "direct_fact_count": 2,
+                "matched_fact_count": 1,
                 "scoped_fact_count": 2,
                 "unresolved_fact_count": 1,
+                "_source_snapshots": {"project:26": "private-source-hash"},
                 "layers": [
                     {
                         "scope": "user",
@@ -192,9 +194,11 @@ class ContextReceiptTest(unittest.TestCase):
                         "stale_slots": ["decision_patterns"],
                         "stale_slot_count": 1,
                         "evidence_ref_count": 3,
-                        "matched_fact_count": 1,
+                        "direct_fact_count": 1,
+                        "matched_fact_count": 0,
                         "scoped_fact_count": 1,
                         "unresolved_fact_count": 0,
+                        "source_sha256": "private-source-hash",
                     },
                 ],
             },
@@ -230,7 +234,8 @@ class ContextReceiptTest(unittest.TestCase):
         self.assertEqual(event["memory"]["stale_slots"], ["key_risks"])
         self.assertEqual(event["memory"]["stale_slot_count"], 1)
         self.assertEqual(event["memory"]["evidence_ref_count"], 9)
-        self.assertEqual(event["memory"]["matched_fact_count"], 3)
+        self.assertEqual(event["memory"]["direct_fact_count"], 2)
+        self.assertEqual(event["memory"]["matched_fact_count"], 1)
         self.assertEqual(event["memory"]["scoped_fact_count"], 2)
         self.assertEqual(event["memory"]["unresolved_fact_count"], 1)
         self.assertEqual(
@@ -245,11 +250,15 @@ class ContextReceiptTest(unittest.TestCase):
             event["memory"]["layers"][1]["stale_slots"],
             ["decision_patterns"],
         )
-        self.assertEqual(event["memory"]["layers"][1]["matched_fact_count"], 1)
+        self.assertEqual(event["memory"]["layers"][1]["direct_fact_count"], 1)
+        self.assertEqual(event["memory"]["layers"][1]["matched_fact_count"], 0)
         self.assertEqual(event["skill"]["usage_mode"], "advisory")
         self.assertEqual(event["evidence"]["knowledge_reference_count"], 2)
         self.assertNotIn("prompt", event)
         self.assertNotIn("content", event)
+        self.assertNotIn("_source_snapshots", str(event))
+        self.assertNotIn("source_sha256", str(event))
+        self.assertNotIn("private-source-hash", str(event))
 
     def test_context_receipt_rejects_overrides_on_non_user_layer(self):
         with self.assertRaises(ValueError):

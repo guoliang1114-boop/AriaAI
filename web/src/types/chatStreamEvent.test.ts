@@ -118,4 +118,69 @@ describe('chat receipt normalization', () => {
     })
     expect(incomplete && toContextReceiptEvent(incomplete)).toBeNull()
   })
+
+  it('whitelists context receipt fields so private source trust data cannot reach UI state', () => {
+    const raw = parseChatStreamEvent({
+      type: 'context_receipt',
+      run_id: 'run_private',
+      scope: 'project',
+      memory: {
+        status: 'ready',
+        version: 3,
+        raw_context_available: true,
+        retrieval_mode: 'focused',
+        query_facets: ['risk'],
+        selected_slots: ['key_risks'],
+        selected_slot_count: 1,
+        available_slot_count: 1,
+        omitted_slot_count: 0,
+        selected_item_count: 1,
+        truncated: false,
+        _source_snapshots: { 'project:1': 'private-hash' },
+        layers: [
+          {
+            scope: 'project',
+            status: 'ready',
+            version: 3,
+            retrieval_mode: 'focused',
+            query_facets: ['risk'],
+            selected_slots: ['key_risks'],
+            selected_slot_count: 1,
+            available_slot_count: 1,
+            omitted_slot_count: 0,
+            selected_item_count: 1,
+            truncated: false,
+            overridden_dimensions: [],
+            source_sha256: 'private-hash',
+          },
+        ],
+      },
+      skill: {
+        status: 'not_used',
+        usage_mode: 'none',
+        reason: '',
+        confidence: 0,
+        _source_attributions: [{ source_ids: ['project:1'] }],
+      },
+      evidence: {
+        workspace_context: true,
+        attached_file_count: 0,
+        knowledge_reference_count: 0,
+        history_message_count: 0,
+        conversation_capsule: false,
+        user_preferences: false,
+        compacted: false,
+        source_sha256: 'private-hash',
+      },
+      warnings: [],
+    })
+
+    const receipt = raw && toContextReceiptEvent(raw)
+    const serialized = JSON.stringify(receipt)
+    expect(receipt).not.toBeNull()
+    expect(serialized).not.toContain('_source_snapshots')
+    expect(serialized).not.toContain('_source_attributions')
+    expect(serialized).not.toContain('source_sha256')
+    expect(serialized).not.toContain('private-hash')
+  })
 })

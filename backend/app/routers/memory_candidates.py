@@ -55,15 +55,11 @@ def _owned_candidate(
     session: Session,
     candidate_id: int,
     current_user: User,
-    *,
-    lock: bool = False,
 ) -> MemoryCandidate:
     statement = select(MemoryCandidate).where(
         MemoryCandidate.id == candidate_id,
         MemoryCandidate.owner_user_id == current_user.id,
     )
-    if lock:
-        statement = statement.with_for_update()
     candidate = session.exec(statement).first()
     if candidate is None:
         raise HTTPException(404, "Memory candidate not found")
@@ -322,7 +318,7 @@ def accept_candidate(
 ):
     if current_user.id is None:
         raise HTTPException(401, "Not authenticated")
-    candidate = _owned_candidate(session, candidate_id, current_user, lock=True)
+    candidate = _owned_candidate(session, candidate_id, current_user)
     _require_candidate_scope_access(session, candidate, current_user, require_write=True)
     accepted = accept_memory_candidate(
         session,
@@ -347,7 +343,7 @@ def reject_candidate(
 ):
     if current_user.id is None:
         raise HTTPException(401, "Not authenticated")
-    candidate = _owned_candidate(session, candidate_id, current_user, lock=True)
+    candidate = _owned_candidate(session, candidate_id, current_user)
     _require_candidate_scope_access(session, candidate, current_user, require_write=True)
     rejected = reject_memory_candidate(
         session,

@@ -22,6 +22,7 @@ from app.models.db import (
     ClientMemorySnapshot,
     ClientRecord,
     ClientStakeholder,
+    ClientStakeholderHistory,
     Conversation,
     ConversationState,
     DocumentChunk,
@@ -1094,6 +1095,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                     {
                         "project_brief": "Alpha project brief",
                         "current_stage": "lead",
+                        "current_objective": "Confirm the delivery scope",
                         "recent_progress": ["Kickoff prepared"],
                         "key_risks": ["Timeline risk"],
                         "open_questions": [],
@@ -1102,6 +1104,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                         "financial_status": "No contract signed yet",
                         "delivery_signals": [],
                         "stakeholder_notes": [],
+                        "client_stakeholders": [],
                     },
                     ensure_ascii=False,
                 )
@@ -1154,6 +1157,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 {
                     "project_brief": brief,
                     "current_stage": "delivery",
+                    "current_objective": "Confirm the delivery scope",
                     "recent_progress": [],
                     "key_risks": [],
                     "open_questions": [],
@@ -1162,6 +1166,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                     "financial_status": "Healthy",
                     "delivery_signals": [],
                     "stakeholder_notes": [],
+                    "client_stakeholders": [],
                 },
                 ensure_ascii=False,
             )
@@ -1213,6 +1218,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 {
                     "project_brief": brief,
                     "current_stage": "lead",
+                    "current_objective": "Confirm the delivery scope",
                     "recent_progress": [],
                     "key_risks": [],
                     "open_questions": [],
@@ -1221,6 +1227,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                     "financial_status": "Not started",
                     "delivery_signals": [],
                     "stakeholder_notes": [],
+                    "client_stakeholders": [],
                 },
                 ensure_ascii=False,
             )
@@ -1937,16 +1944,22 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
     def test_delete_project_cascades_related_records(self):
         with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Client",
+                client_memory_stale=False,
+            )
             project = Project(name="Cascade Project", client="Client")
             member_user = User(
                 email="cascade-member@example.com",
                 display_name="Cascade Member",
                 password_hash="hashed",
             )
+            session.add(client)
             session.add(project)
             session.add(member_user)
             session.commit()
             session.refresh(project)
+            session.refresh(client)
             session.refresh(member_user)
 
             folder = ProjectFolder(project_id=project.id, name="Archive", sort_order=1)
@@ -2071,6 +2084,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(scheduled_task)
 
             project_id = project.id
+            client_id = client.id
             folder_id = folder.id
             milestone_id = milestone.id
             payment_id = payment.id
@@ -2098,6 +2112,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
         with Session(self.engine) as session:
             self.assertIsNone(session.get(Project, project_id))
+            self.assertTrue(session.get(ClientRecord, client_id).client_memory_stale)
             self.assertIsNone(session.get(ProjectFolder, folder_id))
             self.assertIsNone(session.get(Milestone, milestone_id))
             self.assertIsNone(session.get(ProjectPayment, payment_id))
@@ -2809,6 +2824,111 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             ).first()
         self.assertIsNotNone(cached)
 
+    def test_project_briefing_late_failure_does_not_overwrite_successful_rebuild(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Briefing race",
+                client="Acme",
+                status="delivering",
+                memory_version=1,
+                memory_rebuild_status="rebuilding",
+                context_memory_json=json.dumps({"project_brief": "Old briefing"}),
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        async def fail_after_successful_rebuild(**_kwargs):
+            with Session(self.engine) as concurrent_session:
+                current = concurrent_session.get(Project, project_id)
+                current.memory_version = 2
+                current.memory_rebuild_status = "idle"
+                current.context_memory_json = json.dumps(
+                    {
+                        "project_brief": "Successful concurrent rebuild",
+                        "rebuild_log": [{"version": 2}],
+                    }
+                )
+                concurrent_session.add(current)
+                concurrent_session.commit()
+            raise RuntimeError("late briefing provider failure")
+
+        with patch_project_llm(complete=fail_after_successful_rebuild):
+            with self.assertRaisesRegex(RuntimeError, "late briefing provider failure"):
+                self.client.post(
+                    f"/projects/{project_id}/briefing/refine",
+                    json={"meeting_type": "risk", "language": "zh", "force_refresh": True},
+                )
+
+        with Session(self.engine) as session:
+            project = session.get(Project, project_id)
+            memory = json.loads(project.context_memory_json)
+        self.assertEqual(project.memory_version, 2)
+        self.assertEqual(project.memory_rebuild_status, "idle")
+        self.assertEqual(memory["project_brief"], "Successful concurrent rebuild")
+        self.assertNotIn("_last_failure", memory)
+
+    def test_project_stakeholder_analysis_rejects_concurrent_manual_edit(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Concurrent Client", client_memory_stale=False)
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            project = Project(
+                name="Concurrent Project",
+                client=client.name,
+                status="delivering",
+                memory_stale=False,
+            )
+            stakeholder = ClientStakeholder(
+                client_id=client.id,
+                name="Finance Sponsor",
+                role="CFO",
+                note="Original manual note",
+            )
+            session.add(project)
+            session.add(stakeholder)
+            session.commit()
+            session.refresh(project)
+            session.refresh(stakeholder)
+            project_id = project.id
+            stakeholder_id = stakeholder.id
+
+        async def complete_after_manual_edit(**_kwargs):
+            with Session(self.engine) as concurrent_session:
+                current = concurrent_session.get(ClientStakeholder, stakeholder_id)
+                current.note = "Manual edit wins"
+                current.updated_at = utc_now_naive()
+                concurrent_session.add(current)
+                concurrent_session.commit()
+            return json.dumps(
+                {
+                    "personality_profile": "AI profile",
+                    "decision_style": "AI decision style",
+                    "communication_strategy": "AI strategy",
+                    "trust_signals": "AI trust signals",
+                }
+            )
+
+        with patch_project_llm(complete=complete_after_manual_edit):
+            response = self.client.post(
+                f"/projects/{project_id}/stakeholders/{stakeholder_id}/analyze",
+                json={"focus": "decision process"},
+            )
+
+        self.assertEqual(response.status_code, 409)
+        with Session(self.engine) as session:
+            stakeholder = session.get(ClientStakeholder, stakeholder_id)
+            history = session.exec(
+                select(ClientStakeholderHistory).where(
+                    ClientStakeholderHistory.stakeholder_id == stakeholder_id
+                )
+            ).all()
+        self.assertEqual(stakeholder.note, "Manual edit wins")
+        self.assertEqual(stakeholder.personality_profile, "")
+        self.assertEqual(history, [])
+
     def test_project_memory_snapshots_are_listed_and_can_rollback(self):
         with Session(self.engine) as session:
             project = Project(name="Snapshot Project", client="Client", memory_version=0)
@@ -3083,9 +3203,16 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 {
                     "project_brief": "Alpha brief",
                     "current_stage": "delivery",
+                    "current_objective": "Deliver the agreed scope",
+                    "recent_progress": [],
                     "key_risks": ["Timeline risk"],
                     "open_questions": ["Who signs off?"],
+                    "next_actions": [],
+                    "important_documents": [],
+                    "financial_status": "Healthy",
+                    "delivery_signals": [],
                     "stakeholder_notes": ["Finance is supportive"],
+                    "client_stakeholders": [],
                 },
                 ensure_ascii=False,
             )
@@ -3165,17 +3292,38 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             project_id = project.id
 
         with patch_project_llm(complete=AsyncMock(
-                return_value=json.dumps(
+                side_effect=[
+                    json.dumps(
+                        {
+                            "project_brief": "Delivered finance workflow redesign",
+                            "current_stage": "archived",
+                            "current_objective": "Capture reusable lessons",
+                            "recent_progress": ["Delivery completed"],
+                            "key_risks": ["Stakeholder alignment drift"],
+                            "open_questions": [],
+                            "next_actions": ["Close the project"],
+                            "important_documents": [],
+                            "financial_status": "Closed",
+                            "delivery_signals": ["Outcome delivered"],
+                            "stakeholder_notes": ["CFO prefers phased rollout"],
+                            "client_stakeholders": [],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(
                     {
                         "client_profile": "Strategic account with a finance modernization agenda",
                         "decision_patterns": ["Executive sponsors prefer phased delivery"],
                         "key_contacts": [{"name": "CFO", "role": "Executive Sponsor", "note": "Needs measurable wins"}],
+                        "structured_stakeholders": [],
                         "lessons_learned": ["Show value in stages before broader rollout"],
+                        "relationship_signals": [],
                         "project_history": [{"project_name": "Acme Delivery", "status": "archived", "outcome": "Delivered", "key_factor": "Phased wins"}],
                         "sensitive_topics": ["Avoid overpromising automation speed"],
                     },
                     ensure_ascii=False,
-                )
+                    ),
+                ]
             ),
         ) as mocked_complete:
             resp = self.client.patch(
@@ -4707,7 +4855,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             )
             session.commit()
 
-            _, client_data, _ = client_contexts_module.build_client_memory_data(session, client.id)
+            _, client_data, _, _ = client_contexts_module.build_client_memory_data(session, client.id)
             memory = client_contexts_module.save_client_memory(
                 session,
                 client.id,
@@ -5927,7 +6075,9 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                         "client_profile": "Large enterprise account with long procurement cycles",
                         "decision_patterns": ["Budget closes in Q4"],
                         "key_contacts": [{"name": "Jane", "role": "CFO", "note": "Economic buyer"}],
+                        "structured_stakeholders": [],
                         "lessons_learned": ["Senior sponsors want phased delivery"],
+                        "relationship_signals": [],
                         "project_history": [{"project_name": "Alpha Delivery", "status": "delivering", "outcome": "", "key_factor": "Finance transformation"}],
                         "sensitive_topics": ["Avoid aggressive automation claims"],
                     },
@@ -5982,7 +6132,9 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                         "client_profile": "Existing client profile",
                         "decision_patterns": ["Budget closes in Q4"],
                         "key_contacts": [],
+                        "structured_stakeholders": [],
                         "lessons_learned": ["Finance transformation needs executive sponsorship"],
+                        "relationship_signals": [],
                         "project_history": [{"project_name": "Alpha Delivery", "status": "delivering", "outcome": "", "key_factor": "Executive sponsorship"}],
                         "sensitive_topics": [],
                     },
@@ -6027,7 +6179,9 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                         "client_profile": "Manufacturing account",
                         "decision_patterns": ["Needs phased rollout"],
                         "key_contacts": [],
+                        "structured_stakeholders": [],
                         "lessons_learned": ["Delivery proof matters"],
+                        "relationship_signals": [],
                         "project_history": [],
                         "sensitive_topics": [],
                     },
@@ -6201,7 +6355,9 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                         "client_profile": "Strategic account with long buying cycles",
                         "decision_patterns": ["Needs internal champion"],
                         "key_contacts": [],
+                        "structured_stakeholders": [],
                         "lessons_learned": ["Pilot success matters"],
+                        "relationship_signals": [],
                         "project_history": [],
                         "sensitive_topics": [],
                     },

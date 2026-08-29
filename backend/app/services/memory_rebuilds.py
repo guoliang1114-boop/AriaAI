@@ -9,7 +9,7 @@ no Codex runtime, SDK, process, protocol, or communication is used.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from app.services.memory_slots import (
     CLIENT_MEMORY_SLOT_KEYS,
@@ -23,6 +23,25 @@ class MemoryPatchValidationError(ValueError):
 
 class MemoryRebuildConflict(RuntimeError):
     """Business data changed after a rebuild captured its input baseline."""
+
+
+def begin_memory_prompt_snapshot(session: Any) -> None:
+    """Start a stable read snapshot for building a provider prompt and hashes.
+
+    PostgreSQL ``READ COMMITTED`` can expose different committed versions to
+    the prompt queries and the later source-digest queries in one transaction.
+    A fresh ``REPEATABLE READ`` transaction makes both projections share one
+    database snapshot. SQLite already provides a stable transactional snapshot,
+    so tests and local development only need the rollback/identity refresh.
+    """
+
+    session.rollback()
+    session.expire_all()
+    bind = session.get_bind()
+    if getattr(getattr(bind, "dialect", None), "name", "") == "postgresql":
+        session.connection(
+            execution_options={"isolation_level": "REPEATABLE READ"}
+        )
 
 
 @dataclass(frozen=True)
@@ -222,6 +241,26 @@ def assert_memory_rebuild_baseline(
             raise MemoryRebuildConflict(
                 f"memory rebuild conflict: slot {slot_key} changed during generation"
             )
+
+
+def assert_memory_source_snapshots(
+    prompt_snapshots: Mapping[str, str],
+    current_snapshots: Mapping[str, str],
+    *,
+    scope: str,
+) -> None:
+    """Fail closed when the provider's complete source projection changed.
+
+    Equality deliberately covers both handles and digests: an added, removed,
+    reassigned, or mutated source means the generated answer no longer belongs
+    to the current business input, even if the aggregate memory version did not
+    move while the provider was running.
+    """
+
+    if dict(current_snapshots) != dict(prompt_snapshots):
+        raise MemoryRebuildConflict(
+            f"memory rebuild conflict: {scope} prompt sources changed during generation"
+        )
 
 
 def latest_memory_rebuild_metadata(memory: dict[str, Any]) -> dict[str, Any]:

@@ -26,14 +26,28 @@ from app.services.client_contexts import (
     build_client_memory_promote_prompt,
     get_client_memory_summary_cache,
     get_client_memory_payload,
-    parse_client_memory,
+    parse_client_memory_patch,
     save_client_memory,
 )
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
-from app.services.memory_facts import get_client_memory_fact_states
-from app.services.memory_slots import get_client_memory_slot_states
-from app.services.memory_rebuilds import latest_memory_rebuild_metadata
-from app.services.project_contexts import normalize_summary_language
+from app.services.memory_facts import (
+    capture_client_memory_source_snapshots,
+    get_client_memory_fact_states,
+)
+from app.services.memory_slots import (
+    CLIENT_MEMORY_SLOT_KEYS,
+    get_client_memory_slot_states,
+)
+from app.services.memory_rebuilds import (
+    MemoryRebuildConflict,
+    begin_memory_prompt_snapshot,
+    latest_memory_rebuild_metadata,
+    plan_client_memory_rebuild,
+)
+from app.services.project_contexts import (
+    get_project_memory_payload,
+    normalize_summary_language,
+)
 from app.services.project_llm import complete_with_selected_model
 from app.services.time_utils import utc_now_naive
 from app.routers.clients_deps import (
@@ -49,6 +63,7 @@ from app.routers.clients_deps import (
     _normalized_name,
     _parse_client_memory_job,
     _rebuild_client_memory,
+    _set_client_memory_failure,
     _restore_missing_client_memory_rebuild_jobs,
     _schedule_client_memory_rebuild,
     _schedule_client_memory_summary_warm,
@@ -186,7 +201,36 @@ async def run_client_memory_jobs_now(
     scheduler_service.remove_job(_client_memory_rebuild_job_id(client_id))
     for language in ("zh", "en", "default"):
         scheduler_service.remove_job(_client_memory_summary_warm_job_id(client_id, language))
-    payload = await _rebuild_client_memory(session, client_id, trigger="manual_queue_run")
+    client = session.get(ClientRecord, client_id)
+    expected_memory_version = (
+        int(client.client_memory_version or 0) if client is not None else None
+    )
+    expected_rebuild_status = (
+        client.client_memory_rebuild_status if client is not None else None
+    )
+    try:
+        payload = await _rebuild_client_memory(
+            session,
+            client_id,
+            trigger="manual_queue_run",
+        )
+    except Exception as exc:
+        # The queue entry is gone at this point. Persist a visible terminal
+        # failure so operators can retry it deliberately instead of seeing a
+        # permanently queued client with no backing scheduler job.
+        session.rollback()
+        _set_client_memory_failure(
+            session,
+            client_id,
+            stage="rebuild",
+            message=str(exc),
+            expected_memory_version=expected_memory_version,
+            expected_rebuild_status=expected_rebuild_status,
+            mark_rebuild_failed=True,
+        )
+        if session.get(ClientRecord, client_id):
+            clients_cache.delete(_CLIENTS_KEY)
+        raise
     clients_cache.delete(_CLIENTS_KEY)
     refreshed = session.get(ClientRecord, client_id)
     return {
@@ -444,6 +488,9 @@ def get_client_memory_facts(client_id: int, session: Session = Depends(get_sessi
         "stale_fact_count": sum(
             item["status"] in {"stale", "corrupt"} for item in facts
         ),
+        "direct_fact_count": sum(
+            item["provenance_status"] == "direct" for item in facts
+        ),
         "matched_fact_count": sum(
             item["provenance_status"] == "matched" for item in facts
         ),
@@ -598,6 +645,9 @@ async def promote_project_memory_to_client(
     body: PromoteProjectMemoryRequest,
     session: Session = Depends(get_session),
 ):
+    # Client, project, prompt payload, and project-memory digest must all come
+    # from the same committed database snapshot.
+    begin_memory_prompt_snapshot(session)
     client = session.get(ClientRecord, client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -608,31 +658,110 @@ async def promote_project_memory_to_client(
     if _normalized_name(project.client) != _normalized_name(client.name):
         raise HTTPException(status_code=400, detail="Project does not belong to this client")
 
-    try:
-        project_memory = json.loads(project.context_memory_json or "{}")
-        if not isinstance(project_memory, dict):
-            project_memory = {}
-    except json.JSONDecodeError:
-        project_memory = {}
-
+    project_memory = get_project_memory_payload(project)
     current_memory = get_client_memory_payload(client)
+    promotion_plan = plan_client_memory_rebuild(
+        memory_version=int(client.client_memory_version or 0),
+        parent_stale=bool(client.client_memory_stale),
+        trigger="manual",
+        slot_states=get_client_memory_slot_states(session, client_id),
+    )
+    promotion_source_handles = [f"project_memory:{project.id}"]
+    promotion_source_snapshots = capture_client_memory_source_snapshots(
+        session,
+        client,
+        {
+            **current_memory,
+            "source_project_ids": [
+                *list(current_memory.get("source_project_ids") or []),
+                project.id,
+            ],
+        },
+        promotion_source_handles,
+    )
+    if set(promotion_source_snapshots) != set(promotion_source_handles):
+        raise HTTPException(
+            status_code=409,
+            detail="Project memory source could not be captured for promotion.",
+        )
+    promotion_prompt = build_client_memory_promote_prompt(
+        current_memory,
+        project.name,
+        project_memory,
+        project.id,
+    )
+    session.rollback()
     raw_memory = await _current_complete_with_selected_model()(
         messages=[
             {
                 "role": "user",
-                "content": build_client_memory_promote_prompt(current_memory, project.name, project_memory),
+                "content": promotion_prompt,
             }
         ],
-        max_tokens=2200,
+        max_tokens=3200,
     )
-    parsed_memory = parse_client_memory(raw_memory, client)
-    payload = save_client_memory(
+    session.expire_all()
+    # Lock the promoted source before validating its ownership and digest, then
+    # keep the lock through the client save. This closes the final
+    # validate-to-commit window for reassignment, mutation, or deletion.
+    project = session.exec(
+        select(Project)
+        .where(Project.id == body.project_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    client = session.exec(
+        select(ClientRecord)
+        .where(ClientRecord.id == client_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if _normalized_name(project.client) != _normalized_name(client.name):
+        raise HTTPException(
+            status_code=409,
+            detail="Project client ownership changed during promotion; retry with current data.",
+        )
+    current_source_snapshots = capture_client_memory_source_snapshots(
         session,
-        client_id,
-        parsed_memory,
-        trigger="project_promoted",
-        source_project_ids=[project.id],
+        client,
+        {
+            **get_client_memory_payload(client),
+            "source_project_ids": [
+                *list(get_client_memory_payload(client).get("source_project_ids") or []),
+                project.id,
+            ],
+        },
+        promotion_source_handles,
     )
+    if current_source_snapshots != promotion_source_snapshots:
+        raise HTTPException(
+            status_code=409,
+            detail="Project memory changed during promotion; retry with the latest memory.",
+        )
+    parsed_memory = parse_client_memory_patch(
+        raw_memory,
+        client,
+        CLIENT_MEMORY_SLOT_KEYS,
+    )
+    try:
+        payload = save_client_memory(
+            session,
+            client_id,
+            parsed_memory,
+            trigger="project_promoted",
+            source_project_ids=[project.id],
+            source_snapshots=promotion_source_snapshots,
+            rebuilt_slots=CLIENT_MEMORY_SLOT_KEYS,
+            rebuild_mode="full",
+            rebuild_plan=promotion_plan,
+        )
+    except MemoryRebuildConflict as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     _schedule_client_memory_summary_warm(
         client_id,
         summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
@@ -693,14 +822,17 @@ async def summarize_client_memory(
                 "cached": True,
             }
 
-    content = await _generate_client_memory_summary_cache(
-        session,
-        client,
-        memory,
-        normalized_summary_type,
-        language=body.language,
-        force_refresh=True,
-    )
+    try:
+        content = await _generate_client_memory_summary_cache(
+            session,
+            client,
+            memory,
+            normalized_summary_type,
+            language=body.language,
+            force_refresh=True,
+        )
+    except MemoryRebuildConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     cached = get_client_memory_summary_cache(
         session,
         client_id=client_id,

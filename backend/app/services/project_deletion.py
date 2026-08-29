@@ -33,13 +33,23 @@ from app.models.db import (
     TaskRun,
     TaskStep,
     ToolCall,
+    WeeklyFocusItem,
 )
 
 
-def delete_project_cascade(session: Session, project_id: int) -> None:
-    project = session.get(Project, project_id)
+def delete_project_cascade(session: Session, project_id: int) -> str:
+    # Use the same owner -> child lock order as memory save/stale paths. Without
+    # this lock, deletion could flush ProjectMemorySlot/Fact deletes first while
+    # a concurrent rebuild held the project row and waited on those children.
+    project = session.exec(
+        select(Project)
+        .where(Project.id == project_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
     if not project:
         raise HTTPException(404, "Project not found")
+    client_name = str(project.client or "")
 
     for candidate in session.exec(
         select(MemoryCandidate).where(MemoryCandidate.project_id == project_id)
@@ -249,7 +259,32 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
         session.delete(payment)
     session.flush()
 
-    for todo in session.exec(select(ProjectTodo).where(ProjectTodo.project_id == project_id)).all():
+    todos = session.exec(
+        select(ProjectTodo).where(ProjectTodo.project_id == project_id)
+    ).all()
+    todo_ids = [todo.id for todo in todos if todo.id is not None]
+    focus_items: dict[int, WeeklyFocusItem] = {
+        item.id: item
+        for item in session.exec(
+            select(WeeklyFocusItem).where(WeeklyFocusItem.project_id == project_id)
+        ).all()
+        if item.id is not None
+    }
+    if todo_ids:
+        for item in session.exec(
+            select(WeeklyFocusItem).where(WeeklyFocusItem.source_todo_id.in_(todo_ids))
+        ).all():
+            if item.id is not None:
+                focus_items[item.id] = item
+    for item in focus_items.values():
+        if item.project_id == project_id:
+            item.project_id = None
+        if item.source_todo_id in todo_ids:
+            item.source_todo_id = None
+        session.add(item)
+    session.flush()
+
+    for todo in todos:
         session.delete(todo)
     session.flush()
 
@@ -263,3 +298,4 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
 
     session.delete(project)
     session.commit()
+    return client_name

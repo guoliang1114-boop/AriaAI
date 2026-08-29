@@ -404,6 +404,100 @@ def _mark_accepted(
     session.add(candidate)
 
 
+def _lock_candidate_owner_then_candidate(
+    session: Session,
+    candidate: MemoryCandidate,
+) -> tuple[
+    MemoryCandidate,
+    Project | None,
+    ClientRecord | None,
+    User | None,
+    UserMemory | None,
+]:
+    """Lock the target owner before the candidate and revalidate its identity."""
+
+    candidate_id = candidate.id
+    owner_user_id = candidate.owner_user_id
+    scope = candidate.scope
+    project_id = candidate.project_id
+    client_id = candidate.client_id
+    identity = (
+        owner_user_id,
+        scope,
+        project_id,
+        client_id,
+        candidate.base_memory_version,
+        candidate.content_sha256,
+    )
+    # The router has already loaded both candidate and scope owner for access
+    # checks. SELECT ... FOR UPDATE does not refresh those cached identities,
+    # so expire them before acquiring the authoritative owner -> candidate
+    # locks and also force locked queries to populate existing instances.
+    session.expire_all()
+    project: Project | None = None
+    client: ClientRecord | None = None
+    owner: User | None = None
+    user_memory: UserMemory | None = None
+    if scope == "project":
+        project = session.exec(
+            select(Project)
+            .where(Project.id == project_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if project is None:
+            raise HTTPException(404, "Project not found")
+    elif scope == "client":
+        client = session.exec(
+            select(ClientRecord)
+            .where(ClientRecord.id == client_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if client is None:
+            raise HTTPException(404, "Client not found")
+    elif scope == "user":
+        owner = session.exec(
+            select(User)
+            .where(User.id == owner_user_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if owner is None:
+            raise HTTPException(404, "User not found")
+        user_memory = session.exec(
+            select(UserMemory)
+            .where(UserMemory.user_id == owner_user_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+    else:
+        raise HTTPException(400, "Unsupported memory candidate scope")
+
+    locked = session.exec(
+        select(MemoryCandidate)
+        .where(
+            MemoryCandidate.id == candidate_id,
+            MemoryCandidate.owner_user_id == owner_user_id,
+        )
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if locked is None:
+        raise HTTPException(404, "Memory candidate not found")
+    locked_identity = (
+        locked.owner_user_id,
+        locked.scope,
+        locked.project_id,
+        locked.client_id,
+        locked.base_memory_version,
+        locked.content_sha256,
+    )
+    if locked_identity != identity:
+        raise HTTPException(409, "Memory candidate changed during decision; reload and retry")
+    return locked, project, client, owner, user_memory
+
+
 def accept_memory_candidate(
     session: Session,
     candidate: MemoryCandidate,
@@ -413,44 +507,14 @@ def accept_memory_candidate(
     expected_memory_version: int | None = None,
     allow_conflict: bool = False,
 ) -> MemoryCandidate:
+    candidate, project, client, owner, user_memory = _lock_candidate_owner_then_candidate(
+        session,
+        candidate,
+    )
     if candidate.status == "accepted":
         return candidate
     if candidate.status != "pending":
         raise HTTPException(409, f"Memory candidate is already {candidate.status}")
-
-    project: Project | None = None
-    client: ClientRecord | None = None
-    owner: User | None = None
-    user_memory: UserMemory | None = None
-    if candidate.scope == "project":
-        project = session.exec(
-            select(Project).where(Project.id == candidate.project_id).with_for_update()
-        ).first()
-        if project is None:
-            raise HTTPException(404, "Project not found")
-    elif candidate.scope == "client":
-        client = session.exec(
-            select(ClientRecord)
-            .where(ClientRecord.id == candidate.client_id)
-            .with_for_update()
-        ).first()
-        if client is None:
-            raise HTTPException(404, "Client not found")
-    elif candidate.scope == "user":
-        # Locking the owner serializes both updates and first-time UserMemory
-        # creation where no memory row exists yet.
-        owner = session.exec(
-            select(User).where(User.id == candidate.owner_user_id).with_for_update()
-        ).first()
-        if owner is None:
-            raise HTTPException(404, "User not found")
-        user_memory = session.exec(
-            select(UserMemory)
-            .where(UserMemory.user_id == candidate.owner_user_id)
-            .with_for_update()
-        ).first()
-    else:
-        raise HTTPException(400, "Unsupported memory candidate scope")
 
     # This comparison now occurs while the authoritative target row is locked,
     # so expected_memory_version protects the subsequent write without a TOCTOU
@@ -582,6 +646,7 @@ def reject_memory_candidate(
     user_id: int,
     decision_note: str = "",
 ) -> MemoryCandidate:
+    candidate, _, _, _, _ = _lock_candidate_owner_then_candidate(session, candidate)
     if candidate.status == "rejected":
         return candidate
     if candidate.status != "pending":

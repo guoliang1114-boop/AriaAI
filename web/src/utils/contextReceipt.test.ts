@@ -19,6 +19,7 @@ function layer(overrides: Partial<ContextMemoryLayer> = {}): ContextMemoryLayer 
     omitted_slot_count: 7,
     selected_item_count: 3,
     evidence_ref_count: 4,
+    direct_fact_count: 2,
     matched_fact_count: 2,
     scoped_fact_count: 1,
     unresolved_fact_count: 0,
@@ -32,7 +33,7 @@ function layer(overrides: Partial<ContextMemoryLayer> = {}): ContextMemoryLayer 
 describe('contextMemoryLayerLabel', () => {
   it('shows slot-level freshness and provenance without memory content', () => {
     expect(contextMemoryLayerLabel(layer())).toBe(
-      '项目记忆 v7：使用 3 项 / 2 个槽位（待刷新）；其中 1 个已用槽位待刷新；4 个来源引用；事实溯源 2 条匹配 / 1 条范围来源 / 0 条待补证',
+      '项目记忆 v7：使用 3 项 / 2 个槽位（待刷新）；其中 1 个已用槽位待刷新；4 个来源引用；事实溯源 2 条来源直连 / 2 条标签匹配 / 1 条范围来源 / 0 条待补证',
     )
   })
 
@@ -41,10 +42,21 @@ describe('contextMemoryLayerLabel', () => {
       stale_slots: undefined,
       stale_slot_count: undefined,
       evidence_ref_count: undefined,
-      matched_fact_count: undefined,
-      scoped_fact_count: undefined,
-      unresolved_fact_count: undefined,
+      direct_fact_count: undefined,
+      matched_fact_count: 2,
+      scoped_fact_count: 1,
+      unresolved_fact_count: 0,
     })))
-      .toContain('项目记忆 v7：使用 3 项 / 2 个槽位（待刷新）')
+      .toBe('项目记忆 v7：使用 3 项 / 2 个槽位（待刷新）；事实溯源 2 条匹配 / 1 条范围来源 / 0 条待补证')
+  })
+
+  it('shows direct provenance even when it is the only fact trace count', () => {
+    expect(contextMemoryLayerLabel(layer({
+      direct_fact_count: 1,
+      matched_fact_count: 0,
+      scoped_fact_count: 0,
+      unresolved_fact_count: 0,
+    })))
+      .toContain('事实溯源 1 条来源直连 / 0 条标签匹配')
   })
 })

@@ -129,4 +129,5 @@ def drop_all_tables(engine) -> None:
             qualified_table = (
                 f'"{schema_name}"."{table}"' if schema_name else f'"{table}"'
             )
-            conn.execute(text(f"DROP TABLE IF EXISTS {qualified_table} CASCADE"))
+            cascade = " CASCADE" if engine.dialect.name == "postgresql" else ""
+            conn.execute(text(f"DROP TABLE IF EXISTS {qualified_table}{cascade}"))

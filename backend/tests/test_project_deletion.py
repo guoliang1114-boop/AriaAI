@@ -23,7 +23,10 @@ from app.models.db import (
     Project,
     ProjectFile,
     ProjectFileVersion,
+    ProjectTodo,
     TaskRun,
+    User,
+    WeeklyFocusItem,
 )
 from app.services.project_deletion import delete_project_cascade
 from tests.test_database import create_test_engine, drop_all_tables
@@ -138,6 +141,73 @@ class DeleteProjectCascadeTest(unittest.TestCase):
                 ).all(),
                 [],
             )
+
+    def test_preserves_weekly_focus_item_and_detaches_deleted_project_todo(self):
+        with Session(self.engine) as session:
+            owner = User(
+                email="weekly-focus-owner@example.com",
+                password_hash="x",
+                display_name="Weekly owner",
+            )
+            project = Project(name="Weekly source", client="Focus client")
+            session.add(owner)
+            session.add(project)
+            session.commit()
+            session.refresh(owner)
+            session.refresh(project)
+            todo = ProjectTodo(project_id=int(project.id), content="Prepare review")
+            session.add(todo)
+            session.commit()
+            session.refresh(todo)
+            focus = WeeklyFocusItem(
+                week_start="2026-08-24",
+                owner_user_id=int(owner.id),
+                created_by_user_id=int(owner.id),
+                content=todo.content,
+                project_id=int(project.id),
+                source_todo_id=int(todo.id),
+            )
+            session.add(focus)
+            session.commit()
+            session.refresh(focus)
+            project_id = int(project.id)
+            todo_id = int(todo.id)
+            focus_id = int(focus.id)
+
+        with Session(self.engine) as session:
+            client_name = delete_project_cascade(session, project_id)
+
+        self.assertEqual(client_name, "Focus client")
+        with Session(self.engine) as session:
+            self.assertIsNone(session.get(Project, project_id))
+            self.assertIsNone(session.get(ProjectTodo, todo_id))
+            saved_focus = session.get(WeeklyFocusItem, focus_id)
+            self.assertIsNotNone(saved_focus)
+            self.assertIsNone(saved_focus.project_id)
+            self.assertIsNone(saved_focus.source_todo_id)
+
+    def test_returns_fresh_client_name_when_cached_project_was_reassigned(self):
+        with Session(self.engine) as setup:
+            project = Project(name="Reassigned deletion", client="Old client")
+            setup.add(project)
+            setup.commit()
+            setup.refresh(project)
+            project_id = int(project.id)
+
+        with Session(self.engine) as deletion_session:
+            cached = deletion_session.get(Project, project_id)
+            self.assertEqual(cached.client, "Old client")
+            with Session(self.engine) as concurrent:
+                current = concurrent.get(Project, project_id)
+                current.client = "New client"
+                concurrent.add(current)
+                concurrent.commit()
+
+            client_name = delete_project_cascade(deletion_session, project_id)
+
+        self.assertEqual(client_name, "New client")
+        with Session(self.engine) as verify:
+            self.assertIsNone(verify.get(Project, project_id))
 
 
 if __name__ == "__main__":

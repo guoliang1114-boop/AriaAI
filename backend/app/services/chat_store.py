@@ -638,6 +638,9 @@ def delete_conversation_with_messages(session: Session, conv_id: int, *, clear_c
                 MemoryCandidate.source_type == "chat_message",
                 MemoryCandidate.source_id.in_(message_source_ids),
             )
+            .order_by(MemoryCandidate.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
         ).all():
             candidate.source_type = "deleted_chat_message"
             if candidate.status == "pending":

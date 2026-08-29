@@ -44,6 +44,7 @@ jobs:
 
             case "$BACKUP_PATH" in
               /www/backups/ariaai/ariaai_pre_e2e_*.dump) ;;
+              /www/backups/ariaai/ariaai_pre_deploy_*.dump) ;;
               *)
                 echo "Refusing backup path outside the AriaAI backup directory." >&2
                 exit 2
@@ -70,9 +71,59 @@ jobs:
               exit 127
             fi
 
+            # Complete every read-only preflight before stopping application
+            # writers. Invalid input, a missing tool, or a corrupt archive must
+            # never turn into an avoidable production outage.
+            "$PYTHON" - <<'PY'
+            import hashlib
+            import os
+            import subprocess
+            from pathlib import Path
+
+            from sqlalchemy.engine import make_url
+
+            from app.config import DATABASE_URL
+
+            backup_path = Path(os.environ["BACKUP_PATH"])
+            expected_sha256 = os.environ["EXPECTED_SHA256"].lower()
+            if not backup_path.is_file() or backup_path.stat().st_size <= 0:
+                raise SystemExit(f"Backup is missing or empty: {backup_path}")
+
+            digest_builder = hashlib.sha256()
+            with backup_path.open("rb") as backup_file:
+                for chunk in iter(lambda: backup_file.read(1024 * 1024), b""):
+                    digest_builder.update(chunk)
+            actual_sha256 = digest_builder.hexdigest()
+            if actual_sha256 != expected_sha256:
+                raise SystemExit(
+                    "Backup SHA-256 mismatch: "
+                    f"expected={expected_sha256}, actual={actual_sha256}"
+                )
+
+            pg_restore = Path("/www/server/pgsql/bin/pg_restore")
+            if not pg_restore.is_file():
+                raise SystemExit(f"PostgreSQL 18 pg_restore not found: {pg_restore}")
+            subprocess.run(
+                [str(pg_restore), "--list", str(backup_path)],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            database_url = make_url(DATABASE_URL)
+            if not database_url.database:
+                raise SystemExit("DATABASE_URL has no target database")
+
+            print(
+                "Restore preflight passed: "
+                f"path={backup_path}, bytes={backup_path.stat().st_size}, "
+                f"sha256={actual_sha256}"
+            )
+            PY
+
             # Stop application writers before replacing database objects.
             pm2 stop ariaai-backend
 
+            # Recheck integrity after the stop to detect any archive change in
+            # the preflight-to-restore window, then restore fail-closed.
             "$PYTHON" - <<'PY'
             import hashlib
             import os

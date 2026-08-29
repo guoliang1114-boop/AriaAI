@@ -35,9 +35,10 @@ from app.services.client_contexts import (
     build_client_memory_promote_prompt,
     get_client_memory_payload,
     mark_client_memory_stale_by_name,
-    parse_client_memory,
+    parse_client_memory_patch,
     save_client_memory,
 )
+from app.services.memory_facts import capture_client_memory_source_snapshots
 from app.services.chat_exports import build_markdown_export_content
 from app.services.document_text import extract_text_from_file
 from app.services.project_ai import (
@@ -71,7 +72,6 @@ from app.services.project_contexts import (
     normalize_summary_language,
     parse_project_memory_multi_summary,
     parse_project_memory_multi_summary_with_missing,
-    parse_project_memory,
     parse_project_memory_patch,
     save_project_memory,
     save_project_context_summary,
@@ -81,10 +81,15 @@ from app.services.project_contexts import (
 from app.services.memory_rebuilds import (
     MemoryPatchValidationError,
     MemoryRebuildConflict,
+    assert_memory_source_snapshots,
+    begin_memory_prompt_snapshot,
+    plan_client_memory_rebuild,
     plan_project_memory_rebuild,
 )
 from app.services.memory_slots import (
+    CLIENT_MEMORY_SLOT_KEYS,
     PROJECT_MEMORY_SLOT_KEYS,
+    get_client_memory_slot_states,
     get_project_memory_slot_states,
 )
 from app.services.project_deletion import delete_project_cascade
@@ -155,6 +160,25 @@ from app.routers.auth import get_current_user
 _PROJECTS_TTL = 120.0
 _CLIENTS_KEY = "all"
 logger = logging.getLogger(__name__)
+
+_MEMORY_REBUILD_MAX_TOKENS = 3200
+_MEMORY_REBUILD_OUTPUT_GUARD = (
+    "Return at most 48 _source_attributions entries. Source tags such as "
+    "[project:123] are citation metadata only; never copy a source tag into "
+    "any business field value."
+)
+
+
+def _build_project_memory_rebuild_prompt(
+    project_data: str,
+    slot_keys: tuple[str, ...] | None = None,
+) -> str:
+    return (
+        f"{build_project_memory_prompt(project_data, slot_keys)}\n\n"
+        f"Output safety: {_MEMORY_REBUILD_OUTPUT_GUARD}"
+    )
+
+
 _project_memory_locks: dict[int, asyncio.Lock] = {}
 _project_summary_locks: dict[str, asyncio.Lock] = {}
 
@@ -381,14 +405,14 @@ def _get_project_summary_lock(key: str) -> asyncio.Lock:
 
 
 async def _generate_single_project_memory_summary_content(
-    project: Project,
+    project_name: str,
     memory_payload: dict,
     summary_type: str,
     language: str | None = None,
 ) -> str:
     prompt = build_project_memory_view_prompt(
         memory_payload,
-        project.name,
+        project_name,
         summary_type,
         language,
     )
@@ -496,40 +520,140 @@ async def _auto_promote_archived_project_to_client_memory(
         )
         project = session.get(Project, project_id) or project
 
+    # Build the promotion prompt and its source digest from one stable database
+    # snapshot. Re-fetch all authorization-bearing rows after resetting the
+    # earlier lookup/rebuild transaction.
+    begin_memory_prompt_snapshot(session)
+    project = session.get(Project, project_id)
+    if not project or project.status != "archived":
+        return False
+    client = _find_client_record_by_name(session, project.client)
+    if client is None:
+        return False
+    project_memory = get_project_memory_payload(project)
+
+    current_client_memory = get_client_memory_payload(client)
+    promotion_plan = plan_client_memory_rebuild(
+        memory_version=int(client.client_memory_version or 0),
+        parent_stale=bool(client.client_memory_stale),
+        trigger="manual",
+        slot_states=get_client_memory_slot_states(session, int(client.id)),
+    )
+    promotion_source_handles = [f"project_memory:{project.id}"]
+    promotion_source_snapshots = capture_client_memory_source_snapshots(
+        session,
+        client,
+        {
+            **current_client_memory,
+            "source_project_ids": [
+                *list(current_client_memory.get("source_project_ids") or []),
+                project.id,
+            ],
+        },
+        promotion_source_handles,
+    )
+    if set(promotion_source_snapshots) != set(promotion_source_handles):
+        raise MemoryRebuildConflict(
+            "memory promotion conflict: project memory source is unavailable"
+        )
+    promotion_client_id = int(client.id)
+    promotion_prompt = build_client_memory_promote_prompt(
+        current_client_memory,
+        project.name,
+        project_memory,
+        project.id,
+    )
+    session.rollback()
     raw_client_memory = await complete_with_selected_model(
         messages=[
             {
                 "role": "user",
-                "content": build_client_memory_promote_prompt(
-                    get_client_memory_payload(client),
-                    project.name,
-                    project_memory,
-                ),
+                "content": promotion_prompt,
             }
         ],
-        max_tokens=2200,
+        max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
     )
-    parsed_client_memory = parse_client_memory(raw_client_memory, client)
+    session.expire_all()
+    # Project ownership and project-memory content authorize this promotion.
+    # Hold the source row through the client write and promotion-marker commit
+    # so reassignment, mutation, and deletion cannot pass validation then race
+    # the atomic save.
+    project = session.exec(
+        select(Project)
+        .where(Project.id == project_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    client = session.exec(
+        select(ClientRecord)
+        .where(ClientRecord.id == promotion_client_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if project is None or client is None:
+        raise MemoryRebuildConflict(
+            "memory promotion conflict: project or client was removed during generation"
+        )
+    if _normalize_name(project.client) != _normalize_name(client.name):
+        raise MemoryRebuildConflict(
+            "memory promotion conflict: project client ownership changed during generation"
+        )
+    refreshed_client_memory = get_client_memory_payload(client)
+    current_source_snapshots = capture_client_memory_source_snapshots(
+        session,
+        client,
+        {
+            **refreshed_client_memory,
+            "source_project_ids": [
+                *list(refreshed_client_memory.get("source_project_ids") or []),
+                project.id,
+            ],
+        },
+        promotion_source_handles,
+    )
+    if current_source_snapshots != promotion_source_snapshots:
+        raise MemoryRebuildConflict(
+            "memory promotion conflict: project memory changed during generation"
+        )
+    parsed_client_memory = parse_client_memory_patch(
+        raw_client_memory,
+        client,
+        CLIENT_MEMORY_SLOT_KEYS,
+    )
     save_client_memory(
         session,
         client.id,
         parsed_client_memory,
         trigger="project_archived_auto_promoted",
         source_project_ids=[project.id],
+        source_snapshots=promotion_source_snapshots,
+        rebuilt_slots=CLIENT_MEMORY_SLOT_KEYS,
+        rebuild_mode="full",
+        rebuild_plan=promotion_plan,
+        commit=False,
     )
     project = session.get(Project, project_id)
-    if project:
-        raw_project_memory = _get_existing_raw_memory(project)
-        raw_project_memory["_client_promotion"] = {
-            "client_id": client.id,
-            "client_name": client.name,
-            "promoted_at": utc_now_naive().isoformat(),
-            "trigger": "project_archived_auto_promoted",
-        }
-        project.context_memory_json = json.dumps(raw_project_memory, ensure_ascii=False)
-        project.updated_at = utc_now_naive()
-        session.add(project)
-        session.commit()
+    if project is None:
+        session.rollback()
+        raise MemoryRebuildConflict(
+            "memory promotion conflict: project was removed before promotion commit"
+        )
+    raw_project_memory = _get_existing_raw_memory(project)
+    raw_project_memory["_client_promotion"] = {
+        "status": "completed",
+        "client_id": client.id,
+        "client_name": client.name,
+        "promoted_at": utc_now_naive().isoformat(),
+        "last_attempt_at": utc_now_naive().isoformat(),
+        "trigger": "project_archived_auto_promoted",
+    }
+    last_failure = raw_project_memory.get("_last_failure")
+    if isinstance(last_failure, dict) and last_failure.get("stage") == "client_promotion":
+        raw_project_memory.pop("_last_failure", None)
+    project.context_memory_json = json.dumps(raw_project_memory, ensure_ascii=False)
+    project.updated_at = utc_now_naive()
+    session.add(project)
+    session.commit()
     clients_cache.delete(_CLIENTS_KEY)
     return True
 
@@ -628,23 +752,60 @@ def _get_raw_project_memory(project: Project) -> dict:
 
 def _set_project_memory_failure(
     session: Session,
-    project: Project,
+    project: Project | int,
     *,
     stage: str,
     message: str,
     retry_count: int = 0,
-) -> None:
-    memory = _get_raw_project_memory(project)
+    expected_memory_version: int | None = None,
+    expected_rebuild_status: str | None = None,
+    mark_rebuild_failed: bool = False,
+) -> bool:
+    project_id = project if isinstance(project, int) else project.id
+    if project_id is None:
+        return False
+    if not isinstance(project, int):
+        if expected_memory_version is None:
+            expected_memory_version = project.memory_version
+        if expected_rebuild_status is None:
+            expected_rebuild_status = project.memory_rebuild_status
+
+    # The caller may have retained this Session across an async provider wait.
+    # End that transaction and rebuild the failure receipt from a locked, fresh
+    # owner so stale JSON can never replace a concurrent successful rebuild.
+    session.rollback()
+    current = session.exec(
+        select(Project).where(Project.id == project_id).with_for_update()
+    ).first()
+    if current is None:
+        session.rollback()
+        return False
+    if (
+        expected_memory_version is not None
+        and current.memory_version > expected_memory_version
+    ) or (
+        expected_rebuild_status in {"queued", "rebuilding"}
+        and current.memory_rebuild_status == "idle"
+    ):
+        session.rollback()
+        return False
+
+    failed_at = utc_now_naive()
+    memory = _get_raw_project_memory(current)
     memory["_last_failure"] = {
         "category": _classify_memory_failure(stage, message),
         "stage": stage,
         "message": message[:400],
         "retry_count": retry_count,
-        "failed_at": utc_now_naive().isoformat(),
+        "failed_at": failed_at.isoformat(),
     }
-    project.context_memory_json = json.dumps(memory, ensure_ascii=False)
-    session.add(project)
+    current.context_memory_json = json.dumps(memory, ensure_ascii=False)
+    if mark_rebuild_failed:
+        current.memory_rebuild_status = "failed"
+        current.memory_rebuild_failed_at = failed_at
+    session.add(current)
     session.commit()
+    return True
 
 
 def _get_project_memory_failure(project: Project) -> dict | None:
@@ -1072,22 +1233,43 @@ async def _generate_memory_summary_cache(
     summary_type: str,
     language: str | None = None,
 ) -> None:
+    project_id = int(project.id or 0)
+    memory_version = int(memory_payload.get("memory_version", 0) or 0)
     prompt = build_project_memory_view_prompt(
         memory_payload,
         project.name,
         summary_type,
         language,
     )
+    session.rollback()
     content = await complete_with_selected_model(
         messages=[{"role": "user", "content": prompt}],
         max_tokens=1400,
     )
+    session.expire_all()
+    current_project = session.get(Project, project_id)
+    if current_project is None:
+        session.rollback()
+        raise MemoryRebuildConflict(
+            "project summary conflict: project was removed during generation"
+        )
+    current_prompt = build_project_memory_view_prompt(
+        get_project_memory_payload(current_project),
+        current_project.name,
+        summary_type,
+        language,
+    )
+    if current_prompt != prompt:
+        session.rollback()
+        raise MemoryRebuildConflict(
+            "project summary conflict: project memory changed during generation"
+        )
     save_project_memory_summary_cache(
         session,
-        project_id=project.id,
+        project_id=project_id,
         summary_type=summary_type,
         language=language,
-        memory_version=int(memory_payload.get("memory_version", 0) or 0),
+        memory_version=memory_version,
         content=content.strip(),
     )
 
@@ -1166,6 +1348,10 @@ async def _run_project_memory_summary_warm_job(
                     force_refresh=force_refresh,
                 )
                 return
+            except MemoryRebuildConflict:
+                # A newer memory version superseded this warm attempt. Never
+                # cache the stale output or report it as a provider failure.
+                return
             except Exception as exc:
                 if attempt >= MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS - 1 or not _is_retryable_summary_warm_error(exc):
                     _set_project_memory_failure(
@@ -1215,6 +1401,7 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
         project.memory_rebuild_failed_at = None
         session.add(project)
         session.commit()
+        expected_memory_version = int(project.memory_version or 0)
 
         try:
             memory_payload = await _rebuild_project_memory(
@@ -1231,7 +1418,17 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
             _bust_project(project_id)
         except Exception as exc:
             session.rollback()
-            project = get_project_or_404(session, project_id)
+            project = session.exec(
+                select(Project).where(Project.id == project_id).with_for_update()
+            ).first()
+            if project is None:
+                return
+            if (
+                int(project.memory_version or 0) > expected_memory_version
+                or project.memory_rebuild_status == "idle"
+            ):
+                session.rollback()
+                return
             retry_count = 0
             if trigger.startswith("retry:"):
                 try:
@@ -1264,15 +1461,14 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
 
             _set_project_memory_failure(
                 session,
-                project,
+                project_id,
                 stage="rebuild",
                 message=str(exc),
                 retry_count=retry_count,
+                expected_memory_version=expected_memory_version,
+                expected_rebuild_status="rebuilding",
+                mark_rebuild_failed=True,
             )
-            project.memory_rebuild_status = "failed"
-            project.memory_rebuild_failed_at = utc_now_naive()
-            session.add(project)
-            session.commit()
             raise
 
 
@@ -1317,7 +1513,7 @@ async def _rebuild_project_memory(
     project: Optional[Project] = None,
     trigger: str = "manual",
 ) -> dict:
-    session.expire_all()
+    begin_memory_prompt_snapshot(session)
     project = get_project_or_404(session, project_id)
     plan = plan_project_memory_rebuild(
         memory_version=int(project.memory_version or 0),
@@ -1325,23 +1521,38 @@ async def _rebuild_project_memory(
         trigger=trigger,
         slot_states=get_project_memory_slot_states(session, project_id),
     )
+    expected_memory_version = int(project.memory_version or 0)
+    expected_rebuild_status = project.memory_rebuild_status
     try:
         _, project_memory_data, coverage = build_project_memory_data(
             session,
             project_id,
             plan.slot_keys if plan.is_partial else None,
         )
+        session.rollback()
         raw_memory = await complete_with_selected_model(
             messages=[
                 {
                     "role": "user",
-                    "content": build_project_memory_prompt(
+                    "content": _build_project_memory_rebuild_prompt(
                         project_memory_data,
                         plan.slot_keys if plan.is_partial else None,
                     ),
                 }
             ],
-            max_tokens=2200,
+            max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
+        )
+        session.expire_all()
+        project = get_project_or_404(session, project_id)
+        _, _, current_coverage = build_project_memory_data(
+            session,
+            project_id,
+            plan.slot_keys if plan.is_partial else None,
+        )
+        assert_memory_source_snapshots(
+            coverage.get("_source_snapshots", {}),
+            current_coverage.get("_source_snapshots", {}),
+            scope="project",
         )
         if plan.is_partial:
             try:
@@ -1351,20 +1562,37 @@ async def _rebuild_project_memory(
                     plan.slot_keys,
                 )
             except MemoryPatchValidationError:
+                begin_memory_prompt_snapshot(session)
                 _, full_data, full_coverage = build_project_memory_data(
                     session,
                     project_id,
                 )
+                session.rollback()
                 full_raw = await complete_with_selected_model(
                     messages=[
                         {
                             "role": "user",
-                            "content": build_project_memory_prompt(full_data),
+                            "content": _build_project_memory_rebuild_prompt(full_data),
                         }
                     ],
-                    max_tokens=2200,
+                    max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
                 )
-                parsed_memory = parse_project_memory(full_raw, project)
+                session.expire_all()
+                project = get_project_or_404(session, project_id)
+                _, _, current_full_coverage = build_project_memory_data(
+                    session,
+                    project_id,
+                )
+                assert_memory_source_snapshots(
+                    full_coverage.get("_source_snapshots", {}),
+                    current_full_coverage.get("_source_snapshots", {}),
+                    scope="project",
+                )
+                parsed_memory = parse_project_memory_patch(
+                    full_raw,
+                    project,
+                    PROJECT_MEMORY_SLOT_KEYS,
+                )
                 return save_project_memory(
                     session,
                     project_id,
@@ -1377,7 +1605,11 @@ async def _rebuild_project_memory(
                     rebuild_plan=plan,
                 )
         else:
-            parsed_memory = parse_project_memory(raw_memory, project)
+            parsed_memory = parse_project_memory_patch(
+                raw_memory,
+                project,
+                PROJECT_MEMORY_SLOT_KEYS,
+            )
         return save_project_memory(
             session,
             project_id,
@@ -1392,9 +1624,11 @@ async def _rebuild_project_memory(
         session.rollback()
         _set_project_memory_failure(
             session,
-            project,
+            project_id,
             stage=f"memory_rebuild:{trigger}",
             message=str(e),
+            expected_memory_version=expected_memory_version,
+            expected_rebuild_status=expected_rebuild_status,
         )
         raise
 

@@ -8,12 +8,22 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import ClientMemorySnapshot, ClientMemorySummary, ClientRecord, Project
+from app.services.memory_facts import (
+    MODEL_SOURCE_ATTRIBUTIONS_KEY,
+    bind_model_source_attributions,
+    normalize_model_source_attributions,
+)
 from app.services.memory_rebuilds import (
     MemoryPatchValidationError,
     MemoryRebuildPlan,
     assert_memory_rebuild_baseline,
 )
-from app.services.memory_slots import CLIENT_MEMORY_SLOT_KEYS
+from app.services.memory_source_tags import strip_memory_source_tags
+from app.services.memory_slots import (
+    CLIENT_MEMORY_SLOT_KEYS,
+    build_client_slot_evidence_refs,
+    project_memory_promotion_payload,
+)
 from app.services.project_contexts import _resolve_output_language, normalize_summary_language
 from app.services.stakeholder_contexts import (
     format_client_stakeholders_for_prompt,
@@ -119,7 +129,12 @@ def _merge_accepted_memory_candidates(
 
 
 def mark_client_memory_stale(session: Session, client_id: int, trigger: str = "data_changed") -> None:
-    client = session.get(ClientRecord, client_id)
+    client = session.exec(
+        select(ClientRecord)
+        .where(ClientRecord.id == client_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
     if not client:
         return
     from app.services.memory_slots import mark_client_memory_slots_stale
@@ -155,7 +170,7 @@ def build_client_memory_data(
     session: Session,
     client_id: int,
     slot_keys: tuple[str, ...] | None = None,
-) -> tuple[ClientRecord, str, list[int]]:
+) -> tuple[ClientRecord, str, list[int], dict[str, str]]:
     client = session.get(ClientRecord, client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -184,7 +199,13 @@ def build_client_memory_data(
     )
     normalized = (client.name or "").strip().lower()
     structured_stakeholders = (
-        list_client_stakeholder_dicts(session, client_id) if needs_stakeholders else []
+        list_client_stakeholder_dicts(
+            session,
+            client_id,
+            include_source_id=True,
+        )
+        if needs_stakeholders
+        else []
     )
     projects = (
         [
@@ -198,13 +219,14 @@ def build_client_memory_data(
         else []
     )
 
+    client_source = f"[client:{client.id}]"
     lines = [
-        f"Client: {client.name}",
-        f"Industry: {client.industry}",
-        f"Contact: {client.contact}",
+        f"{client_source} Client: {client.name}",
+        f"{client_source} Industry: {client.industry}",
+        f"{client_source} Contact: {client.contact}",
     ]
     if client.notes:
-        lines.append(f"Client notes:\n{client.notes[:1200]}")
+        lines.append(f"{client_source} Client notes:\n{client.notes[:1200]}")
     stakeholder_context = format_client_stakeholders_for_prompt(structured_stakeholders)
     if stakeholder_context:
         lines.append(stakeholder_context)
@@ -212,9 +234,15 @@ def build_client_memory_data(
     if projects:
         lines.append(f"Related projects ({len(projects)} total):")
         for project in projects[:12]:
-            lines.append(f"- {project.name} | status={project.status} | contract_amount={project.contract_amount}")
+            project_source = f"[project:{project.id}]"
+            lines.append(
+                f"- {project_source} {project.name} | status={project.status} | "
+                f"contract_amount={project.contract_amount}"
+            )
             if project.context_summary:
-                lines.append(f"  Summary: {project.context_summary[:320]}")
+                lines.append(
+                    f"  {project_source} Summary: {project.context_summary[:320]}"
+                )
             if project.context_memory_json:
                 try:
                     memory = json.loads(project.context_memory_json)
@@ -223,15 +251,65 @@ def build_client_memory_data(
                         risks = memory.get("key_risks", [])
                         next_actions = memory.get("next_actions", [])
                         if brief:
-                            lines.append(f"  Project brief: {brief[:240]}")
+                            lines.append(
+                                f"  {project_source} Project brief: {brief[:240]}"
+                            )
                         if isinstance(risks, list) and risks:
-                            lines.append(f"  Risks: {'; '.join(str(item) for item in risks[:3])}")
+                            lines.append(
+                                f"  {project_source} Risks: "
+                                f"{'; '.join(str(item) for item in risks[:3])}"
+                            )
                         if isinstance(next_actions, list) and next_actions:
-                            lines.append(f"  Next actions: {'; '.join(str(item) for item in next_actions[:3])}")
+                            lines.append(
+                                f"  {project_source} Next actions: "
+                                f"{'; '.join(str(item) for item in next_actions[:3])}"
+                            )
                 except json.JSONDecodeError:
                     pass
 
-    return client, "\n".join(lines), [project.id for project in projects]
+    source_handles = list(
+        dict.fromkeys(
+            [
+                f"client:{client.id}",
+                *[
+                    f"client_stakeholder:{stakeholder.get('_source_id')}"
+                    for stakeholder in structured_stakeholders
+                    if stakeholder.get("_source_id")
+                ],
+                *[
+                    f"project:{project.id}"
+                    for project in projects[:12]
+                    if project.id is not None
+                ],
+            ]
+        )
+    )
+    source_project_ids = [
+        int(project.id)
+        for project in projects[:12]
+        if project.id is not None
+    ]
+    evidence_by_slot = build_client_slot_evidence_refs(
+        session,
+        client,
+        {"source_project_ids": source_project_ids},
+    )
+    visible_source_handles = set(source_handles)
+    source_snapshots = {
+        handle: source_sha256
+        for slot_key in selected
+        for ref in evidence_by_slot.get(slot_key, [])
+        if (
+            handle := f"{ref.get('source_type', '')}:{ref.get('source_id', '')}"
+        ) in visible_source_handles
+        if (source_sha256 := str(ref.get("source_sha256") or ""))
+    }
+    return (
+        client,
+        "\n".join(lines),
+        source_project_ids,
+        source_snapshots,
+    )
 
 
 def build_client_memory_prompt(
@@ -241,7 +319,7 @@ def build_client_memory_prompt(
     selected = tuple(slot_keys or CLIENT_MEMORY_SLOT_KEYS)
     exact_keys = ", ".join(selected)
     partial_instruction = (
-        "This is a partial rebuild. Return every requested key and no unrequested keys. "
+        "This is a partial rebuild. Return every requested business key and no unrequested business keys. "
         if slot_keys is not None
         else ""
     )
@@ -266,8 +344,16 @@ def build_client_memory_prompt(
     return (
         "You are building long-term client memory for a consulting team. "
         "Use only the client and project evidence below. Do not invent missing facts. "
-        f"{partial_instruction}Return valid JSON only with these exact keys: {exact_keys}. "
+        f"{partial_instruction}Return valid JSON only with these business keys: {exact_keys}, "
+        f"plus the private {MODEL_SOURCE_ATTRIBUTIONS_KEY} key described below. "
         f"Rules: {' '.join(rules)} "
+        f"Also return {MODEL_SOURCE_ATTRIBUTIONS_KEY} as an array of objects with keys "
+        "slot_key, fact_index, source_ids. fact_index is zero-based within the returned "
+        "slot (a scalar uses 0). source_ids must contain only exact [source_type:id] "
+        "IDs visible below, without the brackets. Return at most 48 attribution objects. "
+        "Never copy a [source_type:id] marker into any business value; markers belong "
+        "only in this private envelope. Attribute every supported non-empty "
+        "fact; omit an attribution instead of guessing or citing a merely related source. "
         "Prefer concise, reusable guidance for future projects.\n\n"
         f"Client data:\n{client_data}"
     )
@@ -277,15 +363,25 @@ def build_client_memory_promote_prompt(
     current_memory: dict[str, Any],
     project_name: str,
     project_memory: dict[str, Any],
+    project_id: int | None = None,
 ) -> str:
+    project_source = (
+        f"[project_memory:{project_id}] " if project_id is not None else ""
+    )
+    promotion_payload = project_memory_promotion_payload(project_memory)
     return (
         "You are updating client-level consulting memory using one project's structured memory. "
         "Preserve useful long-term client knowledge. Do not copy temporary delivery noise. "
-        "Return valid JSON only with these exact keys: "
-        "client_profile, decision_patterns, key_contacts, structured_stakeholders, lessons_learned, relationship_signals, project_history, sensitive_topics.\n\n"
+        "Return valid JSON only with these business keys: "
+        "client_profile, decision_patterns, key_contacts, structured_stakeholders, lessons_learned, relationship_signals, project_history, sensitive_topics, "
+        f"plus private {MODEL_SOURCE_ATTRIBUTIONS_KEY}. Return that private key as an "
+        "array of slot_key, zero-based fact_index, and source_ids objects. Cite only "
+        "exact [source_type:id] IDs visible below and omit unsupported attributions. "
+        "Return at most 48 attribution objects. Never copy a source marker into a "
+        "business value.\n\n"
         f"Current client memory JSON:\n{json.dumps(current_memory, ensure_ascii=False)}\n\n"
-        f"Project to absorb: {project_name}\n"
-        f"Project memory JSON:\n{json.dumps(project_memory, ensure_ascii=False)}"
+        f"Project to absorb: {project_source}{project_name}\n"
+        f"Project memory JSON:\n{json.dumps(promotion_payload, ensure_ascii=False)}"
     )
 
 
@@ -301,6 +397,46 @@ def _extract_first_json_object(raw: str) -> str:
     return "{}"
 
 
+def _client_model_fact_bindings(
+    parsed: dict[str, Any],
+    slot_keys: tuple[str, ...],
+) -> dict[str, dict[int, tuple[str, Any]]]:
+    """Bind provider indexes to the canonical values Aria will persist."""
+
+    bindings: dict[str, dict[int, tuple[str, Any]]] = {}
+    list_string_slots = {
+        "decision_patterns",
+        "lessons_learned",
+        "relationship_signals",
+        "sensitive_topics",
+    }
+    list_object_slots = {
+        "key_contacts",
+        "structured_stakeholders",
+        "project_history",
+    }
+    for slot_key in slot_keys:
+        if slot_key not in parsed:
+            continue
+        value = strip_memory_source_tags(parsed[slot_key])
+        slot_bindings: dict[int, tuple[str, Any]] = {}
+        if slot_key == "client_profile" and isinstance(value, str):
+            canonical = value.strip()
+            if canonical:
+                slot_bindings[0] = ("value", canonical)
+        elif slot_key in list_string_slots and isinstance(value, list):
+            for raw_index, item in enumerate(value):
+                if isinstance(item, str) and (canonical := item.strip()):
+                    slot_bindings[raw_index] = ("item", canonical)
+        elif slot_key in list_object_slots and isinstance(value, list):
+            for raw_index, item in enumerate(value):
+                if isinstance(item, dict):
+                    slot_bindings[raw_index] = ("item", item)
+        if slot_bindings:
+            bindings[slot_key] = slot_bindings
+    return bindings
+
+
 def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
     existing = get_client_memory_payload(client)
     try:
@@ -311,9 +447,14 @@ def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         parsed = {}
 
+    parsed_business = {
+        key: strip_memory_source_tags(value)
+        for key, value in parsed.items()
+        if key != MODEL_SOURCE_ATTRIBUTIONS_KEY
+    }
     memory = {
         **_default_client_memory(client),
-        **parsed,
+        **parsed_business,
     }
     for key in (
         "decision_patterns",
@@ -338,6 +479,11 @@ def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
         else structured_stakeholders
         if isinstance(structured_stakeholders, list)
         else []
+    )
+    memory[MODEL_SOURCE_ATTRIBUTIONS_KEY] = bind_model_source_attributions(
+        parsed.get(MODEL_SOURCE_ATTRIBUTIONS_KEY),
+        CLIENT_MEMORY_SLOT_KEYS,
+        _client_model_fact_bindings(parsed, CLIENT_MEMORY_SLOT_KEYS),
     )
     return memory
 
@@ -378,7 +524,7 @@ def parse_client_memory_patch(
         "project_history",
     }
     for key in selected:
-        value = parsed[key]
+        value = strip_memory_source_tags(parsed[key])
         if key in string_slots:
             if not isinstance(value, str):
                 raise MemoryPatchValidationError(f"slot {key} must be a string")
@@ -397,6 +543,11 @@ def parse_client_memory_patch(
     memory["rebuild_log"] = existing.get("rebuild_log", []) if isinstance(existing.get("rebuild_log"), list) else []
     memory["source_project_ids"] = existing.get("source_project_ids", []) if isinstance(existing.get("source_project_ids"), list) else []
     _merge_accepted_memory_candidates(memory, existing)
+    memory[MODEL_SOURCE_ATTRIBUTIONS_KEY] = bind_model_source_attributions(
+        parsed.get(MODEL_SOURCE_ATTRIBUTIONS_KEY),
+        selected,
+        _client_model_fact_bindings(parsed, selected),
+    )
     return memory
 
 
@@ -407,11 +558,16 @@ def save_client_memory(
     *,
     trigger: str = "manual",
     source_project_ids: list[int] | None = None,
+    source_snapshots: dict[str, str] | None = None,
     rebuilt_slots: tuple[str, ...] | None = None,
     rebuild_mode: str | None = None,
     fallback_reason: str = "",
     rebuild_plan: MemoryRebuildPlan | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
+    # A FOR UPDATE query does not refresh an already-cached SQLAlchemy identity.
+    # Provider-backed rebuilds carry a baseline plan, so expire before locking;
+    # immediate transactional edits must retain their pending in-session work.
     if rebuild_plan is not None:
         session.expire_all()
     client = session.exec(
@@ -440,6 +596,10 @@ def save_client_memory(
     memory = _merge_accepted_memory_candidates(
         dict(memory),
         get_client_memory_payload(client),
+    )
+    source_attributions = normalize_model_source_attributions(
+        memory.pop(MODEL_SOURCE_ATTRIBUTIONS_KEY, []),
+        selected_slots,
     )
 
     client.client_memory_version = int(client.client_memory_version or 0) + 1
@@ -470,12 +630,65 @@ def save_client_memory(
     ]
     memory["source_project_ids"] = list(dict.fromkeys(merged_source_ids))
     structured_stakeholders = (
-        list_client_stakeholder_dicts(session, client_id)
+        list_client_stakeholder_dicts(
+            session,
+            client_id,
+            include_source_id=True,
+        )
         if "structured_stakeholders" in selected_slots
         else []
     )
     if "structured_stakeholders" in selected_slots:
-        memory["structured_stakeholders"] = structured_stakeholders
+        source_attributions = [
+            attribution
+            for attribution in source_attributions
+            if attribution.get("slot_key") != "structured_stakeholders"
+        ]
+        persisted_stakeholders = [
+            {
+                key: value
+                for key, value in stakeholder.items()
+                if key != "_source_id"
+            }
+            for stakeholder in structured_stakeholders
+        ]
+        source_attributions.extend(
+            bind_model_source_attributions(
+                [
+                    {
+                        "slot_key": "structured_stakeholders",
+                        "fact_index": index,
+                        "source_ids": [f"client_stakeholder:{source_id}"],
+                    }
+                    for index, stakeholder in enumerate(structured_stakeholders)
+                    if (source_id := str(stakeholder.get("_source_id") or "").strip())
+                ],
+                ("structured_stakeholders",),
+                {
+                    "structured_stakeholders": {
+                        index: ("item", stakeholder)
+                        for index, stakeholder in enumerate(persisted_stakeholders)
+                    }
+                },
+            )
+        )
+        memory["structured_stakeholders"] = persisted_stakeholders
+        if source_snapshots is None:
+            current_evidence = build_client_slot_evidence_refs(session, client, memory)
+            source_snapshots = {
+                f"{ref.get('source_type', '')}:{ref.get('source_id', '')}": str(
+                    ref.get("source_sha256") or ""
+                )
+                for refs in current_evidence.values()
+                for ref in refs
+                if str(ref.get("source_sha256") or "")
+            }
+        else:
+            # A non-null map is the provider's prompt-time trust boundary.
+            # Do not widen it with stakeholders created or changed while the
+            # provider was running: doing so could attach those unseen sources
+            # as MATCHED/SCOPED evidence to other rebuilt client slots.
+            source_snapshots = dict(source_snapshots)
 
     client.client_memory_rebuild_status = "idle"
     client.client_memory_rebuild_failed_at = None
@@ -483,8 +696,25 @@ def save_client_memory(
     from app.services.memory_slots import sync_client_memory_slots
     from app.services.memory_facts import sync_client_memory_facts
 
-    sync_client_memory_slots(session, client, memory, slot_keys=selected_slots)
-    sync_client_memory_facts(session, client, memory, slot_keys=selected_slots)
+    sync_client_memory_slots(
+        session,
+        client,
+        memory,
+        slot_keys=selected_slots,
+        source_snapshots=source_snapshots,
+    )
+    sync_client_memory_facts(
+        session,
+        client,
+        memory,
+        slot_keys=selected_slots,
+        source_attributions=source_attributions,
+        source_snapshots=source_snapshots,
+        protect_existing_fact_provenance=trigger in {
+            "project_promoted",
+            "project_archived_auto_promoted",
+        },
+    )
     session.flush()
     from app.services.memory_slots import get_client_memory_slot_states
 
@@ -506,8 +736,11 @@ def save_client_memory(
             created_at=client.client_memory_updated_at,
         )
     )
-    session.commit()
-    session.refresh(client)
+    if commit:
+        session.commit()
+        session.refresh(client)
+    else:
+        session.flush()
     return get_client_memory_payload(client)
 
 

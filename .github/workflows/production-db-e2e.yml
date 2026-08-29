@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: production-database-e2e
+  # Shared with deploy and restore workflows so the live database cannot be
+  # migrated, restarted, or restored while this isolated test schema is active.
+  group: production-database-maintenance
   cancel-in-progress: false
 
 permissions:
@@ -288,11 +290,16 @@ jobs:
                     }
                 )
 
-                env = os.environ.copy()
-                env["TEST_DATABASE_URL"] = DATABASE_URL
-                env["DATABASE_URL"] = isolated_url.render_as_string(
+                isolated_database_url = isolated_url.render_as_string(
                     hide_password=False
                 )
+                env = os.environ.copy()
+                # Restrict both database entry points. Most tests use
+                # TEST_DATABASE_URL while application globals use DATABASE_URL;
+                # leaving either one on the production default would permit an
+                # accidental unqualified write to public.
+                env["TEST_DATABASE_URL"] = isolated_database_url
+                env["DATABASE_URL"] = isolated_database_url
                 env["PYTEST_XDIST_WORKER"] = worker
                 result = subprocess.run(
                     [
@@ -306,11 +313,29 @@ jobs:
                         "tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_prepare_chat_runtime_builds_capsule_and_instruction_manifest",
                         "tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_build_chat_context_client_scope_injects_client_memory_when_available",
                         "tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_build_chat_context_client_scope_without_matching_client_record_falls_back_to_project_scope",
+                        "tests/test_chat_flow.py::ProjectConversationArchiveTestCase::test_project_memory_status_and_rebuild_flow",
+                        "tests/test_chat_flow.py::ProjectConversationArchiveTestCase::test_project_memory_batch_rebuild_only_updates_requested_projects",
+                        "tests/test_chat_flow.py::ProjectConversationArchiveTestCase::test_project_memory_batch_rebuild_can_generate_missing_memory",
+                        "tests/test_chat_flow.py::ProjectConversationArchiveTestCase::test_memory_rebuild_persists_rebuild_log_and_coverage",
+                        "tests/test_chat_flow.py::ProjectConversationArchiveTestCase::test_archiving_project_auto_promotes_memory_to_client",
+                        "tests/test_chat_flow.py::ProjectConversationArchiveTestCase::test_delete_project_cascades_related_records",
+                        "tests/test_chat_flow.py::ClientMemoryRouterTestCase::test_client_memory_rebuild_flow",
+                        "tests/test_chat_flow.py::ClientMemoryRouterTestCase::test_promote_project_memory_to_client",
+                        "tests/test_chat_flow.py::ClientMemoryRouterTestCase::test_client_memory_batch_rebuild_updates_requested_clients",
+                        "tests/test_chat_flow.py::ClientMemoryRouterTestCase::test_run_client_memory_jobs_now_rebuilds_client",
                         "tests/test_conversation_state_and_versions.py",
                         "tests/test_knowledge.py",
                         "tests/test_knowledge_job_recovery.py",
                         "tests/test_knowledge_legacy_migration.py",
                         "tests/test_layered_memory_routing.py",
+                        "tests/test_clients_router.py::ClientsCrudTestCase::test_update_client",
+                        "tests/test_clients_router.py::ClientsCrudTestCase::test_delete_client_removes_all_owned_memory_and_stakeholder_records",
+                        "tests/test_clients_router.py::ClientsStakeholderTestCase::test_delete_stakeholder",
+                        "tests/test_memory_candidates.py",
+                        "tests/test_memory_fact_source_trust.py",
+                        "tests/test_memory_failure_recovery.py",
+                        "tests/test_memory_source_attributions.py",
+                        "tests/test_memory_source_fingerprints.py",
                         "tests/test_memory_slots.py",
                         "tests/test_knowledge_v005_api.py",
                         "tests/test_knowledge_v005_models.py",

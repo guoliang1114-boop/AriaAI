@@ -31,28 +31,51 @@ def find_client_by_name(session: Session, client_name: str | None) -> ClientReco
     )
 
 
-def list_client_stakeholder_dicts(session: Session, client_id: int, limit: int = MAX_STAKEHOLDERS_IN_PROMPT) -> list[dict[str, Any]]:
+def list_client_stakeholder_dicts(
+    session: Session,
+    client_id: int,
+    limit: int = MAX_STAKEHOLDERS_IN_PROMPT,
+    *,
+    include_source_id: bool = False,
+) -> list[dict[str, Any]]:
     stakeholders = session.exec(
         select(ClientStakeholder)
         .where(ClientStakeholder.client_id == client_id)
         .order_by(ClientStakeholder.updated_at.desc(), ClientStakeholder.id.desc())
         .limit(limit)
     ).all()
-    return [serialize_client_stakeholder(stakeholder) for stakeholder in stakeholders]
+    return [
+        serialize_client_stakeholder(
+            stakeholder,
+            include_source_id=include_source_id,
+        )
+        for stakeholder in stakeholders
+    ]
 
 
 def list_client_stakeholder_dicts_by_name(
     session: Session,
     client_name: str | None,
     limit: int = MAX_STAKEHOLDERS_IN_PROMPT,
+    *,
+    include_source_id: bool = False,
 ) -> list[dict[str, Any]]:
     client = find_client_by_name(session, client_name)
     if not client or client.id is None:
         return []
-    return list_client_stakeholder_dicts(session, client.id, limit=limit)
+    return list_client_stakeholder_dicts(
+        session,
+        client.id,
+        limit=limit,
+        include_source_id=include_source_id,
+    )
 
 
-def serialize_client_stakeholder(stakeholder: ClientStakeholder) -> dict[str, Any]:
+def serialize_client_stakeholder(
+    stakeholder: ClientStakeholder,
+    *,
+    include_source_id: bool = False,
+) -> dict[str, Any]:
     fields = {
         "name": stakeholder.name,
         "role": stakeholder.role,
@@ -70,7 +93,14 @@ def serialize_client_stakeholder(stakeholder: ClientStakeholder) -> dict[str, An
         "trust_signals": stakeholder.trust_signals,
         "note": stakeholder.note,
     }
-    return {key: str(value).strip() for key, value in fields.items() if str(value or "").strip()}
+    result = {
+        key: str(value).strip()
+        for key, value in fields.items()
+        if str(value or "").strip()
+    }
+    if include_source_id and stakeholder.id is not None:
+        result["_source_id"] = str(stakeholder.id)
+    return result
 
 
 def format_client_stakeholders_for_prompt(stakeholders: list[dict[str, Any]], title: str = "Structured client stakeholders") -> str:
@@ -90,7 +120,9 @@ def format_client_stakeholders_for_prompt(stakeholders: list[dict[str, Any]], ti
         note = stakeholder.get("note", "")
         profile = " | ".join(part for part in (role, influence, relationship) if part)
         detail = " ; ".join(part for part in (concerns, preference, personality, decision_style, communication_strategy, note) if part)
-        line = f"- {name}"
+        source_id = str(stakeholder.get("_source_id") or "").strip()
+        source_tag = f"[client_stakeholder:{source_id}] " if source_id else ""
+        line = f"- {source_tag}{name}"
         if profile:
             line += f" | {profile}"
         if detail:

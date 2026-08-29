@@ -115,6 +115,7 @@ export interface ContextMemoryLayer {
   omitted_slot_count: number;
   selected_item_count: number;
   evidence_ref_count?: number;
+  direct_fact_count?: number;
   matched_fact_count?: number;
   scoped_fact_count?: number;
   unresolved_fact_count?: number;
@@ -142,6 +143,7 @@ export interface ContextReceiptEvent {
     omitted_slot_count: number;
     selected_item_count: number;
     evidence_ref_count?: number;
+    direct_fact_count?: number;
     matched_fact_count?: number;
     scoped_fact_count?: number;
     unresolved_fact_count?: number;

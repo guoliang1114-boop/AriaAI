@@ -32,7 +32,6 @@ from app.services.client_contexts import (
     get_client_memory_summary_cache,
     get_client_memory_payload,
     mark_client_memory_stale,
-    parse_client_memory,
     parse_client_memory_patch,
     save_client_memory_summary_cache,
     save_client_memory,
@@ -40,6 +39,8 @@ from app.services.client_contexts import (
 from app.services.memory_rebuilds import (
     MemoryPatchValidationError,
     MemoryRebuildConflict,
+    assert_memory_source_snapshots,
+    begin_memory_prompt_snapshot,
     plan_client_memory_rebuild,
 )
 from app.services.memory_slots import CLIENT_MEMORY_SLOT_KEYS, get_client_memory_slot_states
@@ -56,6 +57,22 @@ _ALL_CLIENT_MEMORY_SUMMARY_TYPES = [
     *CORE_CLIENT_MEMORY_SUMMARY_TYPES,
     *EXTENDED_CLIENT_MEMORY_SUMMARY_TYPES,
 ]
+_MEMORY_REBUILD_MAX_TOKENS = 3200
+_MEMORY_REBUILD_OUTPUT_GUARD = (
+    "Return at most 48 _source_attributions entries. Source tags such as "
+    "[client:123] are citation metadata only; never copy a source tag into "
+    "any business field value."
+)
+
+
+def _build_client_memory_rebuild_prompt(
+    client_data: str,
+    slot_keys: tuple[str, ...] | None = None,
+) -> str:
+    return (
+        f"{build_client_memory_prompt(client_data, slot_keys)}\n\n"
+        f"Output safety: {_MEMORY_REBUILD_OUTPUT_GUARD}"
+    )
 
 
 def _current_complete_with_selected_model():
@@ -289,23 +306,57 @@ def _get_raw_client_memory(client: ClientRecord) -> dict:
 
 def _set_client_memory_failure(
     session: Session,
-    client: ClientRecord,
+    client: ClientRecord | int,
     *,
     stage: str,
     message: str,
     retry_count: int = 0,
-) -> None:
-    memory = _get_raw_client_memory(client)
+    expected_memory_version: int | None = None,
+    expected_rebuild_status: str | None = None,
+    mark_rebuild_failed: bool = False,
+) -> bool:
+    client_id = client if isinstance(client, int) else client.id
+    if client_id is None:
+        return False
+    if not isinstance(client, int):
+        if expected_memory_version is None:
+            expected_memory_version = client.client_memory_version
+        if expected_rebuild_status is None:
+            expected_rebuild_status = client.client_memory_rebuild_status
+
+    session.rollback()
+    current = session.exec(
+        select(ClientRecord).where(ClientRecord.id == client_id).with_for_update()
+    ).first()
+    if current is None:
+        session.rollback()
+        return False
+    if (
+        expected_memory_version is not None
+        and current.client_memory_version > expected_memory_version
+    ) or (
+        expected_rebuild_status in {"queued", "rebuilding"}
+        and current.client_memory_rebuild_status == "idle"
+    ):
+        session.rollback()
+        return False
+
+    failed_at = utc_now_naive()
+    memory = _get_raw_client_memory(current)
     memory["_last_failure"] = {
         "category": _classify_memory_failure(stage, message),
         "stage": stage,
         "message": message[:400],
         "retry_count": retry_count,
-        "failed_at": utc_now_naive().isoformat(),
+        "failed_at": failed_at.isoformat(),
     }
-    client.client_memory_json = json.dumps(memory, ensure_ascii=False)
-    session.add(client)
+    current.client_memory_json = json.dumps(memory, ensure_ascii=False)
+    if mark_rebuild_failed:
+        current.client_memory_rebuild_status = "failed"
+        current.client_memory_rebuild_failed_at = failed_at
+    session.add(current)
     session.commit()
+    return True
 
 
 def _get_client_memory_failure(client: ClientRecord) -> dict | None:
@@ -481,7 +532,7 @@ async def _rebuild_client_memory(
     *,
     trigger: str = "manual",
 ) -> dict:
-    session.expire_all()
+    begin_memory_prompt_snapshot(session)
     client = session.get(ClientRecord, client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -491,23 +542,53 @@ async def _rebuild_client_memory(
         trigger=trigger,
         slot_states=get_client_memory_slot_states(session, client_id),
     )
-    client, client_data, source_project_ids = build_client_memory_data(
+    (
+        client,
+        client_data,
+        source_project_ids,
+        source_snapshots,
+    ) = build_client_memory_data(
         session,
         client_id,
         plan.slot_keys if plan.is_partial else None,
     )
+    # Provider latency must not hold a synchronous database transaction open.
+    session.rollback()
     raw_memory = await _current_complete_with_selected_model()(
         messages=[
             {
                 "role": "user",
-                "content": build_client_memory_prompt(
+                "content": _build_client_memory_rebuild_prompt(
                     client_data,
                     plan.slot_keys if plan.is_partial else None,
                 ),
             }
         ],
-        max_tokens=2200,
+        max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
     )
+    session.expire_all()
+    client = session.get(ClientRecord, client_id)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    (
+        client,
+        _,
+        current_source_project_ids,
+        current_source_snapshots,
+    ) = build_client_memory_data(
+        session,
+        client_id,
+        plan.slot_keys if plan.is_partial else None,
+    )
+    assert_memory_source_snapshots(
+        source_snapshots,
+        current_source_snapshots,
+        scope="client",
+    )
+    if current_source_project_ids != source_project_ids:
+        raise MemoryRebuildConflict(
+            "memory rebuild conflict: client prompt project set changed during generation"
+        )
     fallback_reason = ""
     if plan.is_partial:
         try:
@@ -515,25 +596,59 @@ async def _rebuild_client_memory(
             rebuilt_slots = plan.slot_keys
             rebuild_mode = "partial"
         except MemoryPatchValidationError:
-            client, full_data, source_project_ids = build_client_memory_data(
+            begin_memory_prompt_snapshot(session)
+            (
+                client,
+                full_data,
+                source_project_ids,
+                source_snapshots,
+            ) = build_client_memory_data(
                 session,
                 client_id,
             )
+            session.rollback()
             full_raw = await _current_complete_with_selected_model()(
                 messages=[
                     {
                         "role": "user",
-                        "content": build_client_memory_prompt(full_data),
+                        "content": _build_client_memory_rebuild_prompt(full_data),
                     }
                 ],
-                max_tokens=2200,
+                max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
             )
-            parsed_memory = parse_client_memory(full_raw, client)
+            session.expire_all()
+            client = session.get(ClientRecord, client_id)
+            if client is None:
+                raise HTTPException(status_code=404, detail="Client not found")
+            (
+                client,
+                _,
+                current_full_source_project_ids,
+                current_full_source_snapshots,
+            ) = build_client_memory_data(session, client_id)
+            assert_memory_source_snapshots(
+                source_snapshots,
+                current_full_source_snapshots,
+                scope="client",
+            )
+            if current_full_source_project_ids != source_project_ids:
+                raise MemoryRebuildConflict(
+                    "memory rebuild conflict: client prompt project set changed during generation"
+                )
+            parsed_memory = parse_client_memory_patch(
+                full_raw,
+                client,
+                CLIENT_MEMORY_SLOT_KEYS,
+            )
             rebuilt_slots = CLIENT_MEMORY_SLOT_KEYS
             rebuild_mode = "full_fallback"
             fallback_reason = "invalid_partial_payload"
     else:
-        parsed_memory = parse_client_memory(raw_memory, client)
+        parsed_memory = parse_client_memory_patch(
+            raw_memory,
+            client,
+            CLIENT_MEMORY_SLOT_KEYS,
+        )
         rebuilt_slots = plan.slot_keys
         rebuild_mode = "full"
     return save_client_memory(
@@ -542,6 +657,7 @@ async def _rebuild_client_memory(
         parsed_memory,
         trigger=trigger,
         source_project_ids=source_project_ids,
+        source_snapshots=source_snapshots,
         rebuilt_slots=rebuilt_slots,
         rebuild_mode=rebuild_mode,
         fallback_reason=fallback_reason,
@@ -601,37 +717,59 @@ async def _generate_client_memory_summary_cache(
     language: str | None = None,
     force_refresh: bool = False,
 ) -> str:
+    client_id = int(client.id or 0)
+    memory_version = int(memory_payload.get("memory_version", 0) or 0)
     if not force_refresh:
         cached = get_client_memory_summary_cache(
             session,
-            client_id=client.id,
+            client_id=client_id,
             summary_type=summary_type,
             language=language,
-            memory_version=int(memory_payload.get("memory_version", 0) or 0),
+            memory_version=memory_version,
         )
         if cached:
             return cached.content
 
+    prompt = build_client_memory_summary_prompt(
+        memory_payload,
+        client.name,
+        summary_type=summary_type,
+        language=language,
+    )
+    session.rollback()
     content = await _current_complete_with_selected_model()(
         messages=[
             {
                 "role": "user",
-                "content": build_client_memory_summary_prompt(
-                    memory_payload,
-                    client.name,
-                    summary_type=summary_type,
-                    language=language,
-                ),
+                "content": prompt,
             }
         ],
         max_tokens=900,
     )
-    save_client_memory_summary_cache(
-        session,
-        client_id=client.id,
+    session.expire_all()
+    current_client = session.get(ClientRecord, client_id)
+    if current_client is None:
+        session.rollback()
+        raise MemoryRebuildConflict(
+            "client summary conflict: client was removed during generation"
+        )
+    current_prompt = build_client_memory_summary_prompt(
+        get_client_memory_payload(current_client),
+        current_client.name,
         summary_type=summary_type,
         language=language,
-        memory_version=int(memory_payload.get("memory_version", 0) or 0),
+    )
+    if current_prompt != prompt:
+        session.rollback()
+        raise MemoryRebuildConflict(
+            "client summary conflict: client memory changed during generation"
+        )
+    save_client_memory_summary_cache(
+        session,
+        client_id=client_id,
+        summary_type=summary_type,
+        language=language,
+        memory_version=memory_version,
         content=content.strip(),
     )
     return content.strip()
@@ -702,6 +840,11 @@ async def _run_client_memory_summary_warm_job(
                     force_refresh=force_refresh,
                 )
                 return
+            except MemoryRebuildConflict:
+                # The source changed while the provider was running. Discard
+                # this stale summary without recording a provider failure; the
+                # memory-change path will schedule a fresh warm job.
+                return
             except Exception as exc:
                 if attempt >= MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS - 1 or not _is_retryable_summary_warm_error(exc):
                     _set_client_memory_failure(
@@ -759,6 +902,7 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
         client.client_memory_rebuild_failed_at = None
         session.add(client)
         session.commit()
+        expected_memory_version = int(client.client_memory_version or 0)
 
         try:
             await _rebuild_client_memory(session, client_id, trigger=trigger)
@@ -770,8 +914,18 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
             clients_cache.delete(_CLIENTS_KEY)
         except Exception as exc:
             session.rollback()
-            client = session.get(ClientRecord, client_id)
+            client = session.exec(
+                select(ClientRecord)
+                .where(ClientRecord.id == client_id)
+                .with_for_update()
+            ).first()
             if client:
+                if (
+                    int(client.client_memory_version or 0) > expected_memory_version
+                    or client.client_memory_rebuild_status == "idle"
+                ):
+                    session.rollback()
+                    return
                 if _is_retryable_client_memory_rebuild_error(exc):
                     retry_count = 0
                     if trigger.startswith("retry:"):
@@ -799,15 +953,14 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
                         return
                 _set_client_memory_failure(
                     session,
-                    client,
+                    client_id,
                     stage="rebuild",
                     message=str(exc),
                     retry_count=retry_count if 'retry_count' in locals() else 0,
+                    expected_memory_version=expected_memory_version,
+                    expected_rebuild_status="rebuilding",
+                    mark_rebuild_failed=True,
                 )
-                client.client_memory_rebuild_status = "failed"
-                client.client_memory_rebuild_failed_at = utc_now_naive()
-                session.add(client)
-                session.commit()
             raise
 
 

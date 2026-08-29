@@ -117,6 +117,51 @@ describe("reduceRunActivity", () => {
     expect(t.steering[0].message_id).toBe(91);
   });
 
+  it("stores the normalized privacy-safe context receipt instead of the raw frame", () => {
+    const rawContextEvent = {
+      type: "context_receipt",
+      run_id: "r",
+      scope: "project",
+      memory: {
+        status: "ready",
+        version: 1,
+        raw_context_available: true,
+        retrieval_mode: "focused",
+        query_facets: ["risk"],
+        selected_slots: ["key_risks"],
+        selected_slot_count: 1,
+        available_slot_count: 1,
+        omitted_slot_count: 0,
+        selected_item_count: 1,
+        truncated: false,
+        _source_snapshots: { "project:1": "private-source-hash" },
+      },
+      skill: {
+        status: "not_used",
+        usage_mode: "none",
+        reason: "",
+        confidence: 0,
+      },
+      evidence: {
+        workspace_context: true,
+        attached_file_count: 0,
+        knowledge_reference_count: 0,
+        history_message_count: 0,
+        conversation_capsule: false,
+        user_preferences: false,
+        compacted: false,
+      },
+      warnings: [],
+    } as unknown as ProductRunEvent;
+    const t = fold([
+      { type: "run_started", run_id: "r", timestamp: "" },
+      rawContextEvent,
+    ]);
+
+    expect(JSON.stringify(t.context_receipt)).not.toContain("private-source-hash");
+    expect(JSON.stringify(t.context_receipt)).not.toContain("_source_snapshots");
+  });
+
   it("builds steps and groups tool_progress under the right step", () => {
     const t = fold([
       { type: "run_started", run_id: "r", timestamp: "" },

@@ -1,6 +1,6 @@
 # 项目对话与 Skill 交互全量优化方案
 
-> 更新日期：2026-08-26
+> 更新日期：2026-08-28
 > 对照基线：OpenAI Codex `83d1fe0e67b1323f71febc2925817732b449f1d9`；发布快照/重建机制固定于 `343074d4207d572809bd8cea15f4be1d09d98e0b`
 > 产品边界：只吸收源码机制，不运行、不调用、不连接 Codex。
 
@@ -373,7 +373,7 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 项目问答 `M*` Manifest 和用户可见引用增加 fact identity、provenance、fact status 与证据数；Context Receipt 只展示匹配/范围来源/待补证数量，不保存事实正文。客户提示词同样带可信度守卫。
 - 项目和客户记忆页支持逐事实查看内容摘要、来源强度和实际来源；损坏内容不会被渲染为有效事实。删除项目/客户时事实账本级联清理，业务权限继续复用原路由边界。
 - 幂等迁移 `034_v1_34` 从 `033_v1_33` 槽位回填历史事实；确定性发布门禁由 54 扩展为 56 场景、继续保持 17 项指标全通过。
-- 该机制固定参考 Codex world-state 身份/摘要边界后重写为 Aria Python/SQLModel/FastAPI/React；不运行、不导入、不连接 Codex。下一阶段是 slot-level 局部重建和结构化 source ID 直连，不把标签匹配夸大为语义证明。
+- 该机制固定参考 Codex world-state 身份/摘要边界后重写为 Aria Python/SQLModel/FastAPI/React；不运行、不导入、不连接 Codex。Phase 3K/3L 继续补齐 slot-level 局部重建和结构化 source ID 直连，不把标签匹配夸大为语义证明。
 
 ### Phase 3K：项目/客户槽位级局部重建（已实施）
 
@@ -383,6 +383,19 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 模型生成前捕获 aggregate memory version 和目标 slot 的版本、状态、摘要、stale/updated 时间；写入事务内重新锁定验证。并发业务变化会触发 conflict 并使用现有有界重试，避免旧生成覆盖新事实。
 - 局部 payload 缺 key、JSON 或类型不合法时自动进行一次全量安全回退，重建日志/API/UI 展示 `partial/full/full_fallback/targeted_edit` 及实际槽位范围。用户定点编辑和候选接受同样只双写目标槽位。
 - 确定性发布门禁由 56 扩展为 60 场景、18 项指标；聚焦测试覆盖范围规划、未选事实不退休、自动回退和并发基线拒绝。本阶段不新增数据库迁移，不运行、不导入、不连接 Codex。
+
+### Phase 3L：结构化来源 ID 直连与可验证归因（已实施）
+
+- 项目与客户记忆重建数据为当次实际读取的业务记录加上稳定、模型可见的 `[source_type:id]` 标记，例如 `[project:42]`、`[project_payment:17]` 和 `[client_stakeholder:9]`；槽位级选择性加载仍然适用，未读取来源不会进入该次白名单。
+- Provider 可选在记忆内容之外返回私有 `_source_attributions` 数组；每项仅使用 `slot_key`、从 0 开始的 `fact_index` 和有界 `source_ids`。该键不是公开记忆槽位，在事实同步后会从综合 JSON 中移除，不会作为业务记忆注入后续问答。
+- Aria 不信任模型给出的 ID：先校验数量、字段形式、目标槽位和事实索引，再与该槽位当次实际 evidence pool 做精确白名单匹配。只有命中的来源才以 `direct_source_id` 关系写入事实账本，其 provenance 为 `direct`。`direct` 同时校验 Prompt 前捕获的 `source_sha256` 与保存时当前业务投影摘要，并用 `source_kind + fact_value_sha256` 绑定 parser 验证后的事实值；来源改变或过滤导致的索引漂移都会降级。快照只持久化 SHA-256 和有界身份元数据，不保存来源原文。
+- 私有归因缺失、格式无效、越界或伪造时不会整轮失败，而是保守回退到 `matched → scoped → unresolved`：`matched` 仍只是确定性标签命中，`scoped` 仍只表示该槽位重建时读过来源。旧 Provider 完全可以不返回私有键，现有综合 JSON 兼容路径不变。
+- 未改变事实在后续定点编辑、回滚或旧 Provider 重建时，只有原直连仍属于当前槽位来源白名单才保留；内容变更会产生新 fact identity，不会继承旧证据。
+- 项目晋升客户记忆使用单独的 `[project_memory:id]`，其摘要与模型看到的完整业务槽位投影完全一致；普通客户重建的 `[project:id]` 仍是精简项目投影。两条来源路径不会互相冒充，运行期间新增来源也不能被 `matched/scoped` 事后引用。
+- 事实渲染按 `source_kind + value_sha256` 查找，不再依赖过滤、去重后会漂移的数组位置；非 ready 事实强制降级为 `unresolved`。项目记忆与 Stakeholder 的跨作用域变化会通过当前来源摘要校验让依赖槽位和事实显示 `source_changed`。
+- LLM 等待期间不持有同步数据库事务；项目/客户重建和晋升生成后会重新取数，并验证 owner 版本与槽位基线。归档晋升将客户记忆和 completed receipt 原子提交，失败可重试；run-now 失败会落库为 `failed`，避免孤儿 queued 状态。
+- 确定性发布门禁扩展为 63 个场景、19 项指标，新增 `memory_direct_source_accuracy`，当前全部通过。
+- 本阶段复用现有事实账本、证据 JSON、slot 双写、Provider adapter 与权限边界，不新增数据库迁移。机制只参考 Codex world-state 的稳定身份原则，已重写为 Aria Python/FastAPI/SQLModel 服务；不启动、不导入、不连接 Codex 运行时。
 
 ## 11. 官方资料与许可证
 

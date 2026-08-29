@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from sqlmodel import Session, select
 
@@ -31,6 +32,7 @@ from app.models.db import (
     ProjectProgressUpdate,
     ProjectTodo,
 )
+from app.services.stakeholder_contexts import MAX_STAKEHOLDERS_IN_PROMPT
 from app.services.time_utils import utc_now_naive
 
 
@@ -62,6 +64,12 @@ PROJECT_EDITABLE_SLOT_KEYS = frozenset(
     {"key_risks", "open_questions", "stakeholder_notes"}
 )
 MAX_SLOT_EVIDENCE_REFS = 24
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_PROJECT_MEMORY_TEXT_CHARS = 1200
+_PROJECT_FILE_SUMMARY_CHARS = 200
+_CLIENT_NOTES_CHARS = 1200
+_CLIENT_PROJECT_SUMMARY_CHARS = 320
+_CLIENT_PROJECT_BRIEF_CHARS = 240
 
 
 def _canonical_json(value: Any) -> str:
@@ -84,18 +92,202 @@ def _iso(value: Any) -> str:
     return str(value or "")
 
 
+def _project_base_prompt_state(project: Project) -> dict[str, Any]:
+    """Return only the project-record fields visible to memory rebuilds.
+
+    ``Project.updated_at`` is also advanced when aggregate memory is saved, so
+    it must not participate in the source digest. The bounded text projections
+    mirror ``build_project_memory_data`` rather than hashing the mutable memory
+    envelope or operational rebuild metadata.
+    """
+
+    return {
+        "name": project.name,
+        "client": project.client,
+        "status": project.status,
+        "contract_amount": project.contract_amount,
+        "description": str(project.description or "")[:_PROJECT_MEMORY_TEXT_CHARS],
+        "notes": str(project.notes or "")[:_PROJECT_MEMORY_TEXT_CHARS],
+        "md_notes": str(project.md_notes or "")[:_PROJECT_MEMORY_TEXT_CHARS],
+    }
+
+
+def _client_base_prompt_state(client: ClientRecord) -> dict[str, Any]:
+    """Return the client-record projection shown to the rebuild provider."""
+
+    return {
+        "name": client.name,
+        "industry": client.industry,
+        "contact": client.contact,
+        "notes": str(client.notes or "")[:_CLIENT_NOTES_CHARS],
+    }
+
+
+def _project_for_client_prompt_state(project: Project) -> dict[str, Any]:
+    """Project source state as rendered by ``build_client_memory_data``.
+
+    Hashing the raw ``context_memory_json`` would make an otherwise unchanged
+    source appear different whenever Aria adds a rebuild-log entry, increments
+    ``memory_version``, or writes ``last_updated_at``. Only business fields that
+    are actually exposed in the client-memory prompt belong in this digest,
+    plus the client association that authorizes the project for that prompt.
+    """
+
+    state: dict[str, Any] = {
+        "name": project.name,
+        "client": project.client,
+        "status": project.status,
+        "contract_amount": project.contract_amount,
+        "context_summary": str(project.context_summary or "")[
+            :_CLIENT_PROJECT_SUMMARY_CHARS
+        ],
+    }
+    try:
+        memory = json.loads(project.context_memory_json or "{}")
+    except (json.JSONDecodeError, TypeError):
+        memory = {}
+    if not isinstance(memory, dict):
+        return state
+
+    brief = str(memory.get("project_brief", "")).strip()
+    risks = memory.get("key_risks", [])
+    next_actions = memory.get("next_actions", [])
+    if brief:
+        state["project_brief"] = brief[:_CLIENT_PROJECT_BRIEF_CHARS]
+    if isinstance(risks, list) and risks:
+        state["key_risks"] = "; ".join(str(item) for item in risks[:3])
+    if isinstance(next_actions, list) and next_actions:
+        state["next_actions"] = "; ".join(
+            str(item) for item in next_actions[:3]
+        )
+    return state
+
+
+def project_memory_promotion_payload(memory: Any) -> dict[str, Any]:
+    """Return the exact business-only project memory shown during promotion.
+
+    Aggregate memory also contains rebuild logs, versions, freshness flags, and
+    private coverage metadata. Those operational fields are deliberately
+    excluded. Editable project slots are flattened exactly like the public
+    project-memory payload so the source digest and provider prompt cover the
+    same value.
+    """
+
+    source = memory if isinstance(memory, dict) else {}
+    payload: dict[str, Any] = {}
+    for slot_key in PROJECT_MEMORY_SLOT_KEYS:
+        value = source.get(slot_key)
+        if slot_key in PROJECT_EDITABLE_SLOT_KEYS and isinstance(value, dict):
+            flattened: list[str] = []
+            for source_kind in ("ai", "pinned"):
+                items = value.get(source_kind)
+                if isinstance(items, list):
+                    flattened.extend(
+                        str(item).strip()
+                        for item in items
+                        if str(item).strip()
+                    )
+            value = flattened
+        payload[slot_key] = value
+    return payload
+
+
+def _project_memory_for_promotion_state(project: Project) -> dict[str, Any]:
+    """Canonical promotion state, including the client ownership boundary."""
+
+    try:
+        stored = json.loads(project.context_memory_json or "{}")
+    except (json.JSONDecodeError, TypeError):
+        stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
+    defaults: dict[str, Any] = {
+        "project_brief": str(project.description or "")[:300],
+        "current_stage": project.status,
+        "current_objective": "",
+        "recent_progress": [],
+        "key_risks": {"ai": [], "pinned": []},
+        "open_questions": {"ai": [], "pinned": []},
+        "next_actions": [],
+        "important_documents": [],
+        "financial_status": "",
+        "delivery_signals": [],
+        "stakeholder_notes": {"ai": [], "pinned": []},
+        "client_stakeholders": [],
+    }
+    return {
+        "project_name": project.name,
+        "project_client": project.client,
+        "project_memory": project_memory_promotion_payload({**defaults, **stored}),
+    }
+
+
+def _stakeholder_prompt_state(stakeholder: ClientStakeholder) -> dict[str, str]:
+    """Full authoritative stakeholder projection persisted as a memory fact.
+
+    The system binds ``structured_stakeholders`` directly to this source after
+    provider parsing, so every persisted business field must participate in
+    the digest even when a compact prompt formatter omits some of them.
+    """
+
+    fields = {
+        "name": stakeholder.name,
+        "role": stakeholder.role,
+        "organization_level": stakeholder.organization_level,
+        "influence_type": stakeholder.influence_type,
+        "relationship_status": stakeholder.relationship_status,
+        "concerns": stakeholder.concerns,
+        "sensitivities": stakeholder.sensitivities,
+        "communication_preference": stakeholder.communication_preference,
+        "contact": stakeholder.contact,
+        "last_action": stakeholder.last_action,
+        "personality_profile": stakeholder.personality_profile,
+        "decision_style": stakeholder.decision_style,
+        "communication_strategy": stakeholder.communication_strategy,
+        "trust_signals": stakeholder.trust_signals,
+        "note": stakeholder.note,
+    }
+    return {
+        key: str(value).strip()
+        for key, value in fields.items()
+        if str(value or "").strip()
+    }
+
+
 def _source_ref(
     source_type: str,
     source_id: Any,
     source_label: str,
     captured_at: Any = None,
+    *,
+    source_state: Any = None,
+    source_sha256: str = "",
 ) -> dict[str, str]:
-    return {
+    ref = {
         "source_type": str(source_type or "unknown")[:48],
         "source_id": str(source_id or "")[:80],
         "source_label": " ".join(str(source_label or "").split())[:180],
         "captured_at": _iso(captured_at)[:40],
     }
+    normalized_sha = str(source_sha256 or "").strip().lower()
+    ref["source_sha256"] = (
+        normalized_sha
+        if _SHA256_PATTERN.fullmatch(normalized_sha)
+        else _sha256_json(
+            {
+                "domain": "aria.memory-source.v1",
+                "source_type": ref["source_type"],
+                "source_id": ref["source_id"],
+                "state": source_state
+                if source_state is not None
+                else {
+                    "source_label": ref["source_label"],
+                    "captured_at": ref["captured_at"],
+                },
+            }
+        )
+    )
+    return ref
 
 
 def _sanitize_evidence_refs(values: Iterable[Any]) -> list[dict[str, str]]:
@@ -104,12 +296,19 @@ def _sanitize_evidence_refs(values: Iterable[Any]) -> list[dict[str, str]]:
     for value in values:
         if not isinstance(value, dict):
             continue
+        stored_sha256 = str(value.get("source_sha256") or "").strip().lower()
         ref = _source_ref(
             str(value.get("source_type") or "unknown"),
             value.get("source_id"),
             str(value.get("source_label") or ""),
             value.get("captured_at"),
+            source_sha256=stored_sha256,
         )
+        # Legacy ledgers predate source-state digests. Do not manufacture a
+        # label/timestamp hash while reading them: it would be compared with a
+        # new full-state hash and falsely mark every legacy slot stale.
+        if not _SHA256_PATTERN.fullmatch(stored_sha256):
+            ref.pop("source_sha256", None)
         identity = (ref["source_type"], ref["source_id"])
         if not ref["source_id"] or identity in seen:
             continue
@@ -118,6 +317,34 @@ def _sanitize_evidence_refs(values: Iterable[Any]) -> list[dict[str, str]]:
         if len(refs) >= MAX_SLOT_EVIDENCE_REFS:
             break
     return refs
+
+
+def _prompt_snapshot_evidence_refs(
+    evidence_by_slot: dict[str, list[dict[str, str]]],
+    source_snapshots: Mapping[str, str] | None,
+) -> dict[str, list[dict[str, str]]]:
+    """Limit persisted slot evidence to sources present in the provider prompt."""
+
+    if source_snapshots is None:
+        return evidence_by_slot
+    if not isinstance(source_snapshots, Mapping):
+        return {slot_key: [] for slot_key in evidence_by_slot}
+    normalized = {
+        str(handle): str(source_sha256).strip().lower()
+        for handle, source_sha256 in source_snapshots.items()
+        if _SHA256_PATTERN.fullmatch(str(source_sha256).strip().lower())
+    }
+    return {
+        slot_key: [
+            ref
+            for ref in refs
+            if normalized.get(
+                f"{ref.get('source_type', '')}:{ref.get('source_id', '')}"
+            )
+            == str(ref.get("source_sha256") or "").strip().lower()
+        ]
+        for slot_key, refs in evidence_by_slot.items()
+    }
 
 
 def _accepted_candidate_refs(
@@ -148,6 +375,12 @@ def _accepted_candidate_refs(
                 candidate.id,
                 f"Accepted memory candidate #{candidate.id}",
                 candidate.resolved_at or candidate.created_at,
+                source_state={
+                    "content": candidate.content,
+                    "target_slot": candidate.target_slot,
+                    "status": candidate.status,
+                    "resolved_at": candidate.resolved_at,
+                },
             )
         )
     return by_slot
@@ -184,7 +417,8 @@ def build_project_slot_evidence_refs(
             "project",
             project_id,
             f"Project record: {project.name}",
-            project.updated_at,
+            project.created_at,
+            source_state=_project_base_prompt_state(project),
         )
     ]
     progress = session.exec(
@@ -199,6 +433,14 @@ def build_project_slot_evidence_refs(
             item.id,
             f"Progress: {item.content}",
             item.created_at,
+            source_state={
+                "content": item.content,
+                "next_step": item.next_step,
+                "risk": item.risk,
+                "created_by": (
+                    item.created_by.display_name if item.created_by else "unknown"
+                ),
+            },
         )
         for item in progress
     ]
@@ -209,7 +451,19 @@ def build_project_slot_evidence_refs(
         .limit(8)
     ).all()
     milestone_refs = [
-        _source_ref("milestone", item.id, item.title, None) for item in milestones
+        _source_ref(
+            "milestone",
+            item.id,
+            item.title,
+            None,
+            source_state={
+                "title": item.title,
+                "is_done": item.is_done,
+                "priority": "high" if item.priority == "high" else "",
+                "due_date": item.due_date,
+            },
+        )
+        for item in milestones
     ]
     todos = session.exec(
         select(ProjectTodo)
@@ -218,7 +472,17 @@ def build_project_slot_evidence_refs(
         .limit(8)
     ).all()
     todo_refs = [
-        _source_ref("project_todo", item.id, item.content, item.updated_at)
+        _source_ref(
+            "project_todo",
+            item.id,
+            item.content,
+            item.updated_at,
+            source_state={
+                "content": item.content,
+                "is_done": item.is_done,
+                "due_date": item.due_date,
+            },
+        )
         for item in todos
     ]
     files = session.exec(
@@ -231,7 +495,16 @@ def build_project_slot_evidence_refs(
         .limit(12)
     ).all()
     file_refs = [
-        _source_ref("project_file", item.id, item.name, item.uploaded_at)
+        _source_ref(
+            "project_file",
+            item.id,
+            item.name,
+            item.uploaded_at,
+            source_state={
+                "name": item.name,
+                "summary": str(item.summary or "")[:_PROJECT_FILE_SUMMARY_CHARS],
+            },
+        )
         for item in files
     ]
     payments = session.exec(
@@ -255,6 +528,12 @@ def build_project_slot_evidence_refs(
                 if part
             ),
             None,
+            source_state={
+                "amount": item.amount,
+                "payment_date": item.payment_date,
+                "payment_type": item.payment_type,
+                "note": item.note,
+            },
         )
         for item in payments
     ]
@@ -263,8 +542,8 @@ def build_project_slot_evidence_refs(
         session.exec(
             select(ClientStakeholder)
             .where(ClientStakeholder.client_id == client.id)
-            .order_by(ClientStakeholder.updated_at.desc())
-            .limit(10)
+            .order_by(ClientStakeholder.updated_at.desc(), ClientStakeholder.id.desc())
+            .limit(MAX_STAKEHOLDERS_IN_PROMPT)
         ).all()
         if client is not None and client.id is not None
         else []
@@ -275,6 +554,7 @@ def build_project_slot_evidence_refs(
             item.id,
             " · ".join(part for part in (item.name, item.role) if part),
             item.updated_at,
+            source_state=_stakeholder_prompt_state(item),
         )
         for item in stakeholders
     ]
@@ -289,12 +569,18 @@ def build_project_slot_evidence_refs(
         "current_stage": [*base, *milestone_refs],
         "current_objective": [*base, *progress_refs, *todo_refs],
         "recent_progress": [*progress_refs, *milestone_refs, *todo_refs],
-        "key_risks": [*progress_refs, *milestone_refs, *payment_refs],
-        "open_questions": [*progress_refs, *todo_refs, *milestone_refs],
+        "key_risks": [*base, *progress_refs, *milestone_refs, *payment_refs],
+        "open_questions": [*base, *progress_refs, *todo_refs, *milestone_refs],
         "next_actions": [*todo_refs, *milestone_refs, *progress_refs],
         "important_documents": file_refs,
         "financial_status": [*base, *payment_refs],
-        "delivery_signals": [*progress_refs, *milestone_refs, *todo_refs, *file_refs],
+        "delivery_signals": [
+            *base,
+            *progress_refs,
+            *milestone_refs,
+            *todo_refs,
+            *file_refs,
+        ],
         "stakeholder_notes": stakeholder_refs,
         "client_stakeholders": stakeholder_refs,
     }
@@ -319,7 +605,8 @@ def build_client_slot_evidence_refs(
             "client",
             client_id,
             f"Client record: {client.name}",
-            client.client_memory_updated_at or client.created_at,
+            client.created_at,
+            source_state=_client_base_prompt_state(client),
         )
     ]
     source_project_ids = {
@@ -335,21 +622,39 @@ def build_client_slot_evidence_refs(
             int(project.id or 0) in source_project_ids
             or " ".join(str(project.client or "").strip().lower().split()) == normalized_name
         )
-    ][:12]
+    ]
+    # Explicitly requested sources (notably an older project being promoted)
+    # must remain inside the bounded evidence window.
+    matching_projects.sort(
+        key=lambda project: int(int(project.id or 0) in source_project_ids),
+        reverse=True,
+    )
+    matching_projects = matching_projects[:12]
     project_refs = [
         _source_ref(
             "project",
             project.id,
             f"Project: {project.name}",
-            project.updated_at,
+            project.created_at,
+            source_state=_project_for_client_prompt_state(project),
+        )
+        for project in matching_projects
+    ]
+    project_memory_refs = [
+        _source_ref(
+            "project_memory",
+            project.id,
+            f"Project memory: {project.name}",
+            project.memory_updated_at,
+            source_state=_project_memory_for_promotion_state(project),
         )
         for project in matching_projects
     ]
     stakeholders = session.exec(
         select(ClientStakeholder)
         .where(ClientStakeholder.client_id == client_id)
-        .order_by(ClientStakeholder.updated_at.desc())
-        .limit(12)
+        .order_by(ClientStakeholder.updated_at.desc(), ClientStakeholder.id.desc())
+        .limit(MAX_STAKEHOLDERS_IN_PROMPT)
     ).all()
     stakeholder_refs = [
         _source_ref(
@@ -357,6 +662,7 @@ def build_client_slot_evidence_refs(
             item.id,
             " · ".join(part for part in (item.name, item.role) if part),
             item.updated_at,
+            source_state=_stakeholder_prompt_state(item),
         )
         for item in stakeholders
     ]
@@ -366,14 +672,29 @@ def build_client_slot_evidence_refs(
         entity_id=client_id,
     )
     evidence = {
-        "client_profile": [*base, *project_refs],
-        "decision_patterns": project_refs,
-        "key_contacts": [*base, *stakeholder_refs],
+        "client_profile": [*base, *project_refs, *project_memory_refs],
+        "decision_patterns": [
+            *project_refs,
+            *project_memory_refs,
+            *stakeholder_refs,
+            *base,
+        ],
+        "key_contacts": [*base, *stakeholder_refs, *project_memory_refs],
         "structured_stakeholders": stakeholder_refs,
-        "lessons_learned": project_refs,
-        "relationship_signals": [*project_refs, *stakeholder_refs],
-        "project_history": project_refs,
-        "sensitive_topics": [*project_refs, *stakeholder_refs],
+        "lessons_learned": [*project_refs, *project_memory_refs, *base],
+        "relationship_signals": [
+            *project_refs,
+            *project_memory_refs,
+            *stakeholder_refs,
+            *base,
+        ],
+        "project_history": [*project_refs, *project_memory_refs],
+        "sensitive_topics": [
+            *project_refs,
+            *project_memory_refs,
+            *stakeholder_refs,
+            *base,
+        ],
     }
     return {
         slot_key: _sanitize_evidence_refs(
@@ -432,6 +753,7 @@ def sync_project_memory_slots(
     memory: dict[str, Any],
     *,
     slot_keys: Iterable[str] | None = None,
+    source_snapshots: Mapping[str, str] | None = None,
 ) -> None:
     if project.id is None:
         return
@@ -449,7 +771,10 @@ def sync_project_memory_slots(
         slot_keys=selected,
         aggregate_memory_version=int(project.memory_version or 0),
         memory=memory,
-        evidence_by_slot=build_project_slot_evidence_refs(session, project),
+        evidence_by_slot=_prompt_snapshot_evidence_refs(
+            build_project_slot_evidence_refs(session, project),
+            source_snapshots,
+        ),
     )
 
 
@@ -459,6 +784,7 @@ def sync_client_memory_slots(
     memory: dict[str, Any],
     *,
     slot_keys: Iterable[str] | None = None,
+    source_snapshots: Mapping[str, str] | None = None,
 ) -> None:
     if client.id is None:
         return
@@ -476,24 +802,54 @@ def sync_client_memory_slots(
         slot_keys=selected,
         aggregate_memory_version=int(client.client_memory_version or 0),
         memory=memory,
-        evidence_by_slot=build_client_slot_evidence_refs(session, client, memory),
+        evidence_by_slot=_prompt_snapshot_evidence_refs(
+            build_client_slot_evidence_refs(session, client, memory),
+            source_snapshots,
+        ),
     )
 
 
 def project_memory_slots_for_trigger(trigger: str) -> tuple[str, ...]:
     normalized = str(trigger or "data_changed").strip().lower()
+    # Reassignment changes both the always-present Project source and the
+    # additive ClientStakeholder source set. Mark every slot so a partial plan
+    # cannot preserve memory built for the previous client.
+    if "project_reassigned" in normalized:
+        return PROJECT_MEMORY_SLOT_KEYS
     selected: set[str] = set()
     if any(term in normalized for term in ("payment", "financial", "contract_amount")):
         selected.update(("financial_status", "key_risks"))
     if "todo" in normalized:
-        selected.update(("next_actions", "recent_progress", "delivery_signals"))
+        selected.update(
+            (
+                "current_objective",
+                "recent_progress",
+                "open_questions",
+                "next_actions",
+                "delivery_signals",
+            )
+        )
     if "milestone" in normalized:
         selected.update(
-            ("current_stage", "recent_progress", "next_actions", "delivery_signals")
+            (
+                "current_stage",
+                "recent_progress",
+                "key_risks",
+                "open_questions",
+                "next_actions",
+                "delivery_signals",
+            )
         )
     if "progress" in normalized:
         selected.update(
-            ("recent_progress", "key_risks", "next_actions", "delivery_signals")
+            (
+                "current_objective",
+                "recent_progress",
+                "key_risks",
+                "open_questions",
+                "next_actions",
+                "delivery_signals",
+            )
         )
     if any(
         term in normalized
@@ -557,7 +913,9 @@ def _mark_slot_rows_stale(
 ) -> None:
     owner_column = getattr(model, owner_field)
     rows = session.exec(
-        select(model).where(owner_column == owner_id, model.slot_key.in_(slot_keys))
+        select(model)
+        .where(owner_column == owner_id, model.slot_key.in_(slot_keys))
+        .execution_options(populate_existing=True)
     ).all()
     now = utc_now_naive()
     for row in rows:
@@ -605,7 +963,33 @@ def _decode_slot_value(row: ProjectMemorySlot | ClientMemorySlot) -> tuple[bool,
     return _sha256_json(value) == str(row.value_sha256 or ""), value
 
 
-def _slot_state(row: ProjectMemorySlot | ClientMemorySlot) -> dict[str, Any]:
+def _slot_source_drifted(
+    stored_refs: Iterable[dict[str, str]],
+    current_refs: Iterable[dict[str, str]],
+) -> bool:
+    current_hashes = {
+        f"{ref.get('source_type', '')}:{ref.get('source_id', '')}": str(
+            ref.get("source_sha256") or ""
+        ).strip().lower()
+        for ref in current_refs
+        if isinstance(ref, dict)
+    }
+    for ref in stored_refs:
+        if str(ref.get("source_type") or "").startswith("legacy_"):
+            continue
+        source_sha256 = str(ref.get("source_sha256") or "").strip().lower()
+        if not _SHA256_PATTERN.fullmatch(source_sha256):
+            continue
+        handle = f"{ref.get('source_type', '')}:{ref.get('source_id', '')}"
+        if current_hashes.get(handle) != source_sha256:
+            return True
+    return False
+
+
+def _slot_state(
+    row: ProjectMemorySlot | ClientMemorySlot,
+    current_refs: Iterable[dict[str, str]] = (),
+) -> dict[str, Any]:
     integrity_ok, _ = _decode_slot_value(row)
     try:
         evidence_refs = json.loads(row.evidence_refs_json or "[]")
@@ -614,15 +998,37 @@ def _slot_state(row: ProjectMemorySlot | ClientMemorySlot) -> dict[str, Any]:
     evidence_refs = _sanitize_evidence_refs(
         evidence_refs if isinstance(evidence_refs, list) else []
     )
+    source_drifted = bool(
+        integrity_ok
+        and not row.is_stale
+        and _slot_source_drifted(evidence_refs, current_refs)
+    )
+    status = (
+        "corrupt"
+        if not integrity_ok
+        else "stale"
+        if row.is_stale or source_drifted
+        else "ready"
+    )
+    public_evidence_refs = [
+        {key: value for key, value in ref.items() if key != "source_sha256"}
+        for ref in evidence_refs
+    ] if status == "ready" else []
     return {
         "slot_key": row.slot_key,
         "slot_version": max(0, int(row.slot_version or 0)),
         "aggregate_memory_version": max(0, int(row.aggregate_memory_version or 0)),
-        "status": "corrupt" if not integrity_ok else "stale" if row.is_stale else "ready",
+        "status": status,
         "value_sha256": str(row.value_sha256 or ""),
-        "evidence_count": len(evidence_refs),
-        "evidence_refs": evidence_refs,
-        "stale_reason": str(row.stale_reason or ""),
+        "evidence_count": len(public_evidence_refs),
+        "evidence_refs": public_evidence_refs,
+        "stale_reason": (
+            str(row.stale_reason or "")
+            if row.is_stale
+            else "source_changed"
+            if source_drifted
+            else ""
+        ),
         "stale_at": row.stale_at.isoformat() if row.stale_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -642,7 +1048,16 @@ def get_project_memory_slot_states(
     if for_update:
         statement = statement.with_for_update()
     rows = session.exec(statement).all()
-    return [_slot_state(row) for row in rows]
+    project = session.get(Project, project_id)
+    evidence_by_slot = (
+        build_project_slot_evidence_refs(session, project)
+        if project is not None
+        else {}
+    )
+    return [
+        _slot_state(row, evidence_by_slot.get(row.slot_key, []))
+        for row in rows
+    ]
 
 
 def get_client_memory_slot_states(
@@ -659,18 +1074,39 @@ def get_client_memory_slot_states(
     if for_update:
         statement = statement.with_for_update()
     rows = session.exec(statement).all()
-    return [_slot_state(row) for row in rows]
+    client = session.get(ClientRecord, client_id)
+    memory: dict[str, Any] = {}
+    if client is not None:
+        try:
+            parsed = json.loads(client.client_memory_json or "{}")
+        except (json.JSONDecodeError, TypeError):
+            parsed = {}
+        if isinstance(parsed, dict):
+            memory = parsed
+    evidence_by_slot = (
+        build_client_slot_evidence_refs(session, client, memory)
+        if client is not None
+        else {}
+    )
+    return [
+        _slot_state(row, evidence_by_slot.get(row.slot_key, []))
+        for row in rows
+    ]
 
 
 def _overlay_slot_rows(
     payload: dict[str, Any],
     rows: Iterable[ProjectMemorySlot | ClientMemorySlot],
+    evidence_by_slot: Mapping[str, Iterable[dict[str, str]]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     result = dict(payload)
     states: dict[str, dict[str, Any]] = {}
     for row in rows:
         integrity_ok, value = _decode_slot_value(row)
-        state = _slot_state(row)
+        state = _slot_state(
+            row,
+            (evidence_by_slot or {}).get(row.slot_key, ()),
+        )
         states[row.slot_key] = state
         if not integrity_ok:
             continue
@@ -696,7 +1132,11 @@ def load_project_memory_slot_view(
     rows = session.exec(
         select(ProjectMemorySlot).where(ProjectMemorySlot.project_id == int(project.id or 0))
     ).all()
-    return _overlay_slot_rows(aggregate_payload, rows)
+    return _overlay_slot_rows(
+        aggregate_payload,
+        rows,
+        build_project_slot_evidence_refs(session, project),
+    )
 
 
 def load_client_memory_slot_view(
@@ -707,4 +1147,8 @@ def load_client_memory_slot_view(
     rows = session.exec(
         select(ClientMemorySlot).where(ClientMemorySlot.client_id == int(client.id or 0))
     ).all()
-    return _overlay_slot_rows(aggregate_payload, rows)
+    return _overlay_slot_rows(
+        aggregate_payload,
+        rows,
+        build_client_slot_evidence_refs(session, client, aggregate_payload),
+    )

@@ -8,12 +8,21 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import Project, ProjectMemorySnapshot, ProjectMemorySummary
+from app.services.memory_facts import (
+    MODEL_SOURCE_ATTRIBUTIONS_KEY,
+    bind_model_source_attributions,
+    normalize_model_source_attributions,
+)
 from app.services.memory_rebuilds import (
     MemoryPatchValidationError,
     MemoryRebuildPlan,
     assert_memory_rebuild_baseline,
 )
-from app.services.memory_slots import PROJECT_MEMORY_SLOT_KEYS
+from app.services.memory_source_tags import strip_memory_source_tags
+from app.services.memory_slots import (
+    PROJECT_MEMORY_SLOT_KEYS,
+    build_project_slot_evidence_refs,
+)
 from app.services.project_files import list_project_files
 from app.services.project_financials import list_project_payments
 from app.services.project_milestones import list_project_milestones
@@ -236,7 +245,12 @@ def get_project_memory_payload(project: Project) -> dict[str, Any]:
 
 
 def mark_project_memory_stale(session: Session, project_id: int, trigger: str = "data_changed") -> None:
-    project = session.get(Project, project_id)
+    project = session.exec(
+        select(Project)
+        .where(Project.id == project_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
     if not project:
         return
     from app.services.memory_slots import mark_project_memory_slots_stale
@@ -250,6 +264,35 @@ def mark_project_memory_stale(session: Session, project_id: int, trigger: str = 
     project.updated_at = utc_now_naive()
     session.add(project)
     session.commit()
+
+
+def mark_project_memories_stale_by_client_name(
+    session: Session,
+    client_name: str,
+    *,
+    trigger: str = "client_source_changed",
+) -> None:
+    """Invalidate every project whose prompt includes this client's sources.
+
+    Project-memory prompts include structured client stakeholders. Additive
+    stakeholder changes cannot be detected by comparing only already-persisted
+    evidence refs, so the client-to-project dependency must be invalidated at
+    the write boundary.
+    """
+
+    normalized = " ".join(str(client_name or "").strip().lower().split())
+    if not normalized:
+        return
+    project_ids = sorted(
+        int(project_id)
+        for project_id, project_client in session.exec(
+            select(Project.id, Project.client)
+        ).all()
+        if project_id is not None
+        and " ".join(str(project_client or "").strip().lower().split()) == normalized
+    )
+    for project_id in project_ids:
+        mark_project_memory_stale(session, project_id, trigger=trigger)
 
 
 def build_project_context_data(session: Session, project_id: int) -> tuple[Project, str]:
@@ -370,16 +413,41 @@ def build_project_memory_data(
         else []
     )
     client_stakeholders = (
-        list_client_stakeholder_dicts_by_name(session, project.client)
+        list_client_stakeholder_dicts_by_name(
+            session,
+            project.client,
+            include_source_id=True,
+        )
         if needs_stakeholders
         else []
     )
+    prompt_milestones = sorted(
+        milestones,
+        key=lambda item: int(item.id or 0),
+        reverse=True,
+    )[:8]
+    prompt_todos = sorted(
+        todos,
+        key=lambda item: item.updated_at,
+        reverse=True,
+    )[:8]
+    prompt_files = sorted(
+        files,
+        key=lambda item: item.uploaded_at,
+        reverse=True,
+    )[:12]
+    prompt_payments = sorted(
+        payments,
+        key=lambda item: int(item.id or 0),
+        reverse=True,
+    )[:12]
 
+    project_source = f"[project:{project.id}]"
     lines = [
-        f"Project: {project.name}",
-        f"Client: {project.client}",
-        f"Status: {project.status}",
-        f"Contract amount: {project.contract_amount}",
+        f"{project_source} Project: {project.name}",
+        f"{project_source} Client: {project.client}",
+        f"{project_source} Status: {project.status}",
+        f"{project_source} Contract amount: {project.contract_amount}",
     ]
     if project.description and selected & {
         "project_brief",
@@ -389,7 +457,10 @@ def build_project_memory_data(
         "open_questions",
         "delivery_signals",
     }:
-        lines.append(f"Description: {project.description[:MAX_MEMORY_DESCRIPTION_CHARS]}")
+        lines.append(
+            f"{project_source} Description: "
+            f"{project.description[:MAX_MEMORY_DESCRIPTION_CHARS]}"
+        )
     if project.notes and selected & {
         "project_brief",
         "current_stage",
@@ -398,7 +469,10 @@ def build_project_memory_data(
         "open_questions",
         "delivery_signals",
     }:
-        lines.append(f"Notes:\n{project.notes[:MAX_MEMORY_DESCRIPTION_CHARS]}")
+        lines.append(
+            f"{project_source} Notes:\n"
+            f"{project.notes[:MAX_MEMORY_DESCRIPTION_CHARS]}"
+        )
     if project.md_notes and selected & {
         "project_brief",
         "current_stage",
@@ -407,36 +481,53 @@ def build_project_memory_data(
         "open_questions",
         "delivery_signals",
     }:
-        lines.append(f"Markdown notes:\n{project.md_notes[:MAX_MEMORY_DESCRIPTION_CHARS]}")
+        lines.append(
+            f"{project_source} Markdown notes:\n"
+            f"{project.md_notes[:MAX_MEMORY_DESCRIPTION_CHARS]}"
+        )
     if progress_updates:
         lines.append(f"Progress updates ({len(progress_updates)} recent):")
         for update in progress_updates:
             by = update.created_by.display_name if update.created_by else "unknown"
-            lines.append(f"  - {by}: {update.content}")
+            source = f"[project_progress:{update.id}]"
+            lines.append(f"  - {source} {by}: {update.content}")
             if update.next_step:
-                lines.append(f"    next: {update.next_step}")
+                lines.append(f"    {source} next: {update.next_step}")
             if update.risk:
-                lines.append(f"    risk: {update.risk}")
+                lines.append(f"    {source} risk: {update.risk}")
     if milestones:
         completed_count = sum(1 for milestone in milestones if milestone.is_done)
-        lines.append(f"Milestones ({len(milestones)} total, {completed_count} completed):")
-        for milestone in milestones:
+        lines.append(
+            f"Milestones ({len(milestones)} total, {completed_count} completed, "
+            f"showing latest {len(prompt_milestones)}):"
+        )
+        for milestone in prompt_milestones:
             status = "done" if milestone.is_done else "pending"
             priority = f" [{milestone.priority}]" if milestone.priority == "high" else ""
             due_hint = f" (due {milestone.due_date})" if milestone.due_date else ""
-            lines.append(f"  - {status} {milestone.title}{priority}{due_hint}")
+            lines.append(
+                f"  - [milestone:{milestone.id}] "
+                f"{status} {milestone.title}{priority}{due_hint}"
+            )
     if todos:
         pending_count = sum(1 for todo in todos if not todo.is_done)
-        lines.append(f"Todos ({len(todos)} total, {pending_count} pending):")
-        for todo in todos:
+        lines.append(
+            f"Todos ({len(todos)} total, {pending_count} pending, "
+            f"showing latest {len(prompt_todos)}):"
+        )
+        for todo in prompt_todos:
             status = "done" if todo.is_done else "pending"
             due_hint = f" (due {todo.due_date})" if todo.due_date else ""
-            lines.append(f"  - {status} {todo.content}{due_hint}")
-    if files:
-        lines.append(f"Uploaded files ({len(files)} total):")
-        for project_file in files:
             lines.append(
-                f"  - {project_file.name}"
+                f"  - [project_todo:{todo.id}] {status} {todo.content}{due_hint}"
+            )
+    if files:
+        lines.append(
+            f"Uploaded files ({len(files)} total, showing latest {len(prompt_files)}):"
+        )
+        for project_file in prompt_files:
+            lines.append(
+                f"  - [project_file:{project_file.id}] {project_file.name}"
                 + (
                     f": {project_file.summary[:MAX_MEMORY_FILE_SUMMARY_CHARS]}"
                     if project_file.summary
@@ -444,16 +535,67 @@ def build_project_memory_data(
                 )
             )
     if payments:
-        lines.append(f"Payments ({len(payments)} total):")
-        for payment in payments[-20:]:
+        lines.append(
+            f"Payments ({len(payments)} total, showing latest {len(prompt_payments)}):"
+        )
+        for payment in prompt_payments:
             lines.append(
-                f"  - {payment.payment_date} | {payment.payment_type} | {payment.amount} | {payment.note}"
+                f"  - [project_payment:{payment.id}] {payment.payment_date} | "
+                f"{payment.payment_type} | {payment.amount} | {payment.note}"
             )
     stakeholder_context = format_client_stakeholders_for_prompt(client_stakeholders)
     if stakeholder_context:
         lines.append(stakeholder_context)
 
     coverage: dict[str, Any] = {"built_at": utc_now_naive().isoformat()}
+    source_handles = list(
+        dict.fromkeys(
+            [
+                f"project:{project.id}",
+                *[
+                    f"project_progress:{update.id}"
+                    for update in progress_updates
+                    if update.id is not None
+                ],
+                *[
+                    f"milestone:{milestone.id}"
+                    for milestone in prompt_milestones
+                    if milestone.id is not None
+                ],
+                *[
+                    f"project_todo:{todo.id}"
+                    for todo in prompt_todos
+                    if todo.id is not None
+                ],
+                *[
+                    f"project_file:{project_file.id}"
+                    for project_file in prompt_files
+                    if project_file.id is not None
+                ],
+                *[
+                    f"project_payment:{payment.id}"
+                    for payment in prompt_payments
+                    if payment.id is not None
+                ],
+                *[
+                    f"client_stakeholder:{stakeholder.get('_source_id')}"
+                    for stakeholder in client_stakeholders
+                    if stakeholder.get("_source_id")
+                ],
+            ]
+        )
+    )
+    visible_source_handles = set(source_handles)
+    evidence_by_slot = build_project_slot_evidence_refs(session, project)
+    coverage["_source_snapshots"] = {
+        handle: source_sha256
+        for slot_key in selected
+        for ref in evidence_by_slot.get(slot_key, [])
+        if (
+            handle := f"{ref.get('source_type', '')}:{ref.get('source_id', '')}"
+        ) in visible_source_handles
+        if (source_sha256 := str(ref.get("source_sha256") or ""))
+    }
     if needs_milestones:
         coverage["milestones_total"] = len(milestones)
     if needs_files:
@@ -466,7 +608,18 @@ def build_project_memory_data(
         coverage.update(
             {
                 "client_stakeholders_total": len(client_stakeholders),
-                "client_stakeholders": client_stakeholders,
+                "client_stakeholders": [
+                    {
+                        key: value
+                        for key, value in stakeholder.items()
+                        if key != "_source_id"
+                    }
+                    for stakeholder in client_stakeholders
+                ],
+                "_client_stakeholder_source_ids": [
+                    str(stakeholder.get("_source_id") or "")
+                    for stakeholder in client_stakeholders
+                ],
             }
         )
 
@@ -480,7 +633,7 @@ def build_project_memory_prompt(
     selected = tuple(slot_keys or PROJECT_MEMORY_SLOT_KEYS)
     exact_keys = ", ".join(selected)
     partial_instruction = (
-        "This is a partial rebuild. Return every requested key and no unrequested keys. "
+        "This is a partial rebuild. Return every requested business key and no unrequested business keys. "
         if slot_keys is not None
         else ""
     )
@@ -507,9 +660,18 @@ def build_project_memory_prompt(
     return (
         "You are building a structured long-term memory for a consulting project. "
         "Use only the project data below. Do not invent missing facts. "
-        f"{partial_instruction}Return valid JSON only with these exact keys: {exact_keys}. "
+        f"{partial_instruction}Return valid JSON only with these business keys: {exact_keys}, "
+        f"plus the private {MODEL_SOURCE_ATTRIBUTIONS_KEY} key described below. "
         f"Rules: {' '.join(rules)} "
         "Keep each item concise and concrete. Prefer empty string or empty arrays over guessing. "
+        f"Also return {MODEL_SOURCE_ATTRIBUTIONS_KEY} as an array of objects with keys "
+        "slot_key, fact_index, source_ids. fact_index is zero-based within the returned "
+        "slot (a scalar uses 0; an editable slot counts only its returned AI array). "
+        "source_ids must contain only exact [source_type:id] IDs visible below, without "
+        "the brackets. Return at most 48 attribution objects. Never copy a "
+        "[source_type:id] marker into any business value; markers belong only in this "
+        "private envelope. Attribute every supported non-empty fact; omit an attribution "
+        "instead of guessing or citing a merely related source. "
         "Write in the same language as the project.\n\n"
         f"Project data:\n{project_data}"
     )
@@ -773,6 +935,58 @@ def _extract_first_json_object(raw: str) -> str:
     return "{}"
 
 
+def _project_model_fact_bindings(
+    parsed: dict[str, Any],
+    slot_keys: tuple[str, ...],
+) -> dict[str, dict[int, tuple[str, Any]]]:
+    """Bind provider indexes to the canonical values Aria will persist."""
+
+    bindings: dict[str, dict[int, tuple[str, Any]]] = {}
+    string_slots = {
+        "project_brief",
+        "current_stage",
+        "current_objective",
+        "financial_status",
+    }
+    list_string_slots = {"recent_progress", "next_actions", "delivery_signals"}
+    for slot_key in slot_keys:
+        if slot_key not in parsed:
+            continue
+        value = strip_memory_source_tags(parsed[slot_key])
+        slot_bindings: dict[int, tuple[str, Any]] = {}
+        if slot_key in string_slots and isinstance(value, str):
+            canonical = value.strip()
+            if canonical:
+                slot_bindings[0] = ("value", canonical)
+        elif slot_key in list_string_slots and isinstance(value, list):
+            for raw_index, item in enumerate(value):
+                if isinstance(item, str) and (canonical := item.strip()):
+                    slot_bindings[raw_index] = ("item", canonical)
+        elif slot_key in EDITABLE_MEMORY_SLOTS:
+            ai_values = value.get("ai", []) if isinstance(value, dict) else value
+            if isinstance(ai_values, list):
+                for raw_index, item in enumerate(ai_values):
+                    if isinstance(item, str) and (canonical := item.strip()):
+                        slot_bindings[raw_index] = ("ai", canonical)
+        elif slot_key == "important_documents" and isinstance(value, list):
+            for raw_index, item in enumerate(value):
+                if isinstance(item, dict):
+                    slot_bindings[raw_index] = (
+                        "item",
+                        {
+                            "name": str(item.get("name", "")),
+                            "reason": str(item.get("reason", "")),
+                        },
+                    )
+        elif slot_key == "client_stakeholders" and isinstance(value, list):
+            for raw_index, item in enumerate(value):
+                if isinstance(item, dict):
+                    slot_bindings[raw_index] = ("item", item)
+        if slot_bindings:
+            bindings[slot_key] = slot_bindings
+    return bindings
+
+
 def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
     base = _default_project_memory(project)
     existing_raw = _get_existing_raw_memory(project)
@@ -783,7 +997,12 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
     except json.JSONDecodeError:
         parsed = {}
 
-    memory = {**base, **parsed}
+    parsed_business = {
+        key: strip_memory_source_tags(value)
+        for key, value in parsed.items()
+        if key != MODEL_SOURCE_ATTRIBUTIONS_KEY
+    }
+    memory = {**base, **parsed_business}
     for key in ("recent_progress", "next_actions", "delivery_signals"):
         value = memory.get(key)
         memory[key] = value if isinstance(value, list) else []
@@ -818,6 +1037,11 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
 
     memory["rebuild_log"] = existing_raw.get("rebuild_log", []) if isinstance(existing_raw.get("rebuild_log"), list) else []
     memory["_coverage"] = existing_raw.get("_coverage", {}) if isinstance(existing_raw.get("_coverage"), dict) else {}
+    memory[MODEL_SOURCE_ATTRIBUTIONS_KEY] = bind_model_source_attributions(
+        parsed.get(MODEL_SOURCE_ATTRIBUTIONS_KEY),
+        PROJECT_MEMORY_SLOT_KEYS,
+        _project_model_fact_bindings(parsed, PROJECT_MEMORY_SLOT_KEYS),
+    )
 
     return memory
 
@@ -853,7 +1077,7 @@ def parse_project_memory_patch(
     }
     list_slots = {"recent_progress", "next_actions", "delivery_signals"}
     for key in selected:
-        value = parsed[key]
+        value = strip_memory_source_tags(parsed[key])
         if key in string_slots:
             if not isinstance(value, str):
                 raise MemoryPatchValidationError(f"slot {key} must be a string")
@@ -901,6 +1125,11 @@ def parse_project_memory_patch(
     _merge_accepted_memory_candidates(memory, existing)
     memory["rebuild_log"] = existing.get("rebuild_log", []) if isinstance(existing.get("rebuild_log"), list) else []
     memory["_coverage"] = existing.get("_coverage", {}) if isinstance(existing.get("_coverage"), dict) else {}
+    memory[MODEL_SOURCE_ATTRIBUTIONS_KEY] = bind_model_source_attributions(
+        parsed.get(MODEL_SOURCE_ATTRIBUTIONS_KEY),
+        selected,
+        _project_model_fact_bindings(parsed, selected),
+    )
     return memory
 
 
@@ -941,10 +1170,59 @@ def save_project_memory(
             rebuilt_slots=selected_slots,
         )
 
+    existing_raw_memory = _get_existing_raw_memory(project)
     memory = _merge_accepted_memory_candidates(
         dict(memory),
-        _get_existing_raw_memory(project),
+        existing_raw_memory,
     )
+    if isinstance(existing_raw_memory.get("_client_promotion"), dict):
+        memory["_client_promotion"] = dict(existing_raw_memory["_client_promotion"])
+    source_attributions = normalize_model_source_attributions(
+        memory.pop(MODEL_SOURCE_ATTRIBUTIONS_KEY, []),
+        selected_slots,
+    )
+    persisted_coverage = dict(coverage or {})
+    persisted_coverage.pop("_source_handles", None)
+    source_snapshots = persisted_coverage.pop("_source_snapshots", None)
+    stakeholder_source_ids = persisted_coverage.pop(
+        "_client_stakeholder_source_ids",
+        [],
+    )
+    if "client_stakeholders" in selected_slots and isinstance(
+        stakeholder_source_ids,
+        list,
+    ):
+        source_attributions = [
+            attribution
+            for attribution in source_attributions
+            if attribution.get("slot_key") != "client_stakeholders"
+        ]
+        authoritative_stakeholders = (
+            list(persisted_coverage.get("client_stakeholders") or [])
+            if isinstance(persisted_coverage.get("client_stakeholders"), list)
+            else []
+        )
+        source_attributions.extend(
+            bind_model_source_attributions(
+                [
+                    {
+                        "slot_key": "client_stakeholders",
+                        "fact_index": index,
+                        "source_ids": [f"client_stakeholder:{source_id}"],
+                    }
+                    for index, source_id in enumerate(stakeholder_source_ids)
+                    if str(source_id).strip()
+                ],
+                ("client_stakeholders",),
+                {
+                    "client_stakeholders": {
+                        index: ("item", stakeholder)
+                        for index, stakeholder in enumerate(authoritative_stakeholders)
+                        if isinstance(stakeholder, dict)
+                    }
+                },
+            )
+        )
 
     project.memory_version = (project.memory_version or 0) + 1
     project.memory_updated_at = utc_now_naive()
@@ -962,13 +1240,21 @@ def save_project_memory(
         log_entry["fallback_reason"] = fallback_reason
     rebuild_log.append(log_entry)
     memory["rebuild_log"] = rebuild_log[-10:]
+    existing_coverage = (
+        dict(memory.get("_coverage", {}))
+        if isinstance(memory.get("_coverage"), dict)
+        else {}
+    )
+    existing_coverage.pop("_source_handles", None)
+    existing_coverage.pop("_source_snapshots", None)
+    existing_coverage.pop("_client_stakeholder_source_ids", None)
     memory["_coverage"] = {
-        **(memory.get("_coverage", {}) if isinstance(memory.get("_coverage"), dict) else {}),
-        **(coverage or {}),
+        **existing_coverage,
+        **persisted_coverage,
         "built_at": project.memory_updated_at.isoformat(),
     }
-    if coverage and isinstance(coverage.get("client_stakeholders"), list):
-        memory["client_stakeholders"] = coverage["client_stakeholders"]
+    if isinstance(persisted_coverage.get("client_stakeholders"), list):
+        memory["client_stakeholders"] = persisted_coverage["client_stakeholders"]
     memory["memory_version"] = project.memory_version
     memory["last_updated_at"] = project.memory_updated_at.isoformat()
     project.memory_rebuild_status = "idle"
@@ -978,8 +1264,21 @@ def save_project_memory(
     from app.services.memory_slots import sync_project_memory_slots
     from app.services.memory_facts import sync_project_memory_facts
 
-    sync_project_memory_slots(session, project, memory, slot_keys=selected_slots)
-    sync_project_memory_facts(session, project, memory, slot_keys=selected_slots)
+    sync_project_memory_slots(
+        session,
+        project,
+        memory,
+        slot_keys=selected_slots,
+        source_snapshots=source_snapshots,
+    )
+    sync_project_memory_facts(
+        session,
+        project,
+        memory,
+        slot_keys=selected_slots,
+        source_attributions=source_attributions,
+        source_snapshots=source_snapshots,
+    )
     session.flush()
     from app.services.memory_slots import get_project_memory_slot_states
 

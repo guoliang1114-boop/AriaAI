@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 from app.models.db import Project
+from app.services.memory_facts import find_memory_fact_state
 from app.services.project_contexts import get_project_memory_payload
 
 
@@ -143,9 +144,11 @@ def select_project_memory_slots(query: str) -> tuple[str, tuple[str, ...], tuple
     return mode, facets, tuple(dict.fromkeys(selected))
 
 
-def _memory_items(slot: str, value: Any) -> list[str]:
+def _memory_fact_items(slot: str, value: Any) -> list[dict[str, Any]]:
+    """Render project-memory items while retaining their persisted identity."""
+
     if slot == "important_documents" and isinstance(value, list):
-        items = []
+        items: list[dict[str, Any]] = []
         for document in value:
             if isinstance(document, dict):
                 name = str(document.get("name") or "").strip()
@@ -154,7 +157,13 @@ def _memory_items(slot: str, value: Any) -> list[str]:
             else:
                 text = str(document or "").strip()
             if text:
-                items.append(text)
+                items.append(
+                    {
+                        "content": text,
+                        "source_kind": "item",
+                        "value": document,
+                    }
+                )
         return items
     if slot == "client_stakeholders" and isinstance(value, list):
         items = []
@@ -175,26 +184,66 @@ def _memory_items(slot: str, value: Any) -> list[str]:
             ]
             text = " / ".join(part for part in parts if part)
             if text:
-                items.append(text)
+                items.append(
+                    {
+                        "content": text,
+                        "source_kind": "item",
+                        "value": stakeholder,
+                    }
+                )
         return items
     if isinstance(value, dict):
-        values: list[Any] = []
-        for key in ("pinned", "ai"):
-            if isinstance(value.get(key), list):
-                values.extend(value[key])
-        value = values
+        items = []
+        for source_kind in ("pinned", "ai"):
+            values = value.get(source_kind)
+            if not isinstance(values, list):
+                continue
+            items.extend(
+                {
+                    "content": str(item).strip(),
+                    "source_kind": source_kind,
+                    "value": item,
+                }
+                for item in values
+                if str(item).strip()
+            )
+        return items
     if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
+        return [
+            {
+                "content": str(item).strip(),
+                "source_kind": "item",
+                "value": item,
+            }
+            for item in value
+            if str(item).strip()
+        ]
     text = str(value or "").strip()
-    return [text] if text else []
+    return (
+        [{"content": text, "source_kind": "value", "value": value}]
+        if text
+        else []
+    )
+
+
+def _memory_slot_fact_items(
+    memory: dict[str, Any],
+    slot: str,
+) -> list[dict[str, Any]]:
+    """Prefer the pinned/AI detail view and preserve each fact's raw value."""
+
+    detail = memory.get(f"{slot}_detail")
+    value = detail if isinstance(detail, dict) else memory.get(slot)
+    return _memory_fact_items(slot, value)
 
 
 def _memory_slot_items(memory: dict[str, Any], slot: str) -> list[str]:
     """Prefer the pinned/AI detail view when the project memory exposes it."""
 
-    detail = memory.get(f"{slot}_detail")
-    value = detail if isinstance(detail, dict) else memory.get(slot)
-    return _memory_items(slot, value)
+    return [
+        str(item["content"])
+        for item in _memory_slot_fact_items(memory, slot)
+    ]
 
 
 def _available_slot_count(memory: dict[str, Any]) -> int:
@@ -265,6 +314,7 @@ def build_project_memory_evidence(
         "stale_slots": list(stale_slots),
         "stale_slot_count": len(stale_slots),
         "evidence_ref_count": slot_evidence_ref_count if not fact_states else 0,
+        "direct_fact_count": 0,
         "matched_fact_count": 0,
         "scoped_fact_count": 0,
         "unresolved_fact_count": 0,
@@ -275,8 +325,10 @@ def build_project_memory_evidence(
 
     rendered_items: list[dict[str, Any]] = []
     for slot in selected_slots:
-        for item_index, content in enumerate(_memory_slot_items(memory, slot)[:4]):
-            normalized = _prompt_safe_memory_content(content)
+        for item_index, fact_item in enumerate(
+            _memory_slot_fact_items(memory, slot)[:4]
+        ):
+            normalized = _prompt_safe_memory_content(fact_item["content"])
             if not normalized:
                 continue
             if len(rendered_items) >= MAX_MEMORY_EVIDENCE_ITEMS:
@@ -288,7 +340,12 @@ def build_project_memory_evidence(
                     "slot_label": _SLOT_LABELS[slot],
                     "item_index": item_index,
                     "content": normalized,
-                    "fact_state": (fact_states.get(slot) or {}).get(item_index),
+                    "fact_state": find_memory_fact_state(
+                        fact_states.get(slot),
+                        str(fact_item["source_kind"]),
+                        fact_item["value"],
+                        fallback_ordinal=item_index,
+                    ),
                 }
             )
         if len(rendered_items) >= MAX_MEMORY_EVIDENCE_ITEMS:
@@ -312,12 +369,28 @@ def build_project_memory_evidence(
         )[:24]
         fact_state = item.get("fact_state") if isinstance(item.get("fact_state"), dict) else {}
         provenance_status = str(fact_state.get("provenance_status") or "unresolved")
-        if provenance_status not in {"matched", "scoped", "legacy", "unresolved"}:
+        if provenance_status not in {
+            "direct",
+            "matched",
+            "scoped",
+            "legacy",
+            "unresolved",
+        }:
             provenance_status = "unresolved"
         fact_status = str(fact_state.get("status") or "missing")
         if fact_status not in {"ready", "stale", "corrupt", "missing"}:
             fact_status = "missing"
-        fact_evidence_count = max(0, min(6, int(fact_state.get("evidence_count") or 0)))
+        if fact_status != "ready":
+            provenance_status = "unresolved"
+        fact_evidence_count = max(
+            0,
+            min(
+                6,
+                int(fact_state.get("evidence_count") or 0)
+                if fact_status == "ready"
+                else 0,
+            ),
+        )
         fact_key = str(fact_state.get("fact_key") or "")
         entry = {
                 "evidence_id": evidence_id,
@@ -339,6 +412,9 @@ def build_project_memory_evidence(
     if fact_states:
         selection["evidence_ref_count"] = sum(
             int(entry["fact_evidence_count"]) for entry in entries
+        )
+        selection["direct_fact_count"] = sum(
+            entry["provenance_status"] == "direct" for entry in entries
         )
         selection["matched_fact_count"] = sum(
             entry["provenance_status"] == "matched" for entry in entries
@@ -393,7 +469,8 @@ def build_project_memory_evidence(
         "square-bracket form [M1], not full-width brackets or a separate source list. "
         "Never invent a memory citation key. "
         "If selected memory is insufficient, say so and rely on newer raw project evidence.",
-        "- Fact provenance: MATCHED means a source label deterministically matches the fact; "
+        "- Fact provenance: DIRECT means the fact is bound to a verified stable source ID; "
+        "MATCHED means a source label deterministically matches the fact; "
         "SCOPED means sources were read for the containing slot but are not a direct citation; "
         "LEGACY means exact historical provenance is unavailable; UNRESOLVED means no source. "
         "Do not describe SCOPED, LEGACY, or UNRESOLVED facts as independently verified.",
@@ -477,7 +554,7 @@ def validate_project_memory_evidence_manifest(value: Any) -> tuple[bool, str]:
             return False, "invalid memory fact identity"
         if entry.get("provenance_status") is not None and entry.get(
             "provenance_status"
-        ) not in {"matched", "scoped", "legacy", "unresolved"}:
+        ) not in {"direct", "matched", "scoped", "legacy", "unresolved"}:
             return False, "invalid memory fact provenance status"
         if entry.get("fact_status") is not None and entry.get("fact_status") not in {
             "ready",

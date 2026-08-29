@@ -967,8 +967,8 @@ function ClientMemoryPanel({
                 {memoryFacts ? (
                   <span>
                     {isZh
-                      ? `${memoryFacts.matched_fact_count} 匹配 · ${memoryFacts.scoped_fact_count} 范围 · ${memoryFacts.unresolved_fact_count} 待补证`
-                      : `${memoryFacts.matched_fact_count} matched · ${memoryFacts.scoped_fact_count} scoped · ${memoryFacts.unresolved_fact_count} unresolved`}
+                      ? `${memoryFacts.direct_fact_count ?? 0} 直连 · ${memoryFacts.matched_fact_count} 匹配 · ${memoryFacts.scoped_fact_count} 范围 · ${memoryFacts.unresolved_fact_count} 待补证`
+                      : `${memoryFacts.direct_fact_count ?? 0} direct · ${memoryFacts.matched_fact_count} matched · ${memoryFacts.scoped_fact_count} scoped · ${memoryFacts.unresolved_fact_count} unresolved`}
                   </span>
                 ) : null}
               </div>
@@ -1004,9 +1004,11 @@ function ClientMemoryPanel({
                         </span>
                         <span
                           className="shrink-0"
-                          style={{ color: fact.provenance_status === 'matched' ? 'var(--color-codex-good)' : 'var(--color-codex-warn)' }}
+                          style={{ color: fact.provenance_status === 'direct' || fact.provenance_status === 'matched' ? 'var(--color-codex-good)' : 'var(--color-codex-warn)' }}
                         >
-                          {fact.provenance_status === 'matched'
+                          {fact.provenance_status === 'direct'
+                            ? (isZh ? '来源直连' : 'direct')
+                            : fact.provenance_status === 'matched'
                             ? (isZh ? '来源匹配' : 'matched')
                             : fact.provenance_status === 'scoped'
                               ? (isZh ? '范围来源' : 'scoped')
@@ -1017,7 +1019,11 @@ function ClientMemoryPanel({
                       </div>
                       {fact.evidence_refs.length ? (
                         <div className="mt-1" style={{ color: 'var(--color-codex-ink-mute)' }}>
-                          {fact.evidence_refs.slice(0, 2).map((source) => source.source_label).join(' · ')}
+                          {fact.evidence_refs.slice(0, 2).map((source) => (
+                            source.relation === 'direct_source_id'
+                              ? `${source.source_label} · #${source.source_id}`
+                              : source.source_label
+                          )).join(' · ')}
                           {fact.evidence_count > 2 ? ` +${fact.evidence_count - 2}` : ''}
                         </div>
                       ) : null}

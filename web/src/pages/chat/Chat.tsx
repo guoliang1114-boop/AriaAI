@@ -4013,9 +4013,8 @@ function MessageRow({ message }: { message: Message }) {
     artifacts = Array.isArray(meta.artifacts) ? meta.artifacts : []
     skillProgress = buildProgressFromMetadata(meta)
     stageTimings = stageTimingEntriesFromMeta(meta)
-    contextReceipt = meta.context_receipt && typeof meta.context_receipt === 'object'
-      ? meta.context_receipt as ContextReceiptEvent
-      : null
+    const receiptEvent = parseChatStreamEvent(meta.context_receipt)
+    contextReceipt = receiptEvent ? toContextReceiptEvent(receiptEvent) : null
   } catch {
     // Ignore invalid metadata payloads from older chat messages.
   }

@@ -204,6 +204,7 @@ def build_chat_context(
                 "stale_slots": [],
                 "stale_slot_count": 0,
                 "evidence_ref_count": 0,
+                "direct_fact_count": 0,
                 "matched_fact_count": 0,
                 "scoped_fact_count": 0,
                 "unresolved_fact_count": 0,

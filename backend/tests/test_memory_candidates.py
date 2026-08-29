@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -20,6 +21,7 @@ from app.models.db import (
 from app.services.client_contexts import parse_client_memory, save_client_memory
 from app.services.chat_store import delete_conversation_with_messages
 from app.services.project_contexts import parse_project_memory, save_project_memory
+from app.services import memory_candidates as memory_candidates_service
 from app.routers import memory_candidates as candidates_module
 from app.routers.auth import get_current_user
 from app.routers.memory_candidates import router
@@ -87,6 +89,111 @@ def _client(engine, current_user_id: list[int]) -> TestClient:
     app.dependency_overrides[candidates_module.get_session] = get_test_session
     app.dependency_overrides[get_current_user] = current_user
     return TestClient(app, raise_server_exceptions=False)
+
+
+def test_candidate_decision_locks_owner_before_candidate_and_rechecks_status() -> None:
+    locator = MemoryCandidate(
+        id=71,
+        owner_user_id=9,
+        scope="project",
+        candidate_type="project_fact",
+        content="Candidate fact",
+        content_sha256="a" * 64,
+        project_id=41,
+        base_memory_version=3,
+        status="pending",
+    )
+    locked = locator.model_copy()
+    locked.status = "rejected"
+    project = Project(id=41, name="Locked owner", client="Acme", memory_version=3)
+
+    class _Result:
+        def __init__(self, value):
+            self.value = value
+
+        def first(self):
+            return self.value
+
+    class _OrderedSession:
+        def __init__(self):
+            self.entities = []
+            self.results = iter((project, locked))
+
+        def exec(self, statement):
+            self.entities.append(statement.column_descriptions[0]["entity"])
+            assert statement._for_update_arg is not None
+            return _Result(next(self.results))
+
+        def expire_all(self):
+            return None
+
+    session = _OrderedSession()
+    try:
+        memory_candidates_service.accept_memory_candidate(
+            session,
+            locator,
+            user_id=9,
+        )
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 409
+        assert "already rejected" in str(getattr(exc, "detail", ""))
+    else:
+        raise AssertionError("fresh rejected status must block stale pending acceptance")
+    assert session.entities == [Project, MemoryCandidate]
+
+
+def test_candidate_decision_refreshes_cached_status_after_concurrent_reject() -> None:
+    engine = _engine()
+    try:
+        with Session(engine) as setup:
+            owner = User(
+                email="candidate-owner@example.com",
+                password_hash="x",
+                display_name="Owner",
+            )
+            project = Project(name="Candidate owner", client="Acme")
+            setup.add(owner)
+            setup.add(project)
+            setup.commit()
+            setup.refresh(owner)
+            setup.refresh(project)
+            candidate = MemoryCandidate(
+                owner_user_id=int(owner.id),
+                scope="project",
+                candidate_type="project_fact",
+                content="Concurrent candidate",
+                content_sha256="b" * 64,
+                project_id=int(project.id),
+                base_memory_version=0,
+                status="pending",
+            )
+            setup.add(candidate)
+            setup.commit()
+            setup.refresh(candidate)
+            candidate_id = int(candidate.id)
+
+        with Session(engine) as stale_session:
+            locator = stale_session.get(MemoryCandidate, candidate_id)
+            assert locator is not None
+            # Reproduce the identities already loaded by router access checks.
+            assert stale_session.get(Project, locator.project_id) is not None
+            with Session(engine) as concurrent:
+                rejected = concurrent.get(MemoryCandidate, candidate_id)
+                assert rejected is not None
+                rejected.status = "rejected"
+                concurrent.add(rejected)
+                concurrent.commit()
+
+            with pytest.raises(HTTPException) as exc_info:
+                memory_candidates_service.accept_memory_candidate(
+                    stale_session,
+                    locator,
+                    user_id=int(locator.owner_user_id),
+                )
+            assert exc_info.value.status_code == 409
+            assert "already rejected" in str(exc_info.value.detail)
+    finally:
+        engine.dispose()
 
 
 def test_chat_candidate_is_source_linked_idempotent_and_accepts_into_project_memory() -> None:
@@ -304,6 +411,49 @@ def test_deleting_source_conversation_archives_pending_candidate() -> None:
         assert candidate.status == "archived"
         assert candidate.source_type == "deleted_chat_message"
         assert candidate.resolved_at is not None
+    engine.dispose()
+
+
+def test_deleting_source_conversation_preserves_concurrently_accepted_candidate() -> None:
+    engine = _engine()
+    alice_id, _, project_id, message_id = _seed(engine)
+    client = _client(engine, [alice_id])
+    created = client.post(
+        "/memory-candidates",
+        json={
+            "scope": "project",
+            "candidate_type": "project_risk",
+            "content": "该候选已被负责人接受。",
+            "source_type": "chat_message",
+            "source_id": str(message_id),
+            "project_id": project_id,
+        },
+    )
+    assert created.status_code == 200, created.text
+    candidate_id = created.json()["candidate"]["id"]
+
+    with Session(engine) as deletion_session:
+        message = deletion_session.get(Message, message_id)
+        cached_candidate = deletion_session.get(MemoryCandidate, candidate_id)
+        assert message is not None and cached_candidate is not None
+        assert cached_candidate.status == "pending"
+        with Session(engine) as concurrent:
+            accepted = concurrent.get(MemoryCandidate, candidate_id)
+            assert accepted is not None
+            accepted.status = "accepted"
+            concurrent.add(accepted)
+            concurrent.commit()
+
+        delete_conversation_with_messages(
+            deletion_session,
+            int(message.conversation_id),
+        )
+
+    with Session(engine) as verify:
+        candidate = verify.get(MemoryCandidate, candidate_id)
+        assert candidate is not None
+        assert candidate.status == "accepted"
+        assert candidate.source_type == "deleted_chat_message"
     engine.dispose()
 
 

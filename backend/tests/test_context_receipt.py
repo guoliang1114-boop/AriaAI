@@ -19,6 +19,10 @@ def _runtime(**overrides):
                 "available_slot_count": 8,
                 "omitted_slot_count": 5,
                 "selected_item_count": 6,
+                "direct_fact_count": 2,
+                "matched_fact_count": 1,
+                "scoped_fact_count": 2,
+                "unresolved_fact_count": 1,
                 "truncated": False,
                 "layers": [
                     {
@@ -44,6 +48,7 @@ def _runtime(**overrides):
                         "available_slot_count": 3,
                         "omitted_slot_count": 2,
                         "selected_item_count": 1,
+                        "direct_fact_count": 1,
                         "truncated": False,
                         "overridden_dimensions": [],
                     },
@@ -83,6 +88,8 @@ def test_build_context_receipt_reports_advisory_skill_and_stale_memory():
     assert event["memory"]["raw_context_available"] is True
     assert event["memory"]["retrieval_mode"] == "focused"
     assert event["memory"]["selected_item_count"] == 6
+    assert event["memory"]["direct_fact_count"] == 2
+    assert event["memory"]["matched_fact_count"] == 1
     assert event["skill"]["status"] == "applied"
     assert event["skill"]["usage_mode"] == "advisory"
     assert event["evidence"]["knowledge_reference_count"] == 1
@@ -91,6 +98,7 @@ def test_build_context_receipt_reports_advisory_skill_and_stale_memory():
     assert "client_memory_stale" in event["warnings"]
     assert "user_preference_overridden" in event["warnings"]
     assert [layer["scope"] for layer in event["memory"]["layers"]] == ["user", "client"]
+    assert event["memory"]["layers"][1]["direct_fact_count"] == 1
 
 
 def test_build_context_receipt_reports_ambiguous_skill_candidates_without_prompt():

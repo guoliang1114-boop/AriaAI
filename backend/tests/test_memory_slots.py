@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from unittest.mock import AsyncMock, patch
 
@@ -35,9 +36,12 @@ from app.services.memory_slots import (
     get_project_memory_slot_states,
     load_client_memory_slot_view,
     load_project_memory_slot_view,
+    project_memory_slots_for_trigger,
 )
 from app.services.memory_rebuilds import (
+    MemoryPatchValidationError,
     MemoryRebuildConflict,
+    begin_memory_prompt_snapshot,
     plan_client_memory_rebuild,
     plan_project_memory_rebuild,
 )
@@ -48,6 +52,7 @@ from app.services.memory_facts import (
 )
 from app.services.project_contexts import (
     get_project_memory_payload,
+    mark_project_memories_stale_by_client_name,
     mark_project_memory_stale,
     save_project_memory,
 )
@@ -61,6 +66,39 @@ def _engine():
     )
     SQLModel.metadata.create_all(engine)
     return engine
+
+
+def test_postgres_prompt_snapshot_starts_repeatable_read_transaction():
+    calls: list[object] = []
+
+    class _Dialect:
+        name = "postgresql"
+
+    class _Bind:
+        dialect = _Dialect()
+
+    class _Session:
+        def rollback(self):
+            calls.append("rollback")
+
+        def expire_all(self):
+            calls.append("expire_all")
+
+        def get_bind(self):
+            calls.append("get_bind")
+            return _Bind()
+
+        def connection(self, *, execution_options):
+            calls.append(execution_options)
+
+    begin_memory_prompt_snapshot(_Session())
+
+    assert calls == [
+        "rollback",
+        "expire_all",
+        "get_bind",
+        {"isolation_level": "REPEATABLE READ"},
+    ]
 
 
 def _project_memory(**overrides):
@@ -95,6 +133,17 @@ def _client_memory(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def _fact_value_sha256(value):
+    canonical = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def test_project_memory_dual_write_versions_only_changed_slot_and_records_sources():
@@ -167,9 +216,12 @@ def test_project_payment_change_marks_only_financial_and_risk_slots_stale():
             stale = {item["slot_key"] for item in states if item["status"] == "stale"}
 
             assert stale == {"financial_status", "key_risks"}
-            assert next(
+            financial_status = next(
                 item for item in states if item["slot_key"] == "financial_status"
-            )["stale_reason"] == "payment_created"
+            )
+            assert financial_status["stale_reason"] == "payment_created"
+            assert financial_status["evidence_count"] == 0
+            assert financial_status["evidence_refs"] == []
             assert session.get(Project, project.id).memory_stale is True
     finally:
         engine.dispose()
@@ -202,6 +254,94 @@ def test_project_combined_change_marks_union_of_affected_slots_stale():
                 "financial_status",
                 "delivery_signals",
             }
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("trigger", "expected_slots"),
+    (
+        (
+            "todo_created",
+            {
+                "current_objective",
+                "recent_progress",
+                "open_questions",
+                "next_actions",
+                "delivery_signals",
+            },
+        ),
+        (
+            "milestone_created",
+            {
+                "current_stage",
+                "recent_progress",
+                "key_risks",
+                "open_questions",
+                "next_actions",
+                "delivery_signals",
+            },
+        ),
+        (
+            "progress_created",
+            {
+                "current_objective",
+                "recent_progress",
+                "key_risks",
+                "open_questions",
+                "next_actions",
+                "delivery_signals",
+            },
+        ),
+    ),
+)
+def test_additive_project_sources_stale_every_dependent_slot(
+    trigger: str,
+    expected_slots: set[str],
+):
+    assert set(project_memory_slots_for_trigger(trigger)) == expected_slots
+
+
+def test_project_reassignment_forces_every_memory_slot_stale():
+    assert (
+        project_memory_slots_for_trigger(
+            "project_profile_project_reassigned_changed"
+        )
+        == PROJECT_MEMORY_SLOT_KEYS
+    )
+
+
+def test_legacy_slot_evidence_without_source_hash_remains_compatible():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Legacy pilot", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+
+            slot = session.exec(
+                select(ProjectMemorySlot).where(
+                    ProjectMemorySlot.project_id == project.id,
+                    ProjectMemorySlot.slot_key == "project_brief",
+                )
+            ).one()
+            legacy_refs = json.loads(slot.evidence_refs_json)
+            for ref in legacy_refs:
+                ref.pop("source_sha256", None)
+            slot.evidence_refs_json = json.dumps(legacy_refs)
+            session.add(slot)
+            session.commit()
+
+            state = next(
+                item
+                for item in get_project_memory_slot_states(session, int(project.id))
+                if item["slot_key"] == "project_brief"
+            )
+            assert state["status"] == "ready"
+            assert state["stale_reason"] == ""
+            assert state["evidence_count"] == len(legacy_refs)
     finally:
         engine.dispose()
 
@@ -302,7 +442,10 @@ def test_client_memory_dual_write_has_independent_slots_and_project_provenance()
             assert len(states) == len(CLIENT_MEMORY_SLOT_KEYS)
             by_key = {item["slot_key"]: item for item in states}
             assert by_key["decision_patterns"]["status"] == "ready"
-            assert by_key["decision_patterns"]["evidence_refs"][0]["source_type"] == "project"
+            assert {
+                ref["source_type"]
+                for ref in by_key["decision_patterns"]["evidence_refs"]
+            } >= {"client", "project"}
             assert session.exec(
                 select(ClientMemorySlot).where(ClientMemorySlot.client_id == client.id)
             ).all()
@@ -550,9 +693,9 @@ def test_client_fact_provenance_matches_structured_stakeholder_source():
                 for fact in facts
                 if fact["slot_key"] == "structured_stakeholders"
             )
-            assert stakeholder["provenance_status"] == "matched"
+            assert stakeholder["provenance_status"] == "direct"
             assert stakeholder["evidence_refs"][0]["source_type"] == "client_stakeholder"
-            assert stakeholder["evidence_refs"][0]["relation"] == "label_match"
+            assert stakeholder["evidence_refs"][0]["relation"] == "direct_source_id"
             assert session.exec(select(ClientMemoryFact)).all()
     finally:
         engine.dispose()
@@ -601,6 +744,105 @@ def test_question_context_exposes_fact_identity_and_honest_provenance_counts():
         engine.dispose()
 
 
+def test_project_memory_evidence_preserves_direct_source_id_provenance():
+    project = Project(
+        id=42,
+        name="Pilot",
+        client="Acme",
+        memory_version=3,
+        memory_stale=False,
+    )
+    bundle = build_project_memory_evidence(
+        project,
+        "Which project files should I review?",
+        memory_payload=_project_memory(),
+        fact_states={
+            "important_documents": {
+                0: {
+                    "fact_key": "pmf_0123456789abcdef01234567",
+                    "status": "ready",
+                    "provenance_status": "direct",
+                    "evidence_count": 1,
+                }
+            }
+        },
+    )
+
+    document = next(
+        entry
+        for entry in bundle["manifest"]["entries"]
+        if entry["slot"] == "important_documents"
+    )
+    assert document["provenance_status"] == "direct"
+    assert bundle["selection"]["direct_fact_count"] == 1
+    assert bundle["selection"]["matched_fact_count"] == 0
+    assert "DIRECT means the fact is bound to a verified stable source ID" in bundle["prompt"]
+    assert "[PROVENANCE:DIRECT]" in bundle["prompt"]
+
+
+def test_project_memory_evidence_matches_fact_identity_after_filtered_items_and_hides_stale_direct():
+    project = Project(
+        id=42,
+        name="Pilot",
+        client="Acme",
+        memory_version=3,
+        memory_stale=False,
+    )
+    hidden = {"name": "", "reason": "", "metadata": "retained fact"}
+    ready = {"name": "ready.pdf", "reason": "Current scope"}
+    stale = {"name": "stale.pdf", "reason": "Superseded scope"}
+    bundle = build_project_memory_evidence(
+        project,
+        "Which project files should I review?",
+        memory_payload=_project_memory(
+            important_documents=[hidden, ready, stale],
+        ),
+        fact_states={
+            "important_documents": {
+                0: {
+                    "fact_key": "pmf_0123456789abcdef01234567",
+                    "source_kind": "item",
+                    "value_sha256": _fact_value_sha256(hidden),
+                    "status": "ready",
+                    "provenance_status": "matched",
+                    "evidence_count": 1,
+                },
+                1: {
+                    "fact_key": "pmf_1123456789abcdef01234567",
+                    "source_kind": "item",
+                    "value_sha256": _fact_value_sha256(ready),
+                    "status": "ready",
+                    "provenance_status": "direct",
+                    "evidence_count": 1,
+                },
+                2: {
+                    "fact_key": "pmf_2123456789abcdef01234567",
+                    "source_kind": "item",
+                    "value_sha256": _fact_value_sha256(stale),
+                    "status": "stale",
+                    "provenance_status": "direct",
+                    "evidence_count": 1,
+                },
+            }
+        },
+    )
+
+    documents = [
+        entry
+        for entry in bundle["manifest"]["entries"]
+        if entry["slot"] == "important_documents"
+    ]
+    assert [entry["provenance_status"] for entry in documents] == [
+        "direct",
+        "unresolved",
+    ]
+    assert documents[1]["fact_status"] == "stale"
+    assert documents[1]["fact_evidence_count"] == 0
+    assert bundle["selection"]["direct_fact_count"] == 1
+    assert "[PROVENANCE:DIRECT] [" in bundle["prompt"]
+    assert "[PROVENANCE:UNRESOLVED]" in bundle["prompt"]
+
+
 def test_client_prompt_bundle_reports_fact_level_provenance():
     engine = _engine()
     try:
@@ -636,11 +878,80 @@ def test_client_prompt_bundle_reports_fact_level_provenance():
                 ),
             )
 
-            assert bundle["selection"]["matched_fact_count"] >= 1
+            assert bundle["selection"]["direct_fact_count"] >= 1
             assert bundle["selection"]["evidence_ref_count"] >= 1
-            assert "[PROVENANCE:MATCHED]" in bundle["prompt"]
+            assert "[PROVENANCE:DIRECT]" in bundle["prompt"]
     finally:
         engine.dispose()
+
+
+def test_client_prompt_bundle_preserves_direct_source_id_provenance():
+    client = ClientRecord(
+        id=43,
+        name="Acme",
+        client_memory_version=2,
+        client_memory_stale=False,
+    )
+    bundle = build_client_memory_prompt_bundle(
+        client,
+        "Who are the client stakeholders?",
+        force=True,
+        memory_payload=_client_memory(
+            structured_stakeholders=[{"name": "Alice Chen", "role": "CFO"}]
+        ),
+        fact_states={
+            "structured_stakeholders": {
+                0: {
+                    "status": "ready",
+                    "provenance_status": "direct",
+                    "evidence_count": 1,
+                }
+            }
+        },
+    )
+
+    assert bundle["selection"]["direct_fact_count"] == 1
+    assert bundle["selection"]["matched_fact_count"] == 0
+    assert "DIRECT is a verified stable source-ID link" in bundle["prompt"]
+    assert "[PROVENANCE:DIRECT]" in bundle["prompt"]
+
+
+def test_client_prompt_bundle_matches_duplicate_facts_by_value_not_display_ordinal():
+    client = ClientRecord(
+        id=43,
+        name="Acme",
+        client_memory_version=2,
+        client_memory_stale=False,
+    )
+    bundle = build_client_memory_prompt_bundle(
+        client,
+        "How does the client make decisions?",
+        force=True,
+        memory_payload=_client_memory(decision_patterns=["Alpha", "Alpha", "Beta"]),
+        fact_states={
+            "decision_patterns": {
+                0: {
+                    "source_kind": "item",
+                    "value_sha256": _fact_value_sha256("Alpha"),
+                    "status": "ready",
+                    "provenance_status": "unresolved",
+                    "evidence_count": 0,
+                },
+                1: {
+                    "source_kind": "item",
+                    "value_sha256": _fact_value_sha256("Beta"),
+                    "status": "ready",
+                    "provenance_status": "direct",
+                    "evidence_count": 1,
+                },
+            }
+        },
+    )
+
+    assert "[PROVENANCE:DIRECT]: Beta" in bundle["prompt"]
+    assert "[PROVENANCE:DIRECT]: Alpha" not in bundle["prompt"]
+    assert bundle["selection"]["direct_fact_count"] == 1
+    assert bundle["selection"]["unresolved_fact_count"] >= 2
 
 
 def test_memory_rebuild_planner_selects_stale_subset_and_preserves_canonical_order():
@@ -703,6 +1014,47 @@ def test_client_rebuild_planner_selects_stakeholder_slots():
 
     assert plan.mode == "partial"
     assert set(plan.slot_keys) == stale
+
+
+def test_stakeholder_change_stales_every_matching_project_scope():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            matching = [
+                Project(name="Pilot", client="Acme"),
+                Project(name="Rollout", client="  ACME  "),
+            ]
+            unrelated = Project(name="Other", client="Globex")
+            session.add_all([*matching, unrelated])
+            session.commit()
+            for project in [*matching, unrelated]:
+                session.refresh(project)
+                save_project_memory(
+                    session,
+                    int(project.id or 0),
+                    _project_memory(),
+                    trigger="test",
+                )
+
+            mark_project_memories_stale_by_client_name(
+                session,
+                " acme ",
+                trigger="stakeholder_updated",
+            )
+
+            for project in matching:
+                refreshed = session.get(Project, project.id)
+                assert refreshed.memory_stale is True
+                states = {
+                    state["slot_key"]: state["status"]
+                    for state in get_project_memory_slot_states(session, project.id)
+                }
+                assert states["stakeholder_notes"] == "stale"
+                assert states["client_stakeholders"] == "stale"
+                assert states["project_brief"] == "ready"
+            assert session.get(Project, unrelated.id).memory_stale is False
+    finally:
+        engine.dispose()
 
 
 def test_project_partial_rebuild_updates_only_selected_slots_and_facts():
@@ -846,6 +1198,52 @@ def test_project_partial_rebuild_rejects_changed_slot_baseline():
         engine.dispose()
 
 
+def test_client_full_promotion_plan_rejects_concurrent_memory_version_change():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            client = ClientRecord(name="Acme")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            client_id = int(client.id or 0)
+            save_client_memory(session, client_id, _client_memory(), trigger="test")
+            client = session.get(ClientRecord, client_id)
+            plan = plan_client_memory_rebuild(
+                memory_version=int(client.client_memory_version or 0),
+                parent_stale=bool(client.client_memory_stale),
+                trigger="manual",
+                slot_states=get_client_memory_slot_states(session, client_id),
+            )
+            session.rollback()
+
+            with Session(engine) as concurrent_session:
+                save_client_memory(
+                    concurrent_session,
+                    client_id,
+                    _client_memory(client_profile="Concurrent client memory"),
+                    trigger="concurrent",
+                )
+
+            with pytest.raises(MemoryRebuildConflict):
+                save_client_memory(
+                    session,
+                    client_id,
+                    _client_memory(client_profile="Stale promotion output"),
+                    trigger="project_promoted",
+                    rebuilt_slots=CLIENT_MEMORY_SLOT_KEYS,
+                    rebuild_mode="full",
+                    rebuild_plan=plan,
+                )
+
+            session.rollback()
+            refreshed = session.get(ClientRecord, client_id)
+            assert refreshed.client_memory_version == 2
+            assert "Concurrent client memory" in refreshed.client_memory_json
+    finally:
+        engine.dispose()
+
+
 def test_client_partial_rebuild_updates_only_stale_stakeholder_slots():
     from app.routers import clients_deps
 
@@ -892,5 +1290,257 @@ def test_client_partial_rebuild_updates_only_stale_stakeholder_slots():
             assert memory["lessons_learned"] == ["Pilot before scale"]
             assert memory["rebuild_log"][-1]["mode"] == "partial"
             assert session.get(ClientRecord, client.id).client_memory_stale is False
+    finally:
+        engine.dispose()
+
+
+def test_project_full_rebuild_rejects_truncated_json_without_overwriting_memory():
+    from app.routers import projects_deps
+
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+            mocked = AsyncMock(return_value='{"project_brief":"truncated"')
+
+            with patch.object(projects_deps, "complete_with_selected_model", mocked):
+                with pytest.raises(MemoryPatchValidationError):
+                    asyncio.run(
+                        projects_deps._rebuild_project_memory(
+                            session,
+                            project.id,
+                            trigger="manual",
+                        )
+                    )
+
+            refreshed = session.get(Project, project.id)
+            persisted = get_project_memory_payload(refreshed)
+            prompt = mocked.await_args.kwargs["messages"][0]["content"]
+            assert refreshed.memory_version == 1
+            assert persisted["project_brief"] == "Current project brief"
+            assert mocked.await_args.kwargs["max_tokens"] == 3200
+            assert "Return at most 48 _source_attributions entries" in prompt
+            assert "never copy a source tag into any business field value" in prompt
+    finally:
+        engine.dispose()
+
+
+def test_project_rebuild_rejects_prompt_source_change_during_provider():
+    from app.routers import projects_deps
+
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(
+                name="Pilot",
+                client="Acme",
+                description="Original provider input",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+
+            async def mutate_prompt_source(**_kwargs):
+                current = session.get(Project, project.id)
+                current.description = "Changed while the provider was running"
+                session.add(current)
+                session.commit()
+                return json.dumps(_project_memory())
+
+            with patch.object(
+                projects_deps,
+                "complete_with_selected_model",
+                new=mutate_prompt_source,
+            ):
+                with pytest.raises(
+                    MemoryRebuildConflict,
+                    match="project prompt sources changed",
+                ):
+                    asyncio.run(
+                        projects_deps._rebuild_project_memory(
+                            session,
+                            project.id,
+                            trigger="manual",
+                        )
+                    )
+
+            refreshed = session.get(Project, project.id)
+            assert refreshed.memory_version == 1
+            assert refreshed.description == "Changed while the provider was running"
+    finally:
+        engine.dispose()
+
+
+def test_project_full_fallback_rejects_truncated_json_without_overwriting_memory():
+    from app.routers import projects_deps
+
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+            mark_project_memory_stale(session, project.id, trigger="payment_created")
+            mocked = AsyncMock(
+                side_effect=[
+                    '{"financial_status":"Paid"}',
+                    '{"project_brief":"truncated"',
+                ]
+            )
+
+            with patch.object(projects_deps, "complete_with_selected_model", mocked):
+                with pytest.raises(MemoryPatchValidationError):
+                    asyncio.run(
+                        projects_deps._rebuild_project_memory(
+                            session,
+                            project.id,
+                            trigger="payment_created",
+                        )
+                    )
+
+            refreshed = session.get(Project, project.id)
+            persisted = get_project_memory_payload(refreshed)
+            assert mocked.await_count == 2
+            assert all(
+                call.kwargs["max_tokens"] == 3200
+                for call in mocked.await_args_list
+            )
+            assert refreshed.memory_version == 1
+            assert persisted["financial_status"] == "First invoice pending"
+    finally:
+        engine.dispose()
+
+
+def test_client_full_rebuild_rejects_truncated_json_without_overwriting_memory():
+    from app.routers import clients_deps
+
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            client = ClientRecord(name="Acme")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            save_client_memory(session, client.id, _client_memory(), trigger="test")
+            mocked = AsyncMock(return_value='{"client_profile":"truncated"')
+
+            with patch.object(
+                clients_deps,
+                "_current_complete_with_selected_model",
+                return_value=mocked,
+            ):
+                with pytest.raises(MemoryPatchValidationError):
+                    asyncio.run(
+                        clients_deps._rebuild_client_memory(
+                            session,
+                            client.id,
+                            trigger="manual",
+                        )
+                    )
+
+            refreshed = session.get(ClientRecord, client.id)
+            persisted = get_client_memory_payload(refreshed)
+            prompt = mocked.await_args.kwargs["messages"][0]["content"]
+            assert refreshed.client_memory_version == 1
+            assert persisted["client_profile"] == "Enterprise account"
+            assert mocked.await_args.kwargs["max_tokens"] == 3200
+            assert "Return at most 48 _source_attributions entries" in prompt
+            assert "never copy a source tag into any business field value" in prompt
+    finally:
+        engine.dispose()
+
+
+def test_client_rebuild_rejects_prompt_source_change_during_provider():
+    from app.routers import clients_deps
+
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            client = ClientRecord(name="Acme", notes="Original provider input")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            save_client_memory(session, client.id, _client_memory(), trigger="test")
+
+            async def mutate_prompt_source(**_kwargs):
+                current = session.get(ClientRecord, client.id)
+                current.notes = "Changed while the provider was running"
+                session.add(current)
+                session.commit()
+                return json.dumps(_client_memory())
+
+            with patch.object(
+                clients_deps,
+                "_current_complete_with_selected_model",
+                return_value=mutate_prompt_source,
+            ):
+                with pytest.raises(
+                    MemoryRebuildConflict,
+                    match="client prompt sources changed",
+                ):
+                    asyncio.run(
+                        clients_deps._rebuild_client_memory(
+                            session,
+                            client.id,
+                            trigger="manual",
+                        )
+                    )
+
+            refreshed = session.get(ClientRecord, client.id)
+            assert refreshed.client_memory_version == 1
+            assert refreshed.notes == "Changed while the provider was running"
+    finally:
+        engine.dispose()
+
+
+def test_client_full_fallback_rejects_truncated_json_without_overwriting_memory():
+    from app.routers import clients_deps
+
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            client = ClientRecord(name="Acme")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            save_client_memory(session, client.id, _client_memory(), trigger="test")
+            mark_client_memory_stale(session, client.id, trigger="stakeholder_updated")
+            mocked = AsyncMock(
+                side_effect=[
+                    '{"key_contacts":[]}',
+                    '{"client_profile":"truncated"',
+                ]
+            )
+
+            with patch.object(
+                clients_deps,
+                "_current_complete_with_selected_model",
+                return_value=mocked,
+            ):
+                with pytest.raises(MemoryPatchValidationError):
+                    asyncio.run(
+                        clients_deps._rebuild_client_memory(
+                            session,
+                            client.id,
+                            trigger="stakeholder_updated",
+                        )
+                    )
+
+            refreshed = session.get(ClientRecord, client.id)
+            persisted = get_client_memory_payload(refreshed)
+            assert mocked.await_count == 2
+            assert all(
+                call.kwargs["max_tokens"] == 3200
+                for call in mocked.await_args_list
+            )
+            assert refreshed.client_memory_version == 1
+            assert persisted["relationship_signals"] == ["Trust improving"]
     finally:
         engine.dispose()

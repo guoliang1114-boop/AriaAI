@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
 > 更新日期：2026-08-28
-> 状态：Phase 1 至 Phase 2W、项目对话 Phase 3A 至 3J 已实施
+> 状态：Phase 1 至 Phase 2W、项目对话 Phase 3A 至 3L 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -742,6 +742,18 @@ Phase 2S 把 Codex apply-patch 的“先冻结基线、写入前重新验证”�
 ### Phase 3K：槽位级局部重建与并发基线守卫（已实施）
 
 继续参考 `codex-rs/core/src/context/world_state/mod.rs`（固定提交 `83d1fe0e67b1323f71febc2925817732b449f1d9`）的状态捕获/重建边界。Aria 在调度执行时读取持久槽位账本，以实际 stale/corrupt 集合规划局部或全量重建；局部路径只加载目标槽位所需来源、要求模型返回严格 key/type patch，并只同步目标槽位及事实。生成前的聚合版本、槽位版本、摘要与 stale 时间形成基线，保存事务再次锁定验证；漂移结果拒绝写入并进入既有有界重试。局部结果无效时只额外调用一次全量重建并记录 `full_fallback`，手动/账本缺失/全陈旧路径保守全量。API 和项目/客户 UI 展示最近模式与槽位数，确定性门禁扩展为 60 场景、18 项指标。无需数据库迁移，不运行、不导入、不连接 Codex。
+
+### Phase 3L：稳定来源 ID 直连与白名单归因（已实施）
+
+继续参考 `codex-rs/core/src/context/world_state/mod.rs`（固定提交 `83d1fe0e67b1323f71febc2925817732b449f1d9`）的稳定来源身份，但归因、权限和事实账本仍完全属于 Aria。项目/客户记忆重建会给当次真实读取的业务记录加上模型可见的 `[source_type:id]` 标记，例如 `[project_payment:17]` 和 `[client_stakeholder:9]`；模型可选返回私有 `_source_attributions`，用 `slot_key + fact_index + source_ids` 表达事实与来源的直连。该字段仅在重建边界内流转，保存前从综合记忆 JSON 中移除。
+
+Provider 输出不是授权证据。Aria 先限制归因数量、槽位和事实索引范围，再将每个 source ID 与该槽位当次实际读取的 Aria evidence pool 精确比对；只有白名单命中才记为 `direct` / `direct_source_id`。`direct` 还必须同时通过两个稳定绑定：Prompt 生成前捕获的 `source_sha256` 要与保存时当前业务投影摘要一致，事实则用 `source_kind + fact_value_sha256` 绑定到 parser 验证后的值；来源改变或索引漂移会立即降级。该快照只保留 SHA-256 和有界身份元数据，不保存业务原文。缺失、越界、伪造或旧 Provider 未返回归因时，依次回退到确定性标签 `matched`、当次读取范围 `scoped` 和 `unresolved`，不将“曾经读过”冒充为直接证明。未改变事实只在其既有直连仍属于当前槽位白名单时保留。旧模型输出和原综合 JSON 路径继续兼容；复用现有事实证据字段，无需数据库迁移，不运行、不导入、不连接 Codex。
+
+项目晋升客户记忆使用独立的 `[project_memory:id]` 来源族，其摘要严格覆盖 Prompt 中展示的全部项目业务槽位，并排除版本、时间、重建日志等运行元数据；普通客户重建仍只允许使用其实际看到的 `[project:id]`。`matched/scoped` 同样与 Prompt 前快照求交，运行期间新增的来源不能倒挂到旧输出。事实和槽位在读取时会再次校验当前来源摘要，项目记忆或 Stakeholder 跨作用域变化会动态降级为 `source_changed`；非 ready 事实不会继续显示或计入 `direct`。
+
+项目/客户重建与晋升在调用 Provider 前结束只读事务，生成后重新加载实体，并以 owner → slot → fact 的统一锁序验证版本和槽位基线。晋升还持有完整客户记忆基线，冲突返回 409；归档自动晋升的客户写入和 completed receipt 同事务提交，失败 receipt 可重试。手工执行队列任务若解析或重建失败，会落库为 `failed`，不再留下“任务已删除但状态仍 queued”的孤儿记录。
+
+确定性发布门禁同步扩展为 63 个场景、19 项指标，新增 `memory_direct_source_accuracy`，当前全部通过。
 
 ## 8. 许可证与升级流程
 

@@ -1086,6 +1086,7 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
 }
 
 const FACT_PROVENANCE_LABELS: Record<MemoryFactState['provenance_status'], string> = {
+  direct: '稳定来源已直连',
   matched: '来源标签已匹配',
   scoped: '槽位范围来源',
   legacy: '历史来源未完整',
@@ -1098,6 +1099,7 @@ function SlotSection({ meta, data, slotState, factStates, onOpenAnchors }: SlotS
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const showSources = factStates.length > 0 || (slotState?.evidence_count ?? 0) > 0
   const slotStale = slotState?.status === 'stale' || slotState?.status === 'corrupt'
+  const directFactCount = factStates.filter((fact) => fact.provenance_status === 'direct').length
   const matchedFactCount = factStates.filter((fact) => fact.provenance_status === 'matched').length
   const unresolvedFactCount = factStates.filter((fact) => fact.provenance_status === 'unresolved').length
 
@@ -1323,7 +1325,7 @@ function SlotSection({ meta, data, slotState, factStates, onOpenAnchors }: SlotS
               ▶
             </span>
             <span>
-              逐条溯源 · {factStates.length} 条事实 · {matchedFactCount} 条匹配
+              逐条溯源 · {factStates.length} 条事实 · {directFactCount} 条直连 · {matchedFactCount} 条匹配
               {unresolvedFactCount > 0 ? ` · ${unresolvedFactCount} 条待补证` : ''}
             </span>
           </button>
@@ -1348,7 +1350,7 @@ function SlotSection({ meta, data, slotState, factStates, onOpenAnchors }: SlotS
                     <span style={{ color: 'var(--ink)', wordBreak: 'break-word' }}>
                       {fact.value_preview || '内容校验失败'}
                     </span>
-                    <span style={{ flexShrink: 0, color: fact.provenance_status === 'matched' ? 'var(--good)' : fact.provenance_status === 'unresolved' ? 'var(--warn)' : 'var(--ink-mute)' }}>
+                    <span style={{ flexShrink: 0, color: fact.provenance_status === 'direct' || fact.provenance_status === 'matched' ? 'var(--good)' : fact.provenance_status === 'unresolved' ? 'var(--warn)' : 'var(--ink-mute)' }}>
                       {FACT_PROVENANCE_LABELS[fact.provenance_status]}
                     </span>
                   </div>
@@ -1360,7 +1362,10 @@ function SlotSection({ meta, data, slotState, factStates, onOpenAnchors }: SlotS
                       <span style={{ color: 'var(--ink-mute)' }}>
                         {SOURCE_TYPE_LABELS[source.source_type] ?? source.source_type}
                       </span>
-                      <span style={{ wordBreak: 'break-word' }}>{source.source_label}</span>
+                      <span style={{ wordBreak: 'break-word' }}>
+                        {source.source_label}
+                        {source.relation === 'direct_source_id' ? ` · #${source.source_id}` : ''}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -1378,7 +1383,7 @@ function SlotSection({ meta, data, slotState, factStates, onOpenAnchors }: SlotS
                   lineHeight: 1.55,
                 }}
               >
-                “来源标签已匹配”表示可确定性对上该事实；“槽位范围来源”只表示重建时读过，不冒充直接引用
+                “稳定来源已直连”表示来源 ID 已通过 Aria 当前来源池校验；“来源标签已匹配”表示内容可确定性对上该事实；“槽位范围来源”只表示重建时读过，不冒充直接引用
               </div>
               {slotStale && slotState?.stale_reason && (
                 <div style={{ marginTop: 6, color: 'var(--warn)' }}>

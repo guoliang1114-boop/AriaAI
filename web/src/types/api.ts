@@ -149,7 +149,7 @@ export interface MemorySlotListResponse {
 }
 
 export interface MemoryFactEvidenceRef extends MemorySlotEvidenceRef {
-  relation: 'label_match' | 'slot_scope' | 'legacy_aggregate' | string
+  relation: 'direct_source_id' | 'label_match' | 'slot_scope' | 'legacy_aggregate' | string
 }
 
 export interface MemoryFactState {
@@ -160,7 +160,7 @@ export interface MemoryFactState {
   first_seen_memory_version: number
   last_seen_memory_version: number
   status: 'ready' | 'stale' | 'corrupt' | 'retired'
-  provenance_status: 'matched' | 'scoped' | 'legacy' | 'unresolved'
+  provenance_status: 'direct' | 'matched' | 'scoped' | 'legacy' | 'unresolved'
   value_sha256: string
   value_preview: string
   evidence_count: number
@@ -177,6 +177,7 @@ export interface MemoryFactListResponse {
   memory_version: number
   fact_count: number
   stale_fact_count: number
+  direct_fact_count: number
   matched_fact_count: number
   scoped_fact_count: number
   unresolved_fact_count: number

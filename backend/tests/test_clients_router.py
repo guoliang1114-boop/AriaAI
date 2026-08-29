@@ -6,7 +6,19 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import User, ClientRecord, ClientStakeholder, KnowledgeDocument, Project
+from app.models.db import (
+    ClientMemoryFact,
+    ClientMemorySlot,
+    ClientMemorySnapshot,
+    ClientMemorySummary,
+    ClientRecord,
+    ClientStakeholder,
+    ClientStakeholderHistory,
+    KnowledgeDocument,
+    MemoryCandidate,
+    Project,
+    User,
+)
 from app.routers import clients as clients_module
 from app.routers.auth import get_current_user
 from app.routers.clients import router
@@ -95,9 +107,29 @@ class ClientsCrudTestCase(unittest.TestCase):
 
     def test_update_client(self):
         created = self._create_client("OldName")
+        with Session(self.engine) as session:
+            old_project = Project(
+                name="Old-name project",
+                client="OldName",
+                memory_stale=False,
+            )
+            new_project = Project(
+                name="New-name project",
+                client="NewName",
+                memory_stale=False,
+            )
+            session.add(old_project)
+            session.add(new_project)
+            session.commit()
+            session.refresh(old_project)
+            session.refresh(new_project)
+            project_ids = (old_project.id, new_project.id)
         resp = self.client.put(f"/clients/{created['id']}", json={"name": "NewName"})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["name"], "NewName")
+        with Session(self.engine) as session:
+            self.assertTrue(session.get(Project, project_ids[0]).memory_stale)
+            self.assertTrue(session.get(Project, project_ids[1]).memory_stale)
 
     def test_update_client_industry(self):
         created = self._create_client("Corp", "Old Industry")
@@ -111,6 +143,105 @@ class ClientsCrudTestCase(unittest.TestCase):
         self.assertIn(resp.status_code, [200, 204])
         resp2 = self.client.get(f"/clients/{created['id']}")
         self.assertEqual(resp2.status_code, 404)
+
+    def test_delete_client_removes_all_owned_memory_and_stakeholder_records(self):
+        created = self._create_client("DeleteGraphCorp")
+        client_id = created["id"]
+        with Session(self.engine) as session:
+            linked_project = Project(
+                name="Linked project",
+                client="DeleteGraphCorp",
+                memory_stale=False,
+            )
+            stakeholder = ClientStakeholder(client_id=client_id, name="Alice")
+            document = KnowledgeDocument(
+                name="client-note.md",
+                file_type="md",
+                path="/tmp/client-note.md",
+                client_id=client_id,
+            )
+            session.add(linked_project)
+            session.add(stakeholder)
+            session.add(document)
+            session.commit()
+            session.refresh(stakeholder)
+            session.refresh(document)
+            session.refresh(linked_project)
+            document_id = document.id
+            linked_project_id = linked_project.id
+            session.add(
+                ClientStakeholderHistory(
+                    stakeholder_id=stakeholder.id,
+                    client_id=client_id,
+                    field_name="role",
+                    new_value="Sponsor",
+                    trigger="manual",
+                )
+            )
+            session.add(
+                ClientMemorySummary(
+                    client_id=client_id,
+                    summary_type="briefing",
+                    language="zh",
+                    memory_version=1,
+                    content="summary",
+                )
+            )
+            session.add(
+                ClientMemorySnapshot(
+                    client_id=client_id,
+                    memory_version=1,
+                    trigger="test",
+                    memory_json="{}",
+                )
+            )
+            session.add(
+                ClientMemorySlot(
+                    client_id=client_id,
+                    slot_key="relationship_summary",
+                )
+            )
+            session.add(
+                ClientMemoryFact(
+                    client_id=client_id,
+                    slot_key="relationship_summary",
+                    fact_key="fact-1",
+                )
+            )
+            session.add(
+                MemoryCandidate(
+                    owner_user_id=self.user_id,
+                    scope="client",
+                    candidate_type="memory",
+                    content="candidate",
+                    content_sha256="delete-graph-candidate",
+                    client_id=client_id,
+                )
+            )
+            session.commit()
+
+        resp = self.client.delete(f"/clients/{client_id}")
+        self.assertIn(resp.status_code, [200, 204])
+
+        with Session(self.engine) as session:
+            self.assertIsNone(session.get(ClientRecord, client_id))
+            for model in (
+                ClientStakeholder,
+                ClientStakeholderHistory,
+                ClientMemorySummary,
+                ClientMemorySnapshot,
+                ClientMemorySlot,
+                ClientMemoryFact,
+                MemoryCandidate,
+            ):
+                self.assertEqual(
+                    session.exec(select(model).where(model.client_id == client_id)).all(),
+                    [],
+                )
+            document = session.get(KnowledgeDocument, document_id)
+            self.assertIsNotNone(document)
+            self.assertIsNone(document.client_id)
+            self.assertTrue(session.get(Project, linked_project_id).memory_stale)
 
     def test_delete_nonexistent_client(self):
         resp = self.client.delete("/clients/99999")
@@ -256,8 +387,31 @@ class ClientsStakeholderTestCase(unittest.TestCase):
             "name": "Alice", "role": "CEO"
         })
         stakeholder_id = create_resp.json()["id"]
+        update_resp = self.client.put(
+            f"/clients/{self.client_id}/stakeholders/{stakeholder_id}",
+            json={"role": "Chair"},
+        )
+        self.assertEqual(update_resp.status_code, 200)
+        with Session(self.engine) as session:
+            self.assertTrue(
+                session.exec(
+                    select(ClientStakeholderHistory).where(
+                        ClientStakeholderHistory.stakeholder_id == stakeholder_id
+                    )
+                ).all()
+            )
         resp = self.client.delete(f"/clients/{self.client_id}/stakeholders/{stakeholder_id}")
         self.assertIn(resp.status_code, [200, 204])
+        with Session(self.engine) as session:
+            self.assertIsNone(session.get(ClientStakeholder, stakeholder_id))
+            self.assertEqual(
+                session.exec(
+                    select(ClientStakeholderHistory).where(
+                        ClientStakeholderHistory.stakeholder_id == stakeholder_id
+                    )
+                ).all(),
+                [],
+            )
 
 
 class ClientsMemoryTestCase(unittest.TestCase):

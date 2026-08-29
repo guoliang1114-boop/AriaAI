@@ -40,6 +40,7 @@ from app.routers.projects_deps import (
 from app.services.project_contexts import (
     get_project_memory_summary_cache,
     get_project_memory_payload,
+    mark_project_memories_stale_by_client_name,
     normalize_summary_language,
     save_project_memory_summary_cache,
 )
@@ -62,6 +63,76 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 
+_PROJECT_STAKEHOLDER_ANALYSIS_FIELDS = (
+    "name",
+    "role",
+    "organization_level",
+    "influence_type",
+    "relationship_status",
+    "concerns",
+    "sensitivities",
+    "communication_preference",
+    "contact",
+    "last_action",
+    "personality_profile",
+    "decision_style",
+    "communication_strategy",
+    "trust_signals",
+    "note",
+)
+
+
+def _project_stakeholder_analysis_baseline(
+    project: Project,
+    client: ClientRecord,
+    stakeholder: ClientStakeholder,
+) -> str:
+    """Freeze every prompt source that may be edited while the provider runs."""
+
+    return json.dumps(
+        {
+            "project": {
+                "id": project.id,
+                "name": project.name,
+                "client": project.client,
+                "status": project.status,
+                "description": project.description,
+                "memory": get_project_memory_payload(project),
+                "memory_updated_at": (
+                    project.memory_updated_at.isoformat()
+                    if project.memory_updated_at
+                    else None
+                ),
+            },
+            "client": {
+                "id": client.id,
+                "name": client.name,
+                "industry": client.industry,
+                "contact": client.contact,
+                "notes": client.notes,
+                "memory": get_client_memory_payload(client),
+                "memory_updated_at": (
+                    client.client_memory_updated_at.isoformat()
+                    if client.client_memory_updated_at
+                    else None
+                ),
+            },
+            "stakeholder": {
+                "id": stakeholder.id,
+                "client_id": stakeholder.client_id,
+                "updated_at": stakeholder.updated_at.isoformat(),
+                **{
+                    field: getattr(stakeholder, field, "")
+                    for field in _PROJECT_STAKEHOLDER_ANALYSIS_FIELDS
+                },
+            },
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 @router.get("/{project_id}/briefing")
 def get_project_meeting_briefing(project_id: int, session: Session = Depends(get_session)):
     """Return a deterministic pre-meeting briefing assembled from memory and project signals."""
@@ -81,6 +152,8 @@ async def refine_project_meeting_briefing(
     briefing = _build_project_briefing(session, project_id)
     cache_type = _briefing_cache_type(meeting_type)
     source_version = _briefing_source_version(briefing, meeting_type)
+    expected_memory_version = project.memory_version
+    expected_rebuild_status = project.memory_rebuild_status
 
     if not body.force_refresh:
         cached = get_project_memory_summary_cache(
@@ -102,6 +175,7 @@ async def refine_project_meeting_briefing(
 
     lock_key = _project_summary_lock_key(project_id, cache_type, normalized_language, source_version)
     summary_lock = _get_project_summary_lock(lock_key)
+    session.rollback()
     async with summary_lock:
         if not body.force_refresh:
             fresh_cached = get_project_memory_summary_cache(
@@ -121,6 +195,7 @@ async def refine_project_meeting_briefing(
                     "cached": True,
                 }
 
+        session.rollback()
         try:
             content = await complete_with_selected_model(
                 messages=[{"role": "user", "content": _build_project_briefing_refine_prompt(briefing, meeting_type, normalized_language)}],
@@ -129,9 +204,11 @@ async def refine_project_meeting_briefing(
         except Exception as e:
             _set_project_memory_failure(
                 session,
-                project,
+                project_id,
                 stage=f"briefing_refine:{meeting_type}",
                 message=str(e),
+                expected_memory_version=expected_memory_version,
+                expected_rebuild_status=expected_rebuild_status,
             )
             raise
 
@@ -180,6 +257,11 @@ async def refine_project_meeting_briefing_stream(
     cache_type = _briefing_cache_type(meeting_type)
     source_version = _briefing_source_version(briefing, meeting_type)
     prompt = _build_project_briefing_refine_prompt(briefing, meeting_type, normalized_language)
+    expected_memory_version = project.memory_version
+    expected_rebuild_status = project.memory_rebuild_status
+    # The response generator may outlive this endpoint frame. It must start
+    # without retaining the request's initial read transaction.
+    session.rollback()
 
     async def event_stream():
         def sse(payload: dict) -> str:
@@ -196,6 +278,9 @@ async def refine_project_meeting_briefing_stream(
                 memory_version=source_version,
             )
             if cached:
+                cached_content = cached.content
+                cached_updated_at = cached.updated_at.isoformat()
+                session.rollback()
                 yield sse({
                     "type": "meta",
                     "memory_version": source_version,
@@ -204,11 +289,12 @@ async def refine_project_meeting_briefing_stream(
                 })
                 yield sse({
                     "type": "done",
-                    "content": cached.content,
-                    "generated_at": cached.updated_at.isoformat(),
+                    "content": cached_content,
+                    "generated_at": cached_updated_at,
                     "cached": True,
                 })
                 return
+            session.rollback()
 
         yield sse({
             "type": "meta",
@@ -261,9 +347,11 @@ async def refine_project_meeting_briefing_stream(
         except Exception as exc:  # noqa: BLE001
             _set_project_memory_failure(
                 session,
-                project,
+                project_id,
                 stage=f"briefing_refine_stream:{meeting_type}",
                 message=str(exc),
+                expected_memory_version=expected_memory_version,
+                expected_rebuild_status=expected_rebuild_status,
             )
             yield sse({"type": "error", "message": str(exc)})
             return
@@ -422,7 +510,16 @@ def apply_project_stakeholder_candidates(
         )
 
     if created:
-        mark_client_memory_stale_by_name(session, project.client)
+        mark_client_memory_stale_by_name(
+            session,
+            project.client,
+            trigger="stakeholder_created",
+        )
+        mark_project_memories_stale_by_client_name(
+            session,
+            project.client,
+            trigger="stakeholder_created",
+        )
         _bust_project(project_id)
 
     return {
@@ -449,9 +546,15 @@ async def analyze_project_stakeholder(
     stakeholder = session.get(ClientStakeholder, stakeholder_id)
     if not stakeholder or stakeholder.client_id != client.id:
         raise HTTPException(status_code=404, detail="Stakeholder not found")
+    analysis_client_id = int(client.id)
 
     project_memory = get_project_memory_payload(project)
     client_memory = get_client_memory_payload(client)
+    source_baseline = _project_stakeholder_analysis_baseline(
+        project,
+        client,
+        stakeholder,
+    )
     focus = (body.focus if body else "") or ""
     prompt = (
         "You are a senior account strategy advisor. Analyze this contact for the current project and client.\n"
@@ -474,6 +577,10 @@ async def analyze_project_stakeholder(
         f"- focus: {focus}\n\n"
         "Write in Chinese unless the facts are clearly English-only."
     )
+    # Do not retain a synchronous SQLAlchemy transaction while awaiting the
+    # provider. A locked reload and exact prompt-source comparison below make a
+    # concurrent manual edit authoritative over this stale model response.
+    session.rollback()
     raw = await complete_with_selected_model(messages=[{"role": "user", "content": prompt}], max_tokens=1600)
     try:
         parsed = json.loads(_extract_first_json_object_from_text(str(raw or "")))
@@ -481,6 +588,47 @@ async def analyze_project_stakeholder(
             parsed = {}
     except json.JSONDecodeError:
         parsed = {}
+
+    session.expire_all()
+    # Use the shared Project -> Client -> Stakeholder lock order. These rows
+    # carry both authorization and the source baseline for the AI write.
+    project = session.exec(
+        select(Project)
+        .where(Project.id == project_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    client = session.exec(
+        select(ClientRecord)
+        .where(ClientRecord.id == analysis_client_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    stakeholder = session.exec(
+        select(ClientStakeholder)
+        .where(ClientStakeholder.id == stakeholder_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if (
+        not project
+        or not client
+        or not stakeholder
+        or stakeholder.client_id != client.id
+        or _normalize_name(project.client) != _normalize_name(client.name)
+    ):
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Project, client, or stakeholder changed during analysis; retry with current data.",
+        )
+    if _project_stakeholder_analysis_baseline(project, client, stakeholder) != source_baseline:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Stakeholder analysis sources changed during generation; retry with current data.",
+        )
+    project_client_name = str(project.client or "")
 
     stakeholder.personality_profile = str(parsed.get("personality_profile") or "").strip()[:2000]
     stakeholder.decision_style = str(parsed.get("decision_style") or "").strip()[:2000]
@@ -490,7 +638,16 @@ async def analyze_project_stakeholder(
     session.add(stakeholder)
     session.commit()
     session.refresh(stakeholder)
-    mark_client_memory_stale_by_name(session, project.client, trigger="stakeholder_analyzed")
+    mark_client_memory_stale_by_name(
+        session,
+        project_client_name,
+        trigger="stakeholder_analyzed",
+    )
+    mark_project_memories_stale_by_client_name(
+        session,
+        project_client_name,
+        trigger="stakeholder_analyzed",
+    )
     _bust_project(project_id)
     clients_cache.delete(_CLIENTS_KEY)
     return _serialize_client_stakeholder_dict(stakeholder)
