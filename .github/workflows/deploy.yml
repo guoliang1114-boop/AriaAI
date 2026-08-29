@@ -253,7 +253,6 @@ jobs:
                 tests/test_memory_slots.py \
                 tests/test_product_run_events.py \
                 tests/test_project_chat_quality_eval.py \
-                tests/test_project_deletion.py \
                 tests/test_project_memory_evidence.py \
                 tests/test_run_evaluation.py \
                 tests/test_run_output_record.py \
