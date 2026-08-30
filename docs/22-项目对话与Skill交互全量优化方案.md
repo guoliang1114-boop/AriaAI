@@ -439,6 +439,14 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 幂等迁移 `037_v1_37` 增加租约字段、索引与一致性 CHECK，并保持单一 Alembic head。运行参数具有保守默认值和硬上下限；滚动部署期间的旧无租约 active Run 只有超过独立保护期才会被收口。
 - 本阶段不恢复 Codex transcript，不运行或连接 Codex；项目、消息、记忆、Skill、任务、工具、权限、审批和审计全部继续属于 Aria。
 
+### Phase 3P：项目级运行恢复中心（已实施）
+
+- 项目对话左栏增加“恢复”入口，不再要求用户先记得是哪条 Assistant 消息中断。入口汇总待核对、未应用追问、已继续和缺少恢复投影的近期运行，并可定位到精确会话与消息。
+- `GET /chat/projects/{project_id}/recovery-center` 是授权后的只读、无正文投影：只返回 Run/Conversation/Message 身份、安全原因分类、终止阶段、恢复状态、后续子 Run 与 Steering 数量/消息身份；不返回消息正文、Prompt、原始异常文本、worker fencing token 或租约 token。
+- `ready` 只代表 Assistant Message 与持久 Rollout 的结构身份匹配，不代表可以跳过校验。用户仍需在原消息卡片调用既有 `recovery-preview v2`，由服务端重新核对 World State、effect ledger、未应用/已应用输入和恢复子 Run 后，才能确认创建新的审计 Turn。
+- `continued` 显示已存在的后续 Run 并定位结果；`projection_missing` 明确提示从 fresh Turn 重新说明未完成部分。恢复中心不接管 worker、不恢复 Provider transcript、不自动重试模型/工具/业务写，也不创建第二套恢复协议。
+- 运行结束后恢复索引自动刷新；窗口有界并明确标记截断。新增服务级权限/隐私/状态测试与前端交互测试。本阶段不新增数据库迁移，不运行或连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

@@ -898,6 +898,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-08-30）：Phase 3O 已为 active ChatRun 增加数据库 worker lease、fencing token/generation、heartbeat、Assistant Message 终态前投影和跨进程 reaper。模型/工具批次、耐久输入、checkpoint、Persist 与终态共用同一运行代；过期 worker 被收口为可审计 `interrupted`，但绝不自动重放 Provider、工具或业务写。异步后台任务持久关联真实 ChatRun，诊断公开不含 token 的租约状态。字段、索引和一致性约束由幂等迁移 `037_v1_37` 管理；不引入 Codex 运行时、SDK、协议或通信。
 
+补充进展（2026-08-31）：Phase 3P 把已有的单消息恢复能力提升为项目级恢复中心。新的只读投影按项目列出近期终止 Run、内容安全的中断原因、Assistant 恢复投影、后续子 Run 和未应用 Steering 证据，前端提供“恢复”入口并定位精确消息。列表本身不创建恢复合同或执行任务；所有继续动作仍走 `TurnRecoveryContract v2` 的世界状态、副作用、输入身份和防重校验。缺少可验证 Assistant 投影时只建议 fresh Turn，已存在后续运行时只展示事实，不自动重放。本阶段不新增迁移，也不引入 Codex 运行时、SDK、协议或通信。
+
 范围：
 
 - 工具注册表标准化。（首批已完成）

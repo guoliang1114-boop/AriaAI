@@ -1468,6 +1468,60 @@ export interface TurnRecoveryPreviewV2 extends TurnRecoveryInputV2 {
 
 export type TurnRecoveryPreview = TurnRecoveryPreviewV1 | TurnRecoveryPreviewV2
 
+export type ProjectRecoveryState = 'ready' | 'continued' | 'projection_missing'
+
+export interface ProjectRecoveryCenterItem {
+  run_id: string
+  conversation_id: number
+  conversation_title: string
+  source_message_id?: number | null
+  assistant_message_id?: number | null
+  source_status: 'cancelled' | 'failed' | 'interrupted' | string
+  phase: string
+  reason: {
+    category: 'worker_lost' | 'timeout' | 'provider_failure' | 'user_cancelled' | 'worker_interrupted' | 'runtime_failure' | string
+    code: string
+  }
+  retryable: boolean
+  recovery_state: ProjectRecoveryState
+  can_review: boolean
+  projection_available: boolean
+  child_run?: {
+    run_id: string
+    status: string
+    assistant_message_id?: number | null
+    updated_at?: string | null
+  } | null
+  unapplied_input_count: number
+  unapplied_input_message_ids: number[]
+  applied_input_count: number
+  started_at: string
+  completed_at?: string | null
+  updated_at: string
+}
+
+export interface ProjectRecoveryCenter {
+  schema_version: 1
+  project_id: number
+  generated_at: string
+  summary: {
+    returned_count: number
+    ready_count: number
+    continued_count: number
+    projection_missing_count: number
+    attention_count: number
+    unapplied_input_count: number
+    oldest_attention_at?: string | null
+    truncated: boolean
+  }
+  items: ProjectRecoveryCenterItem[]
+  privacy: {
+    includes_message_content: boolean
+    includes_prompt_content: boolean
+    includes_worker_lease_token: boolean
+  }
+}
+
 export type MessageFeedbackRating = 'helpful' | 'unhelpful'
 export type MessageFeedbackReason =
   | 'inaccurate'

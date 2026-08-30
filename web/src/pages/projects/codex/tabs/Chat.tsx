@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import type {
@@ -7,6 +7,8 @@ import type {
   Message,
   ProjectDetail as ProjectDetailType,
   ProjectMentionables,
+  ProjectRecoveryCenter as ProjectRecoveryCenterPayload,
+  ProjectRecoveryCenterItem,
   SkillSummary,
   TurnRecoveryPreview,
   TurnRevisionInput,
@@ -40,6 +42,7 @@ import {
 } from '../ProjectSkillControl'
 import { ProjectTurnBriefControl } from '../ProjectTurnBriefControl'
 import { ProjectInteractionMetricsPanel } from '../ProjectInteractionMetrics'
+import { ProjectRecoveryCenter } from '../ProjectRecoveryCenter'
 import {
   ProjectTurnRevisionPreview,
   ProjectTurnSetupControl,
@@ -104,7 +107,7 @@ const EMPTY_MENTIONABLES: ProjectMentionables = {
 
 /** Project chat tab — full two-way chat in the project shell.
  *
- * Layout: 260px left rail (segmented 对话 / 空间) + 1fr thread +
+ * Layout: 260px left rail (segmented 对话 / 空间 / 恢复) + 1fr thread +
  * optional 380px artifact preview pane on the right. Messages,
  * pending sends, and the SSE streaming hook all live here at the
  * parent so the 空间 tree can read the same conversation's
@@ -123,7 +126,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
   } = useProjectConversations(projectId)
 
   const [requestedSelectedId, setRequestedSelectedId] = useState<number | null>(null)
-  const [view, setView] = useState<'chats' | 'space'>('chats')
+  const [view, setView] = useState<'chats' | 'space' | 'recovery'>('chats')
   const [creating, setCreating] = useState(false)
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [mentionablesState, setMentionablesState] = useState<{
@@ -137,9 +140,50 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
   // Preview pane width is user-resizable via a drag handle on its
   // left edge. Per-session only — we don't bother persisting it.
   const [previewWidth, setPreviewWidth] = useState(380)
+  const [recoveryState, setRecoveryState] = useState<{
+    projectId: number | null
+    data: ProjectRecoveryCenterPayload | null
+  }>({ projectId: null, data: null })
+  const [recoveryLoading, setRecoveryLoading] = useState(false)
+  const [recoveryError, setRecoveryError] = useState<string | null>(null)
+  const recoveryRequestRef = useRef(0)
+  const [recoveryFocus, setRecoveryFocus] = useState<{
+    conversationId: number
+    messageId: number | null
+    requestId: number
+  } | null>(null)
+  const recoveryData = recoveryState.projectId === projectId ? recoveryState.data : null
   const selectedId = conversations.some((conversation) => conversation.id === requestedSelectedId)
     ? requestedSelectedId
     : conversations[0]?.id ?? null
+
+  const loadRecoveryCenter = useCallback(async () => {
+    const requestId = recoveryRequestRef.current + 1
+    recoveryRequestRef.current = requestId
+    setRecoveryLoading(true)
+    setRecoveryError(null)
+    try {
+      const data = await api.get<ProjectRecoveryCenterPayload>(
+        `/chat/projects/${projectId}/recovery-center`,
+      )
+      if (recoveryRequestRef.current === requestId) {
+        setRecoveryState({ projectId, data })
+      }
+    } catch (error) {
+      if (recoveryRequestRef.current === requestId) {
+        setRecoveryError(error instanceof Error ? error.message : '暂时无法加载恢复记录')
+      }
+    } finally {
+      if (recoveryRequestRef.current === requestId) setRecoveryLoading(false)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      void loadRecoveryCenter()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [loadRecoveryCenter])
 
   useEffect(() => {
     let active = true
@@ -263,8 +307,9 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     prevStreamStatusRef.current = streamStatus
     if (streamStatus === 'idle' && (prev === 'streaming' || prev === 'sending')) {
       void refetchPendingActions()
+      void loadRecoveryCenter()
     }
-  }, [streamStatus, refetchPendingActions])
+  }, [streamStatus, refetchPendingActions, loadRecoveryCenter])
 
   // Recovery — if the messages fetch 404s (conversation was
   // deleted on the server but still cached in the list, or some
@@ -310,6 +355,19 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     void refetchConvs()
   }
 
+  const openRecoveryItem = (item: ProjectRecoveryCenterItem) => {
+    const targetMessageId = item.recovery_state === 'continued'
+      ? item.child_run?.assistant_message_id ?? item.assistant_message_id ?? null
+      : item.assistant_message_id ?? null
+    setRecoveryFocus((current) => ({
+      conversationId: item.conversation_id,
+      messageId: targetMessageId,
+      requestId: (current?.requestId ?? 0) + 1,
+    }))
+    setRequestedSelectedId(item.conversation_id)
+    setView('chats')
+  }
+
   return (
     <CxProjectShell activeTab="chat" projectId={projectId} project={project}>
       <div
@@ -336,6 +394,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
               view={view}
               setView={setView}
               chatsCount={conversations.length}
+              recoveryCount={recoveryData?.summary.attention_count ?? 0}
             />
           </div>
           {view === 'chats' ? (
@@ -348,12 +407,20 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
               onSelect={setRequestedSelectedId}
               onNew={handleNewConversation}
             />
-          ) : (
+          ) : view === 'space' ? (
             <ChatSpaceTree
               projectId={projectId}
               detail={detail}
               conversationMessages={allMessages}
               onOpenArtifact={setOpenArtifact}
+            />
+          ) : (
+            <ProjectRecoveryCenter
+              data={recoveryData}
+              loading={recoveryLoading}
+              error={recoveryError}
+              onRefresh={() => { void loadRecoveryCenter() }}
+              onOpen={openRecoveryItem}
             />
           )}
         </aside>
@@ -391,6 +458,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
               onOpenArtifact={setOpenArtifact}
               onDeleted={handleConversationDeleted}
               onChanged={refetchConvs}
+              recoveryFocus={recoveryFocus?.conversationId === selectedId ? recoveryFocus : null}
             />
           ) : (
             <EmptyThread />
@@ -419,14 +487,17 @@ function SegmentedSwitcher({
   view,
   setView,
   chatsCount,
+  recoveryCount,
 }: {
-  view: 'chats' | 'space'
-  setView: (v: 'chats' | 'space') => void
+  view: 'chats' | 'space' | 'recovery'
+  setView: (v: 'chats' | 'space' | 'recovery') => void
   chatsCount: number
+  recoveryCount: number
 }) {
-  const items: Array<{ k: 'chats' | 'space'; l: string; n: number | null }> = [
+  const items: Array<{ k: 'chats' | 'space' | 'recovery'; l: string; n: number | null }> = [
     { k: 'chats', l: '对话', n: chatsCount },
     { k: 'space', l: '空间', n: null },
+    { k: 'recovery', l: '恢复', n: recoveryCount },
   ]
   return (
     <div
@@ -751,6 +822,7 @@ interface ThreadViewProps {
   onOpenArtifact: (artifact: GeneratedArtifact) => void
   onDeleted: (conversationId: number) => Promise<void> | void
   onChanged: () => Promise<void>
+  recoveryFocus: { messageId: number | null; requestId: number } | null
 }
 
 function ThreadView({
@@ -782,6 +854,7 @@ function ThreadView({
   onOpenArtifact,
   onDeleted,
   onChanged,
+  recoveryFocus,
 }: ThreadViewProps) {
   const navigate = useNavigate()
   const toast = useToast()
@@ -981,6 +1054,19 @@ function ThreadView({
       behavior: 'auto',
     })
   }, [messages.length, pendingActionBatches.length])
+
+  useEffect(() => {
+    if (messagesLoading || recoveryFocus?.messageId == null) return
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(`project-chat-message-${recoveryFocus.messageId}`)
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      } else {
+        toast.warning({ title: '恢复消息已不在当前加载范围内' })
+      }
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [messagesLoading, recoveryFocus?.messageId, recoveryFocus?.requestId, toast])
 
   const handleDelete = async () => {
     if (deleting) return

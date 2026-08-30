@@ -19,6 +19,7 @@ from app.services.chat.turn_recovery import (
     find_existing_recovery_child,
     resolve_recovery_world_state,
 )
+from app.services.chat.recovery_center import build_project_recovery_center
 from app.services.chat_diagnostics import run_model_test, test_provider_connection
 
 router = APIRouter()
@@ -94,6 +95,19 @@ def list_project_chat_runs(
         .limit(safe_limit)
     ).all()
     return {"project_id": project_id, "runs": [_chat_run_payload(run) for run in runs]}
+
+
+@router.get("/projects/{project_id}/recovery-center")
+def get_project_recovery_center(
+    project_id: int,
+    limit: int = 50,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """List content-free recovery evidence for recent interrupted Runs."""
+
+    require_project_access(session, project_id, current_user)
+    return build_project_recovery_center(session, project_id=project_id, limit=limit)
 
 
 @router.get("/runs/{run_id}")
