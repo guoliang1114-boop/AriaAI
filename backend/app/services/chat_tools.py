@@ -37,6 +37,10 @@ class ChatRuntime:
     skill_activation_source: str = ""
     skill_activation_reason: str = ""
     prepare_metrics: dict | None = None
+    # Recovery turns atomically reserve their durable rollout in the same DB
+    # transaction as the exact user Message before the router returns SSE.
+    prepared_run_id: str = ""
+    prepared_rollout_task_id: int | None = None
     chat_mode: str = "standalone_qa"
     # Default to the strictest policy. Real runtime always overrides via
     # intent_decision.action_policy; this default exists only as a safety net so

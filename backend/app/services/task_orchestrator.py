@@ -3538,8 +3538,10 @@ def cancel_task_run_in_session(
     reason: str = "用户取消任务",
     actor_user_id: int | None = None,
     trusted_system: bool = False,
+    defer_commit: bool = False,
 ) -> dict[str, Any] | None:
-    session.rollback()
+    if not defer_commit:
+        session.rollback()
     try:
         scope = _lock_task_scope(
             session,
@@ -3548,7 +3550,8 @@ def cancel_task_run_in_session(
             control_actor_user_id=actor_user_id,
         )
     except TaskExecutionStopped as exc:
-        session.rollback()
+        if not defer_commit:
+            session.rollback()
         if str(exc) == "Task run not found":
             return None
         raise
@@ -3557,7 +3560,8 @@ def cancel_task_run_in_session(
         return None
     if task.status in {"completed", "canceled"}:
         payload = serialize_task_run(session, task, include_events=True)
-        session.rollback()
+        if not defer_commit:
+            session.rollback()
         return payload
 
     now = utc_now_naive()
@@ -3585,7 +3589,10 @@ def cancel_task_run_in_session(
         message=reason,
         commit=False,
     )
-    session.commit()
+    if defer_commit:
+        session.flush()
+    else:
+        session.commit()
     return serialize_task_run(session, task, include_events=True)
 
 

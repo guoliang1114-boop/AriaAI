@@ -185,7 +185,12 @@ def build_activity_timeline(state: Any, runtime: Any, *, full_text: str = "") ->
 
     tool_events = list(getattr(state, "tool_call_events", None) or [])
     steps = [_build_step(step, tool_events) for step in getattr(state, "steps", None) or []]
-    artifacts = _build_artifacts(getattr(state, "artifacts", None))
+    delivered_artifacts = getattr(state, "delivered_artifacts", None)
+    artifacts = _build_artifacts(
+        delivered_artifacts()
+        if callable(delivered_artifacts)
+        else getattr(state, "artifacts", None)
+    )
     memory_candidates = _build_memory_candidates(getattr(state, "run_outputs", None))
     evaluation = getattr(state, "run_evaluation", None)
     evaluation_verdict = (

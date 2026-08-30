@@ -1,11 +1,13 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChatStream } from './useChatStream'
 
 function successfulStream() {
   return new Response(
-    'data: {"type":"text","content":"回答"}\n\n' +
-      'data: {"type":"done"}\n\n',
+    'data: {"type":"run_started","run_id":"run_success","timestamp":"2026-08-30T00:00:00Z"}\n\n' +
+      'data: {"type":"text","content":"回答"}\n\n' +
+      'data: {"type":"done"}\n\n' +
+      'data: {"type":"run_done","run_id":"run_success","final_status":"completed"}\n\n',
     { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
   )
 }
@@ -167,6 +169,457 @@ describe('useChatStream Skill control', () => {
     expect(JSON.parse(onAssistantMessage.mock.calls[0][0].metadata_json)).toMatchObject({
       turn_recovery: turnRecovery,
     })
+  })
+
+  it('rejects a stale recovery preview without ghost messages or a retry', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      JSON.stringify({ detail: 'recovery preview is stale' }),
+      { status: 409, headers: { 'Content-Type': 'application/json' } },
+    ))
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const onError = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+      onError,
+    }))
+    const turnRecovery = {
+      schema_version: 2 as const,
+      source_run_id: 'run_stale',
+      source_message_id: 91,
+      strategy: 'replan_from_checkpoint' as const,
+      completed_steps: [1],
+      side_effects_possible: true,
+      completed_effect_count: 1,
+      pending_effect_count: 2,
+      world_state_change: { changed: true },
+      duplicate_policy: 'block_completed_effects',
+      warning_codes: ['world_state_changed'],
+      contract_sha256: 'sha256-stale-preview',
+    }
+
+    await act(async () => {
+      await expect(result.current.send('重新规划未完成部分', { turnRecovery }))
+        .rejects.toMatchObject({
+          name: 'TurnRecoveryPreviewConflictError',
+          response: { status: 409 },
+        })
+    })
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(onUserMessage).not.toHaveBeenCalled()
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+    expect(result.current.status).toBe('idle')
+    expect(result.current.streamingContent).toBe('')
+    expect(result.current.streamingMessageId).toBe(0)
+  })
+
+  it('rejects a failed recovery request instead of reporting false success', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      JSON.stringify({ detail: 'recovery reservation failed' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
+    ))
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const onError = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+      onError,
+    }))
+    const turnRecovery = {
+      schema_version: 2 as const,
+      source_run_id: 'run_failed_reservation',
+      source_message_id: 91,
+      strategy: 'manual_review' as const,
+      completed_steps: [],
+      side_effects_possible: true,
+      completed_effect_count: 0,
+      pending_effect_count: 1,
+      world_state_change: { changed: false },
+      duplicate_policy: 'manual_review_required',
+      warning_codes: ['manual_review_required'],
+      contract_sha256: 'a'.repeat(64),
+    }
+
+    await act(async () => {
+      await expect(result.current.send('核对恢复状态', { turnRecovery }))
+        .rejects.toThrow('服务异常 (500)')
+    })
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(onUserMessage).not.toHaveBeenCalled()
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+    expect(result.current.streamingMessageId).toBe(0)
+  })
+
+  it('rejects a recovery network failure without an optimistic message', async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('network unavailable'))
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const onError = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+      onError,
+    }))
+    const turnRecovery = {
+      source_run_id: 'run_network_failure',
+      source_message_id: 91,
+      strategy: 'continue_as_new_turn' as const,
+      completed_steps: [],
+      side_effects_possible: true,
+    }
+
+    await act(async () => {
+      await expect(result.current.send('核对恢复状态', { turnRecovery }))
+        .rejects.toThrow('network unavailable')
+    })
+
+    expect(onUserMessage).not.toHaveBeenCalled()
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+    expect(result.current.streamingMessageId).toBe(0)
+  })
+
+  it('rejects a recovery stream error instead of resolving into a success toast', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      'data: {"type":"error","message":"recovery run failed"}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    ))
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const onError = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+      onError,
+    }))
+    const turnRecovery = {
+      source_run_id: 'run_stream_failure',
+      source_message_id: 91,
+      strategy: 'continue_as_new_turn' as const,
+      completed_steps: [],
+      side_effects_possible: true,
+    }
+
+    await act(async () => {
+      await expect(result.current.send('恢复中断轮次', { turnRecovery }))
+        .rejects.toThrow('recovery run failed')
+    })
+
+    expect(onUserMessage).not.toHaveBeenCalled()
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('does not publish a recovery user bubble when reserved-run activation fails', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      'data: {"type":"run_failed","run_id":"run_activation_failed","error_code":"POLICY_REJECTED","error_message":"恢复预留无法启动","retryable":false}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    ))
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+    }))
+    const turnRecovery = {
+      schema_version: 2 as const,
+      source_run_id: 'run_source',
+      source_message_id: 91,
+      strategy: 'manual_review' as const,
+      completed_steps: [],
+      side_effects_possible: true,
+      completed_effect_count: 0,
+      pending_effect_count: 1,
+      world_state_change: { changed: false },
+      duplicate_policy: 'manual_review_required',
+      warning_codes: ['manual_review_required'],
+      contract_sha256: 'c'.repeat(64),
+    }
+
+    await act(async () => {
+      await expect(result.current.send('继续恢复', { turnRecovery }))
+        .rejects.toThrow('恢复预留无法启动')
+    })
+
+    expect(onUserMessage).not.toHaveBeenCalled()
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+  })
+
+  it('rejects a recovery stopped before the server activates its reserved run', async () => {
+    vi.mocked(fetch).mockImplementationOnce((_input, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        reject(new DOMException('Aborted', 'AbortError'))
+      })
+    }))
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+    }))
+    const turnRecovery = {
+      source_run_id: 'run_source',
+      source_message_id: 91,
+      strategy: 'continue_as_new_turn' as const,
+      completed_steps: [],
+      side_effects_possible: true,
+    }
+
+    let sendPromise!: Promise<void>
+    await act(async () => {
+      sendPromise = result.current.send('继续恢复', { turnRecovery })
+      await Promise.resolve()
+    })
+    const rejected = expect(sendPromise).rejects.toThrow('恢复运行已取消')
+    act(() => result.current.stop())
+    await act(async () => rejected)
+
+    expect(onUserMessage).not.toHaveBeenCalled()
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+    expect(result.current.streamingMessageId).toBe(0)
+    expect(result.current.status).toBe('idle')
+  })
+
+  it('rejects a stopped recovery even when the server confirms a cancelled terminal', async () => {
+    const encoder = new TextEncoder()
+    let finishCancelledRun!: () => void
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(
+          'data: {"type":"run_started","run_id":"run_recovery_cancelled","timestamp":"2026-08-30T00:00:00Z"}\n\n',
+        ))
+        finishCancelledRun = () => {
+          controller.enqueue(encoder.encode(
+            'data: {"type":"run_done","run_id":"run_recovery_cancelled","final_status":"cancelled"}\n\n',
+          ))
+          controller.close()
+        }
+      },
+    })
+    vi.mocked(fetch).mockImplementation((input) => {
+      if (String(input).includes('/cancel')) return Promise.resolve(new Response(null, { status: 202 }))
+      return Promise.resolve(new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }))
+    })
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+    }))
+    const turnRecovery = {
+      source_run_id: 'run_source',
+      source_message_id: 91,
+      strategy: 'continue_as_new_turn' as const,
+      completed_steps: [],
+      side_effects_possible: true,
+    }
+
+    let sendPromise!: Promise<void>
+    await act(async () => {
+      sendPromise = result.current.send('继续恢复', { turnRecovery })
+    })
+    await waitFor(() => expect(result.current.activeRunId).toBe('run_recovery_cancelled'))
+    const rejected = expect(sendPromise).rejects.toThrow('恢复运行已取消')
+    act(() => result.current.stop())
+    await act(async () => {
+      finishCancelledRun()
+      await rejected
+    })
+
+    expect(onUserMessage).toHaveBeenCalledTimes(1)
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+    expect(result.current.streamingMessageId).toBe(0)
+    expect(result.current.status).toBe('idle')
+  })
+
+  it('rejects recovery when a Product failure follows a legacy done event', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      'data: {"type":"run_started","run_id":"run_terminal_failure","timestamp":"2026-08-30T00:00:00Z"}\n\n'
+      + 'data: {"type":"text","content":"已保存失败说明"}\n\n'
+      + 'data: {"type":"done","assistant_message_id":92}\n\n'
+      + 'data: {"type":"run_failed","run_id":"run_terminal_failure","error_code":"PERSISTENCE_ERROR","error_message":"终态保存失败","retryable":false}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    ))
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const onError = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+      onError,
+    }))
+    const turnRecovery = {
+      schema_version: 2 as const,
+      source_run_id: 'run_source',
+      source_message_id: 91,
+      strategy: 'manual_review' as const,
+      completed_steps: [],
+      side_effects_possible: true,
+      completed_effect_count: 0,
+      pending_effect_count: 1,
+      world_state_change: { changed: false },
+      duplicate_policy: 'manual_review_required',
+      warning_codes: ['manual_review_required'],
+      contract_sha256: 'b'.repeat(64),
+    }
+
+    await act(async () => {
+      await expect(result.current.send('继续恢复', { turnRecovery }))
+        .rejects.toThrow('终态保存失败')
+    })
+
+    expect(onUserMessage).toHaveBeenCalledTimes(1)
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('rejects recovery when the stream closes without a Product success terminal', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      'data: {"type":"text","content":"只有旧版完成帧"}\n\n'
+      + 'data: {"type":"done"}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    ))
+    const onAssistantMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage: vi.fn(),
+      onAssistantMessage,
+    }))
+    const turnRecovery = {
+      source_run_id: 'run_missing_terminal',
+      source_message_id: 91,
+      strategy: 'continue_as_new_turn' as const,
+      completed_steps: [],
+      side_effects_possible: true,
+    }
+
+    await act(async () => {
+      await expect(result.current.send('继续恢复', { turnRecovery }))
+        .rejects.toThrow('缺少可验证的成功终态')
+    })
+
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+  })
+
+  it('rejects recovery when run_done has no matching run_started identity', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      'data: {"type":"text","content":"未绑定启动身份"}\n\n'
+      + 'data: {"type":"done"}\n\n'
+      + 'data: {"type":"run_done","run_id":"run_unbound","final_status":"completed"}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    ))
+    const onUserMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage: vi.fn(),
+    }))
+    const turnRecovery = {
+      source_run_id: 'run_source',
+      source_message_id: 91,
+      strategy: 'continue_as_new_turn' as const,
+      completed_steps: [],
+      side_effects_possible: true,
+    }
+
+    await act(async () => {
+      await expect(result.current.send('继续恢复', { turnRecovery }))
+        .rejects.toThrow('缺少匹配的启动身份')
+    })
+    expect(onUserMessage).not.toHaveBeenCalled()
+  })
+
+  it('rejects recovery when run_done belongs to a different run', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      'data: {"type":"run_started","run_id":"run_expected","timestamp":"2026-08-30T00:00:00Z"}\n\n'
+      + 'data: {"type":"text","content":"身份漂移"}\n\n'
+      + 'data: {"type":"done"}\n\n'
+      + 'data: {"type":"run_done","run_id":"run_other","final_status":"completed"}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    ))
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+    }))
+    const turnRecovery = {
+      source_run_id: 'run_source',
+      source_message_id: 91,
+      strategy: 'continue_as_new_turn' as const,
+      completed_steps: [],
+      side_effects_possible: true,
+    }
+
+    await act(async () => {
+      await expect(result.current.send('继续恢复', { turnRecovery }))
+        .rejects.toThrow('缺少匹配的启动身份')
+    })
+    expect(onUserMessage).toHaveBeenCalledTimes(1)
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+  })
+
+  it('rejects a second recovery send while another request is in flight', async () => {
+    let resolveResponse!: (response: Response) => void
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>((resolve) => {
+      resolveResponse = resolve
+    }))
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage: vi.fn(),
+      onAssistantMessage: vi.fn(),
+    }))
+    const turnRecovery = {
+      source_run_id: 'run_concurrent_recovery',
+      source_message_id: 91,
+      strategy: 'continue_as_new_turn' as const,
+      completed_steps: [],
+      side_effects_possible: true,
+    }
+
+    let firstSend!: Promise<void>
+    await act(async () => {
+      firstSend = result.current.send('第一个恢复', { turnRecovery })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      await expect(result.current.send('第二个恢复', { turnRecovery }))
+        .rejects.toThrow('本次恢复未发送')
+    })
+    resolveResponse(successfulStream())
+    await act(async () => firstSend)
+
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the streaming React key stable while retaining the persisted message id', async () => {

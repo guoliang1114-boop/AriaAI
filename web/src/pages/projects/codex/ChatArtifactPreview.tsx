@@ -3,6 +3,7 @@ import { api } from '../../../api/client'
 import { getApiBaseUrl } from '../../../config/api'
 import { MarkdownRenderer } from '../../../components/MarkdownRenderer'
 import type { GeneratedArtifact } from '../../../types/api'
+import { downloadArtifact } from '../downloadArtifact'
 import { CxIcon } from './CxIcons'
 
 /** Right-side artifact preview panel — slides in when the user
@@ -17,9 +18,9 @@ import { CxIcon } from './CxIcons'
  *              is the primary action.
  *
  * A 下载 button sits in the header for ALL file kinds so the
- * affordance is consistent. For files with no `project_file_id`
- * (unsaved artifacts), download is disabled and the body shows
- * an "需要先保存" hint.
+ * affordance is consistent. Files with no `project_file_id` cannot
+ * be previewed in place, but a persisted GeneratedFile `id` / `path`
+ * remains downloadable through the authenticated artifact endpoint.
  */
 
 type FileKind = 'md' | 'pdf' | 'image' | 'other'
@@ -117,6 +118,11 @@ function ChatArtifactPreviewContent({
     .toUpperCase()
   const kind = getFileKind(ext)
   const fileId = artifact.project_file_id ?? null
+  const artifactId = Number.isInteger(artifact.id) && Number(artifact.id) > 0
+    ? Number(artifact.id)
+    : null
+  const hasArtifactPath = typeof artifact.path === 'string' && artifact.path.trim() !== ''
+  const canDownload = fileId != null || artifactId != null || hasArtifactPath
 
   const [doc, setDoc] = useState<DocumentPayload | null>(null)
   const [docLoading, setDocLoading] = useState(kind === 'md' && fileId != null)
@@ -218,10 +224,16 @@ function ChatArtifactPreviewContent({
   }, [projectId, fileId, kind, ext])
 
   const handleDownload = async () => {
-    if (downloading || fileId == null) return
+    if (downloading || !canDownload) return
     setDownloading(true)
     try {
-      await triggerDownload(projectId, fileId, artifact.name)
+      if (fileId != null) {
+        await triggerDownload(projectId, fileId, artifact.name)
+      } else if (artifactId != null) {
+        await downloadArtifact({ artifactId, fileName: artifact.name })
+      } else {
+        await downloadArtifact({ artifact })
+      }
     } catch (err) {
       setBlobError(err instanceof Error ? err.message : '下载失败')
     } finally {
@@ -239,7 +251,7 @@ function ChatArtifactPreviewContent({
         : kind === 'image'
           ? '图片预览'
           : `${ext || '文件'} · 不支持预览`
-  const downloadDisabled = downloading || fileId == null
+  const downloadDisabled = downloading || !canDownload
 
   return (
     <aside
@@ -339,7 +351,7 @@ function ChatArtifactPreviewContent({
           type="button"
           onClick={handleDownload}
           disabled={downloadDisabled}
-          title={fileId == null ? '需要先保存为项目文档' : '下载'}
+          title={canDownload ? '下载' : '暂无可用的下载来源'}
           aria-label="下载"
           style={{
             width: 28,
@@ -400,7 +412,7 @@ function ChatArtifactPreviewContent({
         }}
       >
         {fileId == null ? (
-          <UnsavedArtifactState />
+          <GeneratedArtifactState canDownload={canDownload} />
         ) : kind === 'md' ? (
           <MdBody loading={docLoading} error={docError} content={content} />
         ) : kind === 'pdf' ? (
@@ -525,12 +537,21 @@ function OtherFormatState({
   )
 }
 
-function UnsavedArtifactState() {
+function GeneratedArtifactState({ canDownload }: { canDownload: boolean }) {
   return (
     <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.75 }}>
-      这份产出还没保存为项目文档,无法读取内容。
-      <br />
-      点击对话里的「保存」按钮把它收入项目文档后即可预览和下载。
+      这份产出尚未保存为项目文档，暂不支持在线预览。
+      {canDownload ? (
+        <>
+          <br />
+          可点击右上角「下载」获取原始产出。
+        </>
+      ) : (
+        <>
+          <br />
+          当前记录没有可用的下载来源。
+        </>
+      )}
     </div>
   )
 }

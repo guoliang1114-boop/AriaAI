@@ -1,4 +1,4 @@
-"""Process-local interruption and steering control for active Aria turns.
+"""Process-local wake-up and low-latency control for active Aria turns.
 
 The active-task cancellation, graceful terminal-boundary, and model-visible
 interruption principles are adapted from OpenAI Codex
@@ -16,11 +16,12 @@ account, or model API is started or contacted.
 The expected-turn binding and active-turn mailbox behavior for steering are
 adapted from OpenAI Codex ``codex-rs/core/src/session/turn_input.rs`` at
 upstream commit ``83d1fe0e67b1323f71febc2925817732b449f1d9`` (Apache
-License 2.0). Modified for AriaAI on 2026-08-24: Aria accepts text-only
-additions through its own authenticated HTTP endpoint, stores them as normal
-conversation messages, and drains a bounded process-local queue only at safe
-Agent Loop boundaries. It does not use the Codex runtime, wire protocol, app
-server, SDK, account, or model API.
+License 2.0). Modified for AriaAI on 2026-08-30: authenticated text additions
+remain normal conversation messages and their authoritative ordered control
+state lives in Aria's database-backed ``ChatRunInput`` mailbox. This module's
+bounded process-local queue is only a same-worker wake-up/latency hint; Agent
+Loop safe boundaries verify and consume the durable mailbox. It does not use
+the Codex runtime, wire protocol, app server, SDK, account, or model API.
 """
 from __future__ import annotations
 

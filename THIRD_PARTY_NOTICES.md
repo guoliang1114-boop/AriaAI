@@ -36,7 +36,8 @@ with a Codex runtime. The adapted mechanisms currently cover:
   scheduling lookup, schema fingerprints, and Product Run Event mapping;
 - versioned context-assembly manifests, stable source identities, bounded
   privacy-safe snapshots, domain-separated fingerprints, exact initial model
-  request binding, and shared Trace/Rollout/Evaluation context evidence;
+  request binding, base-linked content-free derived request receipts for
+  durable steering, and shared Trace/Rollout/Evaluation context evidence;
 - typed run-output items, stable output identities, source-linked artifact
   lifecycle facts, verified persistence digests, and separately reviewed memory
   candidate decisions without storing raw paths or candidate text in the run
@@ -87,7 +88,15 @@ with a Codex runtime. The adapted mechanisms currently cover:
   and
 - expected-turn-bound active-run steering, text-only mailbox delivery, safe
   model/tool boundary injection, stale planned-tool supersession, and concise
-  turn-understanding receipts without exposing prompts or hidden reasoning.
+  turn-understanding receipts without exposing prompts or hidden reasoning;
+- content-free run-effect identities, server-reconstructed recovery contracts,
+  current-world-state comparison, and verified prior-result reuse adapted into
+  fail-closed Aria-native interruption recovery without replaying a Codex
+  transcript; and
+- durable database-backed run-control inputs, ordered compare-and-set
+  consumption, and process-local live-stage / same-worker cancellation hints
+  adapted from the expected-turn input boundary so accepted steering or
+  cancellation intent is not owned by one ASGI process.
 
 Recorded upstream audit baselines include commits
 `83d1fe0e67b1323f71febc2925817732b449f1d9` and
@@ -95,6 +104,25 @@ Recorded upstream audit baselines include commits
 baseline `99660ab3c7b861c916e467581fa9b8723504d66b`. The specific upstream source path,
 pinned commit, and Aria modification notice are recorded in each adapted
 Python module.
+
+For the Phase 3N additions specifically:
+
+- `backend/app/services/agent_harness/durable_run_inputs.py` adapts
+  `codex-rs/core/src/session/turn_input.rs` at
+  `83d1fe0e67b1323f71febc2925817732b449f1d9` into Aria's content-free,
+  database-backed Run mailbox and ACL/phase-boundary consumption;
+- `backend/app/services/agent_harness/run_effect_record.py` adapts
+  `codex-rs/core/src/tools/executed_tool_calls.rs` and
+  `codex-rs/core/src/tools/registry.rs` at the same commit into Aria's
+  content-free effect ledger and durable-result verification contract; and
+- the derived-request extension in
+  `backend/app/services/context_builder/assembly.py` remains based on
+  `codex-rs/core/src/context/world_state/mod.rs` and
+  `codex-rs/core/src/context_manager/history.rs` at the same commit, translated
+  into Aria's base-linked manifest for exact effective Provider inputs.
+
+Those files record the upstream path, pinned commit, Apache-2.0 basis, and
+Aria-specific modification notice in their module headers.
 
 OpenAI Codex is available under the Apache License 2.0:
 

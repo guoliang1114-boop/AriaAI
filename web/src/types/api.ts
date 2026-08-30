@@ -1153,6 +1153,8 @@ export interface GeneratedArtifact {
   content_sha256?: string
   output_record_version?: number
   persistence_status?: "persisted" | "failed" | string
+  recovery_verified?: boolean
+  recovered_from_run_id?: string
 }
 
 export interface MemoryCandidate {
@@ -1359,7 +1361,7 @@ export interface MessageMetadata {
   truncated?: boolean
   interaction_feedback?: MessageFeedback
   turn_setup_trace?: TurnSetupTraceInput & { schema_version?: 1 }
-  turn_recovery?: TurnRecoveryInput & { schema_version?: 1 }
+  turn_recovery?: TurnRecoveryInput
   project_world_state?: Record<string, unknown>
   project_world_state_change?: Record<string, unknown>
   /** Product Run Event v1: serialized RunActivityTimeline for the persisted view. */
@@ -1404,20 +1406,51 @@ export interface TurnSetupTraceInput {
   skill_id?: number
 }
 
-export type TurnRecoveryStrategy =
+export type TurnRecoveryStrategyV1 =
   | 'resume_from_checkpoint'
   | 'retry_failed_step'
   | 'continue_as_new_turn'
 
-export interface TurnRecoveryInput {
+export type TurnRecoveryStrategyV2 =
+  | 'replan_from_checkpoint'
+  | 'retry_read_step'
+  | 'manual_review'
+
+export type TurnRecoveryStrategy = TurnRecoveryStrategyV1 | TurnRecoveryStrategyV2
+
+export interface TurnRecoveryWorldStateChange {
+  changed: boolean
+  current_version?: string | null
+  source_version?: string | null
+  changed_categories?: string[]
+}
+
+interface TurnRecoveryInputBase {
   source_run_id: string
   source_message_id: number
-  strategy: TurnRecoveryStrategy
   completed_steps: number[]
   side_effects_possible: boolean
 }
 
-export interface TurnRecoveryPreview extends TurnRecoveryInput {
+export interface TurnRecoveryInputV1 extends TurnRecoveryInputBase {
+  schema_version?: 1
+  strategy: TurnRecoveryStrategyV1
+}
+
+export interface TurnRecoveryInputV2 extends TurnRecoveryInputBase {
+  schema_version: 2
+  strategy: TurnRecoveryStrategyV2
+  completed_effect_count: number
+  pending_effect_count: number
+  world_state_change: TurnRecoveryWorldStateChange
+  duplicate_policy: string
+  warning_codes: string[]
+  contract_sha256: string
+}
+
+export type TurnRecoveryInput = TurnRecoveryInputV1 | TurnRecoveryInputV2
+
+export interface TurnRecoveryPreviewV1 extends TurnRecoveryInputV1 {
   schema_version: 1
   source_status: string
   can_continue: boolean
@@ -1425,6 +1458,15 @@ export interface TurnRecoveryPreview extends TurnRecoveryInput {
   warning_codes: string[]
   suggested_content: string
 }
+
+export interface TurnRecoveryPreviewV2 extends TurnRecoveryInputV2 {
+  schema_version: 2
+  source_status: string
+  can_continue: boolean
+  suggested_content: string
+}
+
+export type TurnRecoveryPreview = TurnRecoveryPreviewV1 | TurnRecoveryPreviewV2
 
 export type MessageFeedbackRating = 'helpful' | 'unhelpful'
 export type MessageFeedbackReason =

@@ -239,13 +239,18 @@ def evaluate_run_completion(
         for output in artifact_outputs
         if output.get("status") == RunOutputStatus.PRODUCED.value
     ]
-    artifact_count = (
+    delivered_artifacts = getattr(state, "delivered_artifacts", None)
+    delivered_artifact_count = len(
+        delivered_artifacts()
+        if callable(delivered_artifacts)
+        else list(getattr(state, "artifacts", None) or [])
+    )
+    artifact_count = max(
         sum(
             output.get("status") == RunOutputStatus.PERSISTED.value
             for output in artifact_outputs
-        )
-        if artifact_outputs
-        else len(list(getattr(state, "artifacts", None) or []))
+        ),
+        delivered_artifact_count,
     )
     confirmation_requested = bool(getattr(state, "confirmation_requested", False))
     knowledge_evidence = getattr(state, "knowledge_evidence", None)

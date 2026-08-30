@@ -36,11 +36,32 @@ from app.services.agent_harness.tool_execution_record import (
     tool_event_waits_confirmation,
 )
 from app.services.agent_harness.run_output_record import normalize_run_output_records
+from app.services.agent_harness.run_effect_record import (
+    build_rollout_effect_ledger,
+    build_step_effect_records,
+)
 from app.services.time_utils import utc_now_naive
 from app.services.agent_harness.run_display import resolve_run_display_mode
+from app.services.agent_harness.durable_run_inputs import (
+    DurableRunInputBatch,
+    DurableRunInputRejected,
+    claim_durable_run_cancel_in_session,
+    claim_durable_run_inputs_in_session,
+    recovery_run_identity_from_runtime,
+)
 
 ROLLOUT_SCHEMA_VERSION = 1
 ROLLOUT_TASK_TYPE = "chat_rollout"
+
+_INPUT_CLOSED_CHAT_RUN_PHASES = frozenset(
+    {
+        "agent_loop_done",
+        "agent_loop_final_step",
+        "confirmation_tool",
+        "persist",
+        "waiting_confirmation",
+    }
+)
 
 _TERMINAL_EVENT_STATUS = {
     "run_completed": "completed",
@@ -106,6 +127,9 @@ def _sanitize_tool_event(event: dict[str, Any]) -> dict[str, Any]:
         "max_attempts": max(0, _safe_int(event.get("max_attempts"))),
         "retryable": bool(event.get("retryable", False)),
     }
+    tool_effect = str(event.get("tool_effect") or "")
+    if tool_effect:
+        payload["tool_effect"] = tool_effect[:24]
     error = str(event.get("error") or "").strip()
     if error:
         payload["error"] = error[:500]
@@ -146,6 +170,11 @@ def build_step_checkpoint(step: Any, state: Any) -> dict[str, Any]:
         retryable = bool(getattr(step, "retryable"))
 
     model_text = str(getattr(step, "model_text", "") or "")
+    raw_tool_calls = [
+        tool_call
+        for tool_call in list(getattr(step, "tool_calls", None) or [])
+        if isinstance(tool_call, dict)
+    ]
     return {
         "step_index": step_index,
         "status": status,
@@ -156,12 +185,14 @@ def build_step_checkpoint(step: Any, state: Any) -> dict[str, Any]:
         "error": str(getattr(step, "error", "") or "")[:500],
         "model_text_chars": len(model_text),
         "model_text_sha256": _sha256(model_text),
-        "tool_calls": [
-            _sanitize_tool_call(tool_call)
-            for tool_call in list(getattr(step, "tool_calls", None) or [])
-            if isinstance(tool_call, dict)
-        ],
+        "tool_calls": [_sanitize_tool_call(tool_call) for tool_call in raw_tool_calls],
         "tool_events": [_sanitize_tool_event(event) for event in matching_tool_events],
+        "effect_records": build_step_effect_records(
+            step_index,
+            raw_tool_calls,
+            matching_tool_events,
+            recovered_effects=list(getattr(state, "recovery_effect_records", None) or []),
+        ),
     }
 
 
@@ -302,6 +333,7 @@ def reconstruct_rollout(
         and ordered_steps[-1].get("status") == "waiting_confirmation"
     ):
         status = "waiting_confirmation"
+    effect_ledger = build_rollout_effect_ledger(ordered_steps, run_outputs)
     snapshot_core = {
         "schema_version": ROLLOUT_SCHEMA_VERSION,
         "run_id": run_id,
@@ -312,6 +344,7 @@ def reconstruct_rollout(
         "run_outputs": run_outputs,
         "last_ordinal": int(ordered[-1]["payload"]["ordinal"]) if ordered else 0,
         "steps": ordered_steps,
+        "effect_ledger": effect_ledger,
         "recovery": _recovery_plan(status, ordered_steps),
         "integrity": {
             "valid_records": valid_records,
@@ -359,27 +392,61 @@ def _append_event(
     return event
 
 
-def begin_chat_rollout(bind: Any, runtime: Any, request_content: str, run_id: str) -> int:
-    """Create the durable Aria rollout before the first model/tool step."""
-
+def _begin_chat_rollout_in_session(
+    session: Session,
+    runtime: Any,
+    request_content: str,
+    run_id: str,
+    *,
+    commit: bool,
+    require_exact_source: bool,
+) -> int:
     now = utc_now_naive()
-    with Session(bind) as session:
+    prepare_metrics = getattr(runtime, "prepare_metrics", None)
+    exact_source_message_id = (
+        prepare_metrics.get("source_user_message_id")
+        if isinstance(prepare_metrics, dict)
+        else None
+    )
+    exact_source_provided = isinstance(exact_source_message_id, int) and exact_source_message_id > 0
+    if require_exact_source and not exact_source_provided:
+        raise ValueError("prepared rollout requires an exact source user message")
+    source_message = session.get(Message, int(exact_source_message_id)) if exact_source_provided else None
+    if exact_source_provided and source_message is None:
+        raise ValueError("rollout source user message is unavailable")
+    if exact_source_provided and (
+        source_message.role != "user"
+        or source_message.conversation_id != int(runtime.conv_id)
+    ):
+        raise ValueError("rollout source user message does not belong to this conversation")
+    if not exact_source_provided:
+        # Compatibility for direct harness constructors that predate the exact
+        # source-message contract. Production and recovery reservation set it.
         source_message = session.exec(
             select(Message)
             .where(Message.conversation_id == int(runtime.conv_id), Message.role == "user")
             .order_by(Message.created_at.desc(), Message.id.desc())
             .limit(1)
         ).first()
-        context_manifest = _safe_context_manifest(
-            getattr(runtime, "context_manifest", None)
-        )
-        task = TaskRun(
+    context_manifest = _safe_context_manifest(getattr(runtime, "context_manifest", None))
+    recovery_identity = recovery_run_identity_from_runtime(
+        runtime,
+        session=session,
+        conversation_id=int(runtime.conv_id),
+    )
+    is_recovery_reservation = not commit
+    if is_recovery_reservation and (
+        not recovery_identity.parent_run_id
+        or not recovery_identity.recovery_snapshot_sha256
+    ):
+        raise ValueError("prepared rollout reservation requires a recovery identity")
+    task = TaskRun(
             project_id=None,  # hidden from project task lists; project id stays in the event payload
             conversation_id=int(runtime.conv_id),
             task_type=ROLLOUT_TASK_TYPE,
             goal=f"Aria chat rollout {run_id}",
-            status="running",
-            current_step_key="agent_loop",
+            status="pending" if is_recovery_reservation else "running",
+            current_step_key="reserved" if is_recovery_reservation else "agent_loop",
             input_json=_json_dumps(
                 {
                     "schema_version": ROLLOUT_SCHEMA_VERSION,
@@ -395,14 +462,16 @@ def begin_chat_rollout(bind: Any, runtime: Any, request_content: str, run_id: st
             ),
             created_at=now,
             updated_at=now,
-            started_at=now,
-        )
-        session.add(task)
-        session.flush()
-        conversation = session.get(Conversation, int(runtime.conv_id))
-        chat_run = ChatRun(
+            started_at=None if is_recovery_reservation else now,
+    )
+    session.add(task)
+    session.flush()
+    conversation = session.get(Conversation, int(runtime.conv_id))
+    chat_run = ChatRun(
             run_id=run_id,
             task_run_id=_task_run_id(task),
+            parent_run_id=recovery_identity.parent_run_id,
+            recovery_snapshot_sha256=recovery_identity.recovery_snapshot_sha256,
             conversation_id=int(runtime.conv_id),
             project_id=getattr(runtime, "project_id", None),
             owner_user_id=getattr(conversation, "owner_user_id", None),
@@ -429,27 +498,237 @@ def begin_chat_rollout(bind: Any, runtime: Any, request_content: str, run_id: st
             ),
             request_sha256=_sha256(request_content or ""),
             context_manifest_sha256=_sha256(context_manifest),
+            phase="reserved" if is_recovery_reservation else "run_start",
             started_at=now,
             created_at=now,
             updated_at=now,
+    )
+    session.add(chat_run)
+    if is_recovery_reservation and source_message is not None:
+        source_metadata = source_message.get_metadata()
+        source_metadata["recovery_reservation"] = {
+            "schema_version": 1,
+            "run_id": run_id,
+            "status": "reserved",
+            "reserved_at": now.isoformat(),
+        }
+        source_message.set_metadata(source_metadata)
+        session.add(source_message)
+    _append_event(
+        session,
+        task,
+        "run_reserved" if is_recovery_reservation else "run_started",
+        {
+            "conversation_id": int(runtime.conv_id),
+            "project_id": getattr(runtime, "project_id", None),
+            "source_message_id": getattr(source_message, "id", None),
+            "model": str(getattr(runtime, "selected_model", "") or ""),
+            "chat_mode": _enum_value(getattr(runtime, "chat_mode", "")),
+            "action_policy": _enum_value(getattr(runtime, "action_policy", "")),
+            "context_manifest": context_manifest,
+            **(
+                {
+                    "parent_run_id": recovery_identity.parent_run_id,
+                    "recovery_snapshot_sha256": recovery_identity.recovery_snapshot_sha256,
+                }
+                if is_recovery_reservation
+                else {}
+            ),
+        },
+    )
+    if commit:
+        session.commit()
+    else:
+        session.flush()
+    return _task_run_id(task)
+
+
+def begin_chat_rollout(bind: Any, runtime: Any, request_content: str, run_id: str) -> int:
+    """Create and commit a durable Aria rollout before model/tool execution."""
+
+    with Session(bind) as session:
+        return _begin_chat_rollout_in_session(
+            session,
+            runtime,
+            request_content,
+            run_id,
+            commit=True,
+            require_exact_source=False,
         )
-        session.add(chat_run)
+
+
+def reserve_prepared_chat_rollout(
+    session: Session,
+    runtime: Any,
+    request_content: str,
+    run_id: str,
+) -> int:
+    """Flush a rollout claim in the caller's uncommitted user-message transaction."""
+
+    return _begin_chat_rollout_in_session(
+        session,
+        runtime,
+        request_content,
+        run_id,
+        commit=False,
+        require_exact_source=True,
+    )
+
+
+def activate_prepared_chat_rollout(bind: Any, task_id: int, run_id: str) -> None:
+    """Atomically activate one exact recovery reservation at stream entry."""
+
+    now = utc_now_naive()
+    with Session(bind) as session:
+        chat_run = session.exec(
+            select(ChatRun)
+            .where(ChatRun.run_id == run_id, ChatRun.task_run_id == task_id)
+            .with_for_update()
+        ).first()
+        task = session.exec(
+            select(TaskRun)
+            .where(TaskRun.id == task_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        source_message = (
+            session.exec(
+                select(Message)
+                .where(Message.id == int(chat_run.source_message_id))
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            ).first()
+            if chat_run is not None and chat_run.source_message_id is not None
+            else None
+        )
+        source_reservation = (
+            source_message.get_metadata().get("recovery_reservation")
+            if source_message is not None
+            else None
+        )
+        if (
+            chat_run is None
+            or task is None
+            or chat_run.parent_run_id is None
+            or chat_run.phase != "reserved"
+            or chat_run.status != "running"
+            or chat_run.assistant_message_id is not None
+            or task.status != "pending"
+            or task.current_step_key != "reserved"
+            or not isinstance(source_reservation, dict)
+            or source_reservation.get("status") != "reserved"
+            or source_reservation.get("run_id") != run_id
+        ):
+            raise ValueError("prepared recovery rollout is not an activatable reservation")
+        task.status = "running"
+        task.current_step_key = "agent_loop"
+        task.started_at = now
+        task.updated_at = now
+        chat_run.phase = "run_start"
+        chat_run.started_at = now
+        chat_run.updated_at = now
+        source_metadata = source_message.get_metadata()
+        source_metadata["recovery_reservation"] = {
+            **source_reservation,
+            "status": "activated",
+            "activated_at": now.isoformat(),
+        }
+        source_message.set_metadata(source_metadata)
         _append_event(
             session,
             task,
             "run_started",
             {
-                "conversation_id": int(runtime.conv_id),
-                "project_id": getattr(runtime, "project_id", None),
-                "source_message_id": getattr(source_message, "id", None),
-                "model": str(getattr(runtime, "selected_model", "") or ""),
-                "chat_mode": _enum_value(getattr(runtime, "chat_mode", "")),
-                "action_policy": _enum_value(getattr(runtime, "action_policy", "")),
-                "context_manifest": context_manifest,
+                "conversation_id": chat_run.conversation_id,
+                "project_id": chat_run.project_id,
+                "source_message_id": chat_run.source_message_id,
+                "activated_from": "reserved",
             },
         )
+        session.add(task)
+        session.add(chat_run)
+        session.add(source_message)
         session.commit()
-        return _task_run_id(task)
+
+
+def close_chat_run_input_boundary(
+    bind: Any,
+    *,
+    run_id: str,
+    conversation_id: int,
+    phase: str,
+    force_close: bool = False,
+    claim_steering: bool = True,
+) -> DurableRunInputBatch:
+    """Claim committed inputs and close one Run phase in a single transaction.
+
+    ``accept_steering_run_input`` locks the same ``ChatRun`` row. Therefore an
+    input that commits before this boundary is returned to the serving loop,
+    while an input racing after a closed boundary reloads the new phase and is
+    rejected before its Message transaction commits.
+
+    At a re-plannable boundary, valid steering keeps the Run open so the caller
+    can incorporate it in the next model step. ``force_close`` is reserved for
+    a final model boundary where the returned steering is incorporated before
+    the already-closed execution continues. A persist boundary must set
+    ``claim_steering=False`` because no later model request can truthfully apply
+    newly accepted text; those rows stay accepted for terminal finalization.
+    """
+
+    normalized_phase = str(phase or "").strip().lower()
+    if normalized_phase not in _INPUT_CLOSED_CHAT_RUN_PHASES:
+        raise ValueError("unsupported closed chat run input phase")
+    if not claim_steering and normalized_phase != "persist":
+        raise ValueError("cancel-only input close is reserved for persist")
+
+    with Session(bind) as session:
+        if claim_steering:
+            batch = claim_durable_run_inputs_in_session(
+                session,
+                run_id=run_id,
+                conversation_id=conversation_id,
+            )
+        else:
+            batch = claim_durable_run_cancel_in_session(
+                session,
+                run_id=run_id,
+                conversation_id=conversation_id,
+                defer_terminal_ack=True,
+            )
+        run = session.exec(
+            select(ChatRun)
+            .where(ChatRun.run_id == str(run_id or "").strip())
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if run is None or run.id is None:
+            raise DurableRunInputRejected(
+                "run_not_found",
+                "Authoritative durable chat run identity is unavailable",
+            )
+        if int(run.conversation_id) != int(conversation_id):
+            raise DurableRunInputRejected(
+                "conversation_mismatch",
+                "Authoritative durable chat run conversation mismatch",
+            )
+        if run.status != "running" or run.completed_at is not None:
+            raise DurableRunInputRejected(
+                "run_not_active",
+                "Durable chat run is no longer active",
+            )
+
+        should_close = (
+            not claim_steering
+            or force_close
+            or batch.cancel_requested
+            or not batch.steering
+        )
+        if should_close:
+            run.phase = normalized_phase
+            run.updated_at = utc_now_naive()
+            session.add(run)
+        session.commit()
+        return batch
 
 
 def checkpoint_chat_rollout(bind: Any, task_id: int, step: Any, state: Any) -> dict[str, Any]:
@@ -497,10 +776,20 @@ def checkpoint_chat_rollout(bind: Any, task_id: int, step: Any, state: Any) -> d
             task.status = "paused"
         session.add(record)
         session.add(task)
-        chat_run = session.exec(select(ChatRun).where(ChatRun.task_run_id == task_id)).first()
+        chat_run = session.exec(
+            select(ChatRun)
+            .where(ChatRun.task_run_id == task_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
         if chat_run is not None:
             chat_run.status = "waiting_confirmation" if status == "waiting_confirmation" else "running"
-            chat_run.phase = key
+            if status == "waiting_confirmation":
+                chat_run.phase = "waiting_confirmation"
+            elif chat_run.phase not in _INPUT_CLOSED_CHAT_RUN_PHASES:
+                # A checkpoint must never reopen a final-step/confirmation/input
+                # barrier after the serving loop has closed it under row lock.
+                chat_run.phase = key
             chat_run.step_count = max(chat_run.step_count, step_index + 1)
             chat_run.tool_call_count = sum(
                 len(_json_loads(item.input_json, {}).get("tool_calls", []))

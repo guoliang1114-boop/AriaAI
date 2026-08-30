@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import json
 import logging
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.database import get_session
@@ -23,17 +25,32 @@ from app.routers.chat_security import require_chat_request_access, require_conve
 from app.routers.chat_schemas import SendMessageRequest, SteerChatRunRequest
 from app.models.db import Conversation, Message, User
 from app.services.chat.sse import sse_event
+from app.services.chat.product_run_events import make_run_id
+from app.services.agent_harness.run_rollout import reserve_prepared_chat_rollout
 from app.services.chat_store import persist_assistant_message
 from app.services.cache import conversations_cache
 from app.services.chat_tools import _to_user_friendly_error
+from app.services.chat.turn_recovery import (
+    TurnRecoveryConflict,
+    TurnRecoveryError,
+    find_existing_recovery_child,
+)
 from app.services.chat_streaming import prepare_chat_runtime_async, stream_chat_events
 from app.services.agent_harness.turn_interrupt import (
     InterruptStatus,
     SteeringStatus,
     get_active_turn,
     interrupt_active_turn,
-    retract_active_turn_steering,
-    submit_active_turn_steering,
+)
+from app.services.agent_harness.durable_run_inputs import (
+    DurableRunInputRejected,
+    accept_cancel_run_input,
+    accept_steering_run_input,
+    content_sha256,
+    durable_run_accepts_cancel,
+    durable_run_accepts_local_cancel,
+    durable_run_accepts_steering,
+    resolve_active_durable_run,
 )
 from app.services.time_utils import utc_now_naive
 
@@ -142,25 +159,67 @@ async def cancel_chat_run(
 ):
     """Cancel one active SSE turn after authorizing its conversation."""
 
-    active = get_active_turn(run_id)
-    if active is None:
-        raise HTTPException(status_code=404, detail="Active chat run not found")
+    try:
+        durable_run = resolve_active_durable_run(session, run_id=run_id)
+    except DurableRunInputRejected as exc:
+        if exc.code == "run_not_found":
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    conversation_id = int(durable_run.conversation_id)
     require_conversation_access(
         session,
-        active.conversation_id,
+        conversation_id,
         current_user,
         require_write=True,
     )
-    outcome = interrupt_active_turn(
-        run_id,
-        conversation_id=active.conversation_id,
+    active = get_active_turn(run_id)
+    if active is not None and active.conversation_id != conversation_id:
+        raise HTTPException(status_code=409, detail="Chat run conversation mismatch")
+    accepts_cancel = (
+        durable_run_accepts_local_cancel(durable_run)
+        if active is not None
+        else durable_run_accepts_cancel(durable_run)
     )
-    if outcome.status is not InterruptStatus.ACCEPTED:
-        raise HTTPException(status_code=409, detail="Chat run is no longer active")
+    if not accepts_cancel:
+        raise HTTPException(
+            status_code=409,
+            detail="Chat run is no longer accepting cancellation at this phase",
+        )
+    try:
+        durable_input = accept_cancel_run_input(
+            session,
+            run_id=run_id,
+            conversation_id=conversation_id,
+            allow_closed_phase=active is not None,
+        )
+        session.commit()
+    except DurableRunInputRejected as exc:
+        session.rollback()
+        if exc.code == "run_not_found":
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        session.rollback()
+        logger.exception("[run cancel] failed to persist intent run_id=%s", run_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to persist chat run cancellation",
+        ) from exc
+
+    immediate = False
+    if active is not None:
+        outcome = interrupt_active_turn(
+            run_id,
+            conversation_id=conversation_id,
+        )
+        immediate = outcome.status is InterruptStatus.ACCEPTED
     return {
         "run_id": run_id,
         "status": "cancellation_requested",
-        "conversation_id": active.conversation_id,
+        "conversation_id": conversation_id,
+        "input_id": durable_input.id,
+        "sequence": durable_input.sequence,
+        "delivery": "immediate" if immediate else "durable_boundary",
     }
 
 
@@ -184,66 +243,88 @@ async def steer_chat_run(
 ):
     """Add one user instruction to the exact active run after authorization."""
 
-    active = get_active_turn(run_id)
-    if active is None:
-        raise HTTPException(status_code=404, detail="Active chat run not found")
-    require_conversation_access(
-        session,
-        active.conversation_id,
-        current_user,
-        require_write=True,
-    )
     if req.expected_run_id.strip() != run_id.strip():
         raise HTTPException(
             status_code=409,
             detail=_STEERING_CONFLICT_DETAILS[SteeringStatus.EXPECTED_RUN_MISMATCH],
         )
+    try:
+        durable_run = resolve_active_durable_run(session, run_id=run_id)
+    except DurableRunInputRejected as exc:
+        if exc.code == "run_not_found":
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    conversation_id = int(durable_run.conversation_id)
+    require_conversation_access(
+        session,
+        conversation_id,
+        current_user,
+        require_write=True,
+    )
+    active = get_active_turn(run_id)
+    if not durable_run_accepts_steering(durable_run):
+        raise HTTPException(
+            status_code=409,
+            detail=_STEERING_CONFLICT_DETAILS[SteeringStatus.NOT_STEERABLE],
+        )
+    if active is not None:
+        if active.conversation_id != conversation_id:
+            raise HTTPException(status_code=409, detail="Chat run conversation mismatch")
+        if active.interrupt_requested:
+            raise HTTPException(
+                status_code=409,
+                detail=_STEERING_CONFLICT_DETAILS[SteeringStatus.INTERRUPT_REQUESTED],
+            )
+        if not active.steerable:
+            raise HTTPException(
+                status_code=409,
+                detail=_STEERING_CONFLICT_DETAILS[SteeringStatus.NOT_STEERABLE],
+            )
 
-    # Flush the user message and bind its id into the queue before committing.
-    # This runs without an ``await`` between enqueue and commit, so the serving
-    # event loop cannot drain an item whose durable message is not committed.
+    # The message and content-free mailbox row commit atomically. No process
+    # registry is needed: another worker can accept this exact Run input.
     message = Message(
-        conversation_id=active.conversation_id,
+        conversation_id=conversation_id,
         role="user",
         content=req.content.strip(),
         metadata_json="{}",
     )
     session.add(message)
-    conversation = session.get(Conversation, active.conversation_id)
+    conversation = session.get(Conversation, conversation_id)
     if conversation is not None:
         conversation.updated_at = utc_now_naive()
         session.add(conversation)
     session.flush()
 
-    outcome = submit_active_turn_steering(
-        run_id,
-        expected_run_id=req.expected_run_id,
-        conversation_id=active.conversation_id,
-        content=req.content,
-        message_id=message.id,
-    )
-    if not outcome.accepted or outcome.steering is None:
-        session.rollback()
-        if outcome.status is SteeringStatus.NOT_FOUND:
-            raise HTTPException(status_code=404, detail="Active chat run not found")
-        raise HTTPException(
-            status_code=409,
-            detail=_STEERING_CONFLICT_DETAILS.get(
-                outcome.status,
-                "Chat run did not accept steering",
-            ),
+    try:
+        durable_input = accept_steering_run_input(
+            session,
+            run_id=run_id,
+            conversation_id=conversation_id,
+            message_id=message.id,
+            content_digest=content_sha256(message.content),
         )
+    except DurableRunInputRejected as exc:
+        session.rollback()
+        if exc.code == "run_not_found":
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        session.rollback()
+        logger.exception("[run steering] failed to persist durable input run_id=%s", run_id)
+        raise HTTPException(status_code=500, detail="Failed to persist steering input") from exc
 
-    steering = outcome.steering
+    steering_id = f"steer_{uuid4().hex}"
     message.metadata_json = json.dumps(
         {
             "run_steering": {
                 "schema_version": "aria.run_steering.v1",
                 "status": "accepted",
-                "run_id": steering.run_id,
+                "run_id": run_id,
                 "expected_run_id": req.expected_run_id,
-                "steering_id": steering.steering_id,
-                "sequence": steering.sequence,
+                "steering_id": steering_id,
+                "sequence": durable_input.sequence,
+                "input_id": durable_input.id,
             }
         },
         ensure_ascii=False,
@@ -253,19 +334,19 @@ async def steer_chat_run(
         session.commit()
     except Exception:
         session.rollback()
-        retract_active_turn_steering(run_id, steering.steering_id)
         logger.exception("[run steering] failed to persist steering message run_id=%s", run_id)
         raise HTTPException(status_code=500, detail="Failed to persist steering input")
     conversations_cache.delete_prefix("list:")
 
     return {
-        "run_id": steering.run_id,
+        "run_id": run_id,
         "expected_run_id": req.expected_run_id,
         "status": "steering_accepted",
-        "conversation_id": steering.conversation_id,
-        "steering_id": steering.steering_id,
-        "sequence": steering.sequence,
+        "conversation_id": conversation_id,
+        "steering_id": steering_id,
+        "sequence": durable_input.sequence,
         "message_id": message.id,
+        "input_id": durable_input.id,
     }
 
 
@@ -287,14 +368,64 @@ async def send_message(
         req.project_id = conversation.project_id
     try:
         runtime = await prepare_chat_runtime(session, req, owner_user_id=current_user.id)
+    except TurnRecoveryConflict as exc:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except TurnRecoveryError as exc:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("[chat prepare error] %s", exc, exc_info=True)
         session.rollback()
+        if req.turn_recovery is not None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Turn recovery preparation failed before a child run was reserved",
+            ) from exc
         return StreamingResponse(
             _prepare_error_stream(bind=session.get_bind(), req=req, exc=exc),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+    recovery_contract = (
+        runtime.prepare_metrics.get("turn_recovery")
+        if isinstance(runtime.prepare_metrics, dict)
+        and isinstance(runtime.prepare_metrics.get("turn_recovery"), dict)
+        else {}
+    )
+    if recovery_contract:
+        prepared_run_id = make_run_id()
+        try:
+            prepared_task_id = reserve_prepared_chat_rollout(
+                session,
+                runtime,
+                req.content,
+                prepared_run_id,
+            )
+            session.commit()
+            conversations_cache.delete_prefix("list:")
+        except IntegrityError as exc:
+            session.rollback()
+            existing_child = find_existing_recovery_child(
+                session,
+                conversation_id=int(runtime.conv_id),
+                contract=recovery_contract,
+            )
+            if existing_child is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="This recovery contract has already started a child run",
+                ) from exc
+            logger.error("[recovery reservation integrity error] %s", exc, exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Recovery child reservation failed integrity validation",
+            ) from exc
+        except Exception:
+            session.rollback()
+            raise
+        runtime.prepared_run_id = prepared_run_id
+        runtime.prepared_rollout_task_id = prepared_task_id
     return StreamingResponse(
         stream_chat_events(runtime, req, session.get_bind()),
         media_type="text/event-stream",

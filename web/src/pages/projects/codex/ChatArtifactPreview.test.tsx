@@ -1,9 +1,10 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GeneratedArtifact } from '../../../types/api'
 import { ChatArtifactPreview } from './ChatArtifactPreview'
 
 const mockGet = vi.fn()
+const mockDownloadArtifact = vi.fn()
 
 vi.mock('../../../api/client', () => ({
   api: { get: (...args: unknown[]) => mockGet(...args) },
@@ -11,6 +12,10 @@ vi.mock('../../../api/client', () => ({
 
 vi.mock('../../../components/MarkdownRenderer', () => ({
   MarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>,
+}))
+
+vi.mock('../downloadArtifact', () => ({
+  downloadArtifact: (...args: unknown[]) => mockDownloadArtifact(...args),
 }))
 
 function deferred<T>() {
@@ -33,6 +38,7 @@ function artifact(fileId: number, name: string): GeneratedArtifact {
 describe('ChatArtifactPreview', () => {
   beforeEach(() => {
     mockGet.mockReset()
+    mockDownloadArtifact.mockReset()
   })
 
   it('does not let an old artifact response overwrite the newly selected file', async () => {
@@ -64,5 +70,36 @@ describe('ChatArtifactPreview', () => {
     }))
     expect(screen.getByText('最新内容')).toBeInTheDocument()
     expect(screen.queryByText('过期内容')).not.toBeInTheDocument()
+  })
+
+  it('downloads a persisted generated artifact without a project file row', async () => {
+    mockDownloadArtifact.mockResolvedValue(undefined)
+    const generated: GeneratedArtifact = {
+      id: 42,
+      name: '已核验的旧报告.pdf',
+      file_type: 'pdf',
+      path: 'generated/verified-report.pdf',
+      recovery_verified: true,
+    }
+
+    render(
+      <ChatArtifactPreview
+        artifact={generated}
+        projectId={3}
+        onClose={vi.fn()}
+        width={380}
+        onResize={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText(/尚未保存为项目文档/)).toBeInTheDocument()
+    const download = screen.getByRole('button', { name: '下载' })
+    expect(download).toBeEnabled()
+    fireEvent.click(download)
+
+    await waitFor(() => expect(mockDownloadArtifact).toHaveBeenCalledWith({
+      artifactId: 42,
+      fileName: '已核验的旧报告.pdf',
+    }))
   })
 })

@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Column, Index, Text, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, Column, Index, Text, UniqueConstraint, text
 from sqlmodel import SQLModel, Field, Relationship
 import json
 
@@ -583,11 +583,27 @@ class ChatRun(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("run_id", name="uq_chatrun_run_id"),
         UniqueConstraint("task_run_id", name="uq_chatrun_task_run_id"),
+        UniqueConstraint(
+            "parent_run_id",
+            "recovery_snapshot_sha256",
+            name="uq_chatrun_parent_recovery_snapshot",
+        ),
+        CheckConstraint(
+            "parent_run_id IS NULL OR length(recovery_snapshot_sha256) = 64",
+            name="ck_chatrun_recovery_identity",
+        ),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
     run_id: str
     task_run_id: int = Field(foreign_key="taskrun.id")
+    parent_run_id: Optional[str] = Field(
+        default=None,
+        foreign_key="chatrun.run_id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    recovery_snapshot_sha256: str = Field(default="", index=True)
     conversation_id: int = Field(foreign_key="conversation.id", index=True)
     project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
     owner_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
@@ -621,6 +637,56 @@ class ChatRun(SQLModel, table=True):
     completed_at: Optional[datetime] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utc_now_naive)
     updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
+class ChatRunInput(SQLModel, table=True):
+    """Content-free durable mailbox item bound to one exact chat run."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "chat_run_id",
+            "sequence",
+            name="uq_chatruninput_chat_run_sequence",
+        ),
+        CheckConstraint(
+            "kind IN ('steering', 'cancel')",
+            name="ck_chatruninput_kind",
+        ),
+        CheckConstraint(
+            "status IN ('accepted', 'applied', 'unapplied', 'retracted')",
+            name="ck_chatruninput_status",
+        ),
+        CheckConstraint("sequence > 0", name="ck_chatruninput_sequence"),
+        CheckConstraint(
+            "length(content_sha256) = 64",
+            name="ck_chatruninput_content_sha256",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    run_id: str = Field(index=True)
+    chat_run_id: int = Field(
+        foreign_key="chatrun.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    conversation_id: int = Field(
+        foreign_key="conversation.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    message_id: Optional[int] = Field(
+        default=None,
+        foreign_key="message.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    kind: str = Field(index=True)
+    sequence: int
+    content_sha256: str = Field(index=True)
+    status: str = Field(default="accepted", index=True)
+    accepted_at: datetime = Field(default_factory=utc_now_naive, index=True)
+    applied_at: Optional[datetime] = Field(default=None, index=True)
 
 
 class PendingToolAction(SQLModel, table=True):

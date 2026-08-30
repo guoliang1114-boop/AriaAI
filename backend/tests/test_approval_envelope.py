@@ -4,15 +4,37 @@ from types import SimpleNamespace
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import PendingToolAction
+from app.models.db import Conversation, PendingToolAction, Project, User
 from app.services.agent_harness.approval_envelope import (
     APPROVAL_ENVELOPE_PREFIX,
+    RECOVERY_HITAS_ACTION_TYPE,
     ApprovalEnvelopeError,
     approval_envelope_hash,
     legacy_tool_input_hash,
     verify_approval_envelope,
 )
 from app.services.chat.durable_task import _persist_markdown_continuation_action
+
+
+def _markdown_approval_scope(engine, *, email: str) -> tuple[int, int, int]:
+    with Session(engine) as session:
+        actor = User(email=email, password_hash="x", is_admin=True)
+        project = Project(name=f"Project for {email}", client="Client")
+        session.add(actor)
+        session.add(project)
+        session.flush()
+        conversation = Conversation(
+            title="Markdown approval",
+            project_id=int(project.id or 0),
+            owner_user_id=int(actor.id or 0),
+        )
+        session.add(conversation)
+        session.commit()
+        return (
+            int(actor.id or 0),
+            int(project.id or 0),
+            int(conversation.id or 0),
+        )
 
 
 def _delete_snapshot(**overrides):
@@ -97,6 +119,39 @@ def test_versioned_envelope_rejects_risk_downgrade_even_with_matching_hash():
         verify_approval_envelope(stored_fingerprint=fingerprint, **snapshot)
 
 
+def test_versioned_envelope_binds_recovery_forced_confirmation_for_allowed_write():
+    recovery_snapshot = {
+        "tool_name": "generate_pdf",
+        "tool_input": {"title": "Recovered report"},
+        "project_id": 7,
+        "action_type": RECOVERY_HITAS_ACTION_TYPE,
+        "risk_level": "medium",
+        "policy_at_creation": "write_artifact",
+        "approval_batch_id": "hitas-recovery-write",
+        "sequence_index": 0,
+    }
+    fingerprint = approval_envelope_hash(**recovery_snapshot)
+
+    verified = verify_approval_envelope(
+        stored_fingerprint=fingerprint,
+        **recovery_snapshot,
+    )
+
+    assert verified.policy_evaluation is not None
+    assert verified.policy_evaluation.decision.value == "allow"
+
+    ordinary_snapshot = {
+        **recovery_snapshot,
+        "action_type": "tool_action_requires_confirmation",
+    }
+    ordinary_fingerprint = approval_envelope_hash(**ordinary_snapshot)
+    with pytest.raises(ApprovalEnvelopeError, match="approval_policy_drift"):
+        verify_approval_envelope(
+            stored_fingerprint=ordinary_fingerprint,
+            **ordinary_snapshot,
+        )
+
+
 def test_legacy_input_hash_is_checked_and_unbound_legacy_rows_are_identified():
     snapshot = _delete_snapshot()
     legacy_hash = legacy_tool_input_hash(snapshot["tool_input"])
@@ -124,13 +179,18 @@ def test_legacy_input_hash_is_checked_and_unbound_legacy_rows_are_identified():
 def test_durable_markdown_pending_action_is_persisted_with_v2_envelope():
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
+    actor_id, project_id, conversation_id = _markdown_approval_scope(
+        engine,
+        email="markdown-v2@example.com",
+    )
     runtime = SimpleNamespace(
-        conv_id=31,
-        project_id=7,
+        conv_id=conversation_id,
+        project_id=project_id,
+        actor_user_id=actor_id,
         action_policy="modify_existing_file",
         trace_id="trace-31",
     )
-    req = SimpleNamespace(project_id=7)
+    req = SimpleNamespace(project_id=project_id)
     project_file = SimpleNamespace(id=44, name="方案.md")
 
     action_id, _, _ = _persist_markdown_continuation_action(
@@ -164,16 +224,21 @@ def test_durable_markdown_pending_action_is_persisted_with_v2_envelope():
 def test_republished_legacy_markdown_action_is_upgraded_before_preview():
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
+    actor_id, project_id, conversation_id = _markdown_approval_scope(
+        engine,
+        email="markdown-legacy@example.com",
+    )
     runtime = SimpleNamespace(
-        conv_id=32,
-        project_id=8,
+        conv_id=conversation_id,
+        project_id=project_id,
+        actor_user_id=actor_id,
         action_policy="modify_existing_file",
         trace_id="trace-32",
     )
-    req = SimpleNamespace(project_id=8)
+    req = SimpleNamespace(project_id=project_id)
     project_file = SimpleNamespace(id=45, name="旧方案.md")
     tool_input = {
-        "project_id": 8,
+        "project_id": project_id,
         "mode": "replace",
         "file_id": 45,
         "file_name": "旧方案.md",
@@ -181,8 +246,8 @@ def test_republished_legacy_markdown_action_is_upgraded_before_preview():
     }
     with Session(engine) as session:
         legacy = PendingToolAction(
-            conversation_id=32,
-            project_id=8,
+            conversation_id=conversation_id,
+            project_id=project_id,
             tool_name="update_project_markdown_document",
             tool_input_json=json.dumps(tool_input, ensure_ascii=False, default=str),
             action_type="modify_document",

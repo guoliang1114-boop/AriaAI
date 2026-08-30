@@ -181,12 +181,15 @@ Aria 现在为每个普通聊天 Run 建立隐藏的持久化 rollout，复用�
 - 同一 ordinal 冲突时保留最新记录并生成 integrity warning，缺失 ordinal 也会显式报告；
 - checkpoint 只保存工具名、参数哈希、有界结果摘要、尝试次数和状态，不重复存储原始敏感参数或完整工具结果；
 - 失败、消息持久化、等待 HITAS 和正常完成都有终态边界；
-- 恢复器产生 `none / wait_for_confirmation / retry_step / resume_from_checkpoint / restart_turn` 五种明确结果；
+- Rollout 内部恢复器产生 `none / wait_for_confirmation / retry_step / resume_from_checkpoint / restart_turn` 五种诊断结果，但它们不再直接等同于用户可执行的“安全续跑”；
 - 只有结果明确失败的交付工具，或出现短暂错误的只读工具，才会在当前步进行有界自动重试；
-- 写入结果不确定时默认 `restart_turn`，不会自动重放可能已生效的副作用；
+- 对外恢复由服务端重建 `TurnRecoveryContract v2`：结合来源 snapshot、内容安全的 effect 记录、当前项目状态和未应用 Run 输入，只暴露 `replan_from_checkpoint / retry_read_step / manual_review`；
+- 只有输入摘要、目标身份和已持久化结果引用均匹配且当前结果仍可验证的完成写入，执行器才返回 `already_completed` 并复用原结果引用；注册表不会被再次调用；
+- 无法识别工具能力、缺少可验证结果、旧版 Rollout、来源漂移或项目状态冲突都失败关闭到 `manual_review`，不会把 Prompt 中的“不要重复”当成防重放保证；
+- 恢复预览带服务端状态指纹；确认发送前状态若改变，旧预览会被拒绝并要求重新核对；
 - `GET /chat/conversations/{conversation_id}/rollout` 可按权限读取最新或指定 `run_id` 的重建结果。
 
-长时间任务继续由 Aria Task Orchestrator 执行已有的步骤级 retry/resume；普通聊天则先生成可审计恢复决策。这避免把“可重建”错当成“所有副作用都可自动重放”。
+长时间任务继续由 Aria Task Orchestrator 执行已有的步骤级 retry/resume；普通聊天恢复始终创建新的 Aria 审计 Run，不恢复 Provider 私有 transcript，也不修改旧消息。这避免把“可重建”错当成“所有副作用都可自动重放”。
 
 ### 4.6 结构化 Patch、并发冲突与回滚
 
@@ -366,8 +369,8 @@ Phase 2I 吸收 Codex Tool Runtime 的并发能力声明和读写隔离原则，
 
 Phase 2J 吸收 Codex 活动 Turn 取消和对模型可见的中断标记，但把控制、鉴权和持久化全部放在 Aria 自己的运行时中：
 
-- 每个普通 Chat Run 在当前 Aria ASGI 进程中注册实际服务该 SSE 的 `asyncio.Task`，Run 完成后按任务身份安全注销；
-- 新增 `POST /chat/runs/{run_id}/cancel`，先按 Run 关联的 Conversation 复检当前用户写权限，再取消目标任务；
+- 每个普通 Chat Run 在当前 Aria ASGI 进程中注册实际服务该 SSE 的 `asyncio.Task`，Run 完成后按任务身份安全注销；数据库中的耐久 Run 输入是事实来源，进程表只用于同 Worker 的即时取消、生命周期诊断与旧调用兼容；
+- `POST /chat/runs/{run_id}/cancel` 先按 Run 关联的 Conversation 复检当前用户写权限并持久化 cancel intent；命中本进程时再即时取消目标任务，跨 Worker 时由 Agent Loop 安全边界消费；
 - 主聊天页和项目聊天页都从 `run_started` 捕获 `run_id`，停止时先请求后端取消，浏览器断流只作为 1.5 秒兜底；
 - Agent Loop 在每个模型流和续写流的边界持续更新部分文本，因此中断发生在 delta 中间时也不会丢失已经展示的内容；
 - 用户取消会保存部分 Assistant Message，并追加“本轮已由用户停止”的模型可见标记；网络断开使用不同原因 `stream_cancelled`；
@@ -375,7 +378,9 @@ Phase 2J 吸收 Codex 活动 Turn 取消和对模型可见的中断标记，但�
 - 当前运行中的 Step 写入 `cancelled / STEP_CANCELLED` checkpoint，Run Rollout 追加 `run_cancelled`，Product Run Event 以 `run_done(final_status=cancelled)` 收口；
 - 若取消抵达时 Assistant Message 已经成功持久化，则不创建重复消息，并保持原有完成/等待确认终态。
 
-这一实现不包含 Codex 的任务对象、协议、App Server 或进程。活动表只保存随机 Aria `run_id`、Conversation ID 和本进程 Task 引用；生产当前为单 Uvicorn 进程，与部署拓扑一致。未来若改为多 Worker，活动信号需升级为 Redis/PostgreSQL 通知或统一 Run Worker，而不是依赖请求负载均衡恰好命中同一进程。
+这一实现不包含 Codex 的任务对象、协议、App Server 或进程。耐久输入表只保存 Aria Run/Message 身份、顺序、内容 SHA-256 和 `accepted / applied / unapplied / retracted` 控制状态，正文仍只存在普通 Message；进程内活动表只保存随机 Aria `run_id`、Conversation ID、Task 引用和兼容性短暂队列，不能覆盖数据库状态。多 Worker 不再依赖请求负载均衡命中同一进程。
+
+耐久队列实行 at-most-once 领取：Agent Loop 在安全边界的单个数据库事务内将 `accepted` 改为 `applied`，再把通过 Run、Conversation、Message 和内容哈希复核的正文交给新一次模型请求。这避免 Worker 重启后同一输入重复驱动工具，但诚实保留一个很小的崩溃窗口：数据库已标记 `applied`、Provider 却可能尚未接收。因此恢复契约分别列出 `unapplied_input_message_ids` 和 `applied_input_message_ids`；新轮在当前会话 ACL 通过后才按 ID 回读 Message 并重验 SHA-256，从普通历史去重后仅以原始 `role=user` 信任级别注入一次，绝不将用户正文提升到 system/platform Prompt。这两类输入都是新轮的用户约束，但不把 `applied` 解释为 Provider 已收到或旧工具写入可重放。Run 终态尚未领取的 `accepted` 会收口为 `unapplied`，篡改或身份不匹配的输入则进入 `retracted` 且不注入模型。
 
 ### 4.14 单轮执行预算与统一停止边界
 
@@ -770,6 +775,27 @@ Knowledge 导入/重建/source sync 与 Durable TaskRun 不再把路由入口的
 本阶段只吸收稳定身份和重建后验证的工程原则，所有数据、权限、Provider、事务和审计仍由 Aria 服务拥有；不运行、不导入、不连接 Codex，也不新增第二运行时。数据库变更仅为加法迁移 `035_v1_35`。
 
 Skill 运行契约同步也移除了旧的 `type=legacy` 假工具占位符。仅有 Prompt 中的分析阶段名称不再伪装成可执行 Tool；数据库发布快照和模型可见工具列表只包含 Aria registry 中存在且受权限策略管理的实现，从而减少无效工具循环与“看似可调用、实际必失败”的交互噪声。
+
+### Phase 3N：可验证中断恢复与耐久 Run 控制 v2（已实施）
+
+本阶段继续参考 OpenAI Codex 固定提交 `83d1fe0e67b1323f71febc2925817732b449f1d9` 的 `codex-rs/core/src/session/turn_input.rs`、Rollout 重建与 item/effect 身份边界，但只把最小机制翻译到 Aria Python/SQLModel/React 架构：
+
+- 新增内容无关的 `ChatRunInput` 耐久邮箱。`steer/cancel` 先以 `ChatRun` 解析真实 Conversation 并复检写权限，再以单调序号写入数据库；进程内 registry 只提供同 Worker 即时取消与兼容性提示，不参与持久判定。Steering 正文仅在授权 Message 中存在，邮箱只保存身份与 SHA-256。
+- Agent Loop 以 at-most-once 事务领取 `accepted`；`applied` 只表示已领取，不证明 Provider 已收到。取消优先并使同批 Steering 变为 `unapplied`，邮箱故障时不会 fail-open 继续模型或工具。Durable Task 只消费 cancel 且进入 Aria `TaskRun` 取消/终态边界，不消费其不支持的 Steering；跨 Worker 调用不再依赖负载均衡命中原进程。
+- Agent Loop 在领取经身份、ACL、Message metadata 和正文 SHA-256 校验的 Steering 前，先将基础 `ContextAssemblyManifest` 与初始 Provider 请求精确比对。Assembly 后追加的 Steering 会生成不含正文的派生 Manifest，绑定基础摘要、最多 24 个 Run/序号/Message/内容摘要身份，以及 transcript 规范化和预算后的精确 system/messages/tools 指纹。基础或派生请求失配会在 Provider 前失败关闭。
+- `TurnRecoveryContract v2` 完全由服务端从精确 `ChatRun`、Assistant Message、持久 Rollout、未应用/已领取输入和当前 Project World State 重建。前端先预览再确认；新 Turn 必须携带服务端 `contract_sha256`，过期、跨会话、漂移或已消费契约在产生新 Message 前返回 HTTP 409。
+- Rollout checkpoint 增加不含原始工具参数/结果的 effect 记录：工具能力、规范化输入摘要、目标身份、结果引用、执行终态与重复策略。只有来源 Run/会话/项目、`GeneratedFile/ProjectFile`、output identity、受控路径和真实字节 SHA-256 仍完全匹配的已完成写入才能复用为 `already_completed`；注册工具不再执行。无法验证的历史写入、未知工具和状态漂移失败关闭到 `manual_review`。
+- `already_completed` 会复用已验证附件卡片作为子 Run 的交付/完成证据，但不调用产物持久化器，不改写来源 `GeneratedFile.run_id`，也不会触发“没有完成”的错误真实性拦截。未决 HITAS 审批视为待处理副作用，必须人工核对。
+- 普通 Agent Loop 的首次模型请求、工具批次、确认和最终持久化边界均用 ChatRun 行锁将邮箱领取与 phase 关闭放入同一事务。已进入 `persist / waiting_confirmation / completed` 的 Run 不会再接受可能与已保存 Assistant Message 冲突的取消。
+- Project World State 以实体 ID、计数和内容摘要建立指纹，包括 ProjectFolder 及 ProjectFile 的 `folder_id`。恢复中的每个新非只读提议都强制生成带恢复 action type 与隐藏 CAS guard 的签名 HITAS 供人工审阅；确认时虽重验当前 Actor 写权限与状态指纹，但所有恢复新写（包括项目 Office 创建/编辑和结构化 Markdown 三个 final-authorized writer）均固定失败关闭、零业务调用和零 `ProjectFile`。这是因为当前无法把包含可独立更新子资源的全量 World State CAS 与所有业务写严格线性化；用户必须核对后从 fresh non-recovery 新轮重新发起。`retry_read_step` 的写工具也由执行器硬拒绝，而非依赖 Prompt。
+- 恢复守卫不支持多动作 HITAS 批量确认；任一多动作批次含恢复守卫时，整批在任何工具注册表/业务写入前失败关闭，首项落 `failed`、其余仍在执行代的动作落 `skipped`。单动作也只能审阅，不能执行恢复新写。
+- 普通非恢复审批只允许三个 Aria 原生 final-authorized project writer 穿过项目写边界，并在业务提交事务内重验 active Actor、精确项目成员、签名、输入和动作代。项目 scope 在 server runtime、审批动作和工具输入三处必须是精确相等的正整数；`bool`、字符串、浮点数、零和负数全部失败关闭。其他 project-scoped mutating legacy/external handler 在 registry 前失败关闭；项目会话里的非项目作用域全局工具继续遵循自身签名/HITAS，不被该边界误拦截，但其 `tool_input` 顶层不得出现 `project_id` 键；该键一旦存在，无论值为 `None`、布尔、字符串、整数或浮点数都失败关闭。final-auth prepare 后若最终锁、ACL、签名或 CAS 失败，控制面仅对 exact same generation 且仍 `executing` 的动作 CAS 为 `failed`，不产生业务写；已终态或已换代动作保留原状态，batch 后续仍执行代落 `skipped`，不会遗留旧 generation 的 `executing` 悬挂项。
+- 恢复 Message 和唯一 parent/snapshot 子 Run 在同一事务中预留，冲突保证零幽灵消息。SSE 首个持久动作把 `reserved` 转为活跃；仅限尚未启动、无 Assistant 的超时预留会被行锁定审计失效并释放唯一身份。该 TTL 不是任意活跃 Run 的通用 lease/reaper。
+- 恢复执行当前只通过同步 SSE `/chat/send` 开放；`/chat/send-async` 在创建任何 Message、子 Run 或 TaskRun 前以 409 拒绝恢复参数，防止后台路径绕过唯一预留与活化边界。
+- 前端恢复卡片展示策略、已验证/待处理 effect 数、项目状态变化和重复处理策略。HTTP 200 仅表示打开 StreamingResponse；本地恢复用户气泡要等到激活后才可发出的 `conversation_id` 或 `run_started`，成功则必须等到同一 `run_id` 的 `run_started`→`run_done(completed|waiting_confirmation)`。用户停止、`run_done(cancelled)`、网络/HTTP/SSE 空流、`run_failed`、缺失启动身份、终态身份不一致和并发恢复均不会误报“已创建”；激活前取消不生成本地 Assistant 气泡。旧 v1 与不能证明的 effect 只允许人工复核。
+- Assistant Message/交付证据持久化后，普通 Agent Loop 仍须先将 Rollout/`ChatRun` 终态事务提交成功，才释放 legacy `done` 和 Product `run_done`。终态提交失败仅发送 `run_failed(PERSISTENCE_ERROR)`，不发送成功收口；预算/完成证据失败也只在对应失败终态提交后对外结束。
+
+数据库变更由幂等迁移 `036_v1_36` 管理，并保持单一 Alembic head。当前没有 active `ChatRun` worker lease、heartbeat 或通用 reaper；未激活恢复预留的 TTL 不能接管已激活 Run。该能力属于 Phase 3O，不在 `036_v1_36` 中。实现不恢复 Codex Provider transcript，不引入 Codex App Server、SDK、子进程、协议、账号或通信。所有 Run、effect、项目事实、任务、权限、HITAS 和审计状态仍由 Aria 原生服务拥有。
 
 ## 8. 许可证与升级流程
 

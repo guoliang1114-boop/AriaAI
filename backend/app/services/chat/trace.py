@@ -131,7 +131,7 @@ def build_chat_trace_payload(runtime: ChatRuntime, state: ChatSessionState) -> d
         "model_used": runtime.selected_model or "",
         "prompt_layers": _build_prompt_layers(runtime),
         "tool_decisions": state.tool_call_events,
-        "artifacts": state.artifacts,
+        "artifacts": state.delivered_artifacts(),
         "stage_timings": state.stage_timings,
         "fallback_events": _build_fallback_events(state),
         "metadata": {

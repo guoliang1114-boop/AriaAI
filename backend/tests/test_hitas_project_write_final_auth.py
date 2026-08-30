@@ -3,6 +3,7 @@ import json
 from datetime import timedelta
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import inspect as sa_inspect
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -118,14 +119,17 @@ def test_office_finalization_discards_prepared_file_after_actor_revocation(
         )
     )
 
-    assert finalized["status"] == "executing"
+    assert finalized["status"] == "failed"
     assert not prepared_path.exists()
     with Session(bind) as session:
         assert session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all() == []
-        assert session.exec(select(Message)).all() == []
+        messages = session.exec(select(Message)).all()
+        assert len(messages) == 1
+        assert "执行失败" in messages[0].content
         action = session.get(PendingToolAction, action_id)
-        assert action.status == "executing"
-        assert action.result_json is None
+        assert action.status == "failed"
+        assert action.error_message
+        assert json.loads(action.result_json)["success"] is False
 
 
 @pytest.mark.parametrize("terminal_status", ["rejected", "superseded"])
@@ -339,6 +343,238 @@ def test_office_edit_prepares_copy_then_reauthorizes_before_overwrite(monkeypatc
         assert len(session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all()) == 1
         assert len(session.exec(select(Message)).all()) == 1
     assert not list((uploads / "generated").glob("hitas_edit_*"))
+
+
+def test_final_authorization_validation_failure_terminalizes_exact_generation(
+    monkeypatch,
+    tmp_path,
+):
+    bind, uploads, project_id, _actor_id, _member_id, action_id, tool_input = _setup_action(tmp_path)
+    monkeypatch.setattr(office_documents, "UPLOADS_DIR", uploads)
+    monkeypatch.setattr(project_markdown, "UPLOADS_DIR", uploads)
+    prepared_path = uploads / "generated" / "signature-failure.pdf"
+
+    async def fake_prepare(_bind, _tool_name, _tool_input):
+        return _prepared_pdf(uploads, prepared_path.name)
+
+    original_validate = chat_actions._validated_execution_tool_input
+    validation_count = 0
+
+    def validate_then_fail(session, action):
+        nonlocal validation_count
+        validation_count += 1
+        if validation_count == 1:
+            return original_validate(session, action)
+        raise HTTPException(409, "Approval signature changed after prepare")
+
+    monkeypatch.setattr(chat_actions, "prepare_pending_project_write", fake_prepare)
+    monkeypatch.setattr(
+        chat_actions,
+        "_validated_execution_tool_input",
+        validate_then_fail,
+    )
+
+    finalized = asyncio.run(
+        chat_actions._execute_final_authorized_project_write(
+            bind,
+            action_id,
+            office_documents.WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+            tool_input,
+            emit_message=True,
+        )
+    )
+
+    assert finalized["status"] == "failed"
+    assert "signature changed" in finalized["error_message"]
+    assert not prepared_path.exists()
+    with Session(bind) as session:
+        action = session.get(PendingToolAction, action_id)
+        assert action.status == "failed"
+        assert session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all() == []
+        assert len(session.exec(select(Message)).all()) == 1
+
+
+def test_final_authorization_terminalizer_preserves_changed_executing_generation(
+    monkeypatch,
+    tmp_path,
+):
+    bind, uploads, project_id, _actor_id, _member_id, action_id, tool_input = _setup_action(tmp_path)
+    monkeypatch.setattr(office_documents, "UPLOADS_DIR", uploads)
+    monkeypatch.setattr(project_markdown, "UPLOADS_DIR", uploads)
+    prepared_path = uploads / "generated" / "changed-generation.pdf"
+    replacement_input = {**tool_input, "file_name": "replacement.pdf"}
+
+    async def fake_prepare(_bind, _tool_name, _tool_input):
+        prepared = _prepared_pdf(uploads, prepared_path.name)
+        with Session(bind) as session:
+            action = session.get(PendingToolAction, action_id)
+            action.tool_input_json = json.dumps(replacement_input)
+            session.add(action)
+            session.commit()
+        return prepared
+
+    monkeypatch.setattr(chat_actions, "prepare_pending_project_write", fake_prepare)
+    finalized = asyncio.run(
+        chat_actions._execute_final_authorized_project_write(
+            bind,
+            action_id,
+            office_documents.WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+            tool_input,
+            emit_message=True,
+        )
+    )
+
+    assert finalized["status"] == "executing"
+    assert finalized["suppress_followup_receipt"] is True
+    assert not prepared_path.exists()
+    with Session(bind) as session:
+        action = session.get(PendingToolAction, action_id)
+        assert action.status == "executing"
+        assert json.loads(action.tool_input_json) == replacement_input
+        assert session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all() == []
+        assert session.exec(select(Message)).all() == []
+
+
+def test_final_authorization_batch_terminalizes_failure_and_skips_remainder(
+    monkeypatch,
+    tmp_path,
+):
+    bind, uploads, project_id, actor_id, _member_id, action_id, tool_input = _setup_action(tmp_path)
+    monkeypatch.setattr(office_documents, "UPLOADS_DIR", uploads)
+    monkeypatch.setattr(project_markdown, "UPLOADS_DIR", uploads)
+    batch_id = "final-auth-terminal-batch"
+    with Session(bind) as session:
+        first = session.get(PendingToolAction, action_id)
+        first.approval_batch_id = batch_id
+        first.sequence_index = 0
+        second = PendingToolAction(
+            conversation_id=first.conversation_id,
+            project_id=project_id,
+            tool_name=office_documents.WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+            tool_input_json=json.dumps({**tool_input, "file_name": "second.pdf"}),
+            action_type=first.action_type,
+            title="Create second deliverable",
+            status="executing",
+            approval_batch_id=batch_id,
+            sequence_index=1,
+            confirmed_by_user_id=actor_id,
+            confirmed_at=first.confirmed_at,
+        )
+        session.add(first)
+        session.add(second)
+        session.commit()
+        session.refresh(second)
+        second_id = int(second.id or 0)
+        conversation_id = int(first.conversation_id)
+
+    prepare_calls = 0
+
+    async def prepare_then_revoke(_bind, _tool_name, _tool_input):
+        nonlocal prepare_calls
+        prepare_calls += 1
+        prepared = _prepared_pdf(uploads, "batch-first.pdf")
+        with Session(bind) as session:
+            actor = session.get(User, actor_id)
+            actor.is_active = False
+            session.add(actor)
+            session.commit()
+        return prepared
+
+    monkeypatch.setattr(chat_actions, "prepare_pending_project_write", prepare_then_revoke)
+    response = asyncio.run(
+        chat_actions._execute_batch_actions(
+            bind,
+            batch_id,
+            [
+                {
+                    "id": action_id,
+                    "tool_name": office_documents.WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+                    "tool_input": tool_input,
+                    "conversation_id": conversation_id,
+                    "project_id": project_id,
+                    "confirmed_by_user_id": actor_id,
+                    "recovery_guarded": False,
+                },
+                {
+                    "id": second_id,
+                    "tool_name": office_documents.WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+                    "tool_input": {**tool_input, "file_name": "second.pdf"},
+                    "conversation_id": conversation_id,
+                    "project_id": project_id,
+                    "confirmed_by_user_id": actor_id,
+                    "recovery_guarded": False,
+                },
+            ],
+        )
+    )
+
+    assert response.status == "failed"
+    assert prepare_calls == 1
+    with Session(bind) as session:
+        actions = session.exec(
+            select(PendingToolAction)
+            .where(PendingToolAction.approval_batch_id == batch_id)
+            .order_by(PendingToolAction.sequence_index)
+        ).all()
+        assert [action.status for action in actions] == ["failed", "skipped"]
+        assert session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all() == []
+        assert len(session.exec(select(Message)).all()) == 1
+
+
+def test_project_conversation_global_tool_is_not_blocked_as_project_registry_write(tmp_path):
+    bind, _uploads, _project_id, _actor_id, _member_id, action_id, _tool_input = _setup_action(tmp_path)
+    global_input = {"file_name": "notes.txt", "content": "approved"}
+    with Session(bind) as session:
+        action = session.get(PendingToolAction, action_id)
+        action.tool_name = "save_text"
+        action.tool_input_json = json.dumps(global_input)
+        session.add(action)
+        session.commit()
+
+    assert (
+        chat_actions._atomic_write_boundary_error_before_execution(
+            bind,
+            action_id=action_id,
+            expected_tool_name="save_text",
+            expected_tool_input=global_input,
+        )
+        == ""
+    )
+
+
+def test_background_final_authorization_failure_terminalizes_exact_generation(
+    monkeypatch,
+    tmp_path,
+):
+    bind, uploads, project_id, actor_id, _member_id, action_id, tool_input = _setup_action(tmp_path)
+    monkeypatch.setattr(office_documents, "UPLOADS_DIR", uploads)
+    monkeypatch.setattr(project_markdown, "UPLOADS_DIR", uploads)
+
+    async def prepare_then_deactivate(_bind, _tool_name, _tool_input):
+        prepared = _prepared_pdf(uploads, "background-revoked.pdf")
+        with Session(bind) as session:
+            actor = session.get(User, actor_id)
+            actor.is_active = False
+            session.add(actor)
+            session.commit()
+        return prepared
+
+    monkeypatch.setattr(chat_actions, "prepare_pending_project_write", prepare_then_deactivate)
+    asyncio.run(
+        chat_actions._execute_action_in_background(
+            bind,
+            action_id,
+            office_documents.WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+            tool_input,
+        )
+    )
+
+    with Session(bind) as session:
+        action = session.get(PendingToolAction, action_id)
+        assert action.status == "failed"
+        assert action.error_message
+        assert session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all() == []
+        assert len(session.exec(select(Message)).all()) == 1
 
 
 def test_outer_transaction_failure_removes_uncommitted_office_copy(monkeypatch, tmp_path):

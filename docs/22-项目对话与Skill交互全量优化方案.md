@@ -312,8 +312,8 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - Assistant 历史消息新增“有帮助 / 没帮助”反馈；负向反馈最多选择三个固定原因（事实不准、缺少上下文、Skill 不合适、行动不对、表达不清、结果不完整）。反馈可覆盖更新，不接收自由文本，也不额外保存消息正文或反馈者身份。
 - 项目级交互指标聚合反馈覆盖率、帮助率、修订轮次成功率、发送前配置建议采用率和负向原因分布；指标只读取角色与结构化 metadata，不把对话正文带入分析结果。
 - 发送前配置建议在真正发送下一轮时记录“已应用 / 已关闭”，模板与 Skill 只保存受限 ID，使建议质量可以用真实采用结果评估，而不是只看点击或接口调用次数。
-- 停止、失败和异常中断消息提供“安全继续”。前端只提交来源 Run/Message，后端重新读取当前会话的持久 Rollout，重建 checkpoint、已完成步骤与副作用风险；跨会话或不匹配来源失败关闭。恢复总是创建新的审计 Turn，不修改旧消息，不盲目重放已完成写入。
-- 每个项目 Turn 在消息 metadata 中保存 `Project World State Manifest v1`：项目、里程碑、待办、文件、进展、财务、干系人和交付物只保留实体 ID、计数与 SHA-256 状态指纹。下一轮生成分类级新增/移除/更新数量，Context Receipt 展示 12 位状态版本；业务正文、文件名和金额不会进入状态回执或变化提示。
+- 停止、失败和异常中断消息提供恢复入口。Phase 3D 首版由后端重新读取持久 Rollout 并提示核对 checkpoint 与副作用；恢复始终创建新的审计 Turn，不修改旧消息。该版本只有提示级防重放，已由 Phase 3N 的可验证 effect 契约和执行器硬门禁替代，不再称为“安全继续”。
+- 每个项目 Turn 在消息 metadata 中保存 `Project World State Manifest v2`：项目、里程碑、待办、文件夹、文件（含所在目录）、进展、财务、干系人和交付物只保留实体 ID、计数与 SHA-256 状态指纹。下一轮生成分类级新增/移除/更新数量，Context Receipt 展示 12 位状态版本；业务正文、文件名和金额不会进入状态回执或变化提示。v1 快照不与 v2 误比较，会安全重建新基线。
 - 发布质量门禁由 35 扩展为 41 场景，新增 `project_world_state_accuracy`、`turn_recovery_safety_rate` 与 `interaction_feedback_privacy_rate`；前端增加分类反馈、恢复动作、请求审计和状态回执测试。
 - 本阶段复用 Aria 原生 Message metadata、Context Assembly、Context Receipt、Run Evaluation 和此前基于 OpenAI Codex Apache-2.0 源码移植的 Rollout 重建机制；未引入 Codex 进程、协议、SDK 或通信依赖，也不新增数据库迁移。
 
@@ -409,9 +409,25 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - Knowledge job 冻结 `requested_by_user_id` 或代码级 trusted-system 二选一上下文，并以 `status + attempt + lease_token` 做 worker CAS。Provider/embedding/文件读取后的 chunk、document/source status、checkpoint、成功与失败 event 都必须再次通过精确 Project-first 授权；同客户的另一项目权限不能成为替代授权。
 - Knowledge 的磁盘派生物不再覆盖固定 JSON：extracted/chunks 使用唯一版本 key，文件以同目录临时文件 + `fsync` + `os.replace` 原子发布，并由 Session rollback journal 在 flush/commit 失败或未提交关闭时删除新版本。原件在抽取前后和最终复权后均校验 path/SHA-256；成功提交保留旧版本供已经捕获旧 DB key 的并发读者完成读取。
 - Durable TaskRun 冻结真实发起人，每个 TaskStep 用不对 API 序列化的内部 lease token 标识当前执行代。cancel 将未完成步骤改为 skipped，pause 将 running 步骤退回 pending，二者都清除 lease；Office/Markdown 先生成临时结果，最终授权 + lease CAS 事务才创建 ProjectFile、TaskArtifact 和 step receipt，撤权或取消后临时源会被清理。
-- HITAS 确认后的 Office 新建/编辑与 Markdown 更新也采用 prepare→finalize：长耗时阶段只产生私有临时结果，最终按 active User、精确项目成员、PendingToolAction 状态/actor/project/tool/input 快照和目标文件重新加锁。数据库提交失败会补偿删除新文件或恢复原文件；撤权、停用、reaper、拒绝或 supersede 后既不落业务文件，也不追加迟到的完成/失败回执。
+- HITAS 确认后的 Office 新建/编辑与 Markdown 更新也采用 prepare→finalize：长耗时阶段只产生私有临时结果，最终按 active User、精确项目成员、PendingToolAction 状态/actor/project/tool/input 快照和目标文件重新加锁。数据库提交失败会补偿删除新文件或恢复原文件；撤权、停用或最终签名/CAS 失败时，控制面仅把完全相同且仍 `executing` 的动作代终结为 `failed`，不落业务文件。reaper、拒绝、supersede 或已换代动作保留其既有终态/代际，不追加迟到回执。
 - 内置 Skill 的发布契约只保留工具注册表中真实可执行的工具。历史上仅表示流程步骤、从未有实现的 `diagnose`、`issue-tree` 等 `type=legacy` 占位符会在同步时清除；这些方法论仍保留在 Skill Prompt 中，但不会再误导模型发起必然失败的工具调用。
 - 这一阶段借鉴 Codex world-state 的稳定身份与 verify-before-write 原则，但关系、ACL、锁、数据库、模型调用和事件均由 Aria 原生实现；不启动、不调用、不连接 Codex。
+
+### Phase 3N：可验证中断恢复与跨 Worker Run 控制（已实施）
+
+- 停止/失败卡片改为“先核对、再确认”两阶段恢复。服务端从精确 ChatRun、Assistant Message 和持久 Rollout 重建 v2 契约，前端不能自行宣称哪些写入已完成。旧 v1、身份不匹配、正在运行的来源或状态已漂移均失败关闭。
+- 每个工具 effect 使用输入摘要、目标身份和持久结果引用进行无原文记录。文件/项目记录/真实字节 SHA-256 全部验证通过时，已完成写入才以 `already_completed` 复用，不会再执行工具；无法证明时转人工复核。
+- 被复用的附件会以“已核验原任务已有附件、本次未重复生成”呈现，仍可在新回复中下载；来源 Run 的产物归属和字节证据不会被子 Run 改写。尚在等待用户确认的旧动作不与自动重新规划并存，一律转人工核对。
+- 恢复契约绑定当前 Project World State，包括文件夹层级和文件所在目录。所有新非只读提议都强制进入带恢复身份与隐藏状态 guard 的签名 HITAS 供人工审阅；确认时重验当前写权限和项目指纹，但项目 Office 创建/编辑、结构化 Markdown、文件/文件夹管理、普通生成器及外部/legacy handler 全部固定失败关闭，零业务调用、零 `ProjectFile`，必须核对后从 fresh non-recovery 新轮重新发起。当前不声称能把全量 Project World State 的所有子资源与任意写入严格线性化。普通非恢复审批仅允许三个 Aria 原生 final-authorized project writer 执行项目写；项目 scope 在 server runtime、审批动作和工具输入三处必须是精确相等的正整数，拒绝 `bool`、字符串、浮点数、零与负数。其他 project-scoped mutating registry handler 在 registry 前失败关闭。非项目作用域全局工具在项目会话中可继续使用自身签名/HITAS，但其 `tool_input` 顶层不得出现 `project_id` 键；无论该值为 `None`、布尔、字符串、整数或浮点数，一律失败关闭。final-auth 失败只终结 exact same generation，批次余项收口为 `skipped`，不会留下旧 `executing` 悬挂项。只读重试策略的写调用由执行器硬拒绝，不依赖模型遵守文字建议。
+- 恢复用户 Message 和唯一子 Run 在同一数据库事务中预留，重复确认在产生幽灵消息前返回 409。进程在 SSE 启动前崩溃所留下的、未激活且无 Assistant 的 `reserved` 子 Run，超过配置 TTL 后可审计失效并重试；已激活 Run 不会被该机制误回收。
+- 当前恢复只允许走同步 SSE `/chat/send`；异步发送会在创建 Message、子 Run 或后台 TaskRun 前返回 409，不让后台路径绕过恢复事务边界。
+- 取消和运行中追加从单进程队列升级为 Aria 数据库邮箱。输入正文仍是 ACL 保护的普通用户 Message，邮箱仅保存 Run/Message 身份、序号和哈希。普通 Agent Loop 在模型/工具安全边界领取；Durable Task 仅领取 cancel 并调用原生 TaskRun 取消，不把不支持的 Steering 误标记为已应用。
+- Steering 与 cancel 都使用 at-most-once 领取。`applied` 表示 Aria worker 已领取，不是 Provider 接收证明；因此新恢复契约会区分 `unapplied` 和 `applied` 输入身份，经 ACL、Message metadata 和内容 SHA-256 复核后，仅以原始 `role=user` 信任级别注入新 Run 一次。数据库领取失败时不会继续调模型或提交工具。
+- 基础 Context Assembly Manifest 在邮箱领取前必须与初始 Provider 请求精确匹配。经身份和正文摘要校验的 Steering 若在 Assembly 后追加，系统会生成内容安全的派生 Manifest，绑定基础摘要、最多 24 个 Run/序号/Message/内容摘要身份，以及最终 system/messages/tools 指纹；任一失配都在 Provider 前失败关闭。
+- 恢复来源 Run/会话/项目、`GeneratedFile/ProjectFile`、output identity、受控路径与真实字节 SHA-256 必须全部精确匹配，才复用附件。恢复守卫的多动作 HITAS 批次在任何业务写入前拒绝，必须拆成单动作预览并逐次确认。
+- 卡片显示已验证/待处理 effect 数、状态变化和重复处理策略；无法验证的内部代码不直接暴露给用户。HTTP 200 不等于激活：前端等到 `conversation_id` 或 `run_started` 才发布本地恢复用户气泡，且只接受同一 `run_id` 的 `run_started`→`run_done(completed|waiting_confirmation)` 为成功。用户停止、`run_done(cancelled)`、网络、SSE 错误/空流、`run_failed`、缺失启动身份、终态身份不一致或并发确认都不会误报恢复成功；激活前取消不生成本地 Assistant 气泡，409 会清除旧草稿并要求重新预览。
+- Assistant Message/交付证据持久化后，必须先提交 Rollout/`ChatRun` 终态，才释放 legacy `done` 和 Product `run_done`；终态提交失败只发 `run_failed(PERSISTENCE_ERROR)`，不会产生成功假象。
+- 迁移 `036_v1_36` 增加恢复 parent/snapshot 唯一身份与耐久输入表。当前没有 active `ChatRun` worker lease、heartbeat 或通用 reaper；仅能在 TTL 后审计失效尚未激活且无 Assistant Message 的 `reserved` 恢复子 Run。active Run lease/reaper 属于 Phase 3O，不在 036 中。该阶段不恢复 Codex transcript，不运行或连接 Codex；项目、消息、记忆、Skill、任务、工具、权限、审批和审计全部继续属于 Aria。
 
 ## 11. 官方资料与许可证
 

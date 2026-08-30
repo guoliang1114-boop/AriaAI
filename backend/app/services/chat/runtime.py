@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import hmac
 import os
 import time
 from dataclasses import replace
+from typing import Any
 
 from sqlmodel import Session, select
 
@@ -47,6 +49,11 @@ from app.services.agent_harness.skill_releases import (
     resolve_skill_release,
 )
 from app.services.agent_harness.turn_interrupt import get_active_turn
+from app.services.agent_harness.durable_run_inputs import (
+    DurableRunInputRejected,
+    build_recovery_steering_history_messages,
+    load_recovery_steering_messages,
+)
 from app.services.agent_harness.conversation_capsule import (
     build_conversation_capsule,
     conversation_capsule_reference,
@@ -81,8 +88,12 @@ from app.services.chat.intent_contract import build_chat_intent_contract
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, MODE_CONFIG, ToolAccessPolicy
 from app.services.chat.turn_contract import build_turn_contract, format_turn_user_request
 from app.services.chat.turn_recovery import (
+    TurnRecoveryConflict,
+    TurnRecoveryError,
     build_turn_recovery_preview,
+    find_existing_recovery_child,
     format_turn_recovery_for_prompt,
+    resolve_recovery_world_state,
 )
 from app.services.chat.working_memory import (
     build_working_memory,
@@ -283,30 +294,72 @@ def _validated_turn_recovery(
         or source_message.role != "assistant"
         or source_message.conversation_id != conversation_id
     ):
-        raise ValueError("Turn recovery source does not belong to this conversation")
+        raise TurnRecoveryError("Turn recovery source does not belong to this conversation")
     source_run_id = req.turn_recovery.source_run_id
     if get_active_turn(source_run_id) is not None:
-        raise ValueError("Turn recovery source is still active")
+        raise TurnRecoveryConflict("Turn recovery source is still active")
     source_metadata = source_message.get_metadata()
     source_rollout = source_metadata.get("run_rollout")
     if (
         not isinstance(source_rollout, dict)
         or str(source_rollout.get("run_id") or "") != source_run_id
     ):
-        raise ValueError("Turn recovery source run does not match the selected message")
+        raise TurnRecoveryError("Turn recovery source run does not match the selected message")
     rollout = get_chat_rollout(
         session,
         conversation_id,
         run_id=source_run_id,
     )
     if not rollout:
-        raise ValueError("Turn recovery rollout is no longer available")
+        raise TurnRecoveryError("Turn recovery rollout is no longer available")
+    recovery_state = resolve_recovery_world_state(
+        session,
+        conversation_id=conversation_id,
+        source_run_id=source_run_id,
+        requested_project_id=req.project_id,
+    )
+    chat_run = recovery_state["chat_run"]
+    if chat_run.assistant_message_id != source_message.id:
+        raise TurnRecoveryError("Turn recovery message is not the ChatRun assistant result")
+    if str(chat_run.status or "") not in {"cancelled", "failed", "interrupted"}:
+        raise TurnRecoveryConflict("Turn recovery source is not durably terminal or interrupted")
     preview = build_turn_recovery_preview(
         rollout,
         source_message_id=int(source_message.id or 0),
+        current_project_world_state=recovery_state["current_world_state"],
+        project_world_state_change=recovery_state["world_state_change"],
+        force_manual_review=not recovery_state["source_world_state_available"],
+        unapplied_input_message_ids=recovery_state.get("unapplied_input_message_ids"),
+        applied_input_message_ids=recovery_state.get("applied_input_message_ids"),
     )
     if not preview.get("can_continue"):
-        raise ValueError("This run has already completed and cannot be recovered")
+        raise TurnRecoveryConflict("This run has already completed and cannot be recovered")
+    client_contract_sha = str(getattr(req.turn_recovery, "contract_sha256", None) or "").lower()
+    if getattr(req.turn_recovery, "schema_version", None) == 2 and not client_contract_sha:
+        raise TurnRecoveryConflict("Turn recovery v2 requires the reviewed contract digest")
+    if client_contract_sha:
+        if not hmac.compare_digest(client_contract_sha, str(preview.get("contract_sha256") or "")):
+            raise TurnRecoveryConflict("Turn recovery contract changed; review the latest project state before continuing")
+    else:
+        # A v1/legacy client cannot attest which server preview it reviewed.
+        # Preserve navigation but fail closed for every mutating tool.
+        preview = build_turn_recovery_preview(
+            rollout,
+            source_message_id=int(source_message.id or 0),
+            current_project_world_state=recovery_state["current_world_state"],
+            project_world_state_change=recovery_state["world_state_change"],
+            force_manual_review=True,
+            unapplied_input_message_ids=recovery_state.get("unapplied_input_message_ids"),
+            applied_input_message_ids=recovery_state.get("applied_input_message_ids"),
+        )
+    existing_child = find_existing_recovery_child(
+        session,
+        conversation_id=conversation_id,
+        contract=preview,
+        reconcile_stale_reservation=True,
+    )
+    if existing_child is not None:
+        raise TurnRecoveryConflict("This recovery contract has already started a child run")
     return preview
 
 
@@ -561,6 +614,19 @@ def _should_include_history_message(message: Message) -> bool:
     return (isinstance(tool_calls, list) and bool(tool_calls)) or (isinstance(artifacts, list) and bool(artifacts))
 
 
+def _visible_history_messages(history: list[Message]) -> list[Message]:
+    """Exclude recovery requests whose durable child never became active."""
+
+    visible: list[Message] = []
+    for message in history:
+        reservation = _message_metadata(message).get("recovery_reservation")
+        status = str(reservation.get("status") or "") if isinstance(reservation, dict) else ""
+        if status in {"reserved", "expired"}:
+            continue
+        visible.append(message)
+    return visible
+
+
 def _api_message_from_history(message: Message) -> dict[str, str]:
     content = str(message.content or "").strip()
     if content:
@@ -569,6 +635,38 @@ def _api_message_from_history(message: Message) -> dict[str, str]:
     if tool_summary:
         return {"role": message.role, "content": f"[Prior structured tool execution]\n{tool_summary}"}
     return {"role": message.role, "content": ""}
+
+
+def _api_messages_with_recovery_steering(
+    history: list[Message],
+    *,
+    recovery_steering: tuple[Any, ...],
+    current_user_message_id: int | None,
+) -> list[dict[str, str]]:
+    """Inject verified prior-run inputs once, as user messages, near the tail."""
+
+    steering_ids = {int(item.message_id) for item in recovery_steering}
+    recovery_messages = build_recovery_steering_history_messages(recovery_steering)
+    filtered = [
+        message
+        for message in _visible_history_messages(history)
+        if getattr(message, "id", None) not in steering_ids
+    ]
+    api_messages: list[dict[str, str]] = []
+    injected = False
+    for message in filtered:
+        if (
+            not injected
+            and recovery_messages
+            and getattr(message, "id", None) == current_user_message_id
+        ):
+            api_messages.extend(dict(item) for item in recovery_messages)
+            injected = True
+        if _should_include_history_message(message):
+            api_messages.append(_api_message_from_history(message))
+    if recovery_messages and not injected:
+        api_messages.extend(dict(item) for item in recovery_messages)
+    return api_messages
 
 
 def _format_recent_tool_history_context(history: list[Message]) -> str:
@@ -888,8 +986,14 @@ def prepare_chat_runtime(
         conversation_skill_changed = True
     if conversation_skill_changed:
         session.add(conv)
-        session.commit()
-        session.refresh(conv)
+        if req.turn_recovery is not None:
+            # Recovery reserves its child run and exact user Message in one
+            # router-owned transaction. A stale/duplicate 409 must roll this
+            # tentative Skill selection back as well.
+            session.flush()
+        else:
+            session.commit()
+            session.refresh(conv)
     prepare_metrics["conversation_ready_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     conv_id = int(conv.id or 0) if conv is not None else 0
     skill_release_assignment = SkillReleaseAssignment()
@@ -912,7 +1016,19 @@ def prepare_chat_runtime(
             else ""
         )
 
-    # 3. Persist user message and its auditable turn inputs.
+    # 3. Persist user message and its auditable turn inputs. Build the current
+    # project CAS before recovery so the v2 digest covers the exact world state
+    # against which continuation was authorized.
+    current_world_state: dict = {}
+    world_state_change: dict = {}
+    if req.project_id and conv_id:
+        previous_world_state = latest_project_world_state(
+            session,
+            conv_id,
+            project_id=req.project_id,
+        )
+        current_world_state = build_project_world_state_manifest(session, req.project_id)
+        world_state_change = compare_project_world_states(previous_world_state, current_world_state)
     turn_recovery = (
         _validated_turn_recovery(
             session,
@@ -922,6 +1038,25 @@ def prepare_chat_runtime(
         if conv_id
         else {}
     )
+    recovery_steering = ()
+    if turn_recovery:
+        try:
+            recovery_steering = load_recovery_steering_messages(
+                session,
+                parent_run_id=str(turn_recovery.get("source_run_id") or ""),
+                conversation_id=conv_id,
+            )
+        except DurableRunInputRejected as exc:
+            raise TurnRecoveryConflict(
+                "Turn recovery steering inputs changed or failed integrity validation"
+            ) from exc
+        unapplied_ids = [item.message_id for item in recovery_steering if item.status == "unapplied"]
+        applied_ids = [item.message_id for item in recovery_steering if item.status == "applied"]
+        if (
+            unapplied_ids != list(turn_recovery.get("unapplied_input_message_ids") or [])
+            or applied_ids != list(turn_recovery.get("applied_input_message_ids") or [])
+        ):
+            raise TurnRecoveryConflict("Turn recovery steering inputs changed after preview")
     metadata = build_message_metadata(
         project_id=req.project_id,
         skill_id=effective_skill_id,
@@ -940,19 +1075,6 @@ def prepare_chat_runtime(
     if isinstance(metadata.get("turn_recovery"), dict):
         prepare_metrics["turn_recovery"] = dict(metadata["turn_recovery"])
     if req.project_id and conv_id:
-        previous_world_state = latest_project_world_state(
-            session,
-            conv_id,
-            project_id=req.project_id,
-        )
-        current_world_state = build_project_world_state_manifest(
-            session,
-            req.project_id,
-        )
-        world_state_change = compare_project_world_states(
-            previous_world_state,
-            current_world_state,
-        )
         if current_world_state:
             metadata["project_world_state"] = current_world_state
             prepare_metrics["project_world_state"] = current_world_state
@@ -961,21 +1083,49 @@ def prepare_chat_runtime(
             prepare_metrics["project_world_state_change"] = world_state_change
     step_started_at = time.perf_counter()
     if persist_user and conv_id:
-        persist_user_message(session, conv_id, req.content, metadata)
+        persisted_user_message = persist_user_message(
+            session,
+            conv_id,
+            req.content,
+            metadata,
+            commit=not bool(turn_recovery),
+        )
+        if persisted_user_message.id is None:
+            raise RuntimeError("persisted chat user message has no identity")
+        prepare_metrics["source_user_message_id"] = int(persisted_user_message.id)
     prepare_metrics["user_message_saved_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
     # 4. Message history, working memory, and follow-up policy upgrades
     step_started_at = time.perf_counter()
-    history = get_recent_message_history(session, conv_id, limit=CHAT_HISTORY_WINDOW) if conv_id else []
+    history = (
+        _visible_history_messages(
+            get_recent_message_history(session, conv_id, limit=CHAT_HISTORY_WINDOW)
+        )
+        if conv_id
+        else []
+    )
     persisted_conversation_state = get_conversation_state_payload(session, conv_id) if conv_id else {}
     working_memory = build_working_memory(history, req.content, persisted_state=persisted_conversation_state)
     intent_decision = _upgrade_policy_for_confirmed_followup(intent_decision, req, history)
     intent_decision = _upgrade_policy_for_artifact_continuation(intent_decision, req, working_memory)
-    history_for_model = list(history)
+    recovery_steering_message_ids = {item.message_id for item in recovery_steering}
+    history_for_model = [
+        message
+        for message in history
+        if getattr(message, "id", None) not in recovery_steering_message_ids
+    ]
     if intent_decision.chat_mode in {ChatMode.CROSS_PROJECT_PORTFOLIO, ChatMode.WORKSPACE_INVENTORY}:
         window = MODE_CONFIG.get(intent_decision.chat_mode, MODE_CONFIG[ChatMode.PROJECT_DEEP_DIVE]).history_window
         history_for_model = history_for_model[-max(1, min(window, CHAT_HISTORY_WINDOW)) :]
-    api_messages = [_api_message_from_history(msg) for msg in history_for_model if _should_include_history_message(msg)]
+    current_user_message_id = prepare_metrics.get("source_user_message_id")
+    api_messages = _api_messages_with_recovery_steering(
+        history_for_model,
+        recovery_steering=recovery_steering,
+        current_user_message_id=current_user_message_id
+        if isinstance(current_user_message_id, int)
+        else None,
+    )
+    prepare_metrics["recovery_steering_input_count"] = len(recovery_steering)
     tool_history_context = _format_recent_tool_history_context(history_for_model)
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count_loaded"] = len(api_messages)

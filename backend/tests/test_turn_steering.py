@@ -138,6 +138,18 @@ async def test_steer_endpoint_authorizes_persists_and_enqueues(
         )
 
     monkeypatch.setattr(chat_router, "require_conversation_access", allow)
+    monkeypatch.setattr(
+        chat_router,
+        "resolve_active_durable_run",
+        lambda *_args, **_kwargs: SimpleNamespace(conversation_id=23),
+    )
+    durable_call: dict = {}
+
+    def accept_durable(_session, **kwargs):
+        durable_call.update(kwargs)
+        return SimpleNamespace(id=88, sequence=1)
+
+    monkeypatch.setattr(chat_router, "accept_steering_run_input", accept_durable)
     session = _FakeSession(23)
     user = object()
     response = await chat_router.steer_chat_run(
@@ -161,9 +173,11 @@ async def test_steer_endpoint_authorizes_persists_and_enqueues(
     message = next(item for item in session.added if isinstance(item, Message))
     metadata = json.loads(message.metadata_json)
     assert metadata["run_steering"]["run_id"] == "run_steering_endpoint"
+    assert metadata["run_steering"]["input_id"] == 88
+    assert durable_call["message_id"] == 73
 
     drained = drain_active_turn_steering("run_steering_endpoint", conversation_id=23)
-    assert [item.message_id for item in drained] == [73]
+    assert drained == ()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -208,6 +222,11 @@ async def test_steer_endpoint_does_not_enqueue_when_authorization_fails(
         raise HTTPException(status_code=403, detail="forbidden")
 
     monkeypatch.setattr(chat_router, "require_conversation_access", deny)
+    monkeypatch.setattr(
+        chat_router,
+        "resolve_active_durable_run",
+        lambda *_args, **_kwargs: SimpleNamespace(conversation_id=30),
+    )
     session = _FakeSession(30)
     with pytest.raises(HTTPException) as raised:
         await chat_router.steer_chat_run(

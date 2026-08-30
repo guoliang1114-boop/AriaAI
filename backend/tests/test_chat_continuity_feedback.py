@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models.db import Message, Milestone, Project
+from app.models.db import Message, Milestone, Project, ProjectFile, ProjectFolder
 from app.services.agent_harness.project_world_state import (
     build_project_world_state_manifest,
     compare_project_world_states,
@@ -69,6 +69,95 @@ def test_project_world_state_is_content_free_and_reports_category_changes() -> N
         engine.dispose()
 
 
+def test_project_world_state_tracks_folder_lifecycle_and_file_moves() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            project = Project(name="Folder state project", client="Folder state client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = int(project.id or 0)
+
+            project_file = ProjectFile(
+                project_id=project_id,
+                name="PRIVATE-FILE-NAME",
+                file_type="pdf",
+                path="private/file.pdf",
+            )
+            session.add(project_file)
+            session.commit()
+            session.refresh(project_file)
+
+            before_create = build_project_world_state_manifest(session, project_id)
+            folder = ProjectFolder(
+                project_id=project_id,
+                name="PRIVATE-FOLDER-NAME",
+                sort_order=10,
+            )
+            session.add(folder)
+            session.commit()
+            session.refresh(folder)
+            folder_id = int(folder.id or 0)
+            after_create = build_project_world_state_manifest(session, project_id)
+
+            create_change = compare_project_world_states(before_create, after_create)
+            assert create_change["changed_categories"] == ["folders"]
+            assert create_change["categories"]["folders"]["added"] == 1
+
+            folder.name = "PRIVATE-RENAMED-FOLDER"
+            session.add(folder)
+            session.commit()
+            after_rename = build_project_world_state_manifest(session, project_id)
+            rename_change = compare_project_world_states(after_create, after_rename)
+            assert rename_change["changed_categories"] == ["folders"]
+            assert rename_change["categories"]["folders"]["updated"] == 1
+
+            folder.sort_order = 20
+            session.add(folder)
+            session.commit()
+            after_reorder = build_project_world_state_manifest(session, project_id)
+            reorder_change = compare_project_world_states(after_rename, after_reorder)
+            assert reorder_change["changed_categories"] == ["folders"]
+            assert reorder_change["categories"]["folders"]["updated"] == 1
+
+            project_file.folder_id = folder_id
+            session.add(project_file)
+            session.commit()
+            after_move_in = build_project_world_state_manifest(session, project_id)
+            move_in_change = compare_project_world_states(after_reorder, after_move_in)
+            assert move_in_change["changed_categories"] == ["files"]
+            assert move_in_change["categories"]["files"]["updated"] == 1
+
+            project_file.folder_id = None
+            session.add(project_file)
+            session.commit()
+            after_move_out = build_project_world_state_manifest(session, project_id)
+            move_out_change = compare_project_world_states(after_move_in, after_move_out)
+            assert move_out_change["changed_categories"] == ["files"]
+            assert move_out_change["categories"]["files"]["updated"] == 1
+
+            session.delete(folder)
+            session.commit()
+            after_delete = build_project_world_state_manifest(session, project_id)
+            delete_change = compare_project_world_states(after_move_out, after_delete)
+            assert delete_change["changed_categories"] == ["folders"]
+            assert delete_change["categories"]["folders"]["removed"] == 1
+
+        serialized = json.dumps(after_reorder, ensure_ascii=False)
+        assert "PRIVATE-FOLDER-NAME" not in serialized
+        assert "PRIVATE-RENAMED-FOLDER" not in serialized
+        assert "PRIVATE-FILE-NAME" not in serialized
+    finally:
+        SQLModel.metadata.drop_all(engine)
+        engine.dispose()
+
+
 def test_turn_recovery_preserves_checkpoints_and_warns_before_side_effects() -> None:
     preview = build_turn_recovery_preview(
         {
@@ -89,12 +178,13 @@ def test_turn_recovery_preserves_checkpoints_and_warns_before_side_effects() -> 
     )
 
     assert preview["can_continue"] is True
-    assert preview["strategy"] == "continue_as_new_turn"
+    assert preview["schema_version"] == 2
+    assert preview["strategy"] == "manual_review"
     assert preview["completed_steps"] == [1]
     assert preview["side_effects_possible"] is True
-    assert "inspect_before_side_effects" in preview["warning_codes"]
+    assert "manual_review_required" in preview["warning_codes"]
     prompt = format_turn_recovery_for_prompt(preview)
-    assert "Never replay a previous write" in prompt
+    assert "fail-closed" in prompt
     assert "write_project_file" not in prompt
 
 
@@ -105,7 +195,10 @@ def test_runtime_rebuilds_recovery_from_server_rollout(monkeypatch) -> None:
         conversation_id=4,
         get_metadata=lambda: {"run_rollout": {"run_id": "run_server"}},
     )
-    session = SimpleNamespace(get=lambda model, identity: source_message)
+    session = SimpleNamespace(
+        get=lambda model, identity: source_message,
+        exec=lambda *_args, **_kwargs: SimpleNamespace(first=lambda: None),
+    )
     monkeypatch.setattr(
         "app.services.chat.runtime.get_chat_rollout",
         lambda *_args, **_kwargs: {
@@ -114,6 +207,18 @@ def test_runtime_rebuilds_recovery_from_server_rollout(monkeypatch) -> None:
             "steps": [{"step_index": 1, "status": "completed", "tool_calls": []}],
             "run_outputs": [],
             "recovery": {"can_resume": True, "can_retry": False},
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.chat.runtime.resolve_recovery_world_state",
+        lambda *_args, **_kwargs: {
+            "chat_run": SimpleNamespace(
+                assistant_message_id=91,
+                status="interrupted",
+            ),
+            "current_world_state": {},
+            "world_state_change": {},
+            "source_world_state_available": True,
         },
     )
     req = SendMessageRequest(
@@ -130,7 +235,7 @@ def test_runtime_rebuilds_recovery_from_server_rollout(monkeypatch) -> None:
 
     recovery = _validated_turn_recovery(session, req, conversation_id=4)
 
-    assert recovery["strategy"] == "resume_from_checkpoint"
+    assert recovery["strategy"] == "manual_review"
     assert recovery["completed_steps"] == [1]
     assert recovery["side_effects_possible"] is False
 

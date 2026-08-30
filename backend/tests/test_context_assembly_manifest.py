@@ -30,8 +30,10 @@ from app.services.context_builder.assembly import (
     CONTEXT_ASSEMBLY_SCHEMA_VERSION,
     ContextSourceInput,
     assemble_context,
+    build_post_assembly_request_manifest,
     validate_context_assembly_manifest,
     validate_context_assembly_request,
+    validate_post_assembly_request,
 )
 from app.services.context_builder.project_context import build_project_context
 
@@ -108,6 +110,55 @@ def test_context_assembly_manifest_is_bounded_private_and_matches_request() -> N
         messages=changed_messages,
         tools=assembly.tools,
     ) == (False, "messages_request_mismatch")
+
+
+def test_post_assembly_manifest_binds_durable_delta_and_effective_capabilities() -> None:
+    assembly = _assembly()
+    derived_messages = [
+        *deepcopy(assembly.messages),
+        {"role": "user", "content": "PRIVATE-POST-ASSEMBLY-STEERING"},
+    ]
+    derived_system = f"{assembly.system}\n\ncapability contracted"
+    durable_inputs = [
+        {
+            "run_id": "run_context_delta",
+            "steering_id": "steer_context_delta_1",
+            "sequence": 1,
+            "message_id": 91,
+            "content_sha256": "a" * 64,
+        }
+    ]
+    derived = build_post_assembly_request_manifest(
+        assembly.manifest,
+        request_stage="step_0",
+        durable_inputs=durable_inputs,
+        system=derived_system,
+        messages=derived_messages,
+        tools=[],
+    )
+
+    assert validate_post_assembly_request(
+        derived,
+        assembly.manifest,
+        system=derived_system,
+        messages=derived_messages,
+        tools=[],
+    ) == (True, "valid")
+    assert "PRIVATE-POST-ASSEMBLY-STEERING" not in json.dumps(
+        derived,
+        ensure_ascii=False,
+    )
+    assert derived["model_input"]["tools"]["tool_count"] == 0
+
+    changed_messages = deepcopy(derived_messages)
+    changed_messages[-1]["content"] = "changed after derived signature"
+    assert validate_post_assembly_request(
+        derived,
+        assembly.manifest,
+        system=derived_system,
+        messages=changed_messages,
+        tools=[],
+    ) == (False, "derived_request_mismatch")
 
 
 def test_message_metadata_preserves_structured_project_mentions_for_audit() -> None:

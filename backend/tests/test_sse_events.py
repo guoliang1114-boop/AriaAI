@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, patch
 
 from sqlmodel import Session, SQLModel, select
 
-from app.models.db import Conversation, Message, PendingToolAction, Project
+from app.models.db import Conversation, Message, PendingToolAction, Project, User
 from app.services.chat import stream_chat_events
 from app.services.chat_tools import ChatRuntime
 from tests.test_database import create_test_engine, drop_all_tables
@@ -98,11 +98,22 @@ class SseEventContractBase(unittest.IsolatedAsyncioTestCase):
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:
-            conv = Conversation(title="SSE contract")
+            actor = User(
+                email=f"sse-{self.__class__.__name__.lower()}@example.com",
+                password_hash="x",
+                is_admin=True,
+            )
+            session.add(actor)
+            session.flush()
+            conv = Conversation(
+                title="SSE contract",
+                owner_user_id=int(actor.id or 0),
+            )
             session.add(conv)
             session.commit()
             session.refresh(conv)
             self.conv_id = conv.id
+            self.actor_user_id = int(actor.id or 0)
 
         self._stack = ExitStack()
         self._stack.enter_context(
@@ -138,6 +149,7 @@ class SseEventContractBase(unittest.IsolatedAsyncioTestCase):
             max_tokens=2000,
             temperature=0.3,
             project_id=None,
+            actor_user_id=self.actor_user_id,
             skill_name="",
             prepare_metrics={},
             chat_mode="standalone_qa",
@@ -201,6 +213,22 @@ class TextOnlySseContract(SseEventContractBase):
 
 
 class SingleToolSseContract(SseEventContractBase):
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        with Session(self.engine) as session:
+            project = Project(name="Read scope", client="C")
+            session.add(project)
+            session.flush()
+            project_id = int(project.id or 0)
+            conversation = session.get(Conversation, self.conv_id)
+            assert conversation is not None
+            conversation.project_id = project_id
+            session.add(conversation)
+            session.commit()
+        self.runtime.project_id = project_id
+        self.runtime.chat_mode = "project_qa"
+        self.req.project_id = project_id
+
     async def test_event_topology(self) -> None:
         tool_block = json.dumps(
             {
@@ -335,16 +363,14 @@ class TruncationSseContract(SseEventContractBase):
 
         self.assertEqual(compact[0], "conversation_id")
         # A second truncation leaves the requested output incomplete. The
-        # legacy stream still closes with ``done``, while the canonical product
-        # run truthfully records an incomplete terminal state as ``run_failed``
-        # (OUTPUT_TRUNCATED) so clients can offer recovery instead of claiming
-        # success.
+        # canonical product run truthfully records an incomplete terminal state
+        # as ``run_failed`` (OUTPUT_TRUNCATED). A failed run must not emit the
+        # legacy success terminator because clients could otherwise claim
+        # success before observing the canonical failure.
         self.assertEqual(compact[-1], "run_failed")
-        self.assertIn("done", compact, "legacy done must still be emitted alongside v1")
-        self.assertLess(compact.index("done"), compact.index("run_failed"))
+        self.assertNotIn("done", compact)
         self.assertIn("truncated", compact)
-        # truncated must come before the run terminators
-        self.assertLess(compact.index("truncated"), compact.index("done"))
+        # truncated must come before the canonical failure terminator.
         self.assertLess(compact.index("truncated"), compact.index("run_failed"))
 
 

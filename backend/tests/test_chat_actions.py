@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -8,17 +9,31 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.database import get_session
-from app.models.db import Conversation, Message, PendingToolAction, Project, ProjectFile, ProjectMember, User
+from app.models.db import Conversation, Message, Milestone, PendingToolAction, Project, ProjectFile, ProjectMember, User
 from app.routers.chat import router as chat_router
 from app.routers import chat_actions
 from app.routers.chat_actions import ConfirmActionRequest
+from app.routers.chat_schemas import SendMessageRequest
 from app.routers.auth import get_current_user
-from app.services.agent_harness.approval_envelope import approval_envelope_hash
+from app.services.agent_harness.approval_envelope import (
+    RECOVERY_HITAS_ACTION_TYPE,
+    approval_envelope_hash,
+)
+from app.services.agent_harness.project_world_state import build_project_world_state_manifest
 from app.services.chat.action_executor import execute_tool_by_name
 from app.services.chat.action_metrics import build_hitas_action_metrics
 from app.services.chat.action_reaper import STALE_EXECUTING_MESSAGE, reap_stale_executing_actions
-from app.services.chat.pending_actions import build_project_file_cleanup_pending_action
+from app.services.chat.mode_registry import ActionPolicy
+from app.services.chat.pending_actions import (
+    RECOVERY_ACTION_GUARD_KEY,
+    build_project_file_cleanup_pending_action,
+    build_recovery_action_guard,
+    embed_recovery_action_guard,
+)
 from app.services.time_utils import utc_now_naive
+from app.services.chat.persist import run_persist
+from app.services.chat.state import ChatSessionState
+from app.services.chat_tools import ChatRuntime
 from app.tools import office_documents
 
 
@@ -75,11 +90,11 @@ def test_confirm_action_executes_once_and_writes_result_message(monkeypatch):
     monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
     action = PendingToolAction(
         conversation_id=conversation.id,
-        tool_name="manage_project_files",
-        tool_input_json=json.dumps({"action": "delete", "file_ids": [1, 2]}),
-        action_type="delete_files",
-        title="删除项目文件",
-        description="删除重复文件",
+        tool_name="save_text",
+        tool_input_json=json.dumps({"title": "客户报告"}),
+        action_type="generate_pdf",
+        title="生成 PDF",
+        description="生成客户报告",
     )
     session.add(action)
     session.commit()
@@ -93,12 +108,696 @@ def test_confirm_action_executes_once_and_writes_result_message(monkeypatch):
 
     assert first.status == "completed"
     assert second.status == "completed"
-    assert calls == [("manage_project_files", {"action": "delete", "file_ids": [1, 2]})]
+    assert calls == [("save_text", {"title": "客户报告"})]
 
     messages = session.exec(select(Message).where(Message.conversation_id == conversation_id)).all()
     assert len(messages) == 1
-    assert "已执行：删除项目文件" in messages[0].content
+    assert "已执行：生成 PDF" in messages[0].content
     assert "删除完成" in messages[0].content
+
+
+def test_pending_action_project_scope_rejects_boolean_identifier():
+    action = PendingToolAction(
+        conversation_id=1,
+        project_id=1,
+        tool_name="manage_project_folders",
+        tool_input_json="{}",
+        action_type="modify_folders",
+        title="Invalid scope",
+    )
+
+    with pytest.raises(Exception) as captured:
+        chat_actions._validate_tool_input_scope(
+            action,
+            {"project_id": True, "action": "rename"},
+        )
+
+    assert getattr(captured.value, "status_code", None) == 400
+    assert "invalid project scope" in str(getattr(captured.value, "detail", "")).lower()
+
+
+def test_recovery_forced_approval_without_world_guard_fails_closed():
+    session = _session()
+    tool_input = {"title": "Recovered report"}
+    action = PendingToolAction(
+        conversation_id=1,
+        project_id=7,
+        tool_name="save_text",
+        tool_input_json=json.dumps(tool_input),
+        action_type=RECOVERY_HITAS_ACTION_TYPE,
+        risk_level="medium",
+        policy_at_creation="write_artifact",
+        title="Recovery write",
+    )
+    action.tool_input_hash = approval_envelope_hash(
+        tool_name=action.tool_name,
+        tool_input=tool_input,
+        project_id=action.project_id,
+        action_type=action.action_type,
+        risk_level=action.risk_level,
+        policy_at_creation=action.policy_at_creation,
+        approval_batch_id=action.approval_batch_id,
+        sequence_index=action.sequence_index,
+    )
+
+    with pytest.raises(Exception) as captured:
+        chat_actions._validated_execution_tool_input(session, action)
+
+    assert getattr(captured.value, "status_code", None) == 409
+    assert "missing its project-state cas" in str(
+        getattr(captured.value, "detail", "")
+    ).lower()
+
+
+def _recovery_guarded_action(session: Session) -> tuple[PendingToolAction, dict, int]:
+    owner = _admin(session)
+    project = Project(name="Recovery approval", client="Client")
+    session.add(project)
+    session.flush()
+    conversation = Conversation(
+        title="Recovery approval",
+        project_id=int(project.id or 0),
+        owner_user_id=owner.id,
+    )
+    session.add(conversation)
+    session.flush()
+    project_id = int(project.id or 0)
+    baseline = build_project_world_state_manifest(session, project_id)
+    guard = build_recovery_action_guard(
+        {
+            "schema_version": 2,
+            "source_run_id": "run_recovery_source",
+            "contract_sha256": "c" * 64,
+            "project_world_state": baseline,
+        },
+        project_id=project_id,
+    )
+    execution_input = {
+        "project_id": project_id,
+        "action": "delete",
+        "file_ids": [999],
+    }
+    stored_input = embed_recovery_action_guard(execution_input, guard)
+    action = PendingToolAction(
+        conversation_id=int(conversation.id or 0),
+        project_id=project_id,
+        tool_name="manage_project_files",
+        tool_input_json=json.dumps(stored_input),
+        action_type="delete_files",
+        risk_level="destructive",
+        policy_at_creation="destructive_action",
+        title="Recovery delete",
+    )
+    action.tool_input_hash = approval_envelope_hash(
+        tool_name=action.tool_name,
+        tool_input=stored_input,
+        project_id=project_id,
+        action_type=action.action_type,
+        risk_level=action.risk_level,
+        policy_at_creation=action.policy_at_creation,
+        approval_batch_id=action.approval_batch_id,
+        sequence_index=action.sequence_index,
+    )
+    session.add(action)
+    session.commit()
+    session.refresh(action)
+    return action, execution_input, project_id
+
+
+def _recovery_guarded_batch(
+    session: Session,
+    *,
+    batch_id: str,
+) -> tuple[list[PendingToolAction], list[dict], int]:
+    owner = _admin(session)
+    project = Project(name=f"Recovery batch {batch_id}", client="Client")
+    session.add(project)
+    session.flush()
+    project_id = int(project.id or 0)
+    conversation = Conversation(
+        title="Recovery batch approval",
+        project_id=project_id,
+        owner_user_id=owner.id,
+    )
+    session.add(conversation)
+    session.flush()
+    baseline = build_project_world_state_manifest(session, project_id)
+    guard = build_recovery_action_guard(
+        {
+            "schema_version": 2,
+            "source_run_id": "run_recovery_batch_source",
+            "contract_sha256": "d" * 64,
+            "project_world_state": baseline,
+        },
+        project_id=project_id,
+    )
+
+    actions: list[PendingToolAction] = []
+    execution_inputs: list[dict] = []
+    for sequence_index in range(2):
+        execution_input = {
+            "project_id": project_id,
+            "action": "rename",
+            "folder_id": 100 + sequence_index,
+            "new_name": f"Recovery folder {sequence_index + 1}",
+        }
+        stored_input = embed_recovery_action_guard(execution_input, guard)
+        action = PendingToolAction(
+            conversation_id=int(conversation.id or 0),
+            project_id=project_id,
+            approval_batch_id=batch_id,
+            sequence_index=sequence_index,
+            tool_name="manage_project_folders",
+            tool_input_json=json.dumps(stored_input),
+            action_type="modify_folders",
+            risk_level="high",
+            policy_at_creation="modify_existing_file",
+            title=f"Create recovery folder {sequence_index + 1}",
+        )
+        action.tool_input_hash = approval_envelope_hash(
+            tool_name=action.tool_name,
+            tool_input=stored_input,
+            project_id=project_id,
+            action_type=action.action_type,
+            risk_level=action.risk_level,
+            policy_at_creation=action.policy_at_creation,
+            approval_batch_id=batch_id,
+            sequence_index=sequence_index,
+        )
+        session.add(action)
+        actions.append(action)
+        execution_inputs.append(execution_input)
+    session.commit()
+    for action in actions:
+        session.refresh(action)
+    return actions, execution_inputs, project_id
+
+
+def test_recovery_pending_action_persistence_binds_hidden_world_guard(monkeypatch):
+    session = _session()
+    owner = _admin(session)
+    project = Project(name="Persist recovery guard", client="Client")
+    session.add(project)
+    session.flush()
+    conversation = Conversation(
+        title="Persist recovery guard",
+        project_id=int(project.id or 0),
+        owner_user_id=owner.id,
+    )
+    session.add(conversation)
+    session.commit()
+    project_id = int(project.id or 0)
+    baseline = build_project_world_state_manifest(session, project_id)
+    recovery = {
+        "schema_version": 2,
+        "source_run_id": "run_persist_recovery",
+        "contract_sha256": "a" * 64,
+        "project_world_state": baseline,
+    }
+    runtime = ChatRuntime(
+        conv_id=int(conversation.id or 0),
+        selected_model="test",
+        llm=SimpleNamespace(complete=None),
+        system="",
+        api_messages=[],
+        rag_sources=[],
+        tools=[],
+        max_tokens=128,
+        temperature=0.0,
+        project_id=project_id,
+        actor_user_id=int(owner.id or 0),
+        action_policy=ActionPolicy.DESTRUCTIVE_ACTION,
+        prepare_metrics={"turn_recovery": recovery},
+    )
+    tool_input = {"project_id": project_id, "action": "delete", "file_ids": [99]}
+    state = ChatSessionState(
+        run_id="run_recovery_child",
+        full_text="等待用户确认后执行。",
+        confirmation_requested=True,
+        pending_tool_actions=[
+            {
+                "tool_name": "manage_project_files",
+                "tool_input": tool_input,
+                "action_type": "delete_files",
+                "risk_level": "destructive",
+                "title": "确认删除",
+                "description": "等待确认",
+                "details": ["文件 99"],
+            }
+        ],
+        pending_tool_confirmations=[
+            {
+                "tool_name": "manage_project_files",
+                "tool_input": tool_input,
+                "confirmation_token": "tool:test",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "app.services.chat.persist.persist_assistant_message",
+        lambda *_args, **_kwargs: (False, None),
+    )
+    monkeypatch.setattr("app.services.chat.persist.persist_chat_trace", lambda *_args, **_kwargs: None)
+
+    async def persist() -> None:
+        async for _event in run_persist(
+            runtime,
+            SendMessageRequest(
+                conversation_id=int(conversation.id or 0),
+                project_id=project_id,
+                content="delete after confirmation",
+            ),
+            session.get_bind(),
+            state,
+        ):
+            pass
+
+    asyncio.run(persist())
+    stored = session.exec(select(PendingToolAction)).one()
+    stored_input = json.loads(stored.tool_input_json)
+    assert stored_input[RECOVERY_ACTION_GUARD_KEY]["project_fingerprint"] == baseline["fingerprint"]
+    assert chat_actions._pending_action_item(stored).tool_input == tool_input
+
+
+def test_recovery_pending_action_guard_failure_clears_waiting_state(monkeypatch):
+    session = _session()
+    owner = _admin(session)
+    project = Project(name="Missing recovery guard", client="Client")
+    session.add(project)
+    session.flush()
+    conversation = Conversation(
+        title="Missing recovery guard",
+        project_id=int(project.id or 0),
+        owner_user_id=owner.id,
+    )
+    session.add(conversation)
+    session.commit()
+    project_id = int(project.id or 0)
+    runtime = ChatRuntime(
+        conv_id=int(conversation.id or 0),
+        selected_model="test",
+        llm=SimpleNamespace(complete=None),
+        system="",
+        api_messages=[],
+        rag_sources=[],
+        tools=[],
+        max_tokens=128,
+        temperature=0.0,
+        project_id=project_id,
+        action_policy=ActionPolicy.WRITE_ARTIFACT,
+        prepare_metrics={
+            "turn_recovery": {
+                "schema_version": 2,
+                "source_run_id": "run_missing_guard",
+                "contract_sha256": "b" * 64,
+                "project_world_state": {},
+            }
+        },
+    )
+    tool_input = {"title": "Recovered report"}
+    state = ChatSessionState(
+        run_id="run_recovery_guard_failure",
+        full_text="等待确认。",
+        confirmation_requested=True,
+        pending_tool_actions=[
+            {
+                "tool_name": "generate_pdf",
+                "tool_input": tool_input,
+                "action_type": RECOVERY_HITAS_ACTION_TYPE,
+                "risk_level": "medium",
+                "title": "确认生成",
+                "description": "等待确认",
+                "details": [],
+            }
+        ],
+        pending_tool_confirmations=[
+            {
+                "tool_name": "generate_pdf",
+                "tool_input": tool_input,
+                "confirmation_token": "tool:recovery",
+            }
+        ],
+    )
+    persisted: dict = {}
+
+    def fake_persist(_bind, _conv_id, content, _request_content, metadata):
+        persisted["content"] = content
+        persisted["metadata"] = metadata
+        return False, None
+
+    monkeypatch.setattr("app.services.chat.persist.persist_assistant_message", fake_persist)
+    monkeypatch.setattr("app.services.chat.persist.persist_chat_trace", lambda *_args, **_kwargs: None)
+
+    async def persist() -> None:
+        async for _event in run_persist(
+            runtime,
+            SendMessageRequest(
+                conversation_id=int(conversation.id or 0),
+                project_id=project_id,
+                content="continue recovery",
+            ),
+            session.get_bind(),
+            state,
+        ):
+            pass
+
+    asyncio.run(persist())
+
+    assert state.confirmation_requested is False
+    assert state.pending_tool_actions == []
+    assert state.pending_tool_confirmations == []
+    assert any(
+        event.get("tool_name") == "hitas" and event.get("status") == "error"
+        for event in state.tool_call_events
+    )
+    assert any(
+        event.get("type") == "pending_action_persist_failed"
+        for event in state.trace_events
+    )
+    assert "审批动作保存失败" in persisted["content"]
+    assert persisted["metadata"]["run_rollout"]["status"] != "waiting_confirmation"
+    assert "pending_action_ids" not in persisted["metadata"]
+    assert session.exec(select(PendingToolAction)).all() == []
+
+
+def test_recovery_hitas_non_atomic_project_write_fails_closed_without_registry(monkeypatch):
+    session = _session()
+    action, _execution_input, _project_id = _recovery_guarded_action(session)
+    calls: list[dict] = []
+
+    async def fake_execute(_tool_name: str, tool_input: dict):
+        calls.append(tool_input)
+        return {"success": True}
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    result = asyncio.run(
+        chat_actions.confirm_action(action.id, ConfirmActionRequest(), session, _admin(session))
+    )
+
+    assert result.status == "failed"
+    assert result.error_message == chat_actions._RECOVERY_WRITE_REQUIRES_FRESH_ACTION
+    assert calls == []
+    assert RECOVERY_ACTION_GUARD_KEY not in chat_actions._pending_action_item(action).tool_input
+
+
+def test_recovery_hitas_final_authorized_writer_requires_fresh_action(monkeypatch):
+    session = _session()
+    owner = _admin(session)
+    project = Project(name="Atomic recovery writer", client="Client")
+    session.add(project)
+    session.flush()
+    project_id = int(project.id or 0)
+    conversation = Conversation(
+        title="Atomic recovery writer",
+        project_id=project_id,
+        owner_user_id=owner.id,
+    )
+    session.add(conversation)
+    session.flush()
+    baseline = build_project_world_state_manifest(session, project_id)
+    guard = build_recovery_action_guard(
+        {
+            "schema_version": 2,
+            "source_run_id": "run_atomic_recovery",
+            "contract_sha256": "e" * 64,
+            "project_world_state": baseline,
+        },
+        project_id=project_id,
+    )
+    execution_input = {
+        "project_id": project_id,
+        "mode": "create",
+        "file_name": "recovered.md",
+        "content": "# Recovered",
+    }
+    stored_input = embed_recovery_action_guard(execution_input, guard)
+    action = PendingToolAction(
+        conversation_id=int(conversation.id or 0),
+        project_id=project_id,
+        tool_name="update_project_markdown_document",
+        tool_input_json=json.dumps(stored_input),
+        action_type=RECOVERY_HITAS_ACTION_TYPE,
+        risk_level="medium",
+        policy_at_creation="write_artifact",
+        title="Atomic recovery write",
+    )
+    action.tool_input_hash = approval_envelope_hash(
+        tool_name=action.tool_name,
+        tool_input=stored_input,
+        project_id=project_id,
+        action_type=action.action_type,
+        risk_level=action.risk_level,
+        policy_at_creation=action.policy_at_creation,
+        approval_batch_id=action.approval_batch_id,
+        sequence_index=action.sequence_index,
+    )
+    session.add(action)
+    session.commit()
+    session.refresh(action)
+    final_calls: list[tuple[str, dict]] = []
+
+    async def fake_final_authorized(
+        _bind,
+        action_id: int,
+        tool_name: str,
+        tool_input: dict,
+        *,
+        emit_message: bool,
+    ) -> dict:
+        final_calls.append((tool_name, tool_input))
+        return {
+            "status": "completed",
+            "result": {"success": True},
+            "action_id": action_id,
+            "message_id": 91 if emit_message else None,
+        }
+
+    monkeypatch.setattr(
+        chat_actions,
+        "_execute_final_authorized_project_write",
+        fake_final_authorized,
+    )
+    result = asyncio.run(
+        chat_actions.confirm_action(action.id, ConfirmActionRequest(), session, owner)
+    )
+
+    assert result.status == "failed"
+    assert result.error_message == chat_actions._RECOVERY_WRITE_REQUIRES_FRESH_ACTION
+    assert final_calls == []
+    assert session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all() == []
+
+
+def test_recovery_non_atomic_write_remains_blocked_if_state_drifts_after_boundary(monkeypatch):
+    session = _session()
+    action, _execution_input, project_id = _recovery_guarded_action(session)
+    bind = session.get_bind()
+    calls: list[dict] = []
+
+    async def fake_execute(_tool_name: str, tool_input: dict):
+        calls.append(tool_input)
+        return {"success": True}
+
+    original_boundary = chat_actions._action_boundary_error_before_execution
+
+    def boundary_then_drift(*args, **kwargs) -> str:
+        error = original_boundary(*args, **kwargs)
+        assert error == ""
+        with Session(bind) as drift_session:
+            drift_session.add(
+                Milestone(project_id=project_id, title="Changed after recovery boundary")
+            )
+            drift_session.commit()
+        return error
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    monkeypatch.setattr(
+        chat_actions,
+        "_action_boundary_error_before_execution",
+        boundary_then_drift,
+    )
+    result = asyncio.run(
+        chat_actions.confirm_action(action.id, ConfirmActionRequest(), session, _admin(session))
+    )
+
+    assert result.status == "failed"
+    assert result.error_message == chat_actions._RECOVERY_WRITE_REQUIRES_FRESH_ACTION
+    assert calls == []
+    with Session(bind) as check:
+        assert check.exec(select(Milestone).where(Milestone.project_id == project_id)).one()
+
+
+def test_recovery_hitas_project_drift_fails_closed_before_business_write(monkeypatch):
+    session = _session()
+    action, _execution_input, project_id = _recovery_guarded_action(session)
+    calls: list[dict] = []
+
+    async def fake_execute(_tool_name: str, tool_input: dict):
+        calls.append(tool_input)
+        return {"success": True}
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    session.add(Milestone(project_id=project_id, title="Changed after approval preview"))
+    session.commit()
+
+    with pytest.raises(Exception) as captured:
+        asyncio.run(
+            chat_actions.confirm_action(action.id, ConfirmActionRequest(), session, _admin(session))
+        )
+
+    assert getattr(captured.value, "status_code", None) == 409
+    assert str(getattr(captured.value, "detail", "")) == chat_actions._RECOVERY_PROJECT_STATE_CONFLICT
+    session.refresh(action)
+    assert action.status == "failed"
+    assert calls == []
+
+
+def test_recovery_hitas_rechecks_after_claim_before_registry(monkeypatch):
+    session = _session()
+    action, _execution_input, project_id = _recovery_guarded_action(session)
+    calls: list[dict] = []
+
+    async def fake_execute(_tool_name: str, tool_input: dict):
+        calls.append(tool_input)
+        return {"success": True}
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    original_commit = session.commit
+    injected_drift = False
+
+    def commit_then_change_project() -> None:
+        nonlocal injected_drift
+        original_commit()
+        if not injected_drift:
+            injected_drift = True
+            session.add(Milestone(project_id=project_id, title="Changed after HITAS claim"))
+            original_commit()
+
+    monkeypatch.setattr(session, "commit", commit_then_change_project)
+    result = asyncio.run(
+        chat_actions.confirm_action(action.id, ConfirmActionRequest(), session, _admin(session))
+    )
+
+    assert result.status == "failed"
+    assert result.error_message == chat_actions._RECOVERY_PROJECT_STATE_CONFLICT
+    assert calls == []
+
+
+def test_project_hitas_rechecks_current_write_access_after_claim(monkeypatch):
+    session = _session()
+    actor = User(email="revoked-writer@example.com", password_hash="x")
+    project = Project(name="Revoke after claim", client="Client")
+    session.add(actor)
+    session.add(project)
+    session.flush()
+    member = ProjectMember(
+        project_id=int(project.id or 0),
+        user_id=int(actor.id or 0),
+        role="editor",
+    )
+    conversation = Conversation(
+        title="Revoke after claim",
+        project_id=int(project.id or 0),
+        owner_user_id=int(actor.id or 0),
+    )
+    session.add(member)
+    session.add(conversation)
+    session.flush()
+    tool_input = {
+        "project_id": int(project.id or 0),
+        "action": "rename",
+        "folder_id": 88,
+        "new_name": "Renamed",
+    }
+    action = PendingToolAction(
+        conversation_id=int(conversation.id or 0),
+        project_id=int(project.id or 0),
+        tool_name="manage_project_folders",
+        tool_input_json=json.dumps(tool_input),
+        action_type="modify_folders",
+        title="Rename folder",
+    )
+    session.add(action)
+    session.commit()
+    session.refresh(action)
+    action_id = int(action.id or 0)
+    actor_id = int(actor.id or 0)
+    member_id = int(member.id or 0)
+    bind = session.get_bind()
+    calls: list[dict] = []
+
+    async def fake_execute(_tool_name: str, frozen_input: dict):
+        calls.append(frozen_input)
+        return {"success": True}
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    original_commit = session.commit
+    revoked = False
+
+    def commit_then_revoke() -> None:
+        nonlocal revoked
+        original_commit()
+        if not revoked:
+            revoked = True
+            current_member = session.get(ProjectMember, member_id)
+            assert current_member is not None
+            session.delete(current_member)
+            original_commit()
+
+    monkeypatch.setattr(session, "commit", commit_then_revoke)
+    result = asyncio.run(
+        chat_actions.confirm_action(
+            action_id,
+            ConfirmActionRequest(),
+            session,
+            session.get(User, actor_id),
+        )
+    )
+
+    assert result.status == "failed"
+    assert "membership required" in (result.error_message or "").lower()
+    assert calls == []
+    with Session(bind) as check:
+        stored = check.get(PendingToolAction, action_id)
+        assert stored is not None
+        assert stored.status == "failed"
+
+
+def test_recovery_hitas_multi_action_batch_fails_closed_before_registry(monkeypatch):
+    session = _session()
+    batch_id = "hitas-recovery-must-split"
+    actions, _execution_inputs, _project_id = _recovery_guarded_batch(
+        session,
+        batch_id=batch_id,
+    )
+    bind = session.get_bind()
+    calls: list[dict] = []
+
+    async def fake_execute(_tool_name: str, tool_input: dict):
+        calls.append(tool_input)
+        return {"success": True}
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    result = asyncio.run(
+        chat_actions.confirm_action(
+            int(actions[0].id or 0),
+            ConfirmActionRequest(),
+            session,
+            _admin(session),
+        )
+    )
+
+    assert result.status == "failed"
+    assert result.error_message == chat_actions._RECOVERY_MULTI_ACTION_BATCH_UNSAFE
+    assert calls == []
+    with Session(bind) as check:
+        stored = check.exec(
+            select(PendingToolAction)
+            .where(PendingToolAction.approval_batch_id == batch_id)
+            .order_by(PendingToolAction.sequence_index)
+        ).all()
+        assert [action.status for action in stored] == ["failed", "skipped"]
+        assert chat_actions._RECOVERY_MULTI_ACTION_BATCH_UNSAFE in (stored[0].error_message or "")
+        assert "fresh non-recovery actions" in (stored[1].error_message or "")
 
 
 def test_confirm_action_with_batch_executes_all_actions_once(monkeypatch):
@@ -116,20 +815,20 @@ def test_confirm_action_with_batch_executes_all_actions_once(monkeypatch):
         conversation_id=conversation.id,
         approval_batch_id=batch_id,
         sequence_index=0,
-        tool_name="manage_project_files",
-        tool_input_json=json.dumps({"action": "archive", "step": "first"}),
-        action_type="modify_files",
-        title="归档文件",
+        tool_name="save_text",
+        tool_input_json=json.dumps({"title": "first", "step": "first"}),
+        action_type="generate_pdf",
+        title="生成 PDF",
         description="",
     )
     a2 = PendingToolAction(
         conversation_id=conversation.id,
         approval_batch_id=batch_id,
         sequence_index=1,
-        tool_name="manage_project_folders",
-        tool_input_json=json.dumps({"action": "delete_empty", "step": "second"}),
-        action_type="delete_folders",
-        title="删除空文件夹",
+        tool_name="save_json",
+        tool_input_json=json.dumps({"title": "second", "step": "second"}),
+        action_type="generate_xlsx",
+        title="生成 Excel",
         description="",
     )
     session.add(a1)
@@ -144,8 +843,8 @@ def test_confirm_action_with_batch_executes_all_actions_once(monkeypatch):
     assert result.status == "completed"
     assert result.approval_batch_id == batch_id
     assert calls == [
-        ("manage_project_files", {"action": "archive", "step": "first"}),
-        ("manage_project_folders", {"action": "delete_empty", "step": "second"}),
+        ("save_text", {"title": "first", "step": "first"}),
+        ("save_json", {"title": "second", "step": "second"}),
     ]
     with Session(session.get_bind()) as check:
         stored = check.exec(select(PendingToolAction).where(PendingToolAction.approval_batch_id == batch_id)).all()
@@ -172,10 +871,10 @@ def test_long_running_action_is_queued_for_background_execution(monkeypatch):
     monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
     action = PendingToolAction(
         conversation_id=conversation.id,
-        tool_name="write_project_office_document",
-        tool_input_json=json.dumps({"file_type": "pptx", "title": "客户汇报", "slides": []}),
-        action_type="write_office_document",
-        title="生成 PPT",
+        tool_name="generate_pdf",
+        tool_input_json=json.dumps({"title": "客户汇报"}),
+        action_type="generate_pdf",
+        title="生成 PDF",
         description="",
     )
     session.add(action)
@@ -210,20 +909,20 @@ def test_confirm_action_batch_stops_after_first_failure(monkeypatch):
         conversation_id=conversation.id,
         approval_batch_id=batch_id,
         sequence_index=0,
-        tool_name="manage_project_files",
-        tool_input_json=json.dumps({"action": "delete", "step": "first"}),
-        action_type="delete_files",
-        title="删除文件",
+        tool_name="save_text",
+        tool_input_json=json.dumps({"title": "first", "step": "first"}),
+        action_type="generate_pdf",
+        title="生成 PDF",
         description="",
     )
     a2 = PendingToolAction(
         conversation_id=conversation.id,
         approval_batch_id=batch_id,
         sequence_index=1,
-        tool_name="manage_project_folders",
-        tool_input_json=json.dumps({"action": "delete", "step": "second"}),
-        action_type="delete_folder",
-        title="删除文件夹",
+        tool_name="save_json",
+        tool_input_json=json.dumps({"title": "second", "step": "second"}),
+        action_type="generate_xlsx",
+        title="生成 Excel",
         description="",
     )
     session.add(a1)
@@ -235,7 +934,7 @@ def test_confirm_action_batch_stops_after_first_failure(monkeypatch):
     result = asyncio.run(chat_actions.confirm_action(a1.id, ConfirmActionRequest(), session, _admin(session)))
 
     assert result.status == "failed"
-    assert calls == [("manage_project_files", {"action": "delete", "step": "first"})]
+    assert calls == [("save_text", {"title": "first", "step": "first"})]
     with Session(session.get_bind()) as check:
         stored = check.exec(select(PendingToolAction).where(PendingToolAction.approval_batch_id == batch_id)).all()
         statuses = {item.sequence_index: item.status for item in stored}
@@ -395,7 +1094,7 @@ def test_confirm_action_fails_closed_when_versioned_approval_input_was_modified(
     session = _session()
     conversation = _conversation(session)
     calls: list[tuple[str, dict]] = []
-    original_input = {"action": "delete", "file_ids": [1, 2]}
+    original_input = {"title": "Original report"}
 
     async def fake_execute(tool_name: str, tool_input: dict):
         calls.append((tool_name, tool_input))
@@ -404,13 +1103,13 @@ def test_confirm_action_fails_closed_when_versioned_approval_input_was_modified(
     monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
     action = PendingToolAction(
         conversation_id=conversation.id,
-        tool_name="manage_project_files",
+        tool_name="save_text",
         tool_input_json=json.dumps(original_input),
-        action_type="delete_files",
-        risk_level="destructive",
-        policy_at_creation="destructive_action",
-        title="删除项目文件",
-        description="删除重复文件",
+        action_type="generate_pdf",
+        risk_level="medium",
+        policy_at_creation="write_artifact",
+        title="生成 PDF",
+        description="生成客户报告",
     )
     action.tool_input_hash = approval_envelope_hash(
         tool_name=action.tool_name,
@@ -425,7 +1124,7 @@ def test_confirm_action_fails_closed_when_versioned_approval_input_was_modified(
     session.add(action)
     session.commit()
     session.refresh(action)
-    action.tool_input_json = json.dumps({"action": "delete", "file_ids": [999]})
+    action.tool_input_json = json.dumps({"title": "Tampered report"})
     session.add(action)
     session.commit()
 
@@ -460,20 +1159,20 @@ def test_confirm_batch_fails_before_claim_when_versioned_sequence_was_modified(m
     actions: list[PendingToolAction] = []
     for sequence_index, tool_input in enumerate(
         (
-            {"action": "delete", "file_ids": [1]},
-            {"action": "delete", "file_ids": [2]},
+            {"title": "Report 1"},
+            {"title": "Report 2"},
         )
     ):
         action = PendingToolAction(
             conversation_id=conversation.id,
             approval_batch_id=batch_id,
             sequence_index=sequence_index,
-            tool_name="manage_project_files",
+            tool_name="generate_pdf",
             tool_input_json=json.dumps(tool_input),
-            action_type="delete_files",
-            risk_level="destructive",
-            policy_at_creation="destructive_action",
-            title=f"删除文件 {sequence_index}",
+            action_type="generate_pdf",
+            risk_level="medium",
+            policy_at_creation="write_artifact",
+            title=f"生成报告 {sequence_index}",
         )
         action.tool_input_hash = approval_envelope_hash(
             tool_name=action.tool_name,
@@ -576,10 +1275,10 @@ def test_standalone_conversation_owner_can_confirm_action(monkeypatch):
     session.refresh(conversation)
     action = PendingToolAction(
         conversation_id=conversation.id,
-        tool_name="manage_project_files",
-        tool_input_json=json.dumps({"action": "archive", "file_ids": [1]}),
-        action_type="modify_files",
-        title="整理文件",
+        tool_name="save_text",
+        tool_input_json=json.dumps({"title": "Standalone report"}),
+        action_type="generate_pdf",
+        title="生成 PDF",
         description="",
     )
     session.add(action)
@@ -588,7 +1287,7 @@ def test_standalone_conversation_owner_can_confirm_action(monkeypatch):
     action_id = action.id
 
     async def fake_execute(tool_name: str, tool_input: dict):
-        return {"success": True, "output": {"message": "整理完成"}}
+        return {"success": True, "output": {"message": "生成完成"}}
 
     monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
     result = asyncio.run(chat_actions.confirm_action(action.id, ConfirmActionRequest(), session, owner))
@@ -830,9 +1529,9 @@ def test_concurrent_confirm_prevents_double_execution(monkeypatch, tmp_path):
 
     action = PendingToolAction(
         conversation_id=conversation.id,
-        tool_name="manage_project_files",
-        tool_input_json=json.dumps({"action": "delete", "file_ids": [1]}),
-        action_type="delete_files",
+        tool_name="save_text",
+        tool_input_json=json.dumps({"title": "Race report"}),
+        action_type="generate_pdf",
         title="Race",
         description="",
     )
@@ -899,11 +1598,11 @@ def test_confirm_action_persists_failure_when_tool_raises(monkeypatch):
     monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
     action = PendingToolAction(
         conversation_id=conversation.id,
-        tool_name="manage_project_files",
-        tool_input_json=json.dumps({"action": "delete", "file_ids": [1]}),
-        action_type="delete_files",
-        title="删除项目文件",
-        description="删除重复文件",
+        tool_name="save_text",
+        tool_input_json=json.dumps({"title": "Failure report"}),
+        action_type="generate_pdf",
+        title="生成 PDF",
+        description="生成失败测试",
     )
     session.add(action)
     session.commit()
@@ -965,7 +1664,7 @@ def test_reaper_marks_stale_executing_action_as_failed_without_retry():
     assert "人工核查" in messages[0].content
 
 
-def test_cleanup_hitas_api_flow_deletes_file_and_writes_result(monkeypatch, tmp_path):
+def test_cleanup_hitas_api_flow_fails_closed_before_legacy_project_write(monkeypatch, tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'api.db'}", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
     uploads_dir = tmp_path / "uploads"
@@ -1071,20 +1770,21 @@ def test_cleanup_hitas_api_flow_deletes_file_and_writes_result(monkeypatch, tmp_
 
     confirmed = client.post(f"/chat/actions/{action_id}/confirm", json={"approved": True})
     assert confirmed.status_code == 200
-    assert confirmed.json()["status"] == "completed"
+    assert confirmed.json()["status"] == "failed"
+    assert confirmed.json()["error_message"] == chat_actions._PROJECT_ACTION_NON_ATOMIC_UNSAFE
     assert confirmed.json()["message_id"]
 
     with Session(engine) as session:
         deleted_file = session.get(ProjectFile, delete_file_id)
         assert deleted_file is not None
-        assert deleted_file.deleted_at is not None
+        assert deleted_file.deleted_at is None
         assert session.get(ProjectFile, keep_file_id) is not None
         stored = session.get(PendingToolAction, action_id)
         assert stored is not None
-        assert stored.status == "completed"
+        assert stored.status == "failed"
         messages = session.exec(select(Message).where(Message.conversation_id == conversation_id)).all()
         assert len(messages) == 1
-        assert "已执行：确认删除项目文件" in messages[0].content
-        assert "回收站" in messages[0].content
+        assert "执行失败" in messages[0].content
+        assert chat_actions._PROJECT_ACTION_NON_ATOMIC_UNSAFE in messages[0].content
     assert full_path.exists()
     assert kept_full_path.exists()

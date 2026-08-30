@@ -72,6 +72,11 @@ export interface ChatStreamEvent {
   turn_interrupted?: Record<string, unknown>
   phase_error?: Record<string, unknown>
   delivery_failed?: boolean
+  final_status?: 'completed' | 'waiting_confirmation' | 'failed' | 'cancelled'
+  error_code?: string
+  error_message?: string
+  retryable?: boolean
+  fallback_content?: string
 }
 
 /** Validate the minimum envelope before application code reads an SSE frame. */

@@ -274,6 +274,7 @@ async def test_orchestrator_finalizes_budget_exhaustion_as_failed_without_run_do
         rollout_bind=rollout_bind,
     )
     finalized: dict = {}
+    timeline: list[str] = []
 
     async def fake_durable(_runtime, _req, _bind, _state):
         if False:  # pragma: no cover - async-generator shape
@@ -285,15 +286,21 @@ async def test_orchestrator_finalizes_budget_exhaustion_as_failed_without_run_do
             "kind": "deadline",
             "message": "budget stopped",
         }
-        if False:  # pragma: no cover - async-generator shape
-            yield ""
+        timeline.append("budget_terminal_produced")
+        yield (
+            'data: {"type":"run_failed","run_id":"run_budget_terminal",'
+            '"error_code":"TURN_BUDGET_EXCEEDED","error_message":"budget stopped",'
+            '"retryable":false}\n\n'
+        )
 
     async def fake_persist(_runtime, _req, _bind, run_state):
         run_state.assistant_message_id = 91
+        timeline.append("legacy_done_produced")
         yield 'data: {"type":"done"}\n\n'
 
     def fake_finalize(_bind, task_id, **kwargs):
         finalized.update(task_id=task_id, **kwargs)
+        timeline.append("terminal_committed")
         return {"status": kwargs["status"]}
 
     with patch(
@@ -305,18 +312,26 @@ async def test_orchestrator_finalizes_budget_exhaustion_as_failed_without_run_do
     ), patch.object(
         chat_service, "finalize_chat_rollout", new=fake_finalize
     ):
-        events = [
-            event
-            async for event in chat_service._stream_chat_events_impl(
-                runtime,
-                req,
-                rollout_bind,
-                state,
-                time.perf_counter(),
-            )
-        ]
+        events = []
+        async for event in chat_service._stream_chat_events_impl(
+            runtime,
+            req,
+            rollout_bind,
+            state,
+            time.perf_counter(),
+        ):
+            if chat_service._sse_payload(event).get("type") == "run_failed":
+                timeline.append("yield_run_failed")
+            events.append(event)
 
     assert not any('"type": "run_done"' in event for event in events)
+    assert not any(chat_service._sse_payload(event).get("type") == "done" for event in events)
+    assert timeline == [
+        "budget_terminal_produced",
+        "legacy_done_produced",
+        "terminal_committed",
+        "yield_run_failed",
+    ]
     assert finalized == {
         "task_id": 51,
         "status": "failed",

@@ -12,6 +12,10 @@ business context layers, switched to SHA-256, and combined with Aria's local
 context budget. Persisted manifests contain only bounded metadata, counts, and
 fingerprints; raw prompts, messages, retrieved text, and tool schemas are never
 stored. This module does not import, run, or communicate with Codex.
+
+Extended for AriaAI on 2026-08-30: added content-free, base-linked derived
+request receipts that bind verified durable-input identities to the exact
+effective system, messages, and tools after normalization and budgeting.
 """
 from __future__ import annotations
 
@@ -32,7 +36,11 @@ from app.services.agent_harness.context_budget import (
 
 
 CONTEXT_ASSEMBLY_SCHEMA_VERSION = 1
+POST_ASSEMBLY_REQUEST_SCHEMA_VERSION = 1
 MAX_CONTEXT_SOURCES = 24
+# One already-applied post-model batch can be carried into the next request
+# while a second full batch commits before that request's opening boundary.
+MAX_POST_ASSEMBLY_INPUTS = 24
 MAX_SOURCE_ID_CHARS = 64
 MAX_SOURCE_METADATA_FIELDS = 12
 MAX_SOURCE_METADATA_KEY_CHARS = 48
@@ -369,6 +377,161 @@ def validate_context_assembly_request(
     for section in ("system", "messages", "tools"):
         if actual[section] != expected.get(section):
             return False, f"{section}_request_mismatch"
+    return True, "valid"
+
+
+def _normalized_post_assembly_inputs(value: Any) -> tuple[list[dict[str, Any]], str]:
+    if not isinstance(value, list) or not value or len(value) > MAX_POST_ASSEMBLY_INPUTS:
+        return [], "invalid_post_assembly_input_count"
+    normalized: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            return [], "post_assembly_input_not_object"
+        run_id = item.get("run_id")
+        steering_id = item.get("steering_id")
+        sequence = item.get("sequence")
+        message_id = item.get("message_id")
+        digest = item.get("content_sha256")
+        if not isinstance(run_id, str) or not re.fullmatch(
+            r"run_[A-Za-z0-9_-]{1,76}", run_id
+        ):
+            return [], "invalid_post_assembly_run_id"
+        if not isinstance(steering_id, str) or not re.fullmatch(
+            r"steer_[A-Za-z0-9_-]{1,64}", steering_id
+        ):
+            return [], "invalid_post_assembly_steering_id"
+        if (
+            not isinstance(sequence, int)
+            or isinstance(sequence, bool)
+            or sequence < 1
+            or not isinstance(message_id, int)
+            or isinstance(message_id, bool)
+            or message_id < 1
+        ):
+            return [], "invalid_post_assembly_input_identity"
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            return [], "invalid_post_assembly_content_fingerprint"
+        identity = (run_id, sequence)
+        if identity in seen:
+            return [], "duplicate_post_assembly_input"
+        seen.add(identity)
+        normalized.append(
+            {
+                "run_id": run_id,
+                "steering_id": steering_id,
+                "sequence": sequence,
+                "message_id": message_id,
+                "content_sha256": digest,
+            }
+        )
+    return normalized, "valid"
+
+
+def build_post_assembly_request_manifest(
+    base_manifest: Any,
+    *,
+    request_stage: str,
+    durable_inputs: list[dict[str, Any]],
+    system: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict] | None,
+) -> dict[str, Any]:
+    """Bind verified durable user inputs to one exact derived provider request.
+
+    The record contains identities and hashes only. The original assembly must
+    already match its raw request before callers apply these post-assembly
+    additions; this receipt then covers any resulting system/tool contraction,
+    transcript normalization, and context-budget compaction.
+    """
+
+    valid, reason = validate_context_assembly_manifest(base_manifest)
+    if not valid:
+        raise ValueError(f"invalid base context manifest: {reason}")
+    normalized_inputs, reason = _normalized_post_assembly_inputs(durable_inputs)
+    if reason != "valid":
+        raise ValueError(reason)
+    normalized_stage = str(request_stage or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", normalized_stage):
+        raise ValueError("invalid post-assembly request stage")
+    core: dict[str, Any] = {
+        "schema_version": POST_ASSEMBLY_REQUEST_SCHEMA_VERSION,
+        "base_manifest_sha256": str(base_manifest.get("manifest_sha256") or ""),
+        "request_stage": normalized_stage,
+        "delta_kind": "durable_run_steering",
+        "durable_inputs": normalized_inputs,
+        "model_input": {
+            "system": {
+                "chars": len(system or ""),
+                "estimated_tokens": approx_token_count(system or ""),
+                "sha256": _fingerprint("system", system or ""),
+            },
+            "messages": _message_snapshot(messages),
+            "tools": _tools_snapshot(tools),
+        },
+    }
+    return {
+        **core,
+        "derived_manifest_sha256": _fingerprint(
+            "post_assembly_request",
+            _canonical_json(core),
+        ),
+    }
+
+
+def validate_post_assembly_request(
+    derived_manifest: Any,
+    base_manifest: Any,
+    *,
+    system: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict] | None,
+) -> tuple[bool, str]:
+    """Validate one derived request against its base and exact model inputs."""
+
+    valid, reason = validate_context_assembly_manifest(base_manifest)
+    if not valid:
+        return False, f"base_{reason}"
+    if not isinstance(derived_manifest, dict):
+        return False, "derived_manifest_not_object"
+    if derived_manifest.get("schema_version") != POST_ASSEMBLY_REQUEST_SCHEMA_VERSION:
+        return False, "unsupported_derived_schema_version"
+    if derived_manifest.get("base_manifest_sha256") != base_manifest.get(
+        "manifest_sha256"
+    ):
+        return False, "base_manifest_mismatch"
+    stage = derived_manifest.get("request_stage")
+    if not isinstance(stage, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", stage):
+        return False, "invalid_post_assembly_request_stage"
+    if derived_manifest.get("delta_kind") != "durable_run_steering":
+        return False, "invalid_post_assembly_delta_kind"
+    normalized_inputs, reason = _normalized_post_assembly_inputs(
+        derived_manifest.get("durable_inputs")
+    )
+    if reason != "valid":
+        return False, reason
+    if normalized_inputs != derived_manifest.get("durable_inputs"):
+        return False, "noncanonical_post_assembly_inputs"
+    declared = derived_manifest.get("derived_manifest_sha256")
+    core = dict(derived_manifest)
+    core.pop("derived_manifest_sha256", None)
+    expected_digest = _fingerprint(
+        "post_assembly_request",
+        _canonical_json(core),
+    )
+    if declared != expected_digest:
+        return False, "derived_manifest_fingerprint_mismatch"
+    actual_model_input = {
+        "system": {
+            "chars": len(system or ""),
+            "estimated_tokens": approx_token_count(system or ""),
+            "sha256": _fingerprint("system", system or ""),
+        },
+        "messages": _message_snapshot(messages),
+        "tools": _tools_snapshot(tools),
+    }
+    if derived_manifest.get("model_input") != actual_model_input:
+        return False, "derived_request_mismatch"
     return True, "valid"
 
 

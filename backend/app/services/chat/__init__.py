@@ -29,6 +29,7 @@ Public API:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -48,6 +49,7 @@ from app.services.chat.product_run_events import (
     run_started,
 )
 from app.services.agent_harness.run_rollout import (
+    activate_prepared_chat_rollout,
     begin_chat_rollout,
     build_in_memory_rollout_snapshot,
     checkpoint_chat_rollout,
@@ -60,6 +62,9 @@ from app.services.agent_harness.turn_interrupt import (
     register_active_turn,
     set_active_turn_stage,
     unregister_active_turn,
+)
+from app.services.agent_harness.durable_run_inputs import (
+    finalize_durable_run_inputs,
 )
 from app.services.agent_harness.turn_receipt import build_turn_receipt
 from app.services.agent_harness.context_receipt import build_context_receipt
@@ -128,11 +133,20 @@ def _finalize_rollout_safely(
     error_code: str = "",
     error_message: str = "",
     retryable: bool = False,
-) -> None:
+) -> bool:
     if getattr(state, "rollout_finalized", False):
-        return
+        return True
+    if not state.rollout_task_id and state.rollout_bind is None:
+        # Compatibility for isolated callers that deliberately do not create a
+        # durable rollout. A production stream always supplies ``rollout_bind``.
+        return True
     if not state.rollout_task_id or state.rollout_bind is None:
-        return
+        state.record_trace_event(
+            "rollout_finalize_failed",
+            stage=phase or "finalize",
+            error="missing_rollout_identity",
+        )
+        return False
     try:
         finalize_chat_rollout(
             state.rollout_bind,
@@ -146,6 +160,7 @@ def _finalize_rollout_safely(
             run_outputs=state.run_outputs,
         )
         state.rollout_finalized = True
+        return True
     except Exception as exc:
         logger.warning("[rollout] failed to finalize chat rollout: %s", exc)
         state.record_trace_event(
@@ -153,6 +168,36 @@ def _finalize_rollout_safely(
             stage=phase or "finalize",
             error=str(exc)[:500],
         )
+        return False
+
+
+def _sse_payload(frame: str) -> dict[str, Any]:
+    """Parse one internally generated SSE frame for terminal-event gating."""
+
+    if not isinstance(frame, str):
+        return {}
+    line = frame.strip()
+    if not line.startswith("data:"):
+        return {}
+    try:
+        payload = json.loads(line[len("data:") :].strip())
+    except (TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _rollout_finalize_failed_event(state: ChatSessionState, *, phase: str) -> str:
+    """Emit one failure terminator when the durable terminal commit failed."""
+
+    return sse_event(
+        run_failed(
+            state.run_id,
+            ErrorCode.PERSISTENCE_ERROR,
+            "运行结果已保存，但终态保存失败。请刷新核对后重新发起新轮次，或联系管理员处理。",
+            retryable=True,
+            fallback_content=state.full_text,
+        )
+    )
 
 
 def _mark_active_step_cancelled(state: ChatSessionState, reason: str) -> None:
@@ -183,7 +228,7 @@ def _persist_interrupted_turn(
     bind,
     state: ChatSessionState,
     reason: str,
-) -> None:
+) -> str | None:
     """Persist partial output and a terminal cancellation boundary.
 
     This is deliberately synchronous: it also runs when Starlette closes the
@@ -191,13 +236,16 @@ def _persist_interrupted_turn(
     """
 
     if state.assistant_message_id is not None:
-        _finalize_rollout_safely(
+        terminal_status = (
+            "waiting_confirmation" if state.confirmation_requested else "completed"
+        )
+        finalized = _finalize_rollout_safely(
             state,
-            status="waiting_confirmation" if state.confirmation_requested else "completed",
+            status=terminal_status,
             message_id=state.assistant_message_id,
             phase="persisted_before_interrupt",
         )
-        return
+        return terminal_status if finalized else None
 
     _mark_active_step_cancelled(state, reason)
     partial_text = state.full_text
@@ -227,7 +275,7 @@ def _persist_interrupted_turn(
         },
         "stage_timings": dict(state.stage_timings or {}),
         "tool_calls": _safe_list(state.tool_call_events),
-        "artifacts": _safe_list(state.artifacts),
+        "artifacts": _safe_list(state.delivered_artifacts()),
         "run_rollout": build_in_memory_rollout_snapshot(
             state,
             status="cancelled",
@@ -270,7 +318,7 @@ def _persist_interrupted_turn(
         state.assistant_message_id = assistant_message_id
     except Exception as exc:
         logger.error("[chat interrupt persist failed] %s", exc, exc_info=True)
-        _finalize_rollout_safely(
+        finalized = _finalize_rollout_safely(
             state,
             status="cancelled",
             phase="stream",
@@ -278,9 +326,9 @@ def _persist_interrupted_turn(
             error_message=str(exc),
             retryable=False,
         )
-        return
+        return "cancelled" if finalized else None
 
-    _finalize_rollout_safely(
+    finalized = _finalize_rollout_safely(
         state,
         status="cancelled",
         message_id=assistant_message_id,
@@ -298,6 +346,7 @@ def _persist_interrupted_turn(
         len(partial_text),
         tool_execution_possible,
     )
+    return "cancelled" if finalized else None
 
 
 def _persist_phase_error_events(
@@ -372,7 +421,10 @@ def _persist_phase_error_events(
             error_message=str(persist_exc),
             retryable=False,
         )
-        events: list[str] = []
+        # Keep the canonical Product failure as the final frame. Legacy clients
+        # may still consume the explanatory ``error`` event first, but no frame
+        # follows ``run_failed`` with a different terminal meaning.
+        events: list[str] = [sse_event({"type": "error", "message": friendly})]
         if state.run_id:
             events.append(
                 sse_event(
@@ -382,13 +434,13 @@ def _persist_phase_error_events(
                         friendly,
                         retryable=True,
                     )
+                    )
                 )
-            )
-        events.append(sse_event({"type": "error", "message": friendly}))
         return events
 
     state.assistant_message_id = assistant_message_id
-    _finalize_rollout_safely(
+    state.full_text = full_text
+    finalized = _finalize_rollout_safely(
         state,
         status="failed",
         message_id=assistant_message_id,
@@ -397,8 +449,18 @@ def _persist_phase_error_events(
         error_message=str(exc),
         retryable=_last_step_retryable(state),
     )
+    if not finalized:
+        events = [sse_event({"type": "text", "content": full_text})]
+        if state.run_id:
+            events.append(
+                _rollout_finalize_failed_event(state, phase=phase)
+            )
+        return events
 
-    events_list: list[str] = []
+    # A durable failure must have exactly one terminal meaning. Emit the saved
+    # explanatory text first, then make Product ``run_failed`` the final frame;
+    # never append the legacy success-shaped ``done`` terminator.
+    events_list: list[str] = [sse_event({"type": "text", "content": full_text})]
     if state.run_id:
         events_list.append(
             sse_event(
@@ -409,20 +471,8 @@ def _persist_phase_error_events(
                     retryable=True,
                     fallback_content=full_text,
                 )
+                )
             )
-        )
-    events_list.extend(
-        [
-            sse_event({"type": "text", "content": full_text}),
-            sse_event(
-                {
-                    "type": "done",
-                    "metadata": metadata,
-                    "assistant_message_id": assistant_message_id,
-                }
-            ),
-        ]
-    )
     return events_list
 
 
@@ -463,22 +513,78 @@ async def stream_chat_events(
             getattr(runtime, "project_memory_evidence_manifest", None) or {}
         ),
     )
-    state.run_id = make_run_id()
+    state.run_id = str(getattr(runtime, "prepared_run_id", "") or "") or make_run_id()
     state.rollout_bind = bind
-    try:
-        state.rollout_task_id = begin_chat_rollout(
-            bind,
-            runtime,
-            req.content,
-            state.run_id,
-        )
-    except Exception as exc:
-        logger.warning("[rollout] failed to begin chat rollout: %s", exc)
-        state.record_trace_event(
-            "rollout_start_failed",
-            stage="run_start",
-            error=str(exc)[:500],
-        )
+    prepared_rollout_task_id = getattr(runtime, "prepared_rollout_task_id", None)
+    if isinstance(prepared_rollout_task_id, int) and prepared_rollout_task_id > 0:
+        state.rollout_task_id = prepared_rollout_task_id
+        try:
+            # This is intentionally the first durable action taken by the SSE
+            # generator. A process crash before iteration leaves an auditable
+            # ``reserved`` claim; after activation it is never TTL-reclaimed.
+            activate_prepared_chat_rollout(
+                bind,
+                prepared_rollout_task_id,
+                state.run_id,
+            )
+        except Exception as exc:
+            logger.error(
+                "[rollout] failed to activate recovery reservation run_id=%s: %s",
+                state.run_id,
+                exc,
+                exc_info=True,
+            )
+            yield sse_event(
+                run_failed(
+                    state.run_id,
+                    ErrorCode.POLICY_REJECTED,
+                    "恢复预留已失效或无法安全启动，请重新核对后继续。",
+                    retryable=False,
+                )
+            )
+            return
+    else:
+        try:
+            state.rollout_task_id = begin_chat_rollout(
+                bind,
+                runtime,
+                req.content,
+                state.run_id,
+            )
+        except Exception as exc:
+            logger.warning("[rollout] failed to begin chat rollout: %s", exc)
+            state.record_trace_event(
+                "rollout_start_failed",
+                stage="run_start",
+                error=str(exc)[:500],
+            )
+            recovery_contract = (
+                runtime.prepare_metrics.get("turn_recovery")
+                if isinstance(runtime.prepare_metrics, dict)
+                and isinstance(runtime.prepare_metrics.get("turn_recovery"), dict)
+                else {}
+            )
+            if recovery_contract:
+                # Recovery uniqueness is a commit barrier. A duplicate/racing
+                # child must never fall through into the model or tool executor.
+                yield sse_event(
+                    run_failed(
+                        state.run_id,
+                        ErrorCode.POLICY_REJECTED,
+                        "恢复请求已失效或已由另一轮接管，请重新核对后继续。",
+                        retryable=False,
+                    )
+                )
+                return
+            yield sse_event(
+                run_failed(
+                    state.run_id,
+                    ErrorCode.PERSISTENCE_ERROR,
+                    "无法建立可审计的运行记录，本轮未启动。请稍后重试。",
+                    retryable=True,
+                )
+            )
+            return
     # Stamp the stream start time so persist can compute total_stream_ms
     # against the actual stream start, not against persist's own start.
     # The local ``stream_started_at`` above is still used by the
@@ -517,7 +623,7 @@ async def stream_chat_events(
     except asyncio.CancelledError as exc:
         caught_reason = cancellation_reason(exc)
         if caught_reason == "user_interrupted":
-            _persist_interrupted_turn(
+            terminal_status = _persist_interrupted_turn(
                 runtime=runtime,
                 req=req,
                 bind=bind,
@@ -525,10 +631,27 @@ async def stream_chat_events(
                 reason=caught_reason,
             )
             completed = True
+            if terminal_status is None:
+                yield _rollout_finalize_failed_event(
+                    state,
+                    phase="user_interrupted",
+                )
+                return
+            final_status = {
+                "cancelled": RunFinalStatus.CANCELLED,
+                "waiting_confirmation": RunFinalStatus.WAITING_CONFIRMATION,
+                "completed": RunFinalStatus.COMPLETED,
+            }.get(terminal_status)
+            if final_status is None:
+                yield _rollout_finalize_failed_event(
+                    state,
+                    phase="user_interrupted",
+                )
+                return
             yield sse_event(
                 run_done(
                     state.run_id,
-                    RunFinalStatus.CANCELLED,
+                    final_status,
                     message_id=state.assistant_message_id,
                 )
             )
@@ -549,6 +672,14 @@ async def stream_chat_events(
                 state=state,
                 reason=reason,
             )
+        try:
+            finalize_durable_run_inputs(bind, run_id=state.run_id)
+        except Exception as exc:
+            logger.warning(
+                "[run input] failed to finalize pending inputs run_id=%s: %s",
+                state.run_id,
+                exc,
+            )
         if registered:
             unregister_active_turn(state.run_id, task=active_task)
 
@@ -561,7 +692,10 @@ async def _stream_chat_events_impl(
     stream_started_at: float,
 ) -> AsyncIterator[str]:
     from app.services.chat.agent_loop import run_agent_loop
-    from app.services.chat.durable_task import run_durable_task
+    from app.services.chat.durable_task import (
+        _finalize_durable_task_before_done,
+        run_durable_task,
+    )
     from app.services.chat.persist import run_persist
 
     # V0.0.4 D.3: structured run-lifecycle log. Stays human-readable; easy to
@@ -711,6 +845,16 @@ async def _stream_chat_events_impl(
         return
 
     if state.durable_task_completed:
+        # The P0 path must durably terminate the ChatRun before either its
+        # legacy ``done`` frame (emitted inside ``run_durable_task``) or this
+        # Product Run Event v1 terminator.  Re-run the strict helper as a
+        # defensive no-op; if a future P0 branch forgets its boundary, fail
+        # closed instead of announcing a completion that the database denies.
+        _finalize_durable_task_before_done(
+            bind,
+            runtime=runtime,
+            state=state,
+        )
         state.stage_timings["total_stream_ms"] = round((time.perf_counter() - stream_started_at) * 1000)
         yield sse_event(
             {
@@ -719,12 +863,13 @@ async def _stream_chat_events_impl(
                 "duration_ms": state.stage_timings["total_stream_ms"],
             }
         )
-        yield sse_event(run_done(state.run_id, RunFinalStatus.COMPLETED))
-        _finalize_rollout_safely(
-            state,
-            status="completed",
-            message_id=state.assistant_message_id,
-            phase="durable_task",
+        yield sse_event(
+            run_done(
+                state.run_id,
+                RunFinalStatus.WAITING_CONFIRMATION
+                if state.confirmation_requested
+                else RunFinalStatus.COMPLETED,
+            )
         )
         logger.info(
             "[run done] run_id=%s path=durable_task duration_ms=%s artifacts=%s tool_events=%s",
@@ -738,9 +883,20 @@ async def _stream_chat_events_impl(
     # ==================================================================
     # Agent loop — streaming + tool execution
     # ==================================================================
+    deferred_agent_terminal_events: list[str] = []
     try:
         async for event in run_agent_loop(runtime, req, state):
-            yield event
+            payload = _sse_payload(event)
+            if (
+                payload.get("type") == "run_failed"
+                and payload.get("error_code") == ErrorCode.TURN_BUDGET_EXCEEDED
+            ):
+                # Budget exhaustion is discovered inside the Agent Loop, but
+                # its failure terminal is not truthful until run_persist has
+                # saved the assistant projection and ChatRun finalization wins.
+                deferred_agent_terminal_events.append(event)
+            else:
+                yield event
     except Exception as exc:
         logger.error(
             "[run failed] run_id=%s phase=agent_loop exc_type=%s exc=%s",
@@ -767,9 +923,16 @@ async def _stream_chat_events_impl(
     # ==================================================================
     # Persist — final-text assembly, artifact persistence, HITAS, message
     # ==================================================================
+    deferred_legacy_done: str | None = None
     try:
         async for event in run_persist(runtime, req, bind, state):
-            yield event
+            if _sse_payload(event).get("type") == "done":
+                # ``run_persist`` remains backward-compatible when consumed
+                # directly. The orchestrator withholds only its legacy terminal
+                # until the matching ChatRun terminal transaction commits.
+                deferred_legacy_done = event
+            else:
+                yield event
     except Exception as exc:
         logger.error(
             "[run failed] run_id=%s phase=persist exc_type=%s exc=%s",
@@ -792,7 +955,7 @@ async def _stream_chat_events_impl(
             state.budget_exhaustion.get("message")
             or "本轮达到执行预算上限，已安全停止。"
         )
-        _finalize_rollout_safely(
+        finalized = _finalize_rollout_safely(
             state,
             status="failed",
             message_id=state.assistant_message_id,
@@ -801,6 +964,22 @@ async def _stream_chat_events_impl(
             error_message=budget_message,
             retryable=False,
         )
+        if not finalized:
+            yield _rollout_finalize_failed_event(state, phase="turn_budget")
+            return
+        if deferred_agent_terminal_events:
+            for event in deferred_agent_terminal_events:
+                yield event
+        else:
+            yield sse_event(
+                run_failed(
+                    state.run_id,
+                    ErrorCode.TURN_BUDGET_EXCEEDED,
+                    budget_message,
+                    retryable=False,
+                    fallback_content=state.full_text,
+                )
+            )
         logger.info(
             "[run stopped] run_id=%s phase=turn_budget kind=%s duration_ms=%s steps=%s tool_calls=%s",
             state.run_id,
@@ -817,7 +996,7 @@ async def _stream_chat_events_impl(
             state.run_evaluation.get("summary")
             or "完成证据检查未通过，本轮已按失败状态保存。"
         )
-        _finalize_rollout_safely(
+        finalized = _finalize_rollout_safely(
             state,
             status="failed",
             message_id=state.assistant_message_id,
@@ -826,6 +1005,12 @@ async def _stream_chat_events_impl(
             error_message=evaluation_message,
             retryable=False,
         )
+        if not finalized:
+            yield _rollout_finalize_failed_event(
+                state,
+                phase="completion_evaluation",
+            )
+            return
         yield sse_event(
             run_failed(
                 state.run_id,
@@ -845,12 +1030,17 @@ async def _stream_chat_events_impl(
         return
 
     # Successful end-of-run terminator (Product Run Event v1).
-    _finalize_rollout_safely(
+    finalized = _finalize_rollout_safely(
         state,
         status="waiting_confirmation" if state.confirmation_requested else "completed",
         message_id=state.assistant_message_id,
         phase="persist",
     )
+    if not finalized:
+        yield _rollout_finalize_failed_event(state, phase="persist")
+        return
+    if deferred_legacy_done is not None:
+        yield deferred_legacy_done
     yield sse_event(
         run_done(
             state.run_id,

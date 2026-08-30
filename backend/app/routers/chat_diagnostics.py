@@ -14,7 +14,11 @@ from app.routers.chat_security import require_project_access
 from app.services.chat.trace import get_latest_chat_trace
 from app.services.agent_harness.run_rollout import get_chat_rollout
 from app.services.agent_harness.turn_interrupt import get_active_turn
-from app.services.chat.turn_recovery import build_turn_recovery_preview
+from app.services.chat.turn_recovery import (
+    build_turn_recovery_preview,
+    find_existing_recovery_child,
+    resolve_recovery_world_state,
+)
 from app.services.chat_diagnostics import run_model_test, test_provider_connection
 
 router = APIRouter()
@@ -152,7 +156,15 @@ def get_conversation_recovery_preview(
 ):
     """Prepare a content-free, server-verified continuation contract."""
 
-    require_conversation_access(session, conversation_id, current_user)
+    # Preview reconciliation can expire a stale reservation and its mailbox in
+    # one audited transaction. It is therefore a write-capable recovery action,
+    # not a read-only diagnostic for project viewers.
+    require_conversation_access(
+        session,
+        conversation_id,
+        current_user,
+        require_write=True,
+    )
     active_turn = get_active_turn(run_id)
     if active_turn is not None:
         raise HTTPException(status_code=409, detail="Chat run is still active")
@@ -177,12 +189,44 @@ def get_conversation_recovery_preview(
         or str(message_rollout.get("run_id") or "") != run_id
     ):
         raise HTTPException(status_code=409, detail="Message and rollout do not match")
+    chat_run = session.exec(select(ChatRun).where(ChatRun.run_id == run_id)).first()
+    if chat_run is None or chat_run.conversation_id != conversation_id:
+        raise HTTPException(status_code=409, detail="ChatRun and conversation do not match")
+    if str(chat_run.status or "") not in {"cancelled", "failed", "interrupted"}:
+        raise HTTPException(status_code=409, detail="Chat run is not durably recoverable")
+    if chat_run.assistant_message_id != selected_message_id:
+        raise HTTPException(status_code=409, detail="Message is not the ChatRun assistant result")
+    try:
+        recovery_state = resolve_recovery_world_state(
+            session,
+            conversation_id=conversation_id,
+            source_run_id=run_id,
+            requested_project_id=chat_run.project_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     preview = build_turn_recovery_preview(
         rollout,
         source_message_id=selected_message_id,
+        current_project_world_state=recovery_state["current_world_state"],
+        project_world_state_change=recovery_state["world_state_change"],
+        force_manual_review=not recovery_state["source_world_state_available"],
+        unapplied_input_message_ids=recovery_state["unapplied_input_message_ids"],
+        applied_input_message_ids=recovery_state["applied_input_message_ids"],
     )
     if not preview.get("can_continue"):
         raise HTTPException(status_code=409, detail="This run cannot be continued")
+    existing_child = find_existing_recovery_child(
+        session,
+        conversation_id=conversation_id,
+        contract=preview,
+        reconcile_stale_reservation=True,
+    )
+    # Reconciliation is itself an audited state transition and must survive
+    # this read response. No-op commits are harmless when no child expired.
+    session.commit()
+    if existing_child is not None:
+        raise HTTPException(status_code=409, detail="This recovery contract already has a child run")
     return preview
 
 

@@ -6,8 +6,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import yaml
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine, select
 
+from app.models.db import ChatRun, Conversation, Message
 from app.services.agent_harness.run_rollout import (
+    begin_chat_rollout,
     build_in_memory_rollout_snapshot,
     build_step_checkpoint,
     reconstruct_rollout,
@@ -165,6 +169,7 @@ def _read_runtime() -> ChatRuntime:
         tools=[],
         max_tokens=512,
         temperature=0.1,
+        project_id=7,
         action_policy=ActionPolicy.READ_ONLY_TOOL,
         tool_access_policy="read_on_demand",
     )
@@ -194,7 +199,7 @@ def test_transient_read_failure_retries_inside_same_step_and_records_attempts() 
                 _read_runtime(),
                 state,
                 {"id": "tool_read", "name": "read_project_file", "input": {"file_id": 7}},
-                req=SendMessageRequest(content="read it"),
+                req=SendMessageRequest(content="read it", project_id=7),
                 step_text="",
                 step_truncated=False,
                 step_index=0,
@@ -225,7 +230,7 @@ def test_non_transient_read_failure_is_not_blindly_replayed() -> None:
                 _read_runtime(),
                 state,
                 {"id": "tool_read", "name": "read_project_file", "input": {"file_id": 404}},
-                req=SendMessageRequest(content="read it"),
+                req=SendMessageRequest(content="read it", project_id=7),
                 step_text="",
                 step_truncated=False,
                 step_index=0,
@@ -276,3 +281,37 @@ def test_artifact_failure_with_persisted_path_is_not_replayed() -> None:
 
     assert execute_mock.await_count == 1
     assert state.tool_call_events[-1]["retryable"] is False
+
+
+def test_begin_rollout_binds_exact_persisted_user_message_not_latest() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            conversation = Conversation(title="Concurrent source")
+            session.add(conversation)
+            session.flush()
+            exact = Message(conversation_id=int(conversation.id or 0), role="user", content="exact")
+            session.add(exact)
+            session.flush()
+            later = Message(conversation_id=int(conversation.id or 0), role="user", content="later")
+            session.add(later)
+            session.commit()
+            exact_id = int(exact.id or 0)
+            conversation_id = int(conversation.id or 0)
+
+        runtime = _read_runtime()
+        runtime.conv_id = conversation_id
+        runtime.prepare_metrics = {"source_user_message_id": exact_id}
+        begin_chat_rollout(engine, runtime, "exact", "run_exact_source")
+
+        with Session(engine) as session:
+            chat_run = session.exec(select(ChatRun).where(ChatRun.run_id == "run_exact_source")).one()
+            assert chat_run.source_message_id == exact_id
+    finally:
+        SQLModel.metadata.drop_all(engine)
+        engine.dispose()

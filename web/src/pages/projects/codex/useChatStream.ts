@@ -119,6 +119,13 @@ function readApiError(err: unknown): string {
   return 'AI 生成出错，请稍后重试。'
 }
 
+function createTurnRecoveryConflictError(): Error & { response: { status: 409 } } {
+  const error = new Error('状态已变化，请重新核对') as Error & { response: { status: 409 } }
+  error.name = 'TurnRecoveryPreviewConflictError'
+  error.response = { status: 409 }
+  return error
+}
+
 export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
   const {
     projectId,
@@ -196,10 +203,10 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     }
   }, [])
 
-  const finishStoppedStream = useCallback(() => {
+  const finishStoppedStream = useCallback((publishLocalAssistant = true) => {
     const partial = accumulatedRef.current
     const interruptedRunId = activeRunIdRef.current
-    if (conversationId != null) {
+    if (publishLocalAssistant && conversationId != null) {
       const stoppedTimeline = activityTimelineRef.current
         ? {
           ...activityTimelineRef.current,
@@ -226,6 +233,10 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       }
       onAssistantMessage(assistantMsg)
     }
+    if (!publishLocalAssistant) {
+      assistantDraftIdRef.current = 0
+      setStreamingMessageId(0)
+    }
     abortControllerRef.current = null
     activeRunIdRef.current = null
     setActiveRunId(null)
@@ -240,10 +251,14 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       const text = content.trim()
       if (!text) return
       if (conversationId == null) {
+        if (turnControl.turnRecovery) throw new Error('未选择对话')
         onError?.('未选择对话')
         return
       }
-      if (sendInFlightRef.current || status === 'sending' || status === 'streaming') return
+      if (sendInFlightRef.current || status === 'sending' || status === 'streaming') {
+        if (turnControl.turnRecovery) throw new Error('当前已有轮次正在运行，本次恢复未发送')
+        return
+      }
 
       sendInFlightRef.current = true
       reset()
@@ -273,7 +288,22 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         }),
         created_at: new Date().toISOString(),
       }
-      onUserMessage(userMsg)
+      const finishRequestedStop = () => {
+        if (turnControl.turnRecovery) {
+          // Recovery success is defined only by a matching Product run_done
+          // with completed/waiting_confirmation. A local abort or cancelled
+          // terminal must reject the caller so the UI cannot announce a false
+          // recovery success. Before activation this also avoids a ghost
+          // assistant bubble for a child run that may not exist.
+          finishStoppedStream(false)
+          throw new Error('恢复运行已取消，未确认成功终态；请刷新后重新核对')
+        }
+        finishStoppedStream()
+      }
+      // A recovery turn is guarded by the server-issued preview hash. Do not
+      // render its optimistic user message until the server accepts that hash;
+      // a 409 must leave no local instruction that was never persisted.
+      if (!turnControl.turnRecovery) onUserMessage(userMsg)
 
       const token = localStorage.getItem('authToken') || ''
       const controller = new AbortController()
@@ -303,21 +333,45 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         })
       } catch (err) {
         if (stopRequestedRef.current || controller.signal.aborted) {
-          finishStoppedStream()
+          finishRequestedStop()
           return
         }
+        const message = readApiError(err)
         setStatus('error')
-        onError?.(readApiError(err))
         abortControllerRef.current = null
         sendInFlightRef.current = false
+        if (turnControl.turnRecovery) {
+          assistantDraftIdRef.current = 0
+          setStreamingMessageId(0)
+          reset()
+          throw err instanceof Error ? err : new Error(message)
+        }
+        onError?.(message)
         return
       }
 
       if (!response.ok || !response.body) {
-        setStatus('error')
-        onError?.(`服务异常 (${response.status})`)
         abortControllerRef.current = null
+        activeRunIdRef.current = null
+        setActiveRunId(null)
+        stopRequestedRef.current = false
         sendInFlightRef.current = false
+        if (turnControl.turnRecovery && response.status === 409) {
+          assistantDraftIdRef.current = 0
+          setStreamingMessageId(0)
+          setStatus('idle')
+          reset()
+          throw createTurnRecoveryConflictError()
+        }
+        const message = `服务异常 (${response.status})`
+        setStatus('error')
+        if (turnControl.turnRecovery) {
+          assistantDraftIdRef.current = 0
+          setStreamingMessageId(0)
+          reset()
+          throw new Error(message)
+        }
+        onError?.(message)
         return
       }
 
@@ -338,16 +392,64 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       let finalDeliveryFailed = false
       let done = false
       let streamErr: string | null = null
+      let productTerminalStatus: 'completed' | 'waiting_confirmation' | 'failed' | 'cancelled' | null = null
+      let productTerminalError: string | null = null
+      let productStartedRunId: string | null = null
+      let recoveryUserMessagePublished = false
 
       const handleEvent = (ev: ChatStreamEvent) => {
+        // A recovery Message and child Run are only usable after the reserved
+        // rollout is activated at first iteration. HTTP 200 merely opens the
+        // StreamingResponse; activation failure can still be the first frame.
+        // Publish the local user bubble only after a frame that the backend
+        // emits strictly after successful activation.
+        if (
+          turnControl.turnRecovery
+          && !recoveryUserMessagePublished
+          && (ev.type === 'conversation_id' || ev.type === 'run_started')
+        ) {
+          recoveryUserMessagePublished = true
+          onUserMessage(userMsg)
+        }
         if (isProductRunEvent(ev)) {
           const nextTimeline = reduceRunActivity(activityTimelineRef.current, ev)
           activityTimelineRef.current = nextTimeline
           setActivityTimeline(nextTimeline)
         }
         if (ev.type === 'run_started' && typeof ev.run_id === 'string') {
+          if (productStartedRunId && productStartedRunId !== ev.run_id) {
+            productTerminalError = '运行事件身份不一致，请重新发起本轮请求'
+          } else {
+            productStartedRunId = ev.run_id
+          }
           activeRunIdRef.current = ev.run_id
           setActiveRunId(ev.run_id)
+        } else if (ev.type === 'run_failed') {
+          productTerminalStatus = 'failed'
+          productTerminalError = (
+            productStartedRunId && ev.run_id !== productStartedRunId
+              ? '运行失败事件身份不一致，请重新发起本轮请求'
+              : ev.error_message || ev.message || 'AI 运行未完成，请稍后重试。'
+          )
+          activeRunIdRef.current = null
+          setActiveRunId(null)
+        } else if (ev.type === 'run_done') {
+          const terminalIdentityMatches = Boolean(
+            productStartedRunId && ev.run_id === productStartedRunId,
+          )
+          if (!terminalIdentityMatches) {
+            productTerminalStatus = null
+            productTerminalError = '运行完成事件缺少匹配的启动身份，请重新发起本轮请求'
+          } else {
+            productTerminalStatus = ev.final_status || null
+          }
+          if (!productTerminalError && (productTerminalStatus === 'failed' || productTerminalStatus === 'cancelled')) {
+            productTerminalError = productTerminalStatus === 'cancelled'
+              ? 'AI 运行已取消'
+              : 'AI 运行未完成，请稍后重试。'
+          }
+          activeRunIdRef.current = null
+          setActiveRunId(null)
         } else if (ev.type === 'turn_receipt') {
           const receipt = toTurnReceiptEvent(ev)
           if (!receipt) return
@@ -452,39 +554,69 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         drainBuffer(true)
       } catch (err) {
         if (stopRequestedRef.current || controller.signal.aborted) {
-          finishStoppedStream()
+          finishRequestedStop()
           return
         }
         streamErr = readApiError(err)
       }
 
       if (stopRequestedRef.current || controller.signal.aborted) {
-        finishStoppedStream()
+        finishRequestedStop()
         return
       }
 
-      if (streamErr) {
+      if (productTerminalError) {
         setStatus('error')
-        onError?.(streamErr)
         abortControllerRef.current = null
         activeRunIdRef.current = null
         setActiveRunId(null)
         reset()
         sendInFlightRef.current = false
+        if (turnControl.turnRecovery) throw new Error(productTerminalError)
+        onError?.(productTerminalError)
         return
+      }
+
+      if (streamErr) {
+        setStatus('error')
+        abortControllerRef.current = null
+        activeRunIdRef.current = null
+        setActiveRunId(null)
+        reset()
+        sendInFlightRef.current = false
+        if (turnControl.turnRecovery) throw new Error(streamErr)
+        onError?.(streamErr)
+        return
+      }
+
+      if (
+        turnControl.turnRecovery
+        && productTerminalStatus !== 'completed'
+        && productTerminalStatus !== 'waiting_confirmation'
+      ) {
+        const message = '恢复运行缺少可验证的成功终态，请重新核对后再继续'
+        setStatus('error')
+        abortControllerRef.current = null
+        activeRunIdRef.current = null
+        setActiveRunId(null)
+        reset()
+        sendInFlightRef.current = false
+        throw new Error(message)
       }
 
       // Some backends end the stream without a 'done' event but still
       // have content — promote it to the final message rather than
       // dropping it.
       if (!done && !accumulatedRef.current.trim()) {
+        const message = 'AI 没有返回任何内容'
         setStatus('error')
-        onError?.('AI 没有返回任何内容')
         abortControllerRef.current = null
         activeRunIdRef.current = null
         setActiveRunId(null)
         reset()
         sendInFlightRef.current = false
+        if (turnControl.turnRecovery) throw new Error(message)
+        onError?.(message)
         return
       }
 

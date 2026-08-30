@@ -76,6 +76,12 @@ import {
   type SelectedProjectMention,
 } from '../projectMentions'
 import {
+  buildTurnRecoveryContent,
+  buildTurnRecoveryInput,
+  isTurnRecoveryPreviewConflict,
+  turnRecoveryToastCopy,
+} from '../ProjectChatRecovery'
+import {
   formatUpdatedRelative,
   useConversationMessages,
   useProjectConversations,
@@ -995,36 +1001,29 @@ function ThreadView({
 
   const busy = streamStatus === 'sending' || streamStatus === 'streaming'
 
-  const continueInterruptedTurn = async (sourceRunId: string, sourceMessageId?: number) => {
-    if (busy) return
+  const continueInterruptedTurn = async (preview: TurnRecoveryPreview) => {
+    if (busy) {
+      toast.warning({
+        title: '请等待当前轮次结束',
+        description: '恢复预览不会自动执行；当前轮次结束后可再次核对并确认。',
+      })
+      return
+    }
     try {
-      const preview = await api.get<TurnRecoveryPreview>(
-        `/chat/conversations/${conversationId}/recovery-preview`,
-        {
-          params: {
-            run_id: sourceRunId,
-            ...(sourceMessageId ? { message_id: sourceMessageId } : {}),
-          },
-        },
-      )
-      await onSend(preview.suggested_content, {
-        turnRecovery: {
-          source_run_id: preview.source_run_id,
-          source_message_id: preview.source_message_id,
-          strategy: preview.strategy,
-          completed_steps: preview.completed_steps,
-          side_effects_possible: preview.side_effects_possible,
-        },
+      await onSend(buildTurnRecoveryContent(preview), {
+        turnRecovery: buildTurnRecoveryInput(preview),
       })
-      toast.success({
-        title: '已从中断状态安全继续',
-        description: preview.side_effects_possible
-          ? '新轮次会先核对当前状态，避免重复执行写入动作。'
-          : '已完成步骤会保留，继续处理未完成部分。',
-      })
+      toast.success(turnRecoveryToastCopy(preview))
     } catch (err) {
+      if (isTurnRecoveryPreviewConflict(err)) {
+        toast.warning({
+          title: '状态已变化，请重新核对',
+          description: '恢复预览已经过期，Aria 将重新读取当前项目状态；不会自动重试或执行历史动作。',
+        })
+        throw err
+      }
       toast.error({
-        title: '暂时无法恢复本轮',
+        title: '恢复轮次未完成',
         description: err instanceof Error ? err.message : '中断状态仍在保存，请稍后再试。',
       })
     }

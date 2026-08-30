@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 from app.models.db import ProjectFile
 from app.services.chat.mode_registry import ActionPolicy
 from app.services.project_files import active_project_files_stmt
+from app.tools.capabilities import tool_is_project_scoped
 from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME
 
 
@@ -54,6 +55,142 @@ _FINAL_NAME_TERMS = (
     "正式",
     "完整版",
 )
+
+RECOVERY_ACTION_GUARD_KEY = "_aria_recovery_guard"
+_HEX_64 = re.compile(r"^[a-f0-9]{64}$")
+_RUN_ID = re.compile(r"^run_[A-Za-z0-9_-]{1,76}$")
+
+
+class RecoveryActionGuardError(ValueError):
+    """Stored recovery approval guard is missing or malformed."""
+
+
+class PendingActionProjectScopeError(ValueError):
+    """A project-scoped approval is not bound to one exact Aria project."""
+
+
+def positive_project_scope(value: Any) -> int | None:
+    """Return an exact positive integer project id; reject bools and coercion."""
+
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        return None
+    return value
+
+
+def require_pending_action_project_scope(
+    tool_name: str,
+    tool_input: dict[str, Any],
+    *,
+    runtime_project_id: Any,
+) -> int | None:
+    """Bind project-scoped tool input to the server-owned runtime scope.
+
+    Non-project tools remain valid in standalone or project conversations, but
+    they must not carry a top-level ``project_id`` at all.  Otherwise an
+    unclassified/extension handler could accept that model-controlled value and
+    smuggle a project mutation past the project-scoped authorization path. For
+    project tools, both ids must already be exact positive integers and equal;
+    model input is never allowed to select a different project.
+    """
+
+    if not tool_is_project_scoped(tool_name):
+        if "project_id" in tool_input:
+            raise PendingActionProjectScopeError(
+                "Non-project-scoped approval input cannot include project_id"
+            )
+        return None
+    project_id = positive_project_scope(runtime_project_id)
+    if project_id is None:
+        raise PendingActionProjectScopeError(
+            "Project-scoped approval requires a valid runtime project scope"
+        )
+    input_project_id = positive_project_scope(tool_input.get("project_id"))
+    if input_project_id is None:
+        raise PendingActionProjectScopeError(
+            "Project-scoped approval input requires a valid project scope"
+        )
+    if input_project_id != project_id:
+        raise PendingActionProjectScopeError(
+            "Project-scoped approval input does not match the runtime project scope"
+        )
+    return project_id
+
+
+def build_recovery_action_guard(recovery: Any, *, project_id: int | None) -> dict[str, Any]:
+    """Build a content-free CAS guard for a recovery-created HITAS action."""
+
+    if not isinstance(recovery, dict) or recovery.get("schema_version") != 2:
+        return {}
+    if project_id is None:
+        return {}
+    world_state = (
+        recovery.get("project_world_state")
+        if isinstance(recovery.get("project_world_state"), dict)
+        else {}
+    )
+    fingerprint = str(world_state.get("fingerprint") or "").lower()
+    contract_sha256 = str(recovery.get("contract_sha256") or "").lower()
+    source_run_id = str(recovery.get("source_run_id") or "")
+    if (
+        world_state.get("project_id") != project_id
+        or not _HEX_64.fullmatch(fingerprint)
+        or not _HEX_64.fullmatch(contract_sha256)
+        or not _RUN_ID.fullmatch(source_run_id)
+    ):
+        raise RecoveryActionGuardError("Recovery approval is missing its project-state CAS")
+    return {
+        "schema_version": 1,
+        "project_id": project_id,
+        "project_fingerprint": fingerprint,
+        "contract_sha256": contract_sha256,
+        "source_run_id": source_run_id,
+    }
+
+
+def embed_recovery_action_guard(
+    tool_input: dict[str, Any],
+    guard: dict[str, Any],
+) -> dict[str, Any]:
+    """Bind the guard into the signed stored input without mutating execution args."""
+
+    payload = dict(tool_input or {})
+    if guard:
+        payload[RECOVERY_ACTION_GUARD_KEY] = dict(guard)
+    return payload
+
+
+def split_recovery_action_guard(
+    stored_tool_input: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return registry input and a strictly normalized recovery guard."""
+
+    execution_input = dict(stored_tool_input or {})
+    raw_guard = execution_input.pop(RECOVERY_ACTION_GUARD_KEY, None)
+    if raw_guard is None:
+        return execution_input, {}
+    if not isinstance(raw_guard, dict):
+        raise RecoveryActionGuardError("Stored recovery approval guard is invalid")
+    project_id = raw_guard.get("project_id")
+    fingerprint = str(raw_guard.get("project_fingerprint") or "").lower()
+    contract_sha256 = str(raw_guard.get("contract_sha256") or "").lower()
+    source_run_id = str(raw_guard.get("source_run_id") or "")
+    if (
+        raw_guard.get("schema_version") != 1
+        or not isinstance(project_id, int)
+        or isinstance(project_id, bool)
+        or project_id <= 0
+        or not _HEX_64.fullmatch(fingerprint)
+        or not _HEX_64.fullmatch(contract_sha256)
+        or not _RUN_ID.fullmatch(source_run_id)
+    ):
+        raise RecoveryActionGuardError("Stored recovery approval guard is invalid")
+    return execution_input, {
+        "schema_version": 1,
+        "project_id": project_id,
+        "project_fingerprint": fingerprint,
+        "contract_sha256": contract_sha256,
+        "source_run_id": source_run_id,
+    }
 
 
 def _normalize_text(value: str) -> str:

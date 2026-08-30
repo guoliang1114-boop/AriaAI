@@ -5681,12 +5681,9 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(text_event["type"], "text")
         self.assertIn("AI 服务当前繁忙", text_event["content"])
         self.assertEqual(llm.calls, 2)
-        self.assertTrue(
-            any(
-                json.loads(event.replace("data: ", "").strip()).get("type") == "done"
-                for event in events
-            )
-        )
+        payloads = [json.loads(event.replace("data: ", "").strip()) for event in events]
+        self.assertNotIn("done", [payload.get("type") for payload in payloads])
+        self.assertEqual(payloads[-1]["type"], "run_failed")
 
         with Session(self.engine) as session:
             assistant_messages = session.exec(

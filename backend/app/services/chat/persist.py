@@ -50,9 +50,16 @@ from app.services.chat_tools import (
 from app.services.chat_artifacts import _build_artifact_notice, _extract_artifact, _repair_skill_ppt_tool_input
 from app.models.db import PendingToolAction
 from app.services.chat.mode_registry import ActionPolicy
-from app.services.chat.pending_actions import build_project_file_cleanup_pending_action
+from app.services.chat.pending_actions import (
+    PendingActionProjectScopeError,
+    build_project_file_cleanup_pending_action,
+    build_recovery_action_guard,
+    embed_recovery_action_guard,
+    positive_project_scope,
+    require_pending_action_project_scope,
+)
 from app.services.project_contexts import mark_project_memory_stale
-from app.services.project_core import init_default_project_folders
+from app.services.project_core import init_default_project_folders, lock_and_require_project_write
 from app.services.project_documents import create_project_document_record
 from app.services.time_utils import utc_now_naive
 from app.services.chat_store import persist_assistant_message, persist_run_artifacts
@@ -112,6 +119,28 @@ _MUTATING_ACTION_POLICIES = {
 _PPT_GENERATION_TOOL_NAME = "generate_ppt_from_skill"
 
 
+def _runtime_recovery_contract(runtime: ChatRuntime) -> dict[str, Any]:
+    metrics = getattr(runtime, "prepare_metrics", None)
+    recovery = metrics.get("turn_recovery") if isinstance(metrics, dict) else None
+    return recovery if isinstance(recovery, dict) and recovery else {}
+
+
+def _record_recovery_fallback_blocked(
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    *,
+    fallback: str,
+) -> None:
+    recovery = _runtime_recovery_contract(runtime)
+    state.record_trace_event(
+        "recovery_persist_fallback_blocked",
+        stage="persist",
+        fallback=fallback[:48],
+        source_run_id=str(recovery.get("source_run_id") or "")[:80],
+        reason="mutating_persist_fallbacks_are_disabled_during_recovery",
+    )
+
+
 def _runtime_artifact_contract(runtime: ChatRuntime) -> ArtifactContract | None:
     prepare_metrics = getattr(runtime, "prepare_metrics", None)
     turn_contract = (
@@ -134,7 +163,7 @@ def _delivery_satisfied(state: ChatSessionState, contract: ArtifactContract | No
     output_kind = (contract.output_kind or "").lower()
     if output_kind == "md" and state.pending_markdown_saves:
         return True
-    for artifact in state.artifacts:
+    for artifact in state.delivered_artifacts():
         file_type = str(artifact.get("file_type") or artifact.get("output_kind") or "").lower().lstrip(".")
         file_name = str(artifact.get("file_name") or artifact.get("name") or "").lower()
         if file_type == output_kind or (output_kind and file_name.endswith(f".{output_kind}")):
@@ -235,6 +264,9 @@ async def _maybe_generate_missing_ppt_artifact(
     if not contract or (contract.output_kind or "").lower() != "pptx":
         return False
     if _delivery_satisfied(state, contract) or state.confirmation_requested:
+        return False
+    if _runtime_recovery_contract(runtime):
+        _record_recovery_fallback_blocked(runtime, state, fallback="ppt_artifact")
         return False
 
     seed_input = {
@@ -348,7 +380,9 @@ def _event_has_project_artifact(event: dict[str, Any]) -> bool:
 
 
 def _has_successful_mutation(state: ChatSessionState) -> bool:
-    if state.artifacts or state.pending_markdown_saves:
+    # A byte-verified artifact reused from the source Run is completion
+    # evidence for this recovery turn even though no new mutation is executed.
+    if state.delivered_artifacts() or state.pending_markdown_saves:
         return True
     for event in state.tool_call_events:
         if not tool_event_is_completed(event):
@@ -456,6 +490,9 @@ def _maybe_create_markdown_from_response(
     if state.pending_markdown_saves:
         return None
     if not _is_substantive_markdown_body(full_text):
+        return None
+    if _runtime_recovery_contract(runtime):
+        _record_recovery_fallback_blocked(runtime, state, fallback="markdown_project_file")
         return None
 
     filename = _requested_markdown_filename(req.content)
@@ -629,11 +666,14 @@ async def run_persist(
         and (artifact_contract.output_kind or "").lower() == "pptx"
         and not _delivery_satisfied(state, artifact_contract)
     ):
-        yield sse_event({"type": "status", "stage": "tools", "message": "正在补齐 PPT 生成参数并尝试生成交付文件..."})
-        generated = await _maybe_generate_missing_ppt_artifact(runtime, req, state, full_text, artifact_contract)
-        if generated:
-            full_text = _remove_stale_ppt_failure_text(full_text)
-            yield sse_event({"type": "status", "stage": "tools", "message": "PPT 交付文件已补齐生成，正在保存链接..."})
+        if _runtime_recovery_contract(runtime):
+            _record_recovery_fallback_blocked(runtime, state, fallback="ppt_artifact")
+        else:
+            yield sse_event({"type": "status", "stage": "tools", "message": "正在补齐 PPT 生成参数并尝试生成交付文件..."})
+            generated = await _maybe_generate_missing_ppt_artifact(runtime, req, state, full_text, artifact_contract)
+            if generated:
+                full_text = _remove_stale_ppt_failure_text(full_text)
+                yield sse_event({"type": "status", "stage": "tools", "message": "PPT 交付文件已补齐生成，正在保存链接..."})
 
     # A deterministic Markdown fallback is still a real run output. Create it
     # before the common persistence boundary so ProjectFile evidence, file
@@ -703,44 +743,47 @@ async def run_persist(
                 failure_code=str(failure_payload.get("code") or "") if isinstance(failure_payload, dict) else "",
             )
 
-        # Product Run Event v1: announce each newly-persisted artifact so a v1
-        # frontend can render a "ready to download" card without polling.
-        if state.run_id:
-            from app.services.chat.product_run_events import (
-                artifact_ready as _artifact_ready,
+    delivered_artifacts = state.delivered_artifacts()
+
+    # Product Run Event v1: announce newly persisted artifacts and exact prior
+    # artifacts verified during recovery. The latter are references only and
+    # never pass through ``persist_run_artifacts`` above.
+    if state.run_id:
+        from app.services.chat.product_run_events import (
+            artifact_ready as _artifact_ready,
+        )
+
+        _ARTIFACT_TYPE_V1_MAP = {
+            "pptx": "pptx",
+            "docx": "docx",
+            "xlsx": "xlsx",
+            "pdf": "pdf",
+            "md": "markdown",
+            "markdown": "markdown",
+        }
+        for artifact in delivered_artifacts:
+            artifact_id = artifact.get("id") or artifact.get("project_file_id")
+            if not artifact_id:
+                continue
+            raw_kind = str(
+                artifact.get("file_type") or artifact.get("output_kind") or ""
+            ).lower().lstrip(".")
+            v1_kind = _ARTIFACT_TYPE_V1_MAP.get(raw_kind)
+            if not v1_kind:
+                continue
+            yield sse_event(
+                _artifact_ready(
+                    state.run_id,
+                    artifact_id,
+                    v1_kind,
+                    source_tool=str(artifact.get("source_tool") or "") or None,
+                    output_id=str(artifact.get("output_id") or "") or None,
+                    content_sha256=str(artifact.get("content_sha256") or "") or None,
+                )
             )
 
-            _ARTIFACT_TYPE_V1_MAP = {
-                "pptx": "pptx",
-                "docx": "docx",
-                "xlsx": "xlsx",
-                "pdf": "pdf",
-                "md": "markdown",
-                "markdown": "markdown",
-            }
-            for artifact in state.artifacts:
-                artifact_id = artifact.get("id") or artifact.get("project_file_id")
-                if not artifact_id:
-                    continue
-                raw_kind = str(
-                    artifact.get("file_type") or artifact.get("output_kind") or ""
-                ).lower().lstrip(".")
-                v1_kind = _ARTIFACT_TYPE_V1_MAP.get(raw_kind)
-                if not v1_kind:
-                    continue
-                yield sse_event(
-                    _artifact_ready(
-                        state.run_id,
-                        artifact_id,
-                        v1_kind,
-                        source_tool=str(artifact.get("source_tool") or "") or None,
-                        output_id=str(artifact.get("output_id") or "") or None,
-                        content_sha256=str(artifact.get("content_sha256") or "") or None,
-                    )
-                )
-
     # Build artifact notice
-    artifact_notice = _build_artifact_notice(state.artifacts) if state.artifacts else ""
+    artifact_notice = _build_artifact_notice(delivered_artifacts) if delivered_artifacts else ""
     if not full_text and artifact_notice:
         full_text = artifact_notice
         yield sse_event({"type": "text", "content": artifact_notice})
@@ -892,6 +935,36 @@ async def run_persist(
                 try:
                     tool_name = str(action_payload.get("tool_name") or "")
                     tool_input = action_payload.get("tool_input") if isinstance(action_payload.get("tool_input"), dict) else {}
+                    project_scope = require_pending_action_project_scope(
+                        tool_name,
+                        tool_input,
+                        runtime_project_id=runtime.project_id,
+                    )
+                    if project_scope is not None:
+                        actor_user_id = positive_project_scope(runtime.actor_user_id)
+                        if actor_user_id is None:
+                            raise PendingActionProjectScopeError(
+                                "Project-scoped approval requires an authenticated actor"
+                            )
+                        # The approval envelope is signed only while the
+                        # server-owned actor/project authorization rows are
+                        # locked and current.
+                        lock_and_require_project_write(
+                            session,
+                            project_scope,
+                            actor_user_id=actor_user_id,
+                        )
+                    recovery_contract = (
+                        runtime.prepare_metrics.get("turn_recovery")
+                        if isinstance(runtime.prepare_metrics, dict)
+                        and isinstance(runtime.prepare_metrics.get("turn_recovery"), dict)
+                        else {}
+                    )
+                    recovery_guard = build_recovery_action_guard(
+                        recovery_contract,
+                        project_id=runtime.project_id,
+                    )
+                    tool_input = embed_recovery_action_guard(tool_input, recovery_guard)
                     tool_input_json = json.dumps(tool_input, ensure_ascii=False, default=str)
                     action_type = str(action_payload.get("action_type") or "")
                     risk_level = str(action_payload.get("risk_level") or _risk_level_for_action(action_payload))
@@ -913,6 +986,11 @@ async def run_persist(
                     existing = session.exec(
                         select(PendingToolAction)
                         .where(PendingToolAction.conversation_id == runtime.conv_id)
+                        .where(
+                            PendingToolAction.project_id == project_scope
+                            if project_scope is not None
+                            else PendingToolAction.project_id == runtime.project_id
+                        )
                         .where(PendingToolAction.tool_name == tool_name)
                         .where(
                             or_(
@@ -928,7 +1006,9 @@ async def run_persist(
                         existing.status = "failed"
                         existing.error_message = "Action expired"
                         session.add(existing)
-                        session.commit()
+                        # Keep the actor/project authorization locks through
+                        # signing and insertion of the replacement action.
+                        session.flush()
                         existing = None
                     if existing:
                         # Never mutate fields already bound by a v2 approval.
@@ -1011,6 +1091,7 @@ async def run_persist(
                 logger.exception("[persist] failed to fail-closed pending tool actions: %s", exc)
         pending_action_ids = []
         pending_action_batch_ids = []
+        state.confirmation_requested = False
         state.pending_tool_actions = []
         state.pending_tool_confirmations = []
         state.record_tool_execution(
@@ -1137,8 +1218,8 @@ async def run_persist(
         metadata["pending_tool_confirmations"] = state.pending_tool_confirmations
     if req.action_confirmations:
         metadata["resolved_action_confirmations"] = list(req.action_confirmations)
-    if state.artifacts:
-        metadata["artifacts"] = state.artifacts
+    if delivered_artifacts:
+        metadata["artifacts"] = delivered_artifacts
     if state.run_outputs:
         metadata["run_outputs"] = state.run_outputs
     if state.pending_markdown_saves:

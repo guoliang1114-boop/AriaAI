@@ -38,6 +38,7 @@ from app.services.chat.mode_registry import ActionPolicy
 
 APPROVAL_ENVELOPE_PREFIX = "aria-approval-v2:"
 APPROVAL_ENVELOPE_SCHEMA_VERSION = 2
+RECOVERY_HITAS_ACTION_TYPE = "recovery_tool_action_requires_confirmation"
 _LEGACY_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _RISK_RANK = {
     "low": 0,
@@ -129,6 +130,7 @@ def _validate_v2_policy(
     tool_name: str,
     tool_input: dict[str, Any],
     risk_level: str,
+    action_type: str,
 ) -> ToolPolicyEvaluation:
     if not policy_at_creation:
         raise ApprovalEnvelopeError(
@@ -142,7 +144,11 @@ def _validate_v2_policy(
             "approval_policy_invalid",
             "versioned approval has an invalid creation policy",
         ) from exc
-    if evaluation.decision is not PolicyDecision.PROMPT:
+    recovery_forced_confirmation = (
+        str(action_type or "") == RECOVERY_HITAS_ACTION_TYPE
+        and evaluation.decision is PolicyDecision.ALLOW
+    )
+    if evaluation.decision is not PolicyDecision.PROMPT and not recovery_forced_confirmation:
         raise ApprovalEnvelopeError(
             "approval_policy_drift",
             (
@@ -202,6 +208,7 @@ def verify_approval_envelope(
             tool_name=tool_name,
             tool_input=tool_input,
             risk_level=risk_level,
+            action_type=action_type,
         )
         return ApprovalEnvelopeVerification(
             fingerprint=fingerprint,

@@ -20,18 +20,20 @@ from app.models.db import (
     Milestone,
     Project,
     ProjectFile,
+    ProjectFolder,
     ProjectPayment,
     ProjectProgressUpdate,
     ProjectTodo,
 )
 from app.services.project_clients import find_client_for_project
 
-WORLD_STATE_SCHEMA_VERSION = 1
+WORLD_STATE_SCHEMA_VERSION = 2
 WORLD_STATE_MAX_ITEMS_PER_CATEGORY = 50
 WORLD_STATE_CATEGORIES = (
     "project",
     "milestones",
     "todos",
+    "folders",
     "files",
     "progress",
     "financials",
@@ -72,6 +74,7 @@ def build_project_world_state_manifest(session: Session, project_id: int) -> dic
 
     milestones = session.exec(select(Milestone).where(Milestone.project_id == project_id)).all()
     todos = session.exec(select(ProjectTodo).where(ProjectTodo.project_id == project_id)).all()
+    folders = session.exec(select(ProjectFolder).where(ProjectFolder.project_id == project_id)).all()
     files = session.exec(
         select(ProjectFile).where(ProjectFile.project_id == project_id, ProjectFile.deleted_at.is_(None))
     ).all()
@@ -119,10 +122,22 @@ def build_project_world_state_manifest(session: Session, project_id: int) -> dic
             )
             for item in todos
         ),
+        "folders": _category(
+            _item(item.id, (item.name, item.sort_order))
+            for item in folders
+        ),
         "files": _category(
             _item(
                 item.id,
-                (item.name, item.file_type, item.size_bytes, item.summary, item.origin, item.uploaded_at),
+                (
+                    item.name,
+                    item.file_type,
+                    item.size_bytes,
+                    item.summary,
+                    item.origin,
+                    item.folder_id,
+                    item.uploaded_at,
+                ),
             )
             for item in files
         ),
@@ -308,6 +323,12 @@ def latest_project_world_state(
     ).all()
     for message in messages:
         metadata = message.get_metadata()
+        reservation = metadata.get("recovery_reservation")
+        if (
+            isinstance(reservation, dict)
+            and str(reservation.get("status") or "") in {"reserved", "expired"}
+        ):
+            continue
         manifest = normalize_project_world_state_manifest(
             metadata.get("project_world_state"),
             project_id=project_id,

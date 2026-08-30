@@ -32,6 +32,7 @@ from app.services.agent_harness.skill_releases import (
 )
 from app.services.agent_harness.project_world_state import (
     WORLD_STATE_CATEGORIES,
+    WORLD_STATE_SCHEMA_VERSION,
     compare_project_world_states,
     format_project_world_state_change_for_prompt,
 )
@@ -697,7 +698,7 @@ def _world_state_manifest(version_char: str, *, todo_state_char: str) -> dict[st
         "truncated": False,
     }
     return {
-        "schema_version": 1,
+        "schema_version": WORLD_STATE_SCHEMA_VERSION,
         "project_id": 26,
         "version": version_char * 12,
         "fingerprint": version_char * 64,
@@ -747,14 +748,14 @@ def _turn_recovery_results() -> tuple[int, int, list[dict[str, Any]]]:
     prompt = format_turn_recovery_for_prompt(preview)
     details = [
         {
-            "case": "interrupted_turn_uses_durable_checkpoint",
-            "passed": preview.get("strategy") == "resume_from_checkpoint"
+            "case": "interrupted_legacy_write_requires_manual_review",
+            "passed": preview.get("strategy") == "manual_review"
             and preview.get("completed_steps") == [1],
         },
         {
             "case": "recovery_blocks_blind_side_effect_replay",
             "passed": preview.get("side_effects_possible") is True
-            and "Never replay a previous write" in prompt
+            and "Never claim a write was completed" in prompt
             and "write_project_file" not in prompt,
         },
     ]

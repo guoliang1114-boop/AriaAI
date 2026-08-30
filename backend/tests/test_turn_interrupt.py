@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -74,7 +75,23 @@ async def test_cancel_endpoint_authorizes_before_cancelling(
         )
 
     monkeypatch.setattr(chat_router, "require_conversation_access", fake_require_access)
-    session = object()
+    monkeypatch.setattr(
+        chat_router,
+        "resolve_active_durable_run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            conversation_id=23,
+            status="running",
+            phase="run_start",
+            completed_at=None,
+        ),
+    )
+    monkeypatch.setattr(
+        chat_router,
+        "accept_cancel_run_input",
+        lambda *_args, **_kwargs: SimpleNamespace(id=81, sequence=1),
+    )
+    commits: list[bool] = []
+    session = SimpleNamespace(commit=lambda: commits.append(True), rollback=lambda: None)
     current_user = object()
 
     response = await chat_router.cancel_chat_run(
@@ -84,6 +101,11 @@ async def test_cancel_endpoint_authorizes_before_cancelling(
     )
 
     assert response["status"] == "cancellation_requested"
+    assert response["delivery"] == "immediate"
+    # Process-local task cancellation is only a low-latency signal. The
+    # durable intent remains accepted until the stream commits ChatRun as
+    # terminal=cancelled and the terminal finalizer acknowledges it.
+    assert commits == [True]
     assert authorization == {
         "session": session,
         "conversation_id": 23,
@@ -106,6 +128,11 @@ async def test_cancel_endpoint_does_not_cancel_when_authorization_fails(
         raise HTTPException(status_code=403, detail="forbidden")
 
     monkeypatch.setattr(chat_router, "require_conversation_access", deny)
+    monkeypatch.setattr(
+        chat_router,
+        "resolve_active_durable_run",
+        lambda *_args, **_kwargs: SimpleNamespace(conversation_id=29),
+    )
     with pytest.raises(HTTPException) as exc_info:
         await chat_router.cancel_chat_run(
             "run_endpoint_forbidden",
@@ -204,3 +231,145 @@ async def test_stream_cancellation_persists_partial_reply_and_cancelled_rollout(
             "retryable": False,
             "run_outputs": [],
         }
+
+
+@pytest.mark.asyncio
+async def test_interrupt_after_assistant_persist_reports_actual_completed_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = asyncio.Event()
+    finalized: dict = {}
+
+    async def blocked_impl(runtime, req, bind, state, stream_started_at):
+        state.full_text = "already persisted"
+        state.assistant_message_id = 100
+        started.set()
+        await asyncio.Event().wait()
+        if False:  # pragma: no cover - async-generator shape
+            yield ""
+
+    def fake_finalize(bind, task_id, **kwargs):
+        finalized.update(task_id=task_id, **kwargs)
+        return {"status": kwargs["status"]}
+
+    monkeypatch.setattr(chat_service, "make_run_id", lambda: "run_interrupt_after_persist")
+    monkeypatch.setattr(chat_service, "begin_chat_rollout", lambda *_args: 42)
+    monkeypatch.setattr(chat_service, "finalize_chat_rollout", fake_finalize)
+    monkeypatch.setattr(chat_service, "finalize_durable_run_inputs", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(
+        chat_service,
+        "persist_assistant_message",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("already-persisted interrupt must not write another message")
+        ),
+    )
+    monkeypatch.setattr(chat_service, "_stream_chat_events_impl", blocked_impl)
+    runtime = ChatRuntime(
+        conv_id=7,
+        selected_model="test-model",
+        llm=object(),
+        system="system",
+        api_messages=[],
+        rag_sources=[],
+        tools=None,
+        max_tokens=128,
+        temperature=0.1,
+        prepare_metrics={},
+    )
+    req = SendMessageRequest(conversation_id=7, content="继续")
+    events: list[str] = []
+
+    async def consume() -> None:
+        async for event in chat_service.stream_chat_events(runtime, req, object()):
+            events.append(event)
+
+    task = asyncio.create_task(consume())
+    await started.wait()
+    outcome = interrupt_active_turn("run_interrupt_after_persist", conversation_id=7)
+    assert outcome.status is InterruptStatus.ACCEPTED
+    await task
+
+    payloads = [chat_service._sse_payload(event) for event in events]
+    terminals = [
+        payload
+        for payload in payloads
+        if payload.get("type") in {"run_done", "run_failed"}
+    ]
+    assert terminals == [
+        {
+            "type": "run_done",
+            "run_id": "run_interrupt_after_persist",
+            "final_status": "completed",
+            "message_id": 100,
+        }
+    ]
+    assert finalized["status"] == "completed"
+    assert finalized["phase"] == "persisted_before_interrupt"
+
+
+@pytest.mark.asyncio
+async def test_interrupt_finalize_failure_emits_only_persistence_error_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = asyncio.Event()
+
+    async def blocked_impl(runtime, req, bind, state, stream_started_at):
+        state.full_text = "partial"
+        started.set()
+        await asyncio.Event().wait()
+        if False:  # pragma: no cover - async-generator shape
+            yield ""
+
+    monkeypatch.setattr(chat_service, "make_run_id", lambda: "run_interrupt_finalize_failure")
+    monkeypatch.setattr(chat_service, "begin_chat_rollout", lambda *_args: 43)
+    monkeypatch.setattr(
+        chat_service,
+        "persist_assistant_message",
+        lambda *_args, **_kwargs: (False, 101),
+    )
+    monkeypatch.setattr(
+        chat_service,
+        "finalize_chat_rollout",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("terminal database unavailable")
+        ),
+    )
+    monkeypatch.setattr(chat_service, "finalize_durable_run_inputs", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(chat_service, "_stream_chat_events_impl", blocked_impl)
+    runtime = ChatRuntime(
+        conv_id=7,
+        selected_model="test-model",
+        llm=object(),
+        system="system",
+        api_messages=[],
+        rag_sources=[],
+        tools=None,
+        max_tokens=128,
+        temperature=0.1,
+        prepare_metrics={},
+    )
+    req = SendMessageRequest(conversation_id=7, content="继续")
+    events: list[str] = []
+
+    async def consume() -> None:
+        async for event in chat_service.stream_chat_events(runtime, req, object()):
+            events.append(event)
+
+    task = asyncio.create_task(consume())
+    await started.wait()
+    outcome = interrupt_active_turn(
+        "run_interrupt_finalize_failure",
+        conversation_id=7,
+    )
+    assert outcome.status is InterruptStatus.ACCEPTED
+    await task
+
+    payloads = [chat_service._sse_payload(event) for event in events]
+    terminals = [
+        payload
+        for payload in payloads
+        if payload.get("type") in {"done", "run_done", "run_failed"}
+    ]
+    assert len(terminals) == 1
+    assert terminals[0]["type"] == "run_failed"
+    assert terminals[0]["error_code"] == "PERSISTENCE_ERROR"

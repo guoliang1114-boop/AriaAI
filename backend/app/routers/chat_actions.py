@@ -15,8 +15,10 @@ from app.routers.auth import get_current_user, require_admin
 from app.routers.chat_security import require_conversation_access
 from app.services.agent_harness.approval_envelope import (
     ApprovalEnvelopeError,
+    RECOVERY_HITAS_ACTION_TYPE,
     verify_approval_envelope,
 )
+from app.services.agent_harness.project_world_state import build_project_world_state_manifest
 from app.services.chat.action_background import schedule_background_job, should_execute_in_background
 from app.services.chat.action_executor import execute_tool_by_name
 from app.services.chat.action_metrics import build_hitas_action_metrics
@@ -26,8 +28,15 @@ from app.services.chat.action_project_writes import (
     persist_prepared_project_write,
     prepare_pending_project_write,
 )
+from app.services.chat.pending_actions import (
+    RECOVERY_ACTION_GUARD_KEY,
+    RecoveryActionGuardError,
+    positive_project_scope,
+    split_recovery_action_guard,
+)
 from app.services.project_core import lock_and_require_project_write
 from app.services.time_utils import utc_now_naive
+from app.tools.capabilities import tool_is_mutating, tool_is_project_scoped
 
 router = APIRouter(tags=["chat-actions"])
 
@@ -91,6 +100,8 @@ class ActionMetricsResponse(BaseModel):
 
 def _pending_action_item(action: PendingToolAction) -> PendingActionItem:
     payload = action.get_payload()
+    public_tool_input = dict(payload["tool_input"])
+    public_tool_input.pop(RECOVERY_ACTION_GUARD_KEY, None)
     return PendingActionItem(
         id=payload["id"],
         trace_id=payload["trace_id"],
@@ -98,7 +109,7 @@ def _pending_action_item(action: PendingToolAction) -> PendingActionItem:
         message_id=payload.get("message_id"),
         project_id=payload.get("project_id"),
         tool_name=payload["tool_name"],
-        tool_input=payload["tool_input"],
+        tool_input=public_tool_input,
         action_type=payload["action_type"],
         risk_level=payload.get("risk_level") or "medium",
         policy_at_creation=payload.get("policy_at_creation") or "",
@@ -198,9 +209,7 @@ async def confirm_action(
         raise HTTPException(status_code=400, detail="Action expired")
 
     try:
-        tool_input = _load_tool_input(action)
-        _validate_tool_input_scope(action, tool_input)
-        _validate_approval_snapshot(action, tool_input)
+        tool_input = _validated_execution_tool_input(session, action)
     except HTTPException as exc:
         action.status = "failed"
         action.error_message = str(exc.detail)
@@ -224,6 +233,27 @@ async def confirm_action(
     tool_name = action.tool_name
     approval_batch_id = action.approval_batch_id or None
     session.close()
+
+    boundary_error = _action_boundary_error_before_execution(
+        bind,
+        action_id=action_id,
+        expected_tool_name=tool_name,
+        expected_tool_input=tool_input,
+    )
+    if boundary_error:
+        return _persist_action_failure(bind, action_id, RuntimeError(boundary_error))
+    recovery_boundary_error = _atomic_write_boundary_error_before_execution(
+        bind,
+        action_id=action_id,
+        expected_tool_name=tool_name,
+        expected_tool_input=tool_input,
+    )
+    if recovery_boundary_error:
+        return _persist_action_failure(
+            bind,
+            action_id,
+            RuntimeError(recovery_boundary_error),
+        )
 
     if should_execute_in_background(tool_name, tool_input):
         schedule_background_job(
@@ -464,15 +494,33 @@ def _load_tool_input(action: PendingToolAction) -> dict[str, Any]:
 
 
 def _validate_tool_input_scope(action: PendingToolAction, tool_input: dict[str, Any]) -> None:
-    if action.project_id is None:
+    if tool_is_project_scoped(action.tool_name):
+        action_project_id = positive_project_scope(action.project_id)
+        if action_project_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Project-scoped action is missing a valid project scope",
+            )
+        input_project_id = positive_project_scope(tool_input.get("project_id"))
+        if input_project_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Stored tool input has invalid project scope",
+            )
+        if input_project_id != action_project_id:
+            raise HTTPException(status_code=403, detail="Stored tool input project scope mismatch")
         return
-    raw_project_id = tool_input.get("project_id")
-    try:
-        input_project_id = int(raw_project_id)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="Stored tool input is missing project scope") from exc
-    if input_project_id != action.project_id:
-        raise HTTPException(status_code=403, detail="Stored tool input project scope mismatch")
+    # Project-independent generators can still be approved from a project
+    # conversation (and therefore have a project-bound PendingToolAction).  The
+    # signed approval envelope and, for recovery, the hidden world-state guard
+    # bind that scope without passing a model-controlled project_id to the
+    # handler.  Presence is forbidden regardless of value/type so an unknown
+    # extension tool cannot smuggle project authority through **kwargs.
+    if "project_id" in tool_input:
+        raise HTTPException(
+            status_code=400,
+            detail="Non-project-scoped action input cannot include project_id",
+        )
 
 
 def _validate_approval_snapshot(
@@ -499,6 +547,192 @@ def _validate_approval_snapshot(
                 "regenerate the action preview before confirming."
             ),
         ) from exc
+
+
+_RECOVERY_PROJECT_STATE_CONFLICT = (
+    "Recovery project state changed after approval preview; regenerate the action before confirming."
+)
+_RECOVERY_MULTI_ACTION_BATCH_UNSAFE = (
+    "Recovery approval batch is review-only and cannot execute writes; after human review, "
+    "start fresh non-recovery actions against current project state."
+)
+_RECOVERY_WRITE_REQUIRES_FRESH_ACTION = (
+    "Recovery approval is review-only and cannot execute a new write; "
+    "after human review, start a fresh non-recovery action against current project state."
+)
+_PROJECT_ACTION_NON_ATOMIC_UNSAFE = (
+    "Project-scoped approval cannot execute through a legacy or external write boundary; "
+    "start a fresh action supported by an Aria final-authorized project writer."
+)
+
+
+def _validated_execution_tool_input(
+    session: Session,
+    action: PendingToolAction,
+) -> dict[str, Any]:
+    """Verify the signed stored input and recovery CAS, then strip control data."""
+
+    stored_tool_input = _load_tool_input(action)
+    _validate_tool_input_scope(action, stored_tool_input)
+    _validate_approval_snapshot(action, stored_tool_input)
+    try:
+        execution_input, recovery_guard = split_recovery_action_guard(stored_tool_input)
+    except RecoveryActionGuardError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not recovery_guard:
+        if action.action_type == RECOVERY_HITAS_ACTION_TYPE:
+            raise HTTPException(
+                status_code=409,
+                detail="Recovery approval is missing its project-state CAS; regenerate the action.",
+            )
+        if action.project_id is not None and action.message_id is not None:
+            source_message = session.get(Message, int(action.message_id))
+            source_metadata = source_message.get_metadata() if source_message is not None else {}
+            if isinstance(source_metadata.get("turn_recovery"), dict):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Recovery approval is missing its project-state CAS; regenerate the action.",
+                )
+        return execution_input
+    if (
+        action.project_id is None
+        or recovery_guard.get("project_id") != int(action.project_id)
+    ):
+        raise HTTPException(status_code=409, detail=_RECOVERY_PROJECT_STATE_CONFLICT)
+    current = build_project_world_state_manifest(session, int(action.project_id))
+    if (
+        not current
+        or str(current.get("fingerprint") or "").lower()
+        != str(recovery_guard.get("project_fingerprint") or "").lower()
+    ):
+        raise HTTPException(status_code=409, detail=_RECOVERY_PROJECT_STATE_CONFLICT)
+    return execution_input
+
+
+_ACTION_BOUNDARY_VERIFICATION_FAILED = (
+    "Action authorization and recovery state could not be verified immediately before execution."
+)
+
+
+def _action_boundary_error_before_execution(
+    bind,
+    *,
+    action_id: int,
+    expected_tool_name: str,
+    expected_tool_input: dict[str, Any],
+    expected_batch_id: str | None = None,
+    expected_batch_scope: tuple[int, int | None, int] | None = None,
+) -> str:
+    """Re-authorize the actor and re-check recovery CAS before HITAS work.
+
+    Final-authorized project writers repeat these checks in the transaction
+    that persists their project change.  Legacy registry handlers open their
+    own transaction after this helper returns, so this boundary deliberately
+    narrows but cannot eliminate their remaining check-to-act window (or an
+    external provider's own execution window).
+    """
+
+    try:
+        with Session(bind) as session:
+            locator = session.exec(
+                select(PendingToolAction)
+                .where(PendingToolAction.id == action_id)
+                .execution_options(populate_existing=True)
+            ).first()
+            if locator is None:
+                return "Action not found"
+            if locator.status != "executing" or locator.tool_name != expected_tool_name:
+                return "Action is no longer executable"
+            if locator.project_id is not None:
+                if locator.confirmed_by_user_id is None:
+                    return "Executing project action is missing its confirmed actor"
+                # Shared repository lock order: actor/project authorization rows
+                # precede the PendingToolAction child row.
+                lock_and_require_project_write(
+                    session,
+                    int(locator.project_id),
+                    actor_user_id=int(locator.confirmed_by_user_id),
+                )
+            session.expire(locator)
+            action = session.exec(
+                select(PendingToolAction)
+                .where(PendingToolAction.id == action_id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            ).first()
+            if action is None:
+                return "Action not found"
+            if action.status != "executing" or action.tool_name != expected_tool_name:
+                return "Action is no longer executable"
+            if expected_batch_id is not None and action.approval_batch_id != expected_batch_id:
+                return "Action approval batch changed before execution"
+            if expected_batch_scope is not None and (
+                int(action.conversation_id) != expected_batch_scope[0]
+                or action.project_id != expected_batch_scope[1]
+                or action.confirmed_by_user_id != expected_batch_scope[2]
+            ):
+                return "Action approval scope changed before execution"
+            execution_input = _validated_execution_tool_input(session, action)
+            if execution_input != expected_tool_input:
+                return "Stored action input changed before execution"
+    except HTTPException as exc:
+        return str(exc.detail)
+    except Exception:
+        return _ACTION_BOUNDARY_VERIFICATION_FAILED
+    return ""
+
+
+def _atomic_write_boundary_error_before_execution(
+    bind,
+    *,
+    action_id: int,
+    expected_tool_name: str,
+    expected_tool_input: dict[str, Any],
+) -> str:
+    """Fail closed where Aria cannot keep authorization and writes atomic."""
+
+    try:
+        with Session(bind) as session:
+            action = session.exec(
+                select(PendingToolAction)
+                .where(PendingToolAction.id == action_id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            ).first()
+            if action is None:
+                return "Action not found"
+            if action.status != "executing" or action.tool_name != expected_tool_name:
+                return "Action is no longer executable"
+            _execution_input, recovery_guard = split_recovery_action_guard(
+                _load_tool_input(action)
+            )
+            recovery_action = bool(recovery_guard) or (
+                action.action_type == RECOVERY_HITAS_ACTION_TYPE
+            )
+            if recovery_action and tool_is_mutating(
+                action.tool_name,
+                expected_tool_input,
+            ):
+                # Recovery proposals are a review surface only. Even Aria's
+                # final-authorized writers must be launched by a fresh turn so
+                # recovery never claims a cross-resource world-state CAS.
+                return _RECOVERY_WRITE_REQUIRES_FRESH_ACTION
+            if recovery_action:
+                return ""
+            if (
+                tool_is_project_scoped(action.tool_name)
+                and tool_is_mutating(action.tool_name, expected_tool_input)
+                and action.tool_name not in FINAL_AUTH_PROJECT_WRITE_TOOLS
+            ):
+                # Registry and external handlers start their own transaction
+                # after this lock scope ends. A project-bound approval cannot
+                # cross that check-to-act gap.
+                return _PROJECT_ACTION_NON_ATOMIC_UNSAFE
+    except HTTPException as exc:
+        return str(exc.detail)
+    except Exception:
+        return _ACTION_BOUNDARY_VERIFICATION_FAILED
+    return ""
 
 
 def _existing_action_response(action: PendingToolAction) -> ConfirmActionResponse:
@@ -592,9 +826,8 @@ async def _confirm_batch(
     execution_specs: list[dict[str, Any]] = []
     for action in pending_actions:
         try:
-            tool_input = _load_tool_input(action)
-            _validate_tool_input_scope(action, tool_input)
-            _validate_approval_snapshot(action, tool_input)
+            tool_input = _validated_execution_tool_input(session, action)
+            _stored_input, recovery_guard = split_recovery_action_guard(_load_tool_input(action))
         except HTTPException as exc:
             batch_error = (
                 f"Approval batch validation failed before execution: {exc.detail}"
@@ -610,6 +843,10 @@ async def _confirm_batch(
                 "id": action.id,
                 "tool_name": action.tool_name,
                 "tool_input": tool_input,
+                "conversation_id": action.conversation_id,
+                "project_id": action.project_id,
+                "confirmed_by_user_id": current_user.id,
+                "recovery_guarded": bool(recovery_guard),
             }
         )
 
@@ -627,6 +864,8 @@ async def _confirm_batch(
 
     bind = session.get_bind()
     session.close()
+    if len(execution_specs) > 1 and any(spec["recovery_guarded"] for spec in execution_specs):
+        return await _execute_batch_actions(bind, batch_id, execution_specs)
     if any(should_execute_in_background(str(spec["tool_name"]), spec["tool_input"]) for spec in execution_specs):
         schedule_background_job(
             f"hitas-batch-{batch_id}",
@@ -642,6 +881,24 @@ async def _confirm_batch(
 
 
 async def _execute_action_in_background(bind, action_id: int, tool_name: str, tool_input: dict[str, Any]) -> None:
+    boundary_error = _action_boundary_error_before_execution(
+        bind,
+        action_id=action_id,
+        expected_tool_name=tool_name,
+        expected_tool_input=tool_input,
+    )
+    if boundary_error:
+        _persist_action_failure(bind, action_id, RuntimeError(boundary_error))
+        return
+    recovery_boundary_error = _atomic_write_boundary_error_before_execution(
+        bind,
+        action_id=action_id,
+        expected_tool_name=tool_name,
+        expected_tool_input=tool_input,
+    )
+    if recovery_boundary_error:
+        _persist_action_failure(bind, action_id, RuntimeError(recovery_boundary_error))
+        return
     if tool_name in FINAL_AUTH_PROJECT_WRITE_TOOLS:
         await _execute_final_authorized_project_write(
             bind,
@@ -668,8 +925,27 @@ async def _execute_batch_actions_in_background(
 
 async def _execute_batch_actions(bind, batch_id: str, execution_specs: list[dict[str, Any]]) -> ConfirmActionResponse:
     executions: list[dict[str, Any]] = []
+    if len(execution_specs) > 1 and any(spec.get("recovery_guarded") for spec in execution_specs):
+        for index, spec in enumerate(execution_specs):
+            result: dict[str, Any]
+            if index == 0:
+                result = {"success": False, "error": _RECOVERY_MULTI_ACTION_BATCH_UNSAFE}
+            else:
+                result = {
+                    "success": False,
+                    "skipped": True,
+                    "error": "Skipped because recovery writes require fresh non-recovery actions.",
+                }
+            executions.append(
+                {
+                    "pending_action_id": spec["id"],
+                    "tool_name": spec["tool_name"],
+                    "result": result,
+                }
+            )
+        return _persist_batch_action_results(bind, batch_id, executions)
+
     previous_failed = False
-    suppress_remaining_receipts = False
     for spec in execution_specs:
         if previous_failed:
             result = {
@@ -677,35 +953,55 @@ async def _execute_batch_actions(bind, batch_id: str, execution_specs: list[dict
                 "skipped": True,
                 "error": "Skipped because a previous action in this approval batch failed.",
             }
-            if suppress_remaining_receipts:
-                result["_action_terminal_without_receipt"] = True
         else:
             tool_name = str(spec["tool_name"])
-            if tool_name in FINAL_AUTH_PROJECT_WRITE_TOOLS:
-                finalized = await _execute_final_authorized_project_write(
-                    bind,
-                    int(spec["id"]),
-                    tool_name,
-                    spec["tool_input"],
-                    emit_message=False,
-                )
-                result = finalized.get("result") if isinstance(finalized.get("result"), dict) else {}
-                result = {
-                    "success": finalized.get("status") == "completed",
-                    **result,
-                }
-                if finalized.get("suppress_followup_receipt"):
-                    result["_action_terminal_without_receipt"] = True
-                if not result.get("success") and not result.get("error"):
-                    result["error"] = finalized.get("error_message") or "Action is no longer executable"
+            boundary_error = _action_boundary_error_before_execution(
+                bind,
+                action_id=int(spec["id"]),
+                expected_tool_name=tool_name,
+                expected_tool_input=spec["tool_input"],
+                expected_batch_id=batch_id,
+                expected_batch_scope=(
+                    int(spec["conversation_id"]),
+                    int(spec["project_id"]) if spec.get("project_id") is not None else None,
+                    int(spec["confirmed_by_user_id"]),
+                ),
+            )
+            if boundary_error:
+                result = {"success": False, "error": boundary_error}
             else:
-                try:
-                    result = await execute_tool_by_name(tool_name, spec["tool_input"])
-                except Exception as exc:
-                    result = {"success": False, "error": str(exc) or exc.__class__.__name__}
+                recovery_boundary_error = _atomic_write_boundary_error_before_execution(
+                    bind,
+                    action_id=int(spec["id"]),
+                    expected_tool_name=tool_name,
+                    expected_tool_input=spec["tool_input"],
+                )
+                if recovery_boundary_error:
+                    result = {"success": False, "error": recovery_boundary_error}
+                elif tool_name in FINAL_AUTH_PROJECT_WRITE_TOOLS:
+                    finalized = await _execute_final_authorized_project_write(
+                        bind,
+                        int(spec["id"]),
+                        tool_name,
+                        spec["tool_input"],
+                        emit_message=False,
+                    )
+                    result = finalized.get("result") if isinstance(finalized.get("result"), dict) else {}
+                    result = {
+                        "success": finalized.get("status") == "completed",
+                        **result,
+                    }
+                    if finalized.get("suppress_followup_receipt"):
+                        result["_action_terminal_without_receipt"] = True
+                    if not result.get("success") and not result.get("error"):
+                        result["error"] = finalized.get("error_message") or "Action is no longer executable"
+                else:
+                    try:
+                        result = await execute_tool_by_name(tool_name, spec["tool_input"])
+                    except Exception as exc:
+                        result = {"success": False, "error": str(exc) or exc.__class__.__name__}
         if not result.get("success"):
             previous_failed = True
-            suppress_remaining_receipts = bool(result.get("_action_terminal_without_receipt"))
         executions.append(
             {
                 "pending_action_id": spec["id"],
@@ -770,6 +1066,118 @@ def _latest_action_finalization_payload(
         )
 
 
+_ACTION_GENERATION_FIELDS = (
+    "conversation_id",
+    "message_id",
+    "project_id",
+    "tool_name",
+    "tool_input_json",
+    "action_type",
+    "risk_level",
+    "policy_at_creation",
+    "tool_input_hash",
+    "approval_batch_id",
+    "sequence_index",
+    "confirmed_by_user_id",
+    "confirmed_at",
+)
+
+
+def _capture_action_execution_generation(
+    bind,
+    *,
+    action_id: int,
+    expected_tool_name: str,
+    expected_tool_input: dict[str, Any],
+) -> dict[str, Any]:
+    """Freeze the exact control-plane generation before expensive prepare."""
+
+    with Session(bind) as session:
+        action = session.exec(
+            select(PendingToolAction)
+            .where(PendingToolAction.id == action_id)
+            .execution_options(populate_existing=True)
+        ).first()
+        if action is None:
+            raise HTTPException(404, "Action not found")
+        if action.status != "executing" or action.tool_name != expected_tool_name:
+            raise HTTPException(409, "Action is no longer executing")
+        execution_input = _validated_execution_tool_input(session, action)
+        if execution_input != expected_tool_input:
+            raise HTTPException(409, "Stored action input changed before prepare")
+        return {
+            "id": int(action.id or action_id),
+            **{field: getattr(action, field) for field in _ACTION_GENERATION_FIELDS},
+        }
+
+
+def _terminalize_failed_exact_action_generation(
+    bind,
+    generation: dict[str, Any],
+    exc: Exception,
+    *,
+    emit_message: bool,
+) -> dict[str, Any]:
+    """CAS the same still-executing generation to failed without business writes."""
+
+    action_id = int(generation["id"])
+    error = str(getattr(exc, "detail", "") or str(exc) or exc.__class__.__name__)
+    result = {"success": False, "error": error}
+    with Session(bind) as session:
+        statement = (
+            update(PendingToolAction)
+            .where(PendingToolAction.id == action_id)
+            .where(PendingToolAction.status == "executing")
+        )
+        for field in _ACTION_GENERATION_FIELDS:
+            statement = statement.where(
+                getattr(PendingToolAction, field) == generation.get(field)
+            )
+        cas = session.execute(
+            statement.values(
+                status="failed",
+                result_json=json.dumps(result, ensure_ascii=False, default=str),
+                error_message=error,
+            )
+        )
+        if getattr(cas, "rowcount", 0) != 1:
+            session.rollback()
+            return _latest_action_finalization_payload(
+                bind,
+                action_id,
+                transient_error=error,
+            )
+        action = session.exec(
+            select(PendingToolAction)
+            .where(PendingToolAction.id == action_id)
+            .execution_options(populate_existing=True)
+        ).one()
+        message_id: int | None = None
+        if emit_message:
+            result_message = Message(
+                conversation_id=action.conversation_id,
+                role="assistant",
+                content=_format_action_result_message(action, result),
+                metadata_json=json.dumps(
+                    {
+                        "tool_action_result": {
+                            "pending_action_id": action.id,
+                            "tool_name": action.tool_name,
+                            "status": action.status,
+                            "result": result,
+                        }
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            )
+            session.add(result_message)
+            session.flush()
+            message_id = result_message.id
+        session.commit()
+        return _action_finalization_payload(action, message_id=message_id)
+
+
 def _lock_final_authorized_project_action(
     session: Session,
     *,
@@ -817,9 +1225,7 @@ def _lock_final_authorized_project_action(
         or action.tool_name != expected_tool_name
     ):
         raise HTTPException(409, "Action execution generation changed; discard the prepared result")
-    locked_input = _load_tool_input(action)
-    _validate_tool_input_scope(action, locked_input)
-    _validate_approval_snapshot(action, locked_input)
+    locked_input = _validated_execution_tool_input(session, action)
     if locked_input != expected_tool_input:
         raise HTTPException(409, "Stored action input changed; discard the prepared result")
     return action, project, actor
@@ -830,11 +1236,12 @@ def _persist_final_authorized_project_action_failure(
     action_id: int,
     tool_name: str,
     tool_input: dict[str, Any],
+    generation: dict[str, Any],
     exc: Exception,
     *,
     emit_message: bool,
 ) -> dict[str, Any]:
-    """Write a failure only if final authorization and the action lease survive."""
+    """Fail the exact action generation without granting business authority."""
 
     error = str(getattr(exc, "detail", "") or str(exc) or exc.__class__.__name__)
     result = {"success": False, "error": error}
@@ -846,20 +1253,32 @@ def _persist_final_authorized_project_action_failure(
                 expected_tool_name=tool_name,
                 expected_tool_input=tool_input,
             )
-        except HTTPException:
+        except Exception as auth_exc:
             session.rollback()
-            # Revocation, deactivation, cancellation/reaping, or a changed
-            # approval generation must not create a second failure receipt.
-            return _latest_action_finalization_payload(bind, action_id, transient_error=error)
+            # Business authorization must not be bypassed just to close the
+            # control-plane row. The exact-generation CAS below writes no
+            # ProjectFile or other domain state.
+            return _terminalize_failed_exact_action_generation(
+                bind,
+                generation,
+                auth_exc,
+                emit_message=emit_message,
+            )
 
-        cas = session.execute(
+        statement = (
             update(PendingToolAction)
             .where(PendingToolAction.id == action_id)
             .where(PendingToolAction.status == "executing")
             .where(PendingToolAction.confirmed_by_user_id == actor.id)
             .where(PendingToolAction.project_id == action.project_id)
             .where(PendingToolAction.tool_name == tool_name)
-            .values(
+        )
+        for field in _ACTION_GENERATION_FIELDS:
+            statement = statement.where(
+                getattr(PendingToolAction, field) == generation.get(field)
+            )
+        cas = session.execute(
+            statement.values(
                 status="failed",
                 result_json=json.dumps(result, ensure_ascii=False, default=str),
                 error_message=error,
@@ -905,6 +1324,7 @@ def _persist_final_authorized_project_action_success(
     action_id: int,
     tool_name: str,
     tool_input: dict[str, Any],
+    generation: dict[str, Any],
     prepared: dict[str, Any],
     *,
     emit_message: bool,
@@ -917,12 +1337,13 @@ def _persist_final_authorized_project_action_success(
                 expected_tool_name=tool_name,
                 expected_tool_input=tool_input,
             )
-        except HTTPException as exc:
+        except Exception as exc:
             session.rollback()
-            return _latest_action_finalization_payload(
+            return _terminalize_failed_exact_action_generation(
                 bind,
-                action_id,
-                transient_error=str(exc.detail),
+                generation,
+                exc,
+                emit_message=emit_message,
             )
 
         finalized_payload: dict[str, Any]
@@ -935,14 +1356,24 @@ def _persist_final_authorized_project_action_success(
             ) as result:
                 normalized_result = {"success": True, **result}
                 result_json = json.dumps(normalized_result, ensure_ascii=False, default=str)
-                cas = session.execute(
+                statement = (
                     update(PendingToolAction)
                     .where(PendingToolAction.id == action_id)
                     .where(PendingToolAction.status == "executing")
                     .where(PendingToolAction.confirmed_by_user_id == actor.id)
                     .where(PendingToolAction.project_id == project.id)
                     .where(PendingToolAction.tool_name == tool_name)
-                    .values(status="completed", result_json=result_json, error_message=None)
+                )
+                for field in _ACTION_GENERATION_FIELDS:
+                    statement = statement.where(
+                        getattr(PendingToolAction, field) == generation.get(field)
+                    )
+                cas = session.execute(
+                    statement.values(
+                        status="completed",
+                        result_json=result_json,
+                        error_message=None,
+                    )
                 )
                 if getattr(cas, "rowcount", 0) != 1:
                     raise HTTPException(409, "Action execution lease changed before persist")
@@ -1004,12 +1435,26 @@ async def _execute_final_authorized_project_write(
 ) -> dict[str, Any]:
     prepared: dict[str, Any] | None = None
     try:
+        generation = _capture_action_execution_generation(
+            bind,
+            action_id=action_id,
+            expected_tool_name=tool_name,
+            expected_tool_input=tool_input,
+        )
+    except HTTPException as exc:
+        return _latest_action_finalization_payload(
+            bind,
+            action_id,
+            transient_error=str(exc.detail),
+        )
+    try:
         prepared = await prepare_pending_project_write(bind, tool_name, tool_input)
         return _persist_final_authorized_project_action_success(
             bind,
             action_id,
             tool_name,
             tool_input,
+            generation,
             prepared,
             emit_message=emit_message,
         )
@@ -1019,6 +1464,7 @@ async def _execute_final_authorized_project_write(
             action_id,
             tool_name,
             tool_input,
+            generation,
             exc,
             emit_message=emit_message,
         )

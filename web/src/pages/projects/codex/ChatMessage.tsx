@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { api } from '../../../api/client'
 import { MarkdownRenderer } from '../../../components/MarkdownRenderer'
 import { useToast } from '../../../contexts/ToastContext'
@@ -10,6 +10,8 @@ import type {
   MessageFeedbackRating,
   MessageFeedbackReason,
   Reference,
+  TurnRecoveryPreview,
+  TurnRecoveryPreviewV2,
 } from '../../../types/api'
 import type { ContextReceiptEvent } from '../../../types/productRunEvent'
 import { parseChatStreamEvent, toContextReceiptEvent } from '../../../types/chatStreamEvent'
@@ -184,7 +186,7 @@ interface MessageBubbleProps {
   onSkillSelect?: (skillId: number, name: string) => void
   onTurnBriefReuse?: (payload: ProjectTurnReusePayload) => void
   onTurnRevisionSourceOpen?: (sourceMessageId: number, sourceFingerprint: string) => void
-  onTurnRecovery?: (sourceRunId: string, sourceMessageId?: number) => Promise<void>
+  onTurnRecovery?: (preview: TurnRecoveryPreview) => Promise<void>
 }
 
 export function ProjectChatMessage({
@@ -344,6 +346,7 @@ export function ProjectChatMessage({
             )}
             {!isStreaming && meta.interrupted && meta.rollout && onTurnRecovery && (
               <InterruptedTurnRecovery
+                conversationId={message.conversation_id}
                 runId={meta.rollout.run_id}
                 sourceMessageId={meta.locallyStopped
                   ? undefined
@@ -375,21 +378,65 @@ export function ProjectChatMessage({
 }
 
 function InterruptedTurnRecovery({
+  conversationId,
   runId,
   sourceMessageId,
   onContinue,
 }: {
+  conversationId: number
   runId: string
   sourceMessageId?: number
-  onContinue: (sourceRunId: string, sourceMessageId?: number) => Promise<void>
+  onContinue: (preview: TurnRecoveryPreview) => Promise<void>
 }) {
+  const [preview, setPreview] = useState<TurnRecoveryPreview | null>(null)
+  const [previewError, setPreviewError] = useState('')
+  const [previewNotice, setPreviewNotice] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [busy, setBusy] = useState(false)
+  const previewRequestInFlight = useRef(false)
+  const confirmationInFlight = useRef(false)
+
+  const loadPreview = async (notice = '') => {
+    if (previewRequestInFlight.current) return
+    previewRequestInFlight.current = true
+    setPreview(null)
+    setPreviewError('')
+    setPreviewNotice(notice)
+    setPreviewLoading(true)
+    try {
+      const result = await api.get<TurnRecoveryPreview>(
+        `/chat/conversations/${conversationId}/recovery-preview`,
+        {
+          params: {
+            run_id: runId,
+            ...(sourceMessageId ? { message_id: sourceMessageId } : {}),
+          },
+        },
+      )
+      setPreview(result)
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : '暂时无法核对中断状态')
+    } finally {
+      previewRequestInFlight.current = false
+      setPreviewLoading(false)
+    }
+  }
+
   const continueTurn = async () => {
-    if (busy) return
+    if (confirmationInFlight.current || !preview || !preview.can_continue) return
+    confirmationInFlight.current = true
     setBusy(true)
     try {
-      await onContinue(runId, sourceMessageId)
+      await onContinue(preview)
+    } catch (error) {
+      if (getHttpStatus(error) === 409) {
+        confirmationInFlight.current = false
+        setBusy(false)
+        await loadPreview('状态已变化，请重新核对')
+        return
+      }
     } finally {
+      confirmationInFlight.current = false
       setBusy(false)
     }
   }
@@ -411,24 +458,163 @@ function InterruptedTurnRecovery({
       }}
     >
       <span style={{ color: 'var(--warn)', fontWeight: 600 }}>本轮未完成</span>
-      <span>Aria 会核对当前项目状态，保留已完成结果，避免重复写入。</span>
-      <button
-        type="button"
-        aria-label="从中断状态安全继续"
-        onClick={() => { void continueTurn() }}
-        disabled={busy}
-        style={{
-          marginLeft: 'auto',
-          padding: '4px 9px',
-          color: 'var(--bg-elev)',
-          background: 'var(--accent)',
-          borderRadius: 'var(--r-sm)',
-          fontSize: 11,
-          opacity: busy ? 0.65 : 1,
-        }}
-      >
-        {busy ? '正在恢复…' : '安全继续'}
-      </button>
+      {previewNotice && (
+        <span style={{ flexBasis: '100%', color: 'var(--warn)', fontWeight: 600 }}>
+          {previewNotice}
+        </span>
+      )}
+      {previewLoading ? (
+        <span>正在读取已保存检查点并核对可验证范围…</span>
+      ) : previewError ? (
+        <>
+          <span style={{ color: 'var(--bad)' }}>{previewError}</span>
+          <button
+            type="button"
+            onClick={() => { void loadPreview() }}
+            style={{ marginLeft: 'auto', color: 'var(--accent)', fontSize: 11 }}
+          >
+            重新核对
+          </button>
+        </>
+      ) : preview ? (
+        <>
+          <RecoveryPreviewDetails preview={preview} />
+          {preview.can_continue && (
+            <button
+              type="button"
+              aria-label={recoveryActionLabel(preview)}
+              onClick={() => { void continueTurn() }}
+              disabled={busy}
+              style={{
+                marginLeft: 'auto',
+                padding: '4px 9px',
+                color: 'var(--bg-elev)',
+                background: 'var(--accent)',
+                borderRadius: 'var(--r-sm)',
+                fontSize: 11,
+                opacity: busy ? 0.65 : 1,
+              }}
+            >
+              {busy ? '正在准备新轮次…' : recoveryActionLabel(preview)}
+            </button>
+          )}
+          {!preview.can_continue && (
+            <span style={{ flexBasis: '100%', color: 'var(--bad)' }}>
+              当前预览不允许继续，请保留本轮并重新核对项目状态。
+            </span>
+          )}
+        </>
+      ) : (
+        <>
+          <span>先读取恢复预览，核对已完成影响、待处理影响和项目状态；此操作不会创建新轮次。</span>
+          <button
+            type="button"
+            aria-label="核对恢复状态"
+            onClick={() => { void loadPreview() }}
+            style={{ marginLeft: 'auto', color: 'var(--accent)', fontSize: 11 }}
+          >
+            核对恢复状态
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function getHttpStatus(error: unknown): number | null {
+  if (!error || typeof error !== 'object') return null
+  const response = (error as { response?: unknown }).response
+  if (!response || typeof response !== 'object') return null
+  const status = (response as { status?: unknown }).status
+  return typeof status === 'number' ? status : null
+}
+
+function isTurnRecoveryPreviewV2(preview: TurnRecoveryPreview): preview is TurnRecoveryPreviewV2 {
+  return preview.schema_version === 2
+}
+
+function recoveryActionLabel(preview: TurnRecoveryPreview): '核对并继续' | '重新规划' {
+  return isTurnRecoveryPreviewV2(preview) && preview.strategy === 'replan_from_checkpoint'
+    ? '重新规划'
+    : '核对并继续'
+}
+
+const RECOVERY_WARNING_LABELS: Record<string, string> = {
+  preserve_completed_steps: '保留已完成步骤',
+  inspect_before_side_effects: '执行前核对既有副作用',
+  no_unsafe_tool_replay: '禁止直接重放历史工具',
+  world_state_changed: '项目状态已经变化',
+  project_world_state_changed: '项目状态已经变化',
+  completed_effects_present: '存在已完成副作用',
+  pending_effects_present: '仍有待处理副作用',
+  verify_effect_ledger_before_write: '写入前核对副作用账本',
+  manual_review_required: '需要人工核对',
+  legacy_recovery_unverified: '旧版恢复信息无法验证副作用',
+}
+
+const RECOVERY_DUPLICATE_POLICY_LABELS: Record<string, string> = {
+  verified_persisted_artifact_only: '仅保留可验证的已持久化结果',
+  block_completed_effects: '跳过已完成动作',
+  retry_read_only: '仅重试只读步骤',
+  manual_review_required: '人工核对后处理',
+}
+
+function recoveryDuplicatePolicyLabel(policy: string): string {
+  return RECOVERY_DUPLICATE_POLICY_LABELS[policy] || '保守核对'
+}
+
+function RecoveryWarnings({ warningCodes }: { warningCodes: string[] }) {
+  if (warningCodes.length === 0) return null
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flexBasis: '100%' }}>
+      {warningCodes.map((code) => (
+        <span
+          key={code}
+          title={code}
+          style={{
+            padding: '2px 5px',
+            color: 'var(--warn)',
+            background: 'color-mix(in oklch, var(--warn) 8%, transparent)',
+            borderRadius: 'var(--r-sm)',
+            fontSize: 10,
+          }}
+        >
+          {RECOVERY_WARNING_LABELS[code] || '需核对恢复状态'}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function RecoveryPreviewDetails({ preview }: { preview: TurnRecoveryPreview }) {
+  if (!isTurnRecoveryPreviewV2(preview)) {
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, flex: '1 1 420px' }}>
+        <span style={{ flexBasis: '100%' }}>
+          旧版恢复记录无法验证已发生的副作用；新轮次必须先核对当前状态，不会直接重放历史动作。
+        </span>
+        <span>历史已完成工具调用 · {preview.completed_tool_call_count}</span>
+        <span>· 副作用状态 · {preview.side_effects_possible ? '可能存在' : '无法确认'}</span>
+        <RecoveryWarnings warningCodes={preview.warning_codes} />
+      </div>
+    )
+  }
+
+  const strategyCopy = preview.strategy === 'replan_from_checkpoint'
+    ? '将按当前状态重新规划，不直接重放历史动作。'
+    : preview.strategy === 'retry_read_step'
+      ? '仅按恢复契约处理可重试的只读步骤。'
+      : '需要人工核对后再决定下一步，不会自动重放历史动作。'
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, flex: '1 1 420px' }}>
+      <span style={{ flexBasis: '100%' }}>{strategyCopy}</span>
+      <span>已完成副作用 · {preview.completed_effect_count}</span>
+      <span>· 待处理副作用 · {preview.pending_effect_count}</span>
+      <span>· 项目状态 · {preview.world_state_change.changed ? '已变化' : '未检测到变化'}</span>
+      <span style={{ flexBasis: '100%' }}>
+        重复动作策略 · {recoveryDuplicatePolicyLabel(preview.duplicate_policy)}
+      </span>
+      <RecoveryWarnings warningCodes={preview.warning_codes} />
     </div>
   )
 }
@@ -783,10 +969,15 @@ function ArtifactCard({
     .slice(0, 4)
   const isMd = ext === 'MD'
   const sizeKb = artifact.size_bytes ? Math.round(artifact.size_bytes / 1024) : null
-  // Only previewable when the backend has actually saved a file row
-  // for this artifact — without project_file_id we have nothing to
-  // fetch.
-  const previewable = !!onClick && artifact.project_file_id != null
+  const hasGeneratedDownload = (
+    (Number.isInteger(artifact.id) && Number(artifact.id) > 0)
+    || (typeof artifact.path === 'string' && artifact.path.trim() !== '')
+  )
+  // Project files open their normal preview. A persisted GeneratedFile
+  // without project_file_id opens the same panel with a secure download
+  // fallback instead of becoming an inert card.
+  const actionable = !!onClick && (artifact.project_file_id != null || hasGeneratedDownload)
+  const actionLabel = artifact.project_file_id != null ? '预览 →' : '下载 →'
 
   const body = (
     <>
@@ -827,7 +1018,7 @@ function ArtifactCard({
           {artifact.description || 'Aria 生成的产出'}
         </div>
       </div>
-      {previewable && (
+      {actionable && (
         <span
           style={{
             fontSize: 11,
@@ -838,7 +1029,7 @@ function ArtifactCard({
             flexShrink: 0,
           }}
         >
-          预览 →
+          {actionLabel}
         </span>
       )}
     </>
@@ -856,7 +1047,7 @@ function ArtifactCard({
     width: '100%',
   } as const
 
-  if (previewable) {
+  if (actionable) {
     return (
       <button
         type="button"

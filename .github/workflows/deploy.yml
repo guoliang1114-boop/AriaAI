@@ -237,6 +237,7 @@ jobs:
             trap 'rm -f "$TEST_DATABASE_PATH" "$TEST_DATABASE_PATH-shm" "$TEST_DATABASE_PATH-wal"' EXIT
             "$PYTHON" -m pytest -q \
                 tests/test_agent_harness_native.py \
+                tests/test_agent_loop_durable_boundaries.py \
                 tests/test_activity_timeline_persist.py \
                 tests/test_approval_envelope.py \
                 tests/test_context_assembly_manifest.py \
@@ -261,9 +262,13 @@ jobs:
                 tests/test_project_memory_evidence.py \
                 tests/test_run_evaluation.py \
                 tests/test_run_output_record.py \
+                tests/test_run_effect_record.py \
                 tests/test_run_rollout.py \
+                tests/test_tool_executor_recovery.py \
                 tests/test_chat_run_persistence.py \
                 tests/test_chat_run_projection.py \
+                tests/test_durable_run_inputs.py \
+                tests/test_durable_run_recovery_migration.py \
                 tests/test_client_memory_acl.py \
                 tests/test_client_memory_jobs.py \
                 tests/test_clients_router.py::ClientAuthorizationTestCase::test_single_project_editor_cannot_rename_or_delete_shared_client \
@@ -280,6 +285,7 @@ jobs:
                 tests/test_task_orchestrator.py \
                 tests/test_office_documents_tool.py \
                 tests/test_hitas_project_write_final_auth.py \
+                tests/test_hitas_project_scope_binding.py \
                 tests/test_skill_root_snapshots.py \
                 tests/test_skill_quality.py \
                 tests/test_structured_patch.py \
@@ -289,12 +295,16 @@ jobs:
                 tests/test_tool_parallelism.py \
                 tests/test_turn_interrupt.py \
                 tests/test_turn_steering.py \
+                tests/test_turn_recovery.py \
                 tests/test_turn_budget.py \
                 tests/test_turn_retry.py \
                 tests/test_user_memory_prompt.py::FormatUserMemoryTest \
                 tests/test_verified_postgres_backup.py \
                 tests/test_chat_actions.py \
+                tests/test_chat_async_recovery.py \
                 tests/test_chat_continuity_feedback.py \
+                tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_stream_chat_events_persists_friendly_phase_errors \
+                tests/test_sse_events.py \
                 tests/test_chat_multiturn_golden.py
 
             # Emit deterministic project-chat quality metrics as a release

@@ -8,7 +8,7 @@ import traceback
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -211,6 +211,15 @@ async def send_message_async(
     )
     if conversation and req.project_id is None and conversation.project_id is not None:
         req.project_id = conversation.project_id
+    if req.turn_recovery is not None:
+        # Background submission cannot return the reviewed recovery stream and
+        # owns a second durable TaskRun whose crash reconciliation is separate
+        # from the recovery-child CAS. Reject before runtime preparation so no
+        # user Message, recovery child, or background TaskRun can be persisted.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Turn recovery requires the interactive /chat/send endpoint",
+        )
     runtime = await prepare_chat_runtime_async(session, req, owner_user_id=current_user.id)
     bind = session.get_bind()
     task_run = _create_background_chat_run(session, runtime, req)

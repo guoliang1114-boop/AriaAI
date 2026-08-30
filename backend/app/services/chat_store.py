@@ -261,31 +261,13 @@ def build_message_metadata(
                 "skill_id": skill_id if isinstance(skill_id, int) and skill_id > 0 else None,
             }
     if turn_recovery:
-        source_run_id = str(turn_recovery.get("source_run_id") or "").strip()
-        source_message_id = turn_recovery.get("source_message_id")
-        strategy = str(turn_recovery.get("strategy") or "").strip()
-        completed_steps: list[int] = []
-        for item in list(turn_recovery.get("completed_steps") or [])[:32]:
-            if isinstance(item, int) and not isinstance(item, bool) and item >= 0 and item not in completed_steps:
-                completed_steps.append(item)
-        if (
-            re.fullmatch(r"run_[A-Za-z0-9_-]{1,76}", source_run_id)
-            and isinstance(source_message_id, int)
-            and source_message_id > 0
-            and strategy in {
-                "resume_from_checkpoint",
-                "retry_failed_step",
-                "continue_as_new_turn",
-            }
-        ):
-            metadata["turn_recovery"] = {
-                "schema_version": 1,
-                "source_run_id": source_run_id,
-                "source_message_id": source_message_id,
-                "strategy": strategy,
-                "completed_steps": completed_steps,
-                "side_effects_possible": bool(turn_recovery.get("side_effects_possible", False)),
-            }
+        # Lazy to avoid chat package initialization cycling back into this
+        # persistence module through ``app.services.chat.__init__``.
+        from app.services.chat.turn_recovery import normalize_turn_recovery_contract
+
+        normalized_recovery = normalize_turn_recovery_contract(turn_recovery)
+        if normalized_recovery:
+            metadata["turn_recovery"] = normalized_recovery
     return metadata
 
 
@@ -294,6 +276,8 @@ def persist_user_message(
     conv_id: int,
     content: str,
     metadata: Optional[dict] = None,
+    *,
+    commit: bool = True,
 ) -> Message:
     now = utc_now_naive()
     user_msg = Message(
@@ -307,8 +291,11 @@ def persist_user_message(
     if conv:
         conv.updated_at = now
         session.add(conv)
-    session.commit()
-    conversations_cache.delete_prefix("list:")
+    if commit:
+        session.commit()
+        conversations_cache.delete_prefix("list:")
+    else:
+        session.flush()
     return user_msg
 
 

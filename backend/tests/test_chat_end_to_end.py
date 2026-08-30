@@ -454,7 +454,7 @@ class DestructiveConfirmationTests(ChatEndToEndBase):
 
 
 class ToolErrorTests(ChatEndToEndBase):
-    """Tool execution fails; loop reports the error and finishes the turn."""
+    """Tool execution fails; loop reports the error and fails the turn truthfully."""
 
     async def test_tool_error_surfaces_in_final_message(self) -> None:
         tool_block = json.dumps(
@@ -489,8 +489,10 @@ class ToolErrorTests(ChatEndToEndBase):
         results = _events_of_type(events, "tool_result")
         self.assertGreaterEqual(len(results), 1)
 
-        # Done present, follow-up text reaches the user
-        self.assertEqual(len(_events_of_type(events, "done")), 1)
+        # The follow-up explanation is persisted, but a failed evidence check
+        # must not emit the legacy success-shaped terminator.
+        self.assertEqual(_events_of_type(events, "done"), [])
+        self.assertEqual(events[-1]["type"], "run_failed")
         self.assertIn("could not read", _concat_text(events))
 
 
@@ -535,7 +537,8 @@ class TruncationTests(ChatEndToEndBase):
         truncated_events = _events_of_type(events, "truncated")
         self.assertEqual(len(truncated_events), 1)
         self.assertTrue(truncated_events[0].get("can_continue"))
-        self.assertEqual(len(_events_of_type(events, "done")), 1)
+        self.assertEqual(_events_of_type(events, "done"), [])
+        self.assertEqual(events[-1]["type"], "run_failed")
 
 
 # ----------------------------------------------------------------------

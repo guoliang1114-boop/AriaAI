@@ -1,12 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
-import type { Message } from '../../../types/api'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Message, TurnRecoveryPreviewV1, TurnRecoveryPreviewV2 } from '../../../types/api'
 import type { ContextReceiptEvent } from '../../../types/productRunEvent'
 import { ProjectChatMessage } from './ChatMessage'
 import { api } from '../../../api/client'
 
 vi.mock('../../../api/client', () => ({
-  api: { post: vi.fn() },
+  api: { get: vi.fn(), post: vi.fn() },
 }))
 
 vi.mock('../../../contexts/ToastContext', () => ({
@@ -54,6 +54,41 @@ const ambiguousReceipt: ContextReceiptEvent = {
 }
 
 describe('ProjectChatMessage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('keeps a verified generated artifact actionable without project_file_id', () => {
+    const onArtifactClick = vi.fn()
+    const recoveredArtifact = {
+      id: 42,
+      name: '已核验的旧报告.pdf',
+      file_type: 'pdf',
+      path: 'generated/verified-report.pdf',
+      recovery_verified: true,
+      recovered_from_run_id: 'run-source',
+    }
+    const message: Message = {
+      id: 20,
+      conversation_id: 4,
+      role: 'assistant',
+      content: '已复用原任务产出。',
+      metadata_json: JSON.stringify({ artifacts: [recoveredArtifact] }),
+      created_at: '2026-08-25T00:00:00Z',
+    }
+
+    render(
+      <ProjectChatMessage
+        message={message}
+        projectId={3}
+        onArtifactClick={onArtifactClick}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /已核验的旧报告\.pdf.*下载/ }))
+
+    expect(onArtifactClick).toHaveBeenCalledWith(recoveredArtifact)
+  })
+
   it('turns persisted ambiguous Skill candidates into next-turn actions', () => {
     const onSkillSelect = vi.fn()
     const message: Message = {
@@ -241,7 +276,25 @@ describe('ProjectChatMessage', () => {
     expect(onTurnRevisionSourceOpen).toHaveBeenCalledWith(14, 'turn-1a2b3c4d')
   })
 
-  it('turns an interrupted rollout into a safe one-click continuation', async () => {
+  it('loads and displays a v2 recovery preview before requiring a second confirmation', async () => {
+    const preview: TurnRecoveryPreviewV2 = {
+      schema_version: 2,
+      source_run_id: 'run_interrupted',
+      source_message_id: 16,
+      source_status: 'cancelled',
+      strategy: 'manual_review',
+      can_continue: true,
+      completed_steps: [0, 1],
+      side_effects_possible: true,
+      completed_effect_count: 2,
+      pending_effect_count: 1,
+      world_state_change: { changed: true, changed_categories: ['files'] },
+      duplicate_policy: 'block_completed_effects',
+      warning_codes: ['world_state_changed', 'completed_effects_present'],
+      contract_sha256: 'sha256-current-preview',
+      suggested_content: '核对中断轮次。',
+    }
+    vi.mocked(api.get).mockResolvedValueOnce(preview)
     const onTurnRecovery = vi.fn().mockResolvedValue(undefined)
     const message: Message = {
       id: 16,
@@ -262,11 +315,131 @@ describe('ProjectChatMessage', () => {
         onTurnRecovery={onTurnRecovery}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: '从中断状态安全继续' }))
+
+    expect(api.get).not.toHaveBeenCalled()
+    expect(onTurnRecovery).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '核对恢复状态' }))
+
+    expect(await screen.findByText('已完成副作用 · 2')).toBeInTheDocument()
+    expect(screen.getByText(/待处理副作用 · 1/)).toBeInTheDocument()
+    expect(screen.getByText(/项目状态 · 已变化/)).toBeInTheDocument()
+    expect(screen.getByText(/重复动作策略 · 跳过已完成动作/)).toBeInTheDocument()
+    expect(screen.queryByText(/block_completed_effects/)).not.toBeInTheDocument()
+    expect(screen.getByText('项目状态已经变化')).toBeInTheDocument()
+    expect(onTurnRecovery).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '核对并继续' }))
 
     await waitFor(() => {
-      expect(onTurnRecovery).toHaveBeenCalledWith('run_interrupted', 16)
+      expect(onTurnRecovery).toHaveBeenCalledWith(preview)
     })
+    expect(api.get).toHaveBeenCalledWith('/chat/conversations/4/recovery-preview', {
+      params: { run_id: 'run_interrupted', message_id: 16 },
+    })
+    expect(screen.queryByText(/安全继续/)).not.toBeInTheDocument()
+  })
+
+  it('labels v1 recovery as unverifiable and never describes it as safe', async () => {
+    const preview: TurnRecoveryPreviewV1 = {
+      schema_version: 1,
+      source_run_id: 'run_legacy',
+      source_message_id: 16,
+      source_status: 'failed',
+      strategy: 'continue_as_new_turn',
+      can_continue: true,
+      completed_steps: [0],
+      side_effects_possible: false,
+      completed_tool_call_count: 1,
+      warning_codes: ['legacy_recovery_unverified'],
+      suggested_content: '继续处理。',
+    }
+    vi.mocked(api.get).mockResolvedValueOnce(preview)
+    const onTurnRecovery = vi.fn().mockResolvedValue(undefined)
+    const message: Message = {
+      id: 16,
+      conversation_id: 4,
+      role: 'assistant',
+      content: '旧版中断轮次。',
+      metadata_json: JSON.stringify({
+        turn_interrupted: { reason: 'failed' },
+        run_rollout: { run_id: 'run_legacy', status: 'failed' },
+      }),
+      created_at: '2026-08-25T00:00:00Z',
+    }
+
+    render(
+      <ProjectChatMessage
+        message={message}
+        projectId={3}
+        onTurnRecovery={onTurnRecovery}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '核对恢复状态' }))
+
+    expect(await screen.findByText(/旧版恢复记录无法验证已发生的副作用/)).toBeInTheDocument()
+    expect(screen.queryByText(/安全继续/)).not.toBeInTheDocument()
+    expect(onTurnRecovery).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '核对并继续' }))
+    await waitFor(() => expect(onTurnRecovery).toHaveBeenCalledWith(preview))
+  })
+
+  it('reloads the preview after a stale confirmation contract without resubmitting', async () => {
+    const original: TurnRecoveryPreviewV2 = {
+      schema_version: 2,
+      source_run_id: 'run_stale',
+      source_message_id: 16,
+      source_status: 'cancelled',
+      strategy: 'replan_from_checkpoint',
+      can_continue: true,
+      completed_steps: [0],
+      side_effects_possible: true,
+      completed_effect_count: 1,
+      pending_effect_count: 1,
+      world_state_change: { changed: false },
+      duplicate_policy: 'block_completed_effects',
+      warning_codes: [],
+      contract_sha256: 'sha256-stale',
+      suggested_content: '重新规划。',
+    }
+    const refreshed: TurnRecoveryPreviewV2 = {
+      ...original,
+      pending_effect_count: 3,
+      world_state_change: { changed: true, changed_categories: ['milestones'] },
+      warning_codes: ['world_state_changed'],
+      contract_sha256: 'sha256-refreshed',
+    }
+    vi.mocked(api.get)
+      .mockResolvedValueOnce(original)
+      .mockResolvedValueOnce(refreshed)
+    const onTurnRecovery = vi.fn().mockRejectedValueOnce({ response: { status: 409 } })
+    const message: Message = {
+      id: 16,
+      conversation_id: 4,
+      role: 'assistant',
+      content: '状态可能已经变化。',
+      metadata_json: JSON.stringify({
+        turn_interrupted: { reason: 'user_interrupted' },
+        run_rollout: { run_id: 'run_stale', status: 'cancelled' },
+      }),
+      created_at: '2026-08-25T00:00:00Z',
+    }
+
+    render(
+      <ProjectChatMessage
+        message={message}
+        projectId={3}
+        onTurnRecovery={onTurnRecovery}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '核对恢复状态' }))
+    await screen.findByText(/待处理副作用 · 1/)
+    fireEvent.click(screen.getByRole('button', { name: '重新规划' }))
+
+    expect(await screen.findByText('状态已变化，请重新核对')).toBeInTheDocument()
+    expect(await screen.findByText(/待处理副作用 · 3/)).toBeInTheDocument()
+    expect(api.get).toHaveBeenCalledTimes(2)
+    expect(onTurnRecovery).toHaveBeenCalledTimes(1)
   })
 
   it('stores categorical feedback without a free-text field', async () => {

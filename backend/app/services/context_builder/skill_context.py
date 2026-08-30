@@ -9,6 +9,7 @@ from app.services.context_builder.constants import (
     PROJECT_MARKDOWN_TOOL_NAMES,
     PROJECT_OFFICE_TOOL_NAMES,
 )
+from app.tools.capabilities import tool_is_project_scoped
 
 
 class SkillContext:
@@ -68,8 +69,22 @@ def build_skill_context(
 
 
 def _merge_project_chat_tools(tools: Optional[list], project_id: Optional[int]) -> Optional[list]:
-    if project_id is None:
-        return tools
+    valid_project_id = (
+        project_id
+        if isinstance(project_id, int) and not isinstance(project_id, bool) and project_id > 0
+        else None
+    )
+    if valid_project_id is None:
+        if not tools:
+            return tools
+        return [
+            tool
+            for tool in tools
+            if not (
+                isinstance(tool, dict)
+                and tool_is_project_scoped(str(tool.get("name") or ""))
+            )
+        ]
     project_tools = format_tools_for_claude(PROJECT_MARKDOWN_TOOL_NAMES + PROJECT_OFFICE_TOOL_NAMES)
     if not project_tools:
         return tools

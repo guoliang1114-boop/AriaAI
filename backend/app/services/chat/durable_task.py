@@ -6,29 +6,47 @@ of the normal chat flow.
 """
 from __future__ import annotations
 
-import logging
+import asyncio
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from datetime import timedelta
 
 from sqlmodel import Session, select
 
 from app.config import UPLOADS_DIR
-from app.models.db import PendingToolAction, ProjectFile
+from app.models.db import ChatRun, PendingToolAction, ProjectFile
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.agent_harness.approval_envelope import (
     APPROVAL_ENVELOPE_PREFIX,
     approval_envelope_hash,
 )
+from app.services.agent_harness.durable_run_inputs import (
+    claim_durable_run_cancel,
+    claim_durable_run_cancel_in_session,
+    persist_non_steerable_run_state,
+)
+from app.services.agent_harness.run_rollout import finalize_chat_rollout
+from app.services.agent_harness.turn_interrupt import (
+    USER_INTERRUPT_CANCEL_MESSAGE,
+    set_active_turn_stage,
+)
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
-from app.services.chat.pending_actions import tool_confirmation_token
+from app.services.chat.pending_actions import (
+    PendingActionProjectScopeError,
+    positive_project_scope,
+    require_pending_action_project_scope,
+    tool_confirmation_token,
+)
 from app.services.chat_tools import ChatRuntime
 from app.services.chat.working_memory import should_continue_current_artifact
 from app.services.chat_store import persist_assistant_message
 from app.services.project_documents import ensure_markdown_filename, read_project_document_content
 from app.services.time_utils import utc_now_naive
 from app.services.task_orchestrator import (
+    cancel_task_run_in_session,
     create_task_run,
     pause_task_run_in_session,
     serialize_task_run,
@@ -36,7 +54,11 @@ from app.services.task_orchestrator import (
     task_run_chat_brief,
 )
 from app.services.intent_router import classify_chat_intent_async
-from app.services.chat.markdown_followup import save_previous_answer_as_markdown
+from app.services.project_core import lock_and_require_project_write
+from app.services.chat.markdown_followup import (
+    is_save_previous_answer_as_markdown_request,
+    save_previous_answer_as_markdown,
+)
 from app.services.title_generator import generate_conversation_title
 from app.services.chat.state import ChatSessionState
 from app.services.chat.product_run_events import (
@@ -102,6 +124,451 @@ from app.services.chat.workflow import workflow_status_from_task_event, task_pay
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
 
 logger = logging.getLogger(__name__)
+
+_DURABLE_CANCEL_POLL_SECONDS = 0.5
+
+
+class DurableTaskControlBoundaryError(RuntimeError):
+    """Stop durable execution when its authoritative control state is unreadable."""
+
+
+def _record_control_trace(state: ChatSessionState, event_type: str, **payload) -> None:
+    record = getattr(state, "record_trace_event", None)
+    if callable(record):
+        record(event_type, **payload)
+
+
+def _cancel_project_task_run(
+    bind,
+    *,
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    task_id: int,
+    stage: str,
+) -> dict:
+    """Cancel a created Aria TaskRun through its actor-aware control path."""
+
+    try:
+        with Session(bind) as control_session:
+            payload = cancel_task_run_in_session(
+                control_session,
+                int(task_id),
+                reason="用户取消了关联的对话运行",
+                actor_user_id=getattr(runtime, "actor_user_id", None),
+            )
+    except Exception as exc:
+        logger.exception(
+            "[durable task control] task cancel failed run_id=%s task_id=%s stage=%s",
+            getattr(state, "run_id", ""),
+            task_id,
+            stage,
+        )
+        _record_control_trace(
+            state,
+            "durable_task_cancel_failed",
+            stage=stage,
+            task_id=int(task_id),
+            error=str(exc)[:500],
+        )
+        raise DurableTaskControlBoundaryError(
+            "Durable task cancellation could not be committed"
+        ) from exc
+    if payload is None:
+        _record_control_trace(
+            state,
+            "durable_task_cancel_failed",
+            stage=stage,
+            task_id=int(task_id),
+            error="task_not_found",
+        )
+        raise DurableTaskControlBoundaryError(
+            "Durable task cancellation target is unavailable"
+        )
+    return payload
+
+
+def _raise_if_durable_chat_cancelled(
+    bind,
+    *,
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    stage: str,
+    task_id: int | None = None,
+) -> None:
+    """Consume remote cancellation without ever consuming durable steering."""
+
+    run_id = str(getattr(state, "run_id", "") or "").strip()
+    conversation_id = int(getattr(runtime, "conv_id", 0) or 0)
+    if not run_id or conversation_id < 1:
+        return
+    task_payload = None
+    try:
+        if task_id is None:
+            batch = claim_durable_run_cancel(
+                bind,
+                run_id=run_id,
+                conversation_id=conversation_id,
+            )
+        else:
+            # The mailbox CAS and linked TaskRun cancellation commit together.
+            # A task authorization/DB failure rolls both projections back, so
+            # a cancellation can never be permanently consumed while the task
+            # remains executable.
+            with Session(bind) as control_session:
+                try:
+                    batch = claim_durable_run_cancel_in_session(
+                        control_session,
+                        run_id=run_id,
+                        conversation_id=conversation_id,
+                    )
+                    if batch.cancel_requested:
+                        task_payload = cancel_task_run_in_session(
+                            control_session,
+                            int(task_id),
+                            reason="用户取消了关联的对话运行",
+                            actor_user_id=getattr(runtime, "actor_user_id", None),
+                            defer_commit=True,
+                        )
+                        if task_payload is None:
+                            raise DurableTaskControlBoundaryError(
+                                "Durable task cancellation target is unavailable"
+                            )
+                    control_session.commit()
+                except BaseException:
+                    control_session.rollback()
+                    raise
+    except Exception as exc:
+        logger.exception(
+            "[durable task control] atomic control failed run_id=%s stage=%s task_id=%s",
+            run_id,
+            stage,
+            task_id,
+        )
+        _record_control_trace(
+            state,
+            "durable_task_control_claim_failed",
+            stage=stage,
+            task_id=int(task_id) if task_id is not None else None,
+            error=str(exc)[:500],
+        )
+        raise DurableTaskControlBoundaryError(
+            "Authoritative durable task controls are temporarily unavailable"
+        ) from exc
+    if not batch.cancel_requested:
+        return
+
+    _record_control_trace(
+        state,
+        "durable_run_cancel_applied",
+        stage=stage,
+        input_ids=list(batch.input_ids),
+        task_id=int(task_id) if task_id is not None else None,
+        task_status=(task_payload or {}).get("status"),
+    )
+    raise asyncio.CancelledError(USER_INTERRUPT_CANCEL_MESSAGE)
+
+
+def _close_durable_task_completion_boundary(
+    bind,
+    *,
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    stage: str,
+    task_id: int | None = None,
+) -> None:
+    """Atomically consume the last cancel and close delivery before persistence.
+
+    The cancel router locks the same ``ChatRun`` row.  Therefore a cancellation
+    committed before this transaction wins and stops the stream, while a cancel
+    racing after ``durable_task_done`` is rejected instead of receiving a false
+    durable-boundary acknowledgement after the last mailbox poll.
+    """
+
+    run_id = str(getattr(state, "run_id", "") or "").strip()
+    conversation_id = int(getattr(runtime, "conv_id", 0) or 0)
+    if not run_id or conversation_id < 1:
+        return
+
+    task_payload = None
+    batch = None
+    try:
+        with Session(bind) as control_session:
+            try:
+                batch = claim_durable_run_cancel_in_session(
+                    control_session,
+                    run_id=run_id,
+                    conversation_id=conversation_id,
+                    # Without a linked project TaskRun, merely observing cancel
+                    # is not terminal proof.  The outer ChatRun finalizer owns
+                    # the applied/unapplied acknowledgement.
+                    defer_terminal_ack=task_id is None,
+                )
+                run = control_session.exec(
+                    select(ChatRun)
+                    .where(ChatRun.run_id == run_id)
+                    .execution_options(populate_existing=True)
+                    .with_for_update()
+                ).first()
+                if run is None or run.id is None:
+                    raise DurableTaskControlBoundaryError(
+                        "Durable task completion run is unavailable"
+                    )
+                if int(run.conversation_id) != conversation_id:
+                    raise DurableTaskControlBoundaryError(
+                        "Durable task completion conversation mismatch"
+                    )
+                if run.status != "running" or run.completed_at is not None:
+                    raise DurableTaskControlBoundaryError(
+                        "Durable task completion run is no longer active"
+                    )
+                rollout_task_id = int(run.task_run_id)
+                expected_rollout_task_id = getattr(state, "rollout_task_id", None)
+                if (
+                    expected_rollout_task_id is not None
+                    and int(expected_rollout_task_id) != rollout_task_id
+                ):
+                    raise DurableTaskControlBoundaryError(
+                        "Durable task completion rollout identity mismatch"
+                    )
+
+                if batch.cancel_requested and task_id is not None:
+                    task_payload = cancel_task_run_in_session(
+                        control_session,
+                        int(task_id),
+                        reason="用户取消了关联的对话运行",
+                        actor_user_id=getattr(runtime, "actor_user_id", None),
+                        defer_commit=True,
+                    )
+                    if task_payload is None:
+                        raise DurableTaskControlBoundaryError(
+                            "Durable task cancellation target is unavailable"
+                        )
+                elif not batch.cancel_requested:
+                    run.phase = "durable_task_done"
+                    run.updated_at = utc_now_naive()
+                    control_session.add(run)
+                control_session.commit()
+            except BaseException:
+                control_session.rollback()
+                raise
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "[durable task control] completion boundary failed run_id=%s stage=%s task_id=%s",
+            run_id,
+            stage,
+            task_id,
+        )
+        _record_control_trace(
+            state,
+            "durable_task_completion_boundary_failed",
+            stage=stage,
+            task_id=int(task_id) if task_id is not None else None,
+            error=str(exc)[:500],
+        )
+        raise DurableTaskControlBoundaryError(
+            "Durable task completion boundary could not be committed"
+        ) from exc
+
+    if batch is not None and batch.cancel_requested:
+        _record_control_trace(
+            state,
+            "durable_run_cancel_applied",
+            stage=stage,
+            input_ids=list(batch.input_ids),
+            task_id=int(task_id) if task_id is not None else None,
+            task_status=(task_payload or {}).get("status"),
+        )
+        raise asyncio.CancelledError(USER_INTERRUPT_CANCEL_MESSAGE)
+
+    state.rollout_task_id = rollout_task_id
+    set_active_turn_stage(run_id, stage="durable_task_done", steerable=False)
+
+
+def _finalize_durable_task_before_done(
+    bind,
+    *,
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+) -> None:
+    """Persist the terminal ChatRun before any legacy or v1 completion SSE."""
+
+    if getattr(state, "rollout_finalized", False):
+        return
+    run_id = str(getattr(state, "run_id", "") or "").strip()
+    conversation_id = int(getattr(runtime, "conv_id", 0) or 0)
+    if not run_id or conversation_id < 1:
+        return
+    message_id = getattr(state, "assistant_message_id", None)
+    if message_id is None:
+        raise DurableTaskControlBoundaryError(
+            "Durable task assistant message is not persisted"
+        )
+
+    try:
+        with Session(bind) as session:
+            run = session.exec(
+                select(ChatRun)
+                .where(ChatRun.run_id == run_id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            ).first()
+            if run is None or run.id is None:
+                raise DurableTaskControlBoundaryError(
+                    "Durable task completion run is unavailable"
+                )
+            if int(run.conversation_id) != conversation_id:
+                raise DurableTaskControlBoundaryError(
+                    "Durable task completion conversation mismatch"
+                )
+            if run.status != "running" or run.completed_at is not None:
+                raise DurableTaskControlBoundaryError(
+                    "Durable task completion run is no longer active"
+                )
+            if str(run.phase or "").strip().lower() != "durable_task_done":
+                raise DurableTaskControlBoundaryError(
+                    "Durable task completion boundary is not closed"
+                )
+            rollout_task_id = int(run.task_run_id)
+            expected_rollout_task_id = getattr(state, "rollout_task_id", None)
+            if (
+                expected_rollout_task_id is not None
+                and int(expected_rollout_task_id) != rollout_task_id
+            ):
+                raise DurableTaskControlBoundaryError(
+                    "Durable task completion rollout identity mismatch"
+                )
+    except DurableTaskControlBoundaryError:
+        raise
+    except Exception as exc:
+        raise DurableTaskControlBoundaryError(
+            "Durable task completion state could not be verified"
+        ) from exc
+
+    terminal_status = (
+        "waiting_confirmation" if state.confirmation_requested else "completed"
+    )
+    terminal_phase = (
+        "waiting_confirmation" if state.confirmation_requested else "durable_task_done"
+    )
+    try:
+        finalize_chat_rollout(
+            bind,
+            rollout_task_id,
+            status=terminal_status,
+            message_id=int(message_id),
+            phase=terminal_phase,
+            run_outputs=state.run_outputs,
+        )
+    except Exception as exc:
+        logger.exception(
+            "[durable task control] terminal finalize failed run_id=%s status=%s",
+            run_id,
+            terminal_status,
+        )
+        _record_control_trace(
+            state,
+            "durable_task_terminal_finalize_failed",
+            stage=terminal_phase,
+            error=str(exc)[:500],
+        )
+        raise DurableTaskControlBoundaryError(
+            "Durable task terminal state could not be persisted"
+        ) from exc
+    state.rollout_task_id = rollout_task_id
+    state.rollout_finalized = True
+
+
+def _persist_non_steerable_boundary(
+    bind,
+    *,
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    action_policy: str,
+    phase: str,
+) -> None:
+    """Publish a DB-backed phase marker before non-steerable execution."""
+
+    run_id = str(getattr(state, "run_id", "") or "").strip()
+    conversation_id = int(getattr(runtime, "conv_id", 0) or 0)
+    if not run_id or conversation_id < 1:
+        return
+    try:
+        persist_non_steerable_run_state(
+            bind,
+            run_id=run_id,
+            conversation_id=conversation_id,
+            action_policy=action_policy,
+            phase=phase,
+        )
+    except Exception as exc:
+        logger.exception(
+            "[durable task control] phase persist failed run_id=%s phase=%s",
+            run_id,
+            phase,
+        )
+        _record_control_trace(
+            state,
+            "durable_task_control_phase_failed",
+            stage=phase,
+            error=str(exc)[:500],
+        )
+        raise DurableTaskControlBoundaryError(
+            "Durable task control phase could not be persisted"
+        ) from exc
+    set_active_turn_stage(run_id, stage=phase, steerable=False)
+
+
+async def _stream_task_events_with_cancel_boundaries(
+    bind,
+    *,
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    task_session: Session,
+    task_id: int,
+) -> AsyncIterator[dict]:
+    """Drive the TaskRun while polling its durable chat cancellation mailbox."""
+
+    iterator = stream_execute_task_run_in_session(task_session, task_id).__aiter__()
+    try:
+        while True:
+            next_event_task = asyncio.create_task(iterator.__anext__())
+            try:
+                while True:
+                    done, _ = await asyncio.wait(
+                        {next_event_task},
+                        timeout=_DURABLE_CANCEL_POLL_SECONDS,
+                    )
+                    if done:
+                        break
+                    _raise_if_durable_chat_cancelled(
+                        bind,
+                        runtime=runtime,
+                        state=state,
+                        stage="durable_task_execution_poll",
+                        task_id=task_id,
+                    )
+                task_event = next_event_task.result()
+                _raise_if_durable_chat_cancelled(
+                    bind,
+                    runtime=runtime,
+                    state=state,
+                    stage="durable_task_event_boundary",
+                    task_id=task_id,
+                )
+            except StopAsyncIteration:
+                return
+            except BaseException:
+                if not next_event_task.done():
+                    next_event_task.cancel(USER_INTERRUPT_CANCEL_MESSAGE)
+                with suppress(asyncio.CancelledError, StopAsyncIteration):
+                    await next_event_task
+                raise
+            yield task_event
+    finally:
+        with suppress(RuntimeError, asyncio.CancelledError):
+            await iterator.aclose()
 
 
 def _runtime_turn_contract(runtime: ChatRuntime) -> dict:
@@ -174,6 +641,16 @@ def _persist_markdown_continuation_action(
         "file_name": project_file.name,
         "content": revised_content,
     }
+    project_scope = require_pending_action_project_scope(
+        PROJECT_MARKDOWN_TOOL_NAME,
+        tool_input,
+        runtime_project_id=runtime.project_id,
+    )
+    actor_user_id = positive_project_scope(getattr(runtime, "actor_user_id", None))
+    if project_scope is None or actor_user_id is None:
+        raise PendingActionProjectScopeError(
+            "Project-scoped approval requires an authenticated actor and project scope"
+        )
     confirmation_token = tool_confirmation_token(PROJECT_MARKDOWN_TOOL_NAME, tool_input)
     pending_confirmation = {
         "confirmation_token": confirmation_token,
@@ -196,6 +673,11 @@ def _persist_markdown_continuation_action(
     }
 
     with Session(bind) as session:
+        lock_and_require_project_write(
+            session,
+            project_scope,
+            actor_user_id=actor_user_id,
+        )
         tool_input_json = json.dumps(tool_input, ensure_ascii=False, default=str)
         policy_at_creation = str(
             getattr(runtime.action_policy, "value", runtime.action_policy) or ""
@@ -204,6 +686,7 @@ def _persist_markdown_continuation_action(
         existing = session.exec(
             select(PendingToolAction)
             .where(PendingToolAction.conversation_id == runtime.conv_id)
+            .where(PendingToolAction.project_id == project_scope)
             .where(PendingToolAction.tool_name == PROJECT_MARKDOWN_TOOL_NAME)
             .where(PendingToolAction.tool_input_json == tool_input_json)
             .where(PendingToolAction.status == "pending")
@@ -232,7 +715,7 @@ def _persist_markdown_continuation_action(
         action = PendingToolAction(
             trace_id=str(getattr(runtime, "trace_id", "") or f"conv-{runtime.conv_id}"),
             conversation_id=runtime.conv_id,
-            project_id=req.project_id,
+            project_id=project_scope,
             tool_name=PROJECT_MARKDOWN_TOOL_NAME,
             tool_input_json=tool_input_json,
             action_type="modify_document",
@@ -241,7 +724,7 @@ def _persist_markdown_continuation_action(
             tool_input_hash=approval_envelope_hash(
                 tool_name=PROJECT_MARKDOWN_TOOL_NAME,
                 tool_input=tool_input,
-                project_id=req.project_id,
+                project_id=project_scope,
                 action_type="modify_document",
                 risk_level="high",
                 policy_at_creation=policy_at_creation,
@@ -304,6 +787,14 @@ async def _handle_markdown_artifact_continuation(
         existing = read_project_document_content(project_file, uploads_dir=UPLOADS_DIR)
         prompt = _revision_prompt(existing, req.content, project_file.name)
 
+        _persist_non_steerable_boundary(
+            bind,
+            runtime=runtime,
+            state=state,
+            action_policy=policy_value,
+            phase="p0_markdown_continuation",
+        )
+
         yield sse_event({"type": "status", "stage": "tools", "message": f"正在更新 {project_file.name}..."})
         revised = await runtime.llm.complete(
             [{"role": "user", "content": prompt}],
@@ -311,6 +802,12 @@ async def _handle_markdown_artifact_continuation(
             model=runtime.selected_model,
             max_tokens=runtime.max_tokens,
             temperature=min(float(runtime.temperature or 0.2), 0.4),
+        )
+        _raise_if_durable_chat_cancelled(
+            bind,
+            runtime=runtime,
+            state=state,
+            stage="markdown_continuation_after_model",
         )
         revised_content = _clean_markdown_response(revised)
         if len(revised_content) < 80 or revised_content == existing.strip():
@@ -342,8 +839,19 @@ async def _handle_markdown_artifact_continuation(
             state.full_text = full_text
             yield sse_event({"type": "text", "content": full_text})
             _attach_turn_contract_metadata(metadata, runtime)
+            _close_durable_task_completion_boundary(
+                bind,
+                runtime=runtime,
+                state=state,
+                stage="before_markdown_failure_persist",
+            )
             _, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
             state.assistant_message_id = assistant_message_id
+            _finalize_durable_task_before_done(
+                bind,
+                runtime=runtime,
+                state=state,
+            )
             yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
             return
 
@@ -415,6 +923,12 @@ async def _handle_markdown_artifact_continuation(
             }
         )
         _attach_turn_contract_metadata(metadata, runtime)
+        _close_durable_task_completion_boundary(
+            bind,
+            runtime=runtime,
+            state=state,
+            stage="before_markdown_preview_persist",
+        )
         need_title, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
         _attach_pending_action_message(bind, action_id, assistant_message_id)
         state.need_title = need_title
@@ -423,6 +937,11 @@ async def _handle_markdown_artifact_continuation(
             persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
         except Exception as exc:
             logger.warning("[P0] failed to persist markdown continuation trace: %s", exc)
+        _finalize_durable_task_before_done(
+            bind,
+            runtime=runtime,
+            state=state,
+        )
         yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
 
 
@@ -512,9 +1031,47 @@ async def run_durable_task(
     Yields SSE events.  If a durable task is started, sets
     ``state.durable_task_completed = True`` so the orchestrator can return early.
     """
+    prepare_metrics = getattr(runtime, "prepare_metrics", None)
+    turn_recovery = (
+        prepare_metrics.get("turn_recovery")
+        if isinstance(prepare_metrics, dict)
+        else None
+    )
+    if isinstance(turn_recovery, dict) and turn_recovery:
+        # Recovery must pass through the Agent Loop's effect ledger,
+        # execution-time world-state CAS, duplicate guard, and tool policy.
+        # P0 markdown/durable fast paths predate those barriers and therefore
+        # may never execute a recovery turn.
+        return
+
     turn_contract = _runtime_turn_contract(runtime)
     if turn_contract.get("mode") == "plan_only":
         return
+
+    _raise_if_durable_chat_cancelled(
+        bind,
+        runtime=runtime,
+        state=state,
+        stage="durable_task_entry",
+    )
+    initial_policy = str(
+        getattr(runtime.action_policy, "value", runtime.action_policy) or ""
+    ).strip()
+    if initial_policy in {
+        ActionPolicy.DURABLE_TASK.value,
+        ActionPolicy.DESTRUCTIVE_ACTION.value,
+    }:
+        _persist_non_steerable_boundary(
+            bind,
+            runtime=runtime,
+            state=state,
+            action_policy=initial_policy,
+            phase=(
+                "durable_task"
+                if initial_policy == ActionPolicy.DURABLE_TASK.value
+                else "non_steerable_execution"
+            ),
+        )
 
     stream_started_at = time.perf_counter()
     memory = getattr(runtime, "working_memory", None) or {}
@@ -523,8 +1080,31 @@ async def run_durable_task(
             yield event
         if state.durable_task_completed:
             return
+        _raise_if_durable_chat_cancelled(
+            bind,
+            runtime=runtime,
+            state=state,
+            stage="markdown_continuation_boundary",
+        )
 
     if req.project_id:
+        _raise_if_durable_chat_cancelled(
+            bind,
+            runtime=runtime,
+            state=state,
+            stage="before_markdown_followup_write",
+        )
+        if is_save_previous_answer_as_markdown_request(req.content):
+            policy_value = str(
+                getattr(runtime.action_policy, "value", runtime.action_policy) or ""
+            ).strip()
+            _persist_non_steerable_boundary(
+                bind,
+                runtime=runtime,
+                state=state,
+                action_policy=policy_value,
+                phase="p0_markdown_followup",
+            )
         save_result = save_previous_answer_as_markdown(
             bind=bind,
             conversation_id=runtime.conv_id,
@@ -532,6 +1112,12 @@ async def run_durable_task(
             user_content=req.content,
         )
         if save_result is not None:
+            _raise_if_durable_chat_cancelled(
+                bind,
+                runtime=runtime,
+                state=state,
+                stage="after_markdown_followup_write",
+            )
             state.durable_task_completed = True
             status_ok = bool(save_result.get("ok"))
             if status_ok:
@@ -596,6 +1182,12 @@ async def run_durable_task(
                 }
             )
             _attach_turn_contract_metadata(metadata, runtime)
+            _close_durable_task_completion_boundary(
+                bind,
+                runtime=runtime,
+                state=state,
+                stage="before_markdown_followup_persist",
+            )
             need_title, assistant_message_id = persist_assistant_message(
                 bind,
                 runtime.conv_id,
@@ -609,6 +1201,11 @@ async def run_durable_task(
                 persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
             except Exception as exc:
                 logger.warning("[P0] failed to persist markdown follow-up trace: %s", exc)
+            _finalize_durable_task_before_done(
+                bind,
+                runtime=runtime,
+                state=state,
+            )
             yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
             return
 
@@ -616,11 +1213,23 @@ async def run_durable_task(
     if task_route is not None and not isinstance(getattr(task_route, "task_type", None), str):
         task_route = None
     if req.project_id and not runtime.intent_prepared_async:
+        _raise_if_durable_chat_cancelled(
+            bind,
+            runtime=runtime,
+            state=state,
+            stage="before_async_intent_classification",
+        )
         route_started_at = time.perf_counter()
         intent_decision = await classify_chat_intent_async(
             req,
             llm_complete=runtime.llm.complete,
             model=runtime.selected_model,
+        )
+        _raise_if_durable_chat_cancelled(
+            bind,
+            runtime=runtime,
+            state=state,
+            stage="after_async_intent_classification",
         )
         runtime.chat_mode = intent_decision.chat_mode
         runtime.action_policy = intent_decision.action_policy
@@ -631,17 +1240,49 @@ async def run_durable_task(
         runtime.artifact_contract = getattr(intent_decision, "artifact_contract", None)
         task_route = intent_decision.task_route
         state.stage_timings["route_task_ms"] = round((time.perf_counter() - route_started_at) * 1000)
+        classified_policy = str(
+            getattr(runtime.action_policy, "value", runtime.action_policy) or ""
+        ).strip()
+        if classified_policy in {
+            ActionPolicy.DURABLE_TASK.value,
+            ActionPolicy.DESTRUCTIVE_ACTION.value,
+        }:
+            _persist_non_steerable_boundary(
+                bind,
+                runtime=runtime,
+                state=state,
+                action_policy=classified_policy,
+                phase=(
+                    "durable_task"
+                    if classified_policy == ActionPolicy.DURABLE_TASK.value
+                    else "non_steerable_execution"
+                ),
+            )
 
     durable_task_type = task_route.task_type if task_route else None
     if not durable_task_type:
         return
 
+    durable_task_id: int | None = None
     try:
         runtime.chat_mode = ChatMode.TASK_ORCHESTRATION
         runtime.action_policy = ActionPolicy.DURABLE_TASK
         runtime.tool_access_policy = ToolAccessPolicy.WRITE_ALLOWED
         runtime.intent_method = task_route.method if hasattr(task_route, "method") else runtime.intent_method
         runtime.intent_reason = task_route.reason or runtime.intent_reason
+        _raise_if_durable_chat_cancelled(
+            bind,
+            runtime=runtime,
+            state=state,
+            stage="before_durable_task_phase",
+        )
+        _persist_non_steerable_boundary(
+            bind,
+            runtime=runtime,
+            state=state,
+            action_policy=ActionPolicy.DURABLE_TASK.value,
+            phase="durable_task",
+        )
         yield sse_event(
             {
                 "type": "status",
@@ -685,6 +1326,12 @@ async def run_durable_task(
             if confirmation_reason:
                 task_input["requires_confirmation"] = True
                 task_input["confirmation_reason"] = confirmation_reason
+            _raise_if_durable_chat_cancelled(
+                bind,
+                runtime=runtime,
+                state=state,
+                stage="before_durable_task_create",
+            )
             task = create_task_run(
                 task_session,
                 project_id=req.project_id,
@@ -695,7 +1342,22 @@ async def run_durable_task(
                 conversation_id=runtime.conv_id,
                 created_by_user_id=runtime.actor_user_id,
             )
+            durable_task_id = int(task.id)
+            _raise_if_durable_chat_cancelled(
+                bind,
+                runtime=runtime,
+                state=state,
+                stage="after_durable_task_create",
+                task_id=durable_task_id,
+            )
             if confirmation_reason:
+                _raise_if_durable_chat_cancelled(
+                    bind,
+                    runtime=runtime,
+                    state=state,
+                    stage="before_durable_task_pause",
+                    task_id=durable_task_id,
+                )
                 task_payload = pause_task_run_in_session(
                     task_session,
                     task.id,
@@ -703,6 +1365,13 @@ async def run_durable_task(
                     actor_user_id=runtime.actor_user_id,
                 )
                 task_payload = task_payload or serialize_task_run(task_session, task, include_events=True)
+                _raise_if_durable_chat_cancelled(
+                    bind,
+                    runtime=runtime,
+                    state=state,
+                    stage="after_durable_task_pause",
+                    task_id=durable_task_id,
+                )
                 full_text = f"已创建任务，但不会自动执行：{confirmation_reason}\n\n请在右上角「任务」面板确认后再开始。"
                 metadata = {
                     "project_id": req.project_id,
@@ -731,6 +1400,13 @@ async def run_durable_task(
                     reason=confirmation_reason,
                 )
                 _attach_turn_contract_metadata(metadata, runtime)
+                _close_durable_task_completion_boundary(
+                    bind,
+                    runtime=runtime,
+                    state=state,
+                    stage="before_paused_task_assistant_persist",
+                    task_id=durable_task_id,
+                )
                 need_title, assistant_message_id = persist_assistant_message(
                     bind,
                     runtime.conv_id,
@@ -744,6 +1420,11 @@ async def run_durable_task(
                     persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
                 except Exception as exc:
                     logger.warning("[P0] failed to persist paused task trace: %s", exc)
+                _finalize_durable_task_before_done(
+                    bind,
+                    runtime=runtime,
+                    state=state,
+                )
                 yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
                 if need_title and full_text:
                     async for title_evt in _stream_conversation_title(runtime, req, bind):
@@ -771,7 +1452,20 @@ async def run_durable_task(
             )
             await task_stream_flush_pause()
 
-            async for task_event in stream_execute_task_run_in_session(task_session, task.id):
+            _raise_if_durable_chat_cancelled(
+                bind,
+                runtime=runtime,
+                state=state,
+                stage="before_durable_task_execution",
+                task_id=durable_task_id,
+            )
+            async for task_event in _stream_task_events_with_cancel_boundaries(
+                bind,
+                runtime=runtime,
+                state=state,
+                task_session=task_session,
+                task_id=durable_task_id,
+            ):
                 event_message = task_event.get("message") or "任务状态已更新。"
                 workflow_event = workflow_status_from_task_event(task_event)
                 if workflow_event:
@@ -791,7 +1485,21 @@ async def run_durable_task(
                 if v1_evt:
                     yield v1_evt
                 await task_stream_flush_pause()
+                _raise_if_durable_chat_cancelled(
+                    bind,
+                    runtime=runtime,
+                    state=state,
+                    stage="durable_task_sse_boundary",
+                    task_id=durable_task_id,
+                )
 
+            _raise_if_durable_chat_cancelled(
+                bind,
+                runtime=runtime,
+                state=state,
+                stage="after_durable_task_execution",
+                task_id=durable_task_id,
+            )
             task_session.refresh(task)
             task_payload = serialize_task_run(task_session, task, include_events=True)
 
@@ -851,6 +1559,13 @@ async def run_durable_task(
             state.artifacts = artifacts
         state.stage_timings.update(metadata["stage_timings"])
 
+        _close_durable_task_completion_boundary(
+            bind,
+            runtime=runtime,
+            state=state,
+            stage="before_durable_task_assistant_persist",
+            task_id=durable_task_id,
+        )
         _attach_turn_contract_metadata(metadata, runtime)
         need_title, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
         state.need_title = need_title
@@ -859,12 +1574,32 @@ async def run_durable_task(
             persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
         except Exception as exc:
             logger.warning("[P0] failed to persist chat trace: %s", exc)
+        _finalize_durable_task_before_done(
+            bind,
+            runtime=runtime,
+            state=state,
+        )
         yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
 
         if need_title and full_text:
             async for title_evt in _stream_conversation_title(runtime, req, bind):
                 yield title_evt
 
+    except asyncio.CancelledError:
+        if durable_task_id is not None:
+            try:
+                _cancel_project_task_run(
+                    bind,
+                    runtime=runtime,
+                    state=state,
+                    task_id=durable_task_id,
+                    stage="durable_task_cancel_cleanup",
+                )
+            except DurableTaskControlBoundaryError:
+                # The chat Run still stops.  The trace records why the linked
+                # TaskRun could not be moved to its terminal cancel state.
+                pass
+        raise
     except Exception as exc:
         logger.error(f"[durable_task_stream error] {exc}", exc_info=True)
         raise

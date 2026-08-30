@@ -19,18 +19,33 @@ describing what to feed back to the LLM and which extra SSE events to stream.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import HTTPException
+from sqlmodel import Session, select
 
+from app.config import UPLOADS_DIR
+from app.models.db import GeneratedFile, ProjectFile
+from app.services.agent_harness.approval_envelope import RECOVERY_HITAS_ACTION_TYPE
+from app.services.agent_harness.run_effect_record import (
+    RecoveryEffectDecision,
+    decide_recovery_effect,
+)
+from app.services.agent_harness.project_world_state import build_project_world_state_manifest
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.agent_harness.output_buffer import serialize_tool_output
 from app.services.agent_harness.tool_policy import PolicyDecision, evaluate_tool_policy
 from app.services.chat.mode_registry import ActionPolicy
-from app.services.chat.pending_actions import tool_confirmation_token
+from app.services.chat.pending_actions import (
+    PendingActionProjectScopeError,
+    positive_project_scope,
+    require_pending_action_project_scope,
+    tool_confirmation_token,
+)
 from app.services.chat.sse import await_with_heartbeat, sse_event
 from app.services.chat.state import ChatSessionState
 from app.services.chat.tool_repair import repair_project_office_tool_input
@@ -41,6 +56,7 @@ from app.services.chat_artifacts import (
     _repair_skill_ppt_tool_input,
     _route_ppt_tool_for_skill,
 )
+from app.services.upload_paths import resolve_upload_path
 from app.services.chat_tools import (
     ChatRuntime,
     _summarize_tool_result,
@@ -49,6 +65,7 @@ from app.services.chat_tools import (
 from app.tools import registry
 from app.tools.capabilities import (
     TOOL_CAPABILITY_MANIFEST_VERSION,
+    ToolEffect,
     ToolRetryMode,
     resolve_tool_capability,
     tool_is_project_scoped,
@@ -157,6 +174,227 @@ def _result_has_persisted_artifact_evidence(result: dict | None) -> bool:
         or output.get("file_id")
         or output.get("path")
         or output.get("file_path")
+    )
+
+
+def _file_sha256(path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verified_recovery_artifact(
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    recovery: dict[str, Any],
+    decision: RecoveryEffectDecision,
+) -> dict[str, Any] | None:
+    """CAS-check a recovery result against Aria persistence and file bytes."""
+
+    effect = decision.effect_record if isinstance(decision.effect_record, dict) else {}
+    result_ref = effect.get("result_ref") if isinstance(effect.get("result_ref"), dict) else {}
+    generated_file_id = result_ref.get("generated_file_id")
+    source_run_id = str(recovery.get("source_run_id") or "")
+    output_id = str(result_ref.get("output_id") or "")
+    content_sha256 = str(result_ref.get("content_sha256") or "").lower()
+    if (
+        state.rollout_bind is None
+        or not isinstance(generated_file_id, int)
+        or isinstance(generated_file_id, bool)
+        or generated_file_id < 1
+    ):
+        return None
+    try:
+        with Session(state.rollout_bind) as session:
+            record = session.exec(
+                select(GeneratedFile).where(
+                    GeneratedFile.id == generated_file_id,
+                    GeneratedFile.conversation_id == int(runtime.conv_id),
+                    GeneratedFile.run_id == source_run_id,
+                    GeneratedFile.output_id == output_id,
+                    GeneratedFile.content_sha256 == content_sha256,
+                )
+            ).first()
+            if record is None or record.project_id != runtime.project_id:
+                return None
+            artifact_path = resolve_upload_path(UPLOADS_DIR, record.path, must_exist=True)
+            project_file_id = result_ref.get("project_file_id")
+            if project_file_id is not None:
+                if (
+                    not isinstance(project_file_id, int)
+                    or isinstance(project_file_id, bool)
+                    or project_file_id < 1
+                    or runtime.project_id is None
+                ):
+                    return None
+                project_file = session.exec(
+                    select(ProjectFile).where(
+                        ProjectFile.id == project_file_id,
+                        ProjectFile.project_id == int(runtime.project_id),
+                        ProjectFile.deleted_at.is_(None),
+                    )
+                ).first()
+                if project_file is None:
+                    return None
+                project_path = resolve_upload_path(UPLOADS_DIR, project_file.path, must_exist=True)
+                if project_path != artifact_path:
+                    return None
+            if _file_sha256(artifact_path) != content_sha256:
+                return None
+            payload: dict[str, Any] = {
+                "id": int(record.id or 0),
+                "conversation_id": int(record.conversation_id),
+                "project_id": record.project_id,
+                "name": str(record.name or ""),
+                "file_type": str(record.file_type or ""),
+                "path": str(record.path or ""),
+                "size_bytes": artifact_path.stat().st_size,
+                "description": str(record.description or ""),
+                "mime_type": str(record.mime_type or ""),
+                "run_id": str(record.run_id or ""),
+                "output_id": str(record.output_id or ""),
+                "source_tool": str(record.source_tool or ""),
+                "content_sha256": content_sha256,
+                "output_record_version": int(record.output_record_version or 1),
+                "recovered_from_run_id": source_run_id,
+            }
+            if isinstance(project_file_id, int) and not isinstance(project_file_id, bool):
+                payload["project_file_id"] = project_file_id
+            return payload
+    except Exception:
+        logger.warning(
+            "[agent_loop] recovered artifact CAS verification failed. run=%s output=%s",
+            source_run_id,
+            output_id,
+            exc_info=True,
+        )
+        return None
+
+
+def _recovery_world_state_is_current(
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    recovery: dict[str, Any],
+) -> bool:
+    """Re-check project CAS immediately before a recovered mutation."""
+
+    if runtime.project_id is None:
+        return True
+    expected = (
+        recovery.get("project_world_state")
+        if isinstance(recovery.get("project_world_state"), dict)
+        else {}
+    )
+    expected_project_id = expected.get("project_id")
+    expected_fingerprint = str(expected.get("fingerprint") or "").lower()
+    if (
+        state.rollout_bind is None
+        or expected_project_id != int(runtime.project_id)
+        or len(expected_fingerprint) != 64
+    ):
+        return False
+    try:
+        with Session(state.rollout_bind) as session:
+            current = build_project_world_state_manifest(session, int(runtime.project_id))
+        return str(current.get("fingerprint") or "").lower() == expected_fingerprint
+    except Exception:
+        logger.warning("[agent_loop] recovery world-state CAS failed", exc_info=True)
+        return False
+
+
+def _handle_recovery_effect_decision(
+    *,
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    recovery: dict[str, Any],
+    decision: RecoveryEffectDecision,
+    tool_name: str,
+    tool_input: dict[str, Any],
+    tool_id: str,
+    step_index: int,
+) -> ToolOutcome | None:
+    if decision.action == "proceed":
+        return None
+    verified_artifact = (
+        _verified_recovery_artifact(runtime, state, recovery, decision)
+        if decision.action == "already_completed"
+        else None
+    )
+    if verified_artifact is not None:
+        verified_artifact = state.record_verified_recovery_artifact(verified_artifact)
+        effect = dict(decision.effect_record or {})
+        effect.update({"step_index": step_index, "tool_use_id": tool_id})
+        recovered = list(getattr(state, "recovery_effect_records", None) or [])
+        recovered.append(effect)
+        setattr(state, "recovery_effect_records", recovered[-64:])
+        output = {
+            "ok": True,
+            "success": True,
+            "status": "already_completed",
+            "not_executed": True,
+            "source_run_id": str(recovery.get("source_run_id") or ""),
+            "result_ref": effect.get("result_ref"),
+            "artifact": verified_artifact,
+            "reason": "已核验相同写入的持久化产物，未重复执行。",
+            "assistant_instruction": "Treat the verified persisted artifact as completed; do not claim a new execution.",
+        }
+        event_status = "skipped"
+        trace_type = "recovery_write_already_completed"
+    else:
+        output = {
+            "ok": False,
+            "success": False,
+            "skipped": True,
+            "not_executed": True,
+            "status": "manual_review",
+            "requires_manual_review": True,
+            "reason": (
+                "恢复记录无法实查到完全一致的持久化产物，请先人工核对当前项目状态。"
+                if decision.action == "already_completed"
+                else "旧记录或未决副作用缺少可验证证据，请先人工核对。"
+            ),
+            "assistant_instruction": "Do not execute or claim completion. Explain that manual review is required.",
+        }
+        event_status = "blocked"
+        trace_type = "recovery_write_manual_review"
+    state.record_tool_execution(
+        {
+            "tool_use_id": tool_id,
+            "tool_name": tool_name,
+            "step_index": step_index,
+            "status": event_status,
+            "message": output["reason"],
+            "summary": output["reason"],
+            "attempt_count": 0,
+            "max_attempts": 0,
+            "retryable": False,
+            **_capability_record_fields(tool_name, tool_input),
+        }
+    )
+    state.record_trace_event(
+        trace_type,
+        stage=f"step_{step_index}",
+        tool_name=tool_name,
+        source_run_id=str(recovery.get("source_run_id") or ""),
+        reason=decision.reason,
+    )
+    sse_result = {
+        "type": "tool_result",
+        "tool_use_id": tool_id,
+        "tool_name": tool_name,
+        "status": output["status"],
+        "summary": output["reason"],
+        "output": output,
+    }
+    return ToolOutcome(
+        result_block={
+            "type": "tool_result",
+            "tool_use_id": tool_id,
+            "content": json.dumps(output, ensure_ascii=False),
+        },
+        events=[sse_event({"type": "tool_result", "result": sse_result})],
     )
 
 
@@ -395,8 +633,9 @@ def _apply_input_repair(
             changes=ppt_changes,
         )
 
-    if runtime.project_id is not None and tool_is_project_scoped(tool_name):
-        tool_input = {**tool_input, "project_id": runtime.project_id}
+    runtime_project_id = positive_project_scope(runtime.project_id)
+    if runtime_project_id is not None and tool_is_project_scoped(tool_name):
+        tool_input = {**tool_input, "project_id": runtime_project_id}
 
     if tool_name in _PROJECT_MARKDOWN_TOOLS and runtime.project_id is not None:
         tool_input, md_changes = _repair_project_markdown_tool_input(tool_name, tool_input)
@@ -488,6 +727,7 @@ def _handle_confirmation(
     required_policy: ActionPolicy,
     tool_id: str,
     step_index: int,
+    recovery_confirmation: bool = False,
 ) -> ToolOutcome:
     state.confirmation_requested = True
     token = tool_confirmation_token(tool_name, tool_input)
@@ -512,6 +752,10 @@ def _handle_confirmation(
         required_policy,
     )
     if hitas:
+        if recovery_confirmation:
+            # This signed action type distinguishes recovery-forced approvals
+            # from ordinary writes whose policy natively requires a prompt.
+            hitas["action_type"] = RECOVERY_HITAS_ACTION_TYPE
         state.pending_tool_actions.append(hitas)
     state.record_tool_execution(
         {
@@ -697,6 +941,23 @@ async def execute_tool_with_policy(
 
     # ---- policy ----
     evaluation = evaluate_tool_policy(runtime.action_policy, tool_name, tool_input)
+    try:
+        require_pending_action_project_scope(
+            tool_name,
+            tool_input,
+            runtime_project_id=runtime.project_id,
+        )
+    except PendingActionProjectScopeError as exc:
+        return _handle_blocked(
+            state=state,
+            tool_name=tool_name,
+            tool_input=tool_input,
+            tool_id=tool_id,
+            block_reason=str(exc),
+            required_policy=evaluation.required_policy,
+            current_policy=runtime.action_policy,
+            step_index=step_index,
+        )
     if evaluation.decision is PolicyDecision.FORBIDDEN:
         logger.warning(
             "[agent_loop] blocked tool by action policy. tool=%s required=%s policy=%s reason=%s",
@@ -741,8 +1002,57 @@ async def execute_tool_with_policy(
                 exc=HTTPException(500, "Structured patch preflight failed; no approval action was created."),
             )
 
+    # The checkpoint must hash the exact post-repair/preflight input that Aria
+    # would execute, not the provider's unnormalized proposal.
+    tool_call["name"] = tool_name
+    tool_call["input"] = tool_input
+
+    recovery = (
+        runtime.prepare_metrics.get("turn_recovery")
+        if isinstance(runtime.prepare_metrics, dict)
+        and isinstance(runtime.prepare_metrics.get("turn_recovery"), dict)
+        else {}
+    )
+    recovery_decision = decide_recovery_effect(
+        recovery,
+        tool_name=tool_name,
+        tool_input=tool_input,
+    )
+    if (
+        recovery
+        and resolve_tool_capability(tool_name, tool_input).effect is not ToolEffect.READ
+        and not _recovery_world_state_is_current(runtime, state, recovery)
+    ):
+        recovery_decision = RecoveryEffectDecision(
+            "manual_review",
+            "project_world_state_changed_during_recovery",
+            recovery_decision.effect_record,
+        )
+    recovery_outcome = _handle_recovery_effect_decision(
+        runtime=runtime,
+        state=state,
+        recovery=recovery,
+        decision=recovery_decision,
+        tool_name=tool_name,
+        tool_input=tool_input,
+        tool_id=tool_id,
+        step_index=step_index,
+    )
+    if recovery_outcome is not None:
+        return recovery_outcome
+
+    # A recovery may prove that an identical persisted artifact already exists,
+    # in which case the branch above reuses it without execution.  Every other
+    # consequential recovery proposal must stop at Aria's durable HITAS
+    # boundary.  In particular, a normal WRITE_ARTIFACT policy is not enough to
+    # replay a create/external effect directly after a process interruption.
+    recovery_requires_confirmation = bool(
+        recovery
+        and resolve_tool_capability(tool_name, tool_input).effect is not ToolEffect.READ
+    )
+
     # ---- HITAS confirmation ----
-    if evaluation.requires_confirmation:
+    if evaluation.requires_confirmation or recovery_requires_confirmation:
         return _handle_confirmation(
             runtime=runtime,
             state=state,
@@ -751,6 +1061,7 @@ async def execute_tool_with_policy(
             required_policy=evaluation.required_policy,
             tool_id=tool_id,
             step_index=step_index,
+            recovery_confirmation=recovery_requires_confirmation,
         )
 
     # ---- Markdown write inline-display contract ----

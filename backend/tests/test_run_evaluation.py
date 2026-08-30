@@ -472,6 +472,7 @@ async def test_orchestrator_emits_failed_terminal_event_for_evaluation_failure()
     rendered = "".join(events)
     assert '"error_code": "RUN_EVALUATION_FAILED"' in rendered
     assert '"type": "run_done"' not in rendered
+    assert '"type":"done"' not in rendered
     assert finalized == {
         "task_id": 52,
         "status": "failed",
@@ -482,6 +483,225 @@ async def test_orchestrator_emits_failed_terminal_event_for_evaluation_failure()
         "retryable": False,
         "run_outputs": [],
     }
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_emits_done_only_after_terminal_commit() -> None:
+    runtime = SimpleNamespace(
+        conv_id=7,
+        selected_model="test-model",
+        rag_sources=[],
+        skill_name="",
+        tools=None,
+        action_policy=ActionPolicy.READ_ONLY_TOOL,
+        tool_access_policy="read_on_demand",
+        intent_reason="explicit_read",
+        intent_method="rule",
+        chat_mode="project_qa",
+        prepare_metrics={},
+    )
+    req = SimpleNamespace(project_id=3)
+    state = ChatSessionState(
+        run_id="run_terminal_order",
+        rollout_task_id=54,
+        rollout_bind=object(),
+    )
+    timeline: list[str] = []
+
+    async def fake_durable(_runtime, _req, _bind, _state):
+        if False:  # pragma: no cover - async-generator shape
+            yield ""
+
+    async def fake_agent(_runtime, _req, _state):
+        if False:  # pragma: no cover - async-generator shape
+            yield ""
+
+    async def fake_persist(_runtime, _req, _bind, run_state):
+        run_state.assistant_message_id = 93
+        run_state.full_text = "completed"
+        yield 'data: {"type":"message_persisted","run_id":"run_terminal_order","message_id":93}\n\n'
+        timeline.append("legacy_done_produced")
+        yield 'data: {"type":"done","assistant_message_id":93}\n\n'
+
+    def fake_finalize(_bind, task_id, **kwargs):
+        assert task_id == 54
+        timeline.append("terminal_committed")
+        return {"status": kwargs["status"]}
+
+    with patch(
+        "app.services.chat.durable_task.run_durable_task", new=fake_durable
+    ), patch(
+        "app.services.chat.agent_loop.run_agent_loop", new=fake_agent
+    ), patch(
+        "app.services.chat.persist.run_persist", new=fake_persist
+    ), patch.object(
+        chat_service, "finalize_chat_rollout", new=fake_finalize
+    ):
+        events = []
+        async for event in chat_service._stream_chat_events_impl(
+            runtime,
+            req,
+            object(),
+            state,
+            time.perf_counter(),
+        ):
+            event_type = chat_service._sse_payload(event).get("type")
+            if event_type in {"message_persisted", "done", "run_done"}:
+                timeline.append(f"yield_{event_type}")
+            events.append(event)
+
+    assert timeline == [
+        "yield_message_persisted",
+        "legacy_done_produced",
+        "terminal_committed",
+        "yield_done",
+        "yield_run_done",
+    ]
+    assert state.rollout_finalized is True
+    assert [chat_service._sse_payload(event).get("type") for event in events][-2:] == [
+        "done",
+        "run_done",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_terminal_finalize_failure_suppresses_done_and_run_done() -> None:
+    runtime = SimpleNamespace(
+        conv_id=7,
+        selected_model="test-model",
+        rag_sources=[],
+        skill_name="",
+        tools=None,
+        action_policy=ActionPolicy.READ_ONLY_TOOL,
+        tool_access_policy="read_on_demand",
+        intent_reason="explicit_read",
+        intent_method="rule",
+        chat_mode="project_qa",
+        prepare_metrics={},
+    )
+    req = SimpleNamespace(project_id=3)
+    state = ChatSessionState(
+        run_id="run_terminal_finalize_failure",
+        rollout_task_id=55,
+        rollout_bind=object(),
+    )
+
+    async def fake_durable(_runtime, _req, _bind, _state):
+        if False:  # pragma: no cover - async-generator shape
+            yield ""
+
+    async def fake_agent(_runtime, _req, _state):
+        if False:  # pragma: no cover - async-generator shape
+            yield ""
+
+    async def fake_persist(_runtime, _req, _bind, run_state):
+        run_state.assistant_message_id = 94
+        run_state.full_text = "persisted but not terminal"
+        yield 'data: {"type":"message_persisted","run_id":"run_terminal_finalize_failure","message_id":94}\n\n'
+        yield 'data: {"type":"done","assistant_message_id":94}\n\n'
+
+    def fail_finalize(*_args, **_kwargs):
+        raise RuntimeError("terminal db unavailable")
+
+    with patch(
+        "app.services.chat.durable_task.run_durable_task", new=fake_durable
+    ), patch(
+        "app.services.chat.agent_loop.run_agent_loop", new=fake_agent
+    ), patch(
+        "app.services.chat.persist.run_persist", new=fake_persist
+    ), patch.object(
+        chat_service, "finalize_chat_rollout", new=fail_finalize
+    ):
+        events = [
+            event
+            async for event in chat_service._stream_chat_events_impl(
+                runtime,
+                req,
+                object(),
+                state,
+                time.perf_counter(),
+            )
+        ]
+
+    payloads = [chat_service._sse_payload(event) for event in events]
+    event_types = [payload.get("type") for payload in payloads]
+    assert "message_persisted" in event_types
+    assert "done" not in event_types
+    assert "run_done" not in event_types
+    assert event_types[-1] == "run_failed"
+    assert payloads[-1]["error_code"] == "PERSISTENCE_ERROR"
+    assert state.rollout_finalized is False
+    assert any(
+        event.get("type") == "rollout_finalize_failed"
+        for event in state.trace_events
+    )
+
+
+@pytest.mark.asyncio
+async def test_rollout_begin_failure_stops_before_model_and_emits_persistence_error() -> None:
+    runtime = SimpleNamespace(
+        conv_id=7,
+        prepare_metrics={},
+    )
+    req = SimpleNamespace(content="must not reach model")
+    implementation_called = False
+
+    async def must_not_run(*_args, **_kwargs):
+        nonlocal implementation_called
+        implementation_called = True
+        if False:  # pragma: no cover - async-generator shape
+            yield ""
+
+    with patch.object(
+        chat_service,
+        "make_run_id",
+        return_value="run_begin_failure",
+    ), patch.object(
+        chat_service,
+        "begin_chat_rollout",
+        side_effect=RuntimeError("rollout db unavailable"),
+    ), patch.object(
+        chat_service,
+        "_stream_chat_events_impl",
+        new=must_not_run,
+    ):
+        events = [
+            event
+            async for event in chat_service.stream_chat_events(
+                runtime,
+                req,
+                object(),
+            )
+        ]
+
+    payloads = [chat_service._sse_payload(event) for event in events]
+    assert implementation_called is False
+    assert [payload.get("type") for payload in payloads] == ["run_failed"]
+    assert payloads[0]["error_code"] == "PERSISTENCE_ERROR"
+    assert not any(
+        payload.get("type") in {"done", "run_done"}
+        for payload in payloads
+    )
+
+
+def test_finalize_rejects_partial_rollout_identity_but_allows_untracked_callers() -> None:
+    partial = ChatSessionState(
+        run_id="run_missing_rollout_task",
+        rollout_bind=object(),
+    )
+    assert chat_service._finalize_rollout_safely(
+        partial,
+        status="completed",
+        phase="persist",
+    ) is False
+    assert partial.trace_events[-1]["error"] == "missing_rollout_identity"
+
+    untracked = ChatSessionState()
+    assert chat_service._finalize_rollout_safely(
+        untracked,
+        status="completed",
+        phase="persist",
+    ) is True
 
 
 @pytest.mark.asyncio

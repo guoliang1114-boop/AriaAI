@@ -29,8 +29,15 @@ from typing import Any
 
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.agent_harness.context_budget import apply_context_budget
-from app.services.context_builder.assembly import validate_context_assembly_request
-from app.services.agent_harness.run_rollout import checkpoint_chat_rollout
+from app.services.context_builder.assembly import (
+    build_post_assembly_request_manifest,
+    validate_context_assembly_request,
+    validate_post_assembly_request,
+)
+from app.services.agent_harness.run_rollout import (
+    checkpoint_chat_rollout,
+    close_chat_run_input_boundary,
+)
 from app.services.agent_harness.tool_scheduler import plan_tool_execution
 from app.services.agent_harness.turn_budget import (
     BudgetKind,
@@ -49,9 +56,11 @@ from app.services.agent_harness.tool_policy import PolicyDecision, evaluate_tool
 from app.services.agent_harness.tool_execution_record import tool_event_is_failure
 from app.services.agent_harness.turn_interrupt import (
     SteeringInput,
+    USER_INTERRUPT_CANCEL_MESSAGE,
     drain_active_turn_steering,
     set_active_turn_stage,
 )
+from app.services.agent_harness.durable_run_inputs import claim_durable_run_inputs
 from app.services.chat.agent_step import AgentStep, build_agent_step_event
 from app.services.chat.product_run_events import (
     StepCompletedStatus,
@@ -78,6 +87,49 @@ from app.services.chat_tools import (
 from app.tools.capabilities import tool_display_name
 
 logger = logging.getLogger(__name__)
+
+
+class DurableRunInputBoundaryError(RuntimeError):
+    """The Run must stop when its authoritative control mailbox is unreadable."""
+
+
+def _reject_context_assembly_request(
+    state: ChatSessionState,
+    *,
+    reason: str,
+    stage: str = "before_model_request",
+) -> None:
+    state.record_trace_event(
+        "context_assembly_request_rejected",
+        stage=stage,
+        reason=reason,
+    )
+    raise RuntimeError(f"context assembly request rejected: {reason}")
+
+
+def _validate_initial_context_assembly(
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+) -> bool:
+    """Verify the immutable prepare-time request before claiming any additions."""
+
+    context_manifest = getattr(runtime, "context_manifest", None)
+    if not context_manifest:
+        return False
+    valid, reason = validate_context_assembly_request(
+        context_manifest,
+        system=runtime.system,
+        messages=list(runtime.api_messages),
+        tools=runtime.tools,
+    )
+    if not valid:
+        _reject_context_assembly_request(state, reason=reason)
+    state.record_trace_event(
+        "context_assembly_baseline_validated",
+        stage="before_run_input_claim",
+        manifest_sha256=str(context_manifest.get("manifest_sha256") or ""),
+    )
+    return True
 
 _CONTINUATION_PROMPT = (
     "请从上一条回复被截断的位置继续，补齐后续内容和关键论证。"
@@ -169,15 +221,121 @@ def _drain_steering_boundary(
     state: ChatSessionState,
     *,
     stage: str,
+    close_phase: str | None = None,
+    force_close: bool = False,
+    claim_steering: bool = True,
 ) -> tuple[tuple[SteeringInput, ...], list[str]]:
-    """Drain and audit additions at one safe model/tool boundary."""
+    """Drain and audit additions at one safe model/tool boundary.
+
+    When ``close_phase`` is provided, the durable mailbox claim and ChatRun
+    phase transition share one database transaction. At a re-plannable boundary
+    steering keeps the Run open; ``force_close`` closes even when the claimed
+    text will be incorporated into the immediately following final model step.
+    """
 
     conversation_id = int(getattr(runtime, "conv_id", 0) or 0)
     if not state.run_id or conversation_id < 1:
         return (), []
-    steering = drain_active_turn_steering(
-        state.run_id,
-        conversation_id=conversation_id,
+    # The process-local mailbox wakes the serving loop and supports isolated
+    # legacy tests. Once a rollout bind exists, the database mailbox is the
+    # sole authoritative source and survives worker restarts.
+    local_steering = (
+        drain_active_turn_steering(
+            state.run_id,
+            conversation_id=conversation_id,
+        )
+        if claim_steering
+        else ()
+    )
+    if state.rollout_bind is not None:
+        try:
+            if close_phase:
+                durable_batch = close_chat_run_input_boundary(
+                    state.rollout_bind,
+                    run_id=state.run_id,
+                    conversation_id=conversation_id,
+                    phase=close_phase,
+                    force_close=force_close,
+                    claim_steering=claim_steering,
+                )
+            else:
+                durable_batch = claim_durable_run_inputs(
+                    state.rollout_bind,
+                    run_id=state.run_id,
+                    conversation_id=conversation_id,
+                )
+        except Exception as exc:
+            logger.exception(
+                "[run input] durable claim failed run_id=%s stage=%s",
+                state.run_id,
+                stage,
+            )
+            state.record_trace_event(
+                "durable_run_input_claim_failed",
+                stage=stage,
+                error=str(exc)[:500],
+            )
+            # A committed cancel or restrictive steering instruction may be in
+            # this mailbox. Continuing the model/tool loop would therefore be
+            # fail-open even if we ignore the process-local wake-up. Abort the
+            # Run before another provider request or tool commit instead.
+            raise DurableRunInputBoundaryError(
+                "Authoritative chat run inputs are temporarily unavailable"
+            ) from exc
+        boundary_closed = bool(
+            close_phase
+            and (
+                force_close
+                or not claim_steering
+                or durable_batch.cancel_requested
+                or not durable_batch.steering
+            )
+        )
+        if boundary_closed:
+            set_active_turn_stage(
+                state.run_id,
+                stage=close_phase,
+                steerable=False,
+            )
+            state.record_trace_event(
+                "durable_run_input_boundary_closed",
+                stage=stage,
+                phase=close_phase,
+                force_close=force_close,
+                claimed_input_ids=list(durable_batch.input_ids),
+            )
+        if durable_batch.cancel_requested:
+            state.record_trace_event(
+                "durable_run_cancel_requested",
+                stage=stage,
+                input_ids=list(durable_batch.input_ids),
+            )
+            raise asyncio.CancelledError(USER_INTERRUPT_CANCEL_MESSAGE)
+        steering = durable_batch.steering
+    else:
+        steering = local_steering
+        if close_phase and (force_close or not claim_steering or not steering):
+            set_active_turn_stage(
+                state.run_id,
+                stage=close_phase,
+                steerable=False,
+            )
+
+    existing_message_ids = {
+        int(item.get("message_id"))
+        for item in state.steering_inputs
+        if isinstance(item, dict) and item.get("message_id") is not None
+    }
+    existing_steering_ids = {
+        str(item.get("steering_id") or "")
+        for item in state.steering_inputs
+        if isinstance(item, dict)
+    }
+    steering = tuple(
+        item
+        for item in steering
+        if item.steering_id not in existing_steering_ids
+        and (item.message_id is None or int(item.message_id) not in existing_message_ids)
     )
     if not steering:
         return (), []
@@ -393,6 +551,8 @@ async def _consume_stream(
     step_index: int,
     stream_label: str,
     result: _StreamResult,
+    initial_context_validated: bool = False,
+    post_assembly_steering: tuple[SteeringInput, ...] = (),
 ) -> AsyncIterator[str]:
     """Drain a single ``stream_response`` call, yielding SSE frames as they arrive.
 
@@ -475,7 +635,64 @@ async def _consume_stream(
     # transcript normalization and budgeting. Later steps intentionally append
     # tool call/results and receive their own turn_context_budget trace.
     context_manifest = getattr(runtime, "context_manifest", None)
-    if context_manifest and step_index == 0 and stream_label == "step_0":
+    if (
+        post_assembly_steering
+        and not context_manifest
+        and state.rollout_bind is not None
+    ):
+        _reject_context_assembly_request(
+            state,
+            reason="missing_base_manifest_for_post_assembly_input",
+        )
+    if context_manifest and post_assembly_steering:
+        if not initial_context_validated:
+            _reject_context_assembly_request(
+                state,
+                reason="base_manifest_not_validated_before_post_assembly_input",
+            )
+        durable_inputs = [
+            {
+                "run_id": item.run_id,
+                "steering_id": item.steering_id,
+                "sequence": item.sequence,
+                "message_id": item.message_id,
+                "content_sha256": item.content_sha256,
+            }
+            for item in post_assembly_steering
+        ]
+        try:
+            derived_manifest = build_post_assembly_request_manifest(
+                context_manifest,
+                request_stage=stream_label,
+                durable_inputs=durable_inputs,
+                system=request_system,
+                messages=request_messages,
+                tools=runtime.tools,
+            )
+        except (TypeError, ValueError) as exc:
+            _reject_context_assembly_request(
+                state,
+                reason=f"post_assembly_manifest_invalid:{str(exc)[:160]}",
+            )
+        derived_valid, derived_reason = validate_post_assembly_request(
+            derived_manifest,
+            context_manifest,
+            system=request_system,
+            messages=request_messages,
+            tools=runtime.tools,
+        )
+        if not derived_valid:
+            _reject_context_assembly_request(
+                state,
+                reason=derived_reason,
+            )
+        state.record_trace_event(
+            "context_assembly_derived_request_validated",
+            stage=stream_label,
+            derived_manifest=derived_manifest,
+            capability_restricted=not bool(runtime.tools),
+        )
+    elif context_manifest and step_index == 0 and stream_label == "step_0":
         context_valid, context_reason = validate_context_assembly_request(
             context_manifest,
             system=request_system,
@@ -483,12 +700,7 @@ async def _consume_stream(
             tools=runtime.tools,
         )
         if not context_valid:
-            state.record_trace_event(
-                "context_assembly_request_rejected",
-                stage="before_model_request",
-                reason=context_reason,
-            )
-            raise RuntimeError(f"context assembly request rejected: {context_reason}")
+            _reject_context_assembly_request(state, reason=context_reason)
 
     async for item in _iter_model_stream_with_safe_retry(
         runtime,
@@ -793,23 +1005,26 @@ async def _run_agent_loop_impl(
     accumulated_text = ""
     workflow_announced = False
     loop_started_at = time.perf_counter()
+    # This exact baseline is verified before a mailbox claim can mark any
+    # steering input applied or contract the runtime capability envelope.
+    initial_context_validated = _validate_initial_context_assembly(runtime, state)
+    pending_request_steering: tuple[SteeringInput, ...] = ()
 
     for step_index in range(budget.limits.max_steps):
         budget.start_step(phase=f"step_{step_index}")
+        is_final_step = step_index == budget.limits.max_steps - 1
         boundary_steering, steering_events = _drain_steering_boundary(
             runtime,
             state,
             stage=f"before_step_{step_index}",
+            close_phase="agent_loop_final_step" if is_final_step else None,
+            force_close=is_final_step,
         )
+        request_steering = (*pending_request_steering, *boundary_steering)
+        pending_request_steering = ()
         _append_steering_message(messages, boundary_steering)
         for event in steering_events:
             yield event
-        if step_index == budget.limits.max_steps - 1:
-            set_active_turn_stage(
-                state.run_id,
-                stage="agent_loop_final_step",
-                steerable=False,
-            )
         step = AgentStep(index=step_index)
         state.steps.append(step)
         step_started_at = time.perf_counter()
@@ -831,6 +1046,8 @@ async def _run_agent_loop_impl(
                 step_index=step_index,
                 stream_label=f"step_{step_index}",
                 result=result,
+                initial_context_validated=initial_context_validated,
+                post_assembly_steering=request_steering,
             ):
                 yield ev
         finally:
@@ -862,6 +1079,7 @@ async def _run_agent_loop_impl(
                 )
             messages.append(_build_assistant_message(text, [], reasoning))
             _append_steering_message(messages, post_model_steering)
+            pending_request_steering = post_model_steering
             step.model_text = text
             step.reasoning = reasoning
             step.truncated = truncated
@@ -962,14 +1180,15 @@ async def _run_agent_loop_impl(
                 runtime,
                 state,
                 stage=f"after_step_{step_index}_completed",
+                close_phase="agent_loop_done",
             )
             if late_steering:
                 messages.append(_build_assistant_message(text, [], reasoning))
                 _append_steering_message(messages, late_steering)
+                pending_request_steering = late_steering
                 for event in steering_events:
                     yield event
                 continue
-            set_active_turn_stage(state.run_id, stage="agent_loop_done", steerable=False)
             break
 
         # Reserve the complete normalized batch before executing its first
@@ -1020,14 +1239,43 @@ async def _run_agent_loop_impl(
                 for _, tool_call in indexed_calls
             )
             if batch_requires_confirmation:
-                # Once a confirmation-producing call starts, additions must be
-                # rejected rather than accepted into a run that is about to
-                # terminate at the approval barrier.
-                set_active_turn_stage(
-                    state.run_id,
-                    stage="confirmation_tool",
-                    steerable=False,
+                # Claim everything committed before the confirmation barrier
+                # under the same ChatRun lock that closes remote acceptance. A
+                # claimed user addition supersedes the stale approval plan and
+                # keeps the Run open for the next model step; otherwise the
+                # persisted phase is closed before any confirmation event exists.
+                confirmation_steering, steering_events = _drain_steering_boundary(
+                    runtime,
+                    state,
+                    stage=f"before_step_{step_index}_confirmation_batch_{batch_number}",
+                    close_phase="confirmation_tool",
                 )
+                if confirmation_steering:
+                    steering_after_tools = confirmation_steering
+                    remaining_calls = [
+                        call
+                        for index, call in enumerate(tool_calls)
+                        if index not in processed_call_indexes
+                    ]
+                    for remaining in remaining_calls:
+                        tool_result_blocks.append(
+                            _skipped_pending_result_block(
+                                remaining,
+                                status="superseded_by_steering",
+                                reason=(
+                                    "用户在确认前追加了当前 Run 的新要求，"
+                                    "旧确认计划已停止并等待重新规划。"
+                                ),
+                            )
+                        )
+                    state.record_trace_event(
+                        "confirmation_superseded_by_steering",
+                        stage=f"step_{step_index}",
+                        skipped_tool_count=len(remaining_calls),
+                    )
+                    for event in steering_events:
+                        yield event
+                    break
 
             # Emit every running event before a parallel batch begins. Terminal
             # events and model-visible results are still replayed in call order.
@@ -1203,6 +1451,8 @@ async def _run_agent_loop_impl(
 
         messages.append({"role": "user", "content": tool_result_blocks})
         _append_steering_message(messages, steering_after_tools)
+        if steering_after_tools:
+            pending_request_steering = steering_after_tools
         state.tool_result_blocks = tool_result_blocks
         step.tool_results = tool_result_blocks
         step.duration_ms = round((time.perf_counter() - step_started_at) * 1000)
@@ -1374,3 +1624,19 @@ async def run_agent_loop(
                 "duration_ms": state.stage_timings["agent_loop_ms"],
             }
         )
+
+    # ``run_persist`` performs writes and does not poll the mailbox. Close its
+    # durable acceptance boundary before returning to the orchestrator. Normal
+    # no-tool and HITAS exits are already closed above; this is the fail-closed
+    # guard for budget/error-adjacent exits.
+    if not state.confirmation_requested:
+        _, steering_events = _drain_steering_boundary(
+            runtime,
+            state,
+            stage="before_persist",
+            close_phase="persist",
+            force_close=True,
+            claim_steering=False,
+        )
+        for event in steering_events:
+            yield event

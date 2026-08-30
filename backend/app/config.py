@@ -116,6 +116,13 @@ TOOL_PARALLEL_MAX_CONCURRENCY = int(os.getenv("TOOL_PARALLEL_MAX_CONCURRENCY", "
 AGENT_TURN_MAX_STEPS = int(os.getenv("AGENT_TURN_MAX_STEPS", "8"))
 AGENT_TURN_MAX_TOOL_CALLS = int(os.getenv("AGENT_TURN_MAX_TOOL_CALLS", "24"))
 AGENT_TURN_TIMEOUT_SECONDS = float(os.getenv("AGENT_TURN_TIMEOUT_SECONDS", "600"))
+# A recovery request is durably reserved before its SSE generator starts so a
+# racing request cannot create a second child. Only a never-activated reserved
+# claim may be reconciled after this conservative timeout.
+CHAT_RECOVERY_RESERVATION_TTL_SECONDS = max(
+    30,
+    min(int(os.getenv("CHAT_RECOVERY_RESERVATION_TTL_SECONDS", "300")), 3600),
+)
 
 # Optional absolute Skill roots, ordered from highest to lowest priority.
 # The repository's bundled ``skills/`` directory is always appended as the

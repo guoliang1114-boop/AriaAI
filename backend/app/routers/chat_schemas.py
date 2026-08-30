@@ -35,11 +35,18 @@ class TurnSetupTraceInput(BaseModel):
 class TurnRecoveryInput(BaseModel):
     source_run_id: str = Field(min_length=5, max_length=80, pattern=r"^run_[A-Za-z0-9_-]+$")
     source_message_id: int = Field(gt=0)
-    strategy: Literal[
+    # Navigation hints only. Recovery strategy/effects are rebuilt from the
+    # server rollout; these optional v1 fields remain parseable for old UIs.
+    schema_version: Optional[Literal[1, 2]] = None
+    contract_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+    strategy: Optional[Literal[
         "resume_from_checkpoint",
         "retry_failed_step",
         "continue_as_new_turn",
-    ]
+        "replan_from_checkpoint",
+        "retry_read_step",
+        "manual_review",
+    ]] = None
     completed_steps: List[int] = Field(default_factory=list, max_length=32)
     side_effects_possible: bool = False
 

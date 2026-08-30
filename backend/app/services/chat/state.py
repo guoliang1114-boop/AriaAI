@@ -52,6 +52,13 @@ class ChatSessionState:
     turn_receipt: dict[str, Any] = field(default_factory=dict)
     context_receipt: dict[str, Any] = field(default_factory=dict)
     steering_inputs: list[dict[str, Any]] = field(default_factory=list)
+    recovery_effect_records: list[dict[str, Any]] = field(default_factory=list)
+    # Existing artifacts that were byte-for-byte verified while recovering a
+    # prior Run.  Keep these separate from ``artifacts``: the latter is the
+    # producer queue consumed by ``persist_run_artifacts`` and replaying an
+    # existing GeneratedFile through that queue would incorrectly re-parent
+    # the source evidence to the recovery Run.
+    verified_recovery_artifacts: list[dict[str, Any]] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # User-visible text (assembled by the agent loop)
@@ -172,6 +179,52 @@ class ChatSessionState:
             payload["tool_use_id"] = tool_use_id
         self.artifacts.append(payload)
         return payload
+
+    def record_verified_recovery_artifact(
+        self,
+        artifact: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Expose a verified prior artifact without treating it as a new write."""
+
+        payload = dict(artifact)
+        payload["persistence_status"] = "persisted"
+        payload["recovery_verified"] = True
+        identity = (
+            payload.get("id"),
+            str(payload.get("output_id") or ""),
+            str(payload.get("path") or ""),
+        )
+        remaining = [
+            item
+            for item in self.verified_recovery_artifacts
+            if (
+                item.get("id"),
+                str(item.get("output_id") or ""),
+                str(item.get("path") or ""),
+            )
+            != identity
+        ]
+        remaining.append(payload)
+        self.verified_recovery_artifacts = remaining[-64:]
+        return payload
+
+    def delivered_artifacts(self) -> list[dict[str, Any]]:
+        """Return produced and safely reused artifact cards, de-duplicated."""
+
+        by_identity: dict[tuple[Any, str, str], dict[str, Any]] = {}
+        order: list[tuple[Any, str, str]] = []
+        for item in [*self.artifacts, *self.verified_recovery_artifacts]:
+            if not isinstance(item, dict):
+                continue
+            identity = (
+                item.get("id") or item.get("project_file_id"),
+                str(item.get("output_id") or ""),
+                str(item.get("path") or ""),
+            )
+            if identity not in by_identity:
+                order.append(identity)
+            by_identity[identity] = dict(item)
+        return [by_identity[identity] for identity in order[-64:]]
 
     def replace_run_output_records(self, records: list[dict[str, Any]]) -> None:
         self.run_outputs = normalize_run_output_records(records)
