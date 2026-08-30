@@ -33,6 +33,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from typing import Any
 
 from app.routers.chat_schemas import SendMessageRequest
@@ -50,6 +51,7 @@ from app.services.chat.product_run_events import (
 )
 from app.services.agent_harness.run_rollout import (
     activate_prepared_chat_rollout,
+    attach_chat_run_assistant_message,
     begin_chat_rollout,
     build_in_memory_rollout_snapshot,
     checkpoint_chat_rollout,
@@ -65,6 +67,14 @@ from app.services.agent_harness.turn_interrupt import (
 )
 from app.services.agent_harness.durable_run_inputs import (
     finalize_durable_run_inputs,
+)
+from app.config import CHAT_RUN_HEARTBEAT_SECONDS
+from app.services.agent_harness.active_run_lease import (
+    CHAT_RUN_LEASE_LOST_CANCEL_MESSAGE,
+    ChatRunLeaseError,
+    chat_run_lease_from_state,
+    heartbeat_chat_run_lease,
+    new_chat_run_lease,
 )
 from app.services.agent_harness.turn_receipt import build_turn_receipt
 from app.services.agent_harness.context_receipt import build_context_receipt
@@ -101,6 +111,78 @@ def _last_step_retryable(state: ChatSessionState) -> bool:
         return False
     step = state.steps[-1]
     return bool(step.status == "failed" and step.retryable)
+
+
+def _stop_run_lease_heartbeat(state: ChatSessionState) -> None:
+    stop = getattr(state, "run_lease_heartbeat_stop", None)
+    if stop is not None:
+        stop.set()
+
+
+def _is_database_bind(bind: Any) -> bool:
+    """Keep isolated orchestration tests/callers that intentionally use sentinels."""
+
+    return bool(hasattr(bind, "connect") or hasattr(bind, "engine"))
+
+
+def _renew_run_lease(state: ChatSessionState) -> None:
+    """Fence a synchronous persistence boundary to the serving generation."""
+
+    lease = chat_run_lease_from_state(state)
+    if (
+        lease is None
+        or state.rollout_bind is None
+        or not _is_database_bind(state.rollout_bind)
+        or not state.run_id
+    ):
+        return
+    heartbeat_chat_run_lease(
+        state.rollout_bind,
+        run_id=state.run_id,
+        lease=lease,
+    )
+
+
+async def _maintain_run_lease(
+    state: ChatSessionState,
+    *,
+    owner_task: asyncio.Task,
+) -> None:
+    stop = state.run_lease_heartbeat_stop
+    while stop is not None and not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=CHAT_RUN_HEARTBEAT_SECONDS)
+            return
+        except asyncio.TimeoutError:
+            pass
+        if stop.is_set() or state.rollout_finalized:
+            return
+        try:
+            await asyncio.to_thread(_renew_run_lease, state)
+        except ChatRunLeaseError as exc:
+            state.run_lease_lost = True
+            state.record_trace_event(
+                "chat_run_lease_lost",
+                stage="heartbeat",
+                error_code=exc.code,
+            )
+            logger.error(
+                "[run lease] ownership lost run_id=%s code=%s",
+                state.run_id,
+                exc.code,
+            )
+            if not owner_task.done():
+                owner_task.cancel(CHAT_RUN_LEASE_LOST_CANCEL_MESSAGE)
+            return
+        except Exception as exc:
+            # A transient DB error is retried while the current lease window is
+            # still authoritative. Exact phase/final writes independently
+            # fence on the same token and fail closed after expiry.
+            logger.warning(
+                "[run lease] heartbeat failed run_id=%s: %s",
+                state.run_id,
+                exc,
+            )
 
 
 def _mark_active_step_failed(state: ChatSessionState, exc: Exception) -> None:
@@ -147,10 +229,9 @@ def _finalize_rollout_safely(
             error="missing_rollout_identity",
         )
         return False
+    _stop_run_lease_heartbeat(state)
     try:
-        finalize_chat_rollout(
-            state.rollout_bind,
-            state.rollout_task_id,
+        finalize_kwargs = dict(
             status=status,
             message_id=message_id,
             phase=phase,
@@ -158,6 +239,18 @@ def _finalize_rollout_safely(
             error_message=error_message,
             retryable=retryable,
             run_outputs=state.run_outputs,
+        )
+        lease = (
+            chat_run_lease_from_state(state)
+            if _is_database_bind(state.rollout_bind)
+            else None
+        )
+        if lease is not None:
+            finalize_kwargs["lease"] = lease
+        finalize_chat_rollout(
+            state.rollout_bind,
+            state.rollout_task_id,
+            **finalize_kwargs,
         )
         state.rollout_finalized = True
         return True
@@ -308,6 +401,7 @@ def _persist_interrupted_turn(
         metadata["references"] = references
 
     try:
+        _renew_run_lease(state)
         _, assistant_message_id = persist_assistant_message(
             bind,
             runtime.conv_id,
@@ -315,6 +409,14 @@ def _persist_interrupted_turn(
             req.content,
             metadata,
         )
+        if state.rollout_task_id and _is_database_bind(bind):
+            attach_chat_run_assistant_message(
+                bind,
+                run_id=state.run_id,
+                conversation_id=int(runtime.conv_id),
+                message_id=int(assistant_message_id),
+                lease=chat_run_lease_from_state(state),
+            )
         state.assistant_message_id = assistant_message_id
     except Exception as exc:
         logger.error("[chat interrupt persist failed] %s", exc, exc_info=True)
@@ -404,6 +506,7 @@ def _persist_phase_error_events(
         metadata["references"] = references
 
     try:
+        _renew_run_lease(state)
         _, assistant_message_id = persist_assistant_message(
             bind,
             runtime.conv_id,
@@ -411,6 +514,14 @@ def _persist_phase_error_events(
             req.content,
             metadata,
         )
+        if state.rollout_task_id and _is_database_bind(bind):
+            attach_chat_run_assistant_message(
+                bind,
+                run_id=state.run_id,
+                conversation_id=int(runtime.conv_id),
+                message_id=int(assistant_message_id),
+                lease=chat_run_lease_from_state(state),
+            )
     except Exception as persist_exc:
         logger.error("[chat phase error persist failed] %s", persist_exc, exc_info=True)
         _finalize_rollout_safely(
@@ -515,6 +626,11 @@ async def stream_chat_events(
     )
     state.run_id = str(getattr(runtime, "prepared_run_id", "") or "") or make_run_id()
     state.rollout_bind = bind
+    run_lease = new_chat_run_lease()
+    state.run_lease_owner = run_lease.owner
+    state.run_lease_token = run_lease.token
+    state.run_lease_generation = run_lease.generation
+    state.run_lease_ttl_seconds = run_lease.ttl_seconds
     prepared_rollout_task_id = getattr(runtime, "prepared_rollout_task_id", None)
     if isinstance(prepared_rollout_task_id, int) and prepared_rollout_task_id > 0:
         state.rollout_task_id = prepared_rollout_task_id
@@ -526,6 +642,7 @@ async def stream_chat_events(
                 bind,
                 prepared_rollout_task_id,
                 state.run_id,
+                run_lease,
             )
         except Exception as exc:
             logger.error(
@@ -550,6 +667,7 @@ async def stream_chat_events(
                 runtime,
                 req.content,
                 state.run_id,
+                run_lease,
             )
         except Exception as exc:
             logger.warning("[rollout] failed to begin chat rollout: %s", exc)
@@ -610,6 +728,13 @@ async def stream_chat_events(
 
     completed = False
     caught_reason = ""
+    heartbeat_task: asyncio.Task | None = None
+    state.run_lease_heartbeat_stop = asyncio.Event()
+    if active_task is not None:
+        heartbeat_task = asyncio.create_task(
+            _maintain_run_lease(state, owner_task=active_task),
+            name=f"chat-run-heartbeat:{state.run_id}",
+        )
     try:
         async for event in _stream_chat_events_impl(
             runtime,
@@ -621,6 +746,20 @@ async def stream_chat_events(
             yield event
         completed = True
     except asyncio.CancelledError as exc:
+        if CHAT_RUN_LEASE_LOST_CANCEL_MESSAGE in {str(arg) for arg in exc.args}:
+            caught_reason = "worker_lease_lost"
+            completed = True
+            state.run_lease_lost = True
+            yield sse_event(
+                run_failed(
+                    state.run_id,
+                    ErrorCode.PERSISTENCE_ERROR,
+                    "运行工作进程的数据库租约已失效，本轮已停止，且不会自动重放工具或写入。请刷新后核对并继续。",
+                    retryable=True,
+                    fallback_content=state.full_text,
+                )
+            )
+            return
         caught_reason = cancellation_reason(exc)
         if caught_reason == "user_interrupted":
             terminal_status = _persist_interrupted_turn(
@@ -658,8 +797,13 @@ async def stream_chat_events(
             return
         raise
     finally:
+        _stop_run_lease_heartbeat(state)
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat_task
         active_snapshot = get_active_turn(state.run_id) if registered else None
-        if not completed and not state.rollout_finalized:
+        if not completed and not state.rollout_finalized and not state.run_lease_lost:
             reason = caught_reason or (
                 "user_interrupted"
                 if active_snapshot is not None and active_snapshot.interrupt_requested
@@ -827,6 +971,14 @@ async def _stream_chat_events_impl(
     try:
         async for event in run_durable_task(runtime, req, bind, state):
             yield event
+    except ChatRunLeaseError as exc:
+        state.run_lease_lost = True
+        logger.error(
+            "[run lease] durable task fenced run_id=%s code=%s",
+            state.run_id,
+            exc.code,
+        )
+        raise asyncio.CancelledError(CHAT_RUN_LEASE_LOST_CANCEL_MESSAGE) from exc
     except Exception as exc:
         logger.error(
             "[run failed] run_id=%s phase=durable_task exc_type=%s exc=%s",
@@ -897,6 +1049,14 @@ async def _stream_chat_events_impl(
                 deferred_agent_terminal_events.append(event)
             else:
                 yield event
+    except ChatRunLeaseError as exc:
+        state.run_lease_lost = True
+        logger.error(
+            "[run lease] agent loop fenced run_id=%s code=%s",
+            state.run_id,
+            exc.code,
+        )
+        raise asyncio.CancelledError(CHAT_RUN_LEASE_LOST_CANCEL_MESSAGE) from exc
     except Exception as exc:
         logger.error(
             "[run failed] run_id=%s phase=agent_loop exc_type=%s exc=%s",
@@ -933,6 +1093,14 @@ async def _stream_chat_events_impl(
                 deferred_legacy_done = event
             else:
                 yield event
+    except ChatRunLeaseError as exc:
+        state.run_lease_lost = True
+        logger.error(
+            "[run lease] persist fenced run_id=%s code=%s",
+            state.run_id,
+            exc.code,
+        )
+        raise asyncio.CancelledError(CHAT_RUN_LEASE_LOST_CANCEL_MESSAGE) from exc
     except Exception as exc:
         logger.error(
             "[run failed] run_id=%s phase=persist exc_type=%s exc=%s",

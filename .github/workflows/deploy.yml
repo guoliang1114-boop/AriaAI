@@ -237,6 +237,8 @@ jobs:
             trap 'rm -f "$TEST_DATABASE_PATH" "$TEST_DATABASE_PATH-shm" "$TEST_DATABASE_PATH-wal"' EXIT
             "$PYTHON" -m pytest -q \
                 tests/test_agent_harness_native.py \
+                tests/test_active_chat_run_lease.py \
+                tests/test_active_chat_run_lease_migration.py \
                 tests/test_agent_loop_durable_boundaries.py \
                 tests/test_activity_timeline_persist.py \
                 tests/test_approval_envelope.py \

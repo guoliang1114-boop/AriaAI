@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import unittest
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.routers.chat import router as chat_router
 from app.routers.chat_async import (
     ChatTaskStatusResponse,
+    _chat_run_has_live_lease,
     _execute_chat_in_background,
     _latest_background_chat_run,
     _mark_background_chat_run,
@@ -15,6 +17,7 @@ from app.routers.chat_async import (
 from app.routers.chat_schemas import MentionContext, SendMessageRequest
 from app.models.db import Conversation, TaskRun
 from app.services.chat.sse import sse_event
+from app.services.time_utils import utc_now_naive
 from sqlmodel import Session, SQLModel
 from tests.test_database import create_test_engine, drop_all_tables
 
@@ -104,6 +107,22 @@ class BackgroundChatStatusSchemaTestCase(unittest.TestCase):
         self.assertEqual(status.status, "failed")
         self.assertEqual(status.error, "boom")
         self.assertEqual(status.updated_at, "2026-05-19T00:00:00+00:00")
+
+    def test_cross_worker_status_requires_an_unexpired_complete_lease(self):
+        now = utc_now_naive()
+        run = SimpleNamespace(
+            completed_at=None,
+            lease_token="a" * 64,
+            lease_owner="worker_test",
+            lease_expires_at=now + timedelta(seconds=30),
+        )
+
+        self.assertTrue(_chat_run_has_live_lease(run, now=now))
+        run.lease_expires_at = now
+        self.assertFalse(_chat_run_has_live_lease(run, now=now))
+        run.lease_expires_at = now + timedelta(seconds=30)
+        run.lease_owner = ""
+        self.assertFalse(_chat_run_has_live_lease(run, now=now))
 
 
 class BackgroundChatTaskRunPersistenceTestCase(unittest.TestCase):

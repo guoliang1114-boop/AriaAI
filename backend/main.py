@@ -18,6 +18,9 @@ from app.routers import auth as auth_router
 from app.routers.auth import seed_admin_user
 from app.services import scheduler
 from app.services.chat.action_reaper import reap_stale_executing_actions_with_engine
+from app.services.agent_harness.active_run_lease import (
+    reap_stale_chat_runs_with_engine,
+)
 from app.services.chat_store import purge_expired_conversations
 from app.services.token_cache import cache_token, get_cached_user_id, invalidate_token_cache
 
@@ -150,8 +153,16 @@ async def lifespan(app: FastAPI):
             args=[engine],
             metadata={"job_type": "hitas_reaper"},
         )
-        from app.config import KNOWLEDGE_JOB_SWEEP_MINUTES
+        from app.config import CHAT_RUN_REAPER_MINUTES, KNOWLEDGE_JOB_SWEEP_MINUTES
         from app.jobs.knowledge_jobs import run_pending_knowledge_jobs_with_engine
+
+        scheduler.add_or_replace_interval_job(
+            "active_chat_run_lease_reaper",
+            minutes=CHAT_RUN_REAPER_MINUTES,
+            func=reap_stale_chat_runs_with_engine,
+            args=[engine],
+            metadata={"job_type": "active_chat_run_lease_reaper"},
+        )
 
         scheduler.add_or_replace_interval_job(
             "knowledge_ingestion_recovery",

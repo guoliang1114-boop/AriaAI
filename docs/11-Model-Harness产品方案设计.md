@@ -896,6 +896,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 第十二批完成 slot-level 局部重建。调度执行时以持久槽位账本而非最后一个 trigger 计算实际陈旧集合；只读取目标槽位需要的项目/客户来源、只要求模型返回目标 JSON key、只更新目标槽位与其事实生命周期。生成前捕获聚合版本及槽位摘要/版本/失效时间，写入事务内再次锁定验证；并发业务变化会拒绝旧结果并进入既有有界重试。局部 payload 缺 key 或类型错误时自动进行一次全量安全回退，模式和槽位范围进入重建日志/API/UI。手动重建、账本缺失和全部槽位陈旧继续全量更新。确定性门禁扩展为 60 场景、18 项指标；不新增迁移，不引入 Codex 运行时、SDK、协议或通信。
 
+补充进展（2026-08-30）：Phase 3O 已为 active ChatRun 增加数据库 worker lease、fencing token/generation、heartbeat、Assistant Message 终态前投影和跨进程 reaper。模型/工具批次、耐久输入、checkpoint、Persist 与终态共用同一运行代；过期 worker 被收口为可审计 `interrupted`，但绝不自动重放 Provider、工具或业务写。异步后台任务持久关联真实 ChatRun，诊断公开不含 token 的租约状态。字段、索引和一致性约束由幂等迁移 `037_v1_37` 管理；不引入 Codex 运行时、SDK、协议或通信。
+
 范围：
 
 - 工具注册表标准化。（首批已完成）

@@ -123,6 +123,28 @@ CHAT_RECOVERY_RESERVATION_TTL_SECONDS = max(
     30,
     min(int(os.getenv("CHAT_RECOVERY_RESERVATION_TTL_SECONDS", "300")), 3600),
 )
+# An activated ChatRun is fenced to one serving worker. Heartbeats renew the
+# lease well before expiry; the scheduler may mark an expired run interrupted,
+# but never resumes model/tool execution automatically.
+CHAT_RUN_LEASE_SECONDS = max(
+    30,
+    min(int(os.getenv("CHAT_RUN_LEASE_SECONDS", "120")), 900),
+)
+CHAT_RUN_HEARTBEAT_SECONDS = max(
+    5,
+    min(
+        int(os.getenv("CHAT_RUN_HEARTBEAT_SECONDS", "20")),
+        max(5, CHAT_RUN_LEASE_SECONDS // 3),
+    ),
+)
+CHAT_RUN_REAPER_MINUTES = max(
+    1,
+    min(int(os.getenv("CHAT_RUN_REAPER_MINUTES", "1")), 15),
+)
+CHAT_RUN_UNLEASED_GRACE_SECONDS = max(
+    CHAT_RUN_LEASE_SECONDS,
+    min(int(os.getenv("CHAT_RUN_UNLEASED_GRACE_SECONDS", "900")), 7200),
+)
 
 # Optional absolute Skill roots, ordered from highest to lowest priority.
 # The repository's bundled ``skills/`` directory is always appended as the

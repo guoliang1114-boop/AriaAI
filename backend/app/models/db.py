@@ -592,6 +592,16 @@ class ChatRun(SQLModel, table=True):
             "parent_run_id IS NULL OR length(recovery_snapshot_sha256) = 64",
             name="ck_chatrun_recovery_identity",
         ),
+        CheckConstraint(
+            "lease_generation >= 0",
+            name="ck_chatrun_lease_generation",
+        ),
+        CheckConstraint(
+            "(lease_token = '' AND lease_owner = '' AND lease_expires_at IS NULL) "
+            "OR (length(lease_token) = 64 AND length(lease_owner) > 0 "
+            "AND lease_generation > 0 AND lease_expires_at IS NOT NULL)",
+            name="ck_chatrun_active_lease_identity",
+        ),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -633,6 +643,15 @@ class ChatRun(SQLModel, table=True):
     duration_ms: int = 0
     error_code: str = ""
     retryable: bool = False
+    # Active-worker fencing. The opaque token is never returned by an API;
+    # diagnostics expose only owner/generation/timestamps. A terminal Run
+    # clears owner/token/expiry while retaining the last heartbeat and
+    # generation as content-free lifecycle evidence.
+    lease_owner: str = Field(default="", index=True)
+    lease_token: str = ""
+    lease_generation: int = 0
+    lease_expires_at: Optional[datetime] = Field(default=None, index=True)
+    last_heartbeat_at: Optional[datetime] = Field(default=None, index=True)
     started_at: datetime = Field(default_factory=utc_now_naive, index=True)
     completed_at: Optional[datetime] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utc_now_naive)

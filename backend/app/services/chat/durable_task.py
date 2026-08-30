@@ -29,6 +29,10 @@ from app.services.agent_harness.durable_run_inputs import (
     persist_non_steerable_run_state,
 )
 from app.services.agent_harness.run_rollout import finalize_chat_rollout
+from app.services.agent_harness.active_run_lease import (
+    chat_run_lease_from_state,
+    require_chat_run_lease,
+)
 from app.services.agent_harness.turn_interrupt import (
     USER_INTERRUPT_CANCEL_MESSAGE,
     set_active_turn_stage,
@@ -208,6 +212,7 @@ def _raise_if_durable_chat_cancelled(
                 bind,
                 run_id=run_id,
                 conversation_id=conversation_id,
+                lease=chat_run_lease_from_state(state),
             )
         else:
             # The mailbox CAS and linked TaskRun cancellation commit together.
@@ -220,6 +225,7 @@ def _raise_if_durable_chat_cancelled(
                         control_session,
                         run_id=run_id,
                         conversation_id=conversation_id,
+                        lease=chat_run_lease_from_state(state),
                     )
                     if batch.cancel_requested:
                         task_payload = cancel_task_run_in_session(
@@ -302,6 +308,7 @@ def _close_durable_task_completion_boundary(
                     # is not terminal proof.  The outer ChatRun finalizer owns
                     # the applied/unapplied acknowledgement.
                     defer_terminal_ack=task_id is None,
+                    lease=chat_run_lease_from_state(state),
                 )
                 run = control_session.exec(
                     select(ChatRun)
@@ -321,6 +328,7 @@ def _close_durable_task_completion_boundary(
                     raise DurableTaskControlBoundaryError(
                         "Durable task completion run is no longer active"
                     )
+                require_chat_run_lease(run, chat_run_lease_from_state(state))
                 rollout_task_id = int(run.task_run_id)
                 expected_rollout_task_id = getattr(state, "rollout_task_id", None)
                 if (
@@ -426,6 +434,7 @@ def _finalize_durable_task_before_done(
                 raise DurableTaskControlBoundaryError(
                     "Durable task completion run is no longer active"
                 )
+            require_chat_run_lease(run, chat_run_lease_from_state(state))
             if str(run.phase or "").strip().lower() != "durable_task_done":
                 raise DurableTaskControlBoundaryError(
                     "Durable task completion boundary is not closed"
@@ -460,6 +469,7 @@ def _finalize_durable_task_before_done(
             message_id=int(message_id),
             phase=terminal_phase,
             run_outputs=state.run_outputs,
+            lease=chat_run_lease_from_state(state),
         )
     except Exception as exc:
         logger.exception(
@@ -501,6 +511,7 @@ def _persist_non_steerable_boundary(
             conversation_id=conversation_id,
             action_policy=action_policy,
             phase=phase,
+            lease=chat_run_lease_from_state(state),
         )
     except Exception as exc:
         logger.exception(

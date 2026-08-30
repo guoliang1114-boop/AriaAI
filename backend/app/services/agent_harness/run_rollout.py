@@ -49,6 +49,13 @@ from app.services.agent_harness.durable_run_inputs import (
     claim_durable_run_inputs_in_session,
     recovery_run_identity_from_runtime,
 )
+from app.services.agent_harness.active_run_lease import (
+    ChatRunLease,
+    bind_new_chat_run_lease,
+    chat_run_lease_from_state,
+    clear_chat_run_lease,
+    require_chat_run_lease,
+)
 
 ROLLOUT_SCHEMA_VERSION = 1
 ROLLOUT_TASK_TYPE = "chat_rollout"
@@ -68,6 +75,7 @@ _TERMINAL_EVENT_STATUS = {
     "run_failed": "failed",
     "run_waiting_confirmation": "waiting_confirmation",
     "run_cancelled": "cancelled",
+    "run_interrupted": "interrupted",
 }
 
 
@@ -400,6 +408,7 @@ def _begin_chat_rollout_in_session(
     *,
     commit: bool,
     require_exact_source: bool,
+    lease: ChatRunLease | None = None,
 ) -> int:
     now = utc_now_naive()
     prepare_metrics = getattr(runtime, "prepare_metrics", None)
@@ -504,6 +513,8 @@ def _begin_chat_rollout_in_session(
             updated_at=now,
     )
     session.add(chat_run)
+    if lease is not None and not is_recovery_reservation:
+        bind_new_chat_run_lease(chat_run, lease, now=now)
     if is_recovery_reservation and source_message is not None:
         source_metadata = source_message.get_metadata()
         source_metadata["recovery_reservation"] = {
@@ -543,7 +554,13 @@ def _begin_chat_rollout_in_session(
     return _task_run_id(task)
 
 
-def begin_chat_rollout(bind: Any, runtime: Any, request_content: str, run_id: str) -> int:
+def begin_chat_rollout(
+    bind: Any,
+    runtime: Any,
+    request_content: str,
+    run_id: str,
+    lease: ChatRunLease | None = None,
+) -> int:
     """Create and commit a durable Aria rollout before model/tool execution."""
 
     with Session(bind) as session:
@@ -554,6 +571,7 @@ def begin_chat_rollout(bind: Any, runtime: Any, request_content: str, run_id: st
             run_id,
             commit=True,
             require_exact_source=False,
+            lease=lease,
         )
 
 
@@ -572,10 +590,16 @@ def reserve_prepared_chat_rollout(
         run_id,
         commit=False,
         require_exact_source=True,
+        lease=None,
     )
 
 
-def activate_prepared_chat_rollout(bind: Any, task_id: int, run_id: str) -> None:
+def activate_prepared_chat_rollout(
+    bind: Any,
+    task_id: int,
+    run_id: str,
+    lease: ChatRunLease | None = None,
+) -> None:
     """Atomically activate one exact recovery reservation at stream entry."""
 
     now = utc_now_naive()
@@ -627,6 +651,8 @@ def activate_prepared_chat_rollout(bind: Any, task_id: int, run_id: str) -> None
         chat_run.phase = "run_start"
         chat_run.started_at = now
         chat_run.updated_at = now
+        if lease is not None:
+            bind_new_chat_run_lease(chat_run, lease, now=now)
         source_metadata = source_message.get_metadata()
         source_metadata["recovery_reservation"] = {
             **source_reservation,
@@ -659,6 +685,7 @@ def close_chat_run_input_boundary(
     phase: str,
     force_close: bool = False,
     claim_steering: bool = True,
+    lease: ChatRunLease | None = None,
 ) -> DurableRunInputBatch:
     """Claim committed inputs and close one Run phase in a single transaction.
 
@@ -687,6 +714,7 @@ def close_chat_run_input_boundary(
                 session,
                 run_id=run_id,
                 conversation_id=conversation_id,
+                lease=lease,
             )
         else:
             batch = claim_durable_run_cancel_in_session(
@@ -694,6 +722,7 @@ def close_chat_run_input_boundary(
                 run_id=run_id,
                 conversation_id=conversation_id,
                 defer_terminal_ack=True,
+                lease=lease,
             )
         run = session.exec(
             select(ChatRun)
@@ -716,6 +745,7 @@ def close_chat_run_input_boundary(
                 "run_not_active",
                 "Durable chat run is no longer active",
             )
+        require_chat_run_lease(run, lease)
 
         should_close = (
             not claim_steering
@@ -736,7 +766,20 @@ def checkpoint_chat_rollout(bind: Any, task_id: int, step: Any, state: Any) -> d
 
     checkpoint = build_step_checkpoint(step, state)
     with Session(bind) as session:
-        task = session.get(TaskRun, task_id)
+        chat_run = session.exec(
+            select(ChatRun)
+            .where(ChatRun.task_run_id == task_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if chat_run is not None:
+            require_chat_run_lease(chat_run, chat_run_lease_from_state(state))
+        task = session.exec(
+            select(TaskRun)
+            .where(TaskRun.id == task_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
         if task is None or task.task_type != ROLLOUT_TASK_TYPE:
             raise ValueError(f"chat rollout task not found: {task_id}")
         step_index = int(checkpoint["step_index"])
@@ -776,12 +819,6 @@ def checkpoint_chat_rollout(bind: Any, task_id: int, step: Any, state: Any) -> d
             task.status = "paused"
         session.add(record)
         session.add(task)
-        chat_run = session.exec(
-            select(ChatRun)
-            .where(ChatRun.task_run_id == task_id)
-            .execution_options(populate_existing=True)
-            .with_for_update()
-        ).first()
         if chat_run is not None:
             chat_run.status = "waiting_confirmation" if status == "waiting_confirmation" else "running"
             if status == "waiting_confirmation":
@@ -819,6 +856,60 @@ def _records_for_task(session: Session, task_id: int) -> list[dict[str, Any]]:
     ]
 
 
+def attach_chat_run_assistant_message(
+    bind: Any,
+    *,
+    run_id: str,
+    conversation_id: int,
+    message_id: int,
+    lease: ChatRunLease | None = None,
+) -> None:
+    """Bind a persisted Assistant Message before the terminal Run commit.
+
+    Message persistence remains owned by the chat store. This short follow-up
+    transaction makes a crash between Message commit and terminal Rollout
+    commit reconstructable, while exact lease fencing prevents a stale worker
+    from attaching its late result after the reaper wins.
+    """
+
+    with Session(bind) as session:
+        run = session.exec(
+            select(ChatRun)
+            .where(ChatRun.run_id == str(run_id or "").strip())
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if run is None or run.id is None:
+            raise ValueError("chat run assistant projection is unavailable")
+        require_chat_run_lease(run, lease)
+        if int(run.conversation_id) != int(conversation_id):
+            raise ValueError("chat run assistant projection conversation mismatch")
+        message = session.get(Message, int(message_id))
+        if (
+            message is None
+            or message.role != "assistant"
+            or int(message.conversation_id) != int(conversation_id)
+        ):
+            raise ValueError("chat run assistant projection message mismatch")
+        if run.assistant_message_id is not None:
+            if int(run.assistant_message_id) != int(message_id):
+                raise ValueError("chat run already references another assistant message")
+            return
+        task = session.exec(
+            select(TaskRun)
+            .where(TaskRun.id == int(run.task_run_id))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if task is None or task.task_type != ROLLOUT_TASK_TYPE:
+            raise ValueError("chat rollout task is unavailable")
+        _append_event(session, task, "message_persisted", {"message_id": int(message_id)})
+        run.assistant_message_id = int(message_id)
+        run.updated_at = utc_now_naive()
+        session.add(run)
+        session.commit()
+
+
 def finalize_chat_rollout(
     bind: Any,
     task_id: int,
@@ -830,6 +921,7 @@ def finalize_chat_rollout(
     error_message: str = "",
     retryable: bool = False,
     run_outputs: list[dict[str, Any]] | None = None,
+    lease: ChatRunLease | None = None,
 ) -> dict[str, Any]:
     """Append one terminal boundary and store the reconstructed snapshot."""
 
@@ -842,11 +934,28 @@ def finalize_chat_rollout(
     if status not in event_type_by_status:
         raise ValueError(f"unsupported rollout terminal status: {status}")
     with Session(bind) as session:
-        task = session.get(TaskRun, task_id)
+        chat_run = session.exec(
+            select(ChatRun)
+            .where(ChatRun.task_run_id == task_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if chat_run is not None:
+            require_chat_run_lease(chat_run, lease)
+        task = session.exec(
+            select(TaskRun)
+            .where(TaskRun.id == task_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
         if task is None or task.task_type != ROLLOUT_TASK_TYPE:
             raise ValueError(f"chat rollout task not found: {task_id}")
         if message_id is not None:
-            _append_event(session, task, "message_persisted", {"message_id": message_id})
+            if chat_run is not None and chat_run.assistant_message_id is not None:
+                if int(chat_run.assistant_message_id) != int(message_id):
+                    raise ValueError("chat run already references another assistant message")
+            else:
+                _append_event(session, task, "message_persisted", {"message_id": message_id})
         _append_event(
             session,
             task,
@@ -870,10 +979,10 @@ def finalize_chat_rollout(
         snapshot = reconstruct_rollout(_records_for_task(session, task_id), task_status=task.status)
         task.output_json = _json_dumps(snapshot)
         session.add(task)
-        chat_run = session.exec(select(ChatRun).where(ChatRun.task_run_id == task_id)).first()
         if chat_run is not None:
             steps = list(snapshot.get("steps") or [])
-            chat_run.assistant_message_id = message_id
+            if message_id is not None:
+                chat_run.assistant_message_id = message_id
             chat_run.status = status
             chat_run.phase = phase or "completed"
             chat_run.step_count = len(steps)
@@ -889,6 +998,7 @@ def finalize_chat_rollout(
                 0,
                 int((now - chat_run.started_at).total_seconds() * 1000),
             )
+            clear_chat_run_lease(chat_run)
             session.add(chat_run)
             session.flush()
             if chat_run.skill_rollout_id:

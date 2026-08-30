@@ -55,6 +55,23 @@ def _chat_run_payload(run: ChatRun) -> dict:
         "duration_ms": run.duration_ms,
         "error_code": run.error_code or None,
         "retryable": run.retryable,
+        "worker_lease": {
+            "state": (
+                "released"
+                if not run.lease_token and run.completed_at is not None
+                else "active"
+                if run.lease_token and run.lease_expires_at is not None
+                else "missing"
+            ),
+            "owner": run.lease_owner or None,
+            "generation": run.lease_generation,
+            "expires_at": (
+                run.lease_expires_at.isoformat() if run.lease_expires_at else None
+            ),
+            "last_heartbeat_at": (
+                run.last_heartbeat_at.isoformat() if run.last_heartbeat_at else None
+            ),
+        },
         "started_at": run.started_at.isoformat(),
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
         "updated_at": run.updated_at.isoformat(),

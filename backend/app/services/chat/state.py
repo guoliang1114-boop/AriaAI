@@ -39,6 +39,12 @@ class ChatSessionState:
     run_id: str = ""
     rollout_task_id: int | None = None
     rollout_bind: Any = field(default=None, repr=False)
+    run_lease_owner: str = field(default="", repr=False)
+    run_lease_token: str = field(default="", repr=False)
+    run_lease_generation: int = field(default=0, repr=False)
+    run_lease_ttl_seconds: int = field(default=0, repr=False)
+    run_lease_lost: bool = False
+    run_lease_heartbeat_stop: Any = field(default=None, repr=False)
     assistant_message_id: int | None = None
     rollout_finalized: bool = False
     turn_budget: Any = field(default=None, repr=False)

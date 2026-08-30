@@ -63,6 +63,11 @@ from app.services.project_core import init_default_project_folders, lock_and_req
 from app.services.project_documents import create_project_document_record
 from app.services.time_utils import utc_now_naive
 from app.services.chat_store import persist_assistant_message, persist_run_artifacts
+from app.services.agent_harness.active_run_lease import (
+    chat_run_lease_from_state,
+    heartbeat_chat_run_lease,
+)
+from app.services.agent_harness.run_rollout import attach_chat_run_assistant_message
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
 from app.services.chat.trace import persist_chat_trace
@@ -617,6 +622,14 @@ async def run_persist(
     """
     from app.services.chat.tool_repair import extract_tool_use_json_blocks
 
+    lease = chat_run_lease_from_state(state)
+    if lease is not None and state.run_id:
+        heartbeat_chat_run_lease(
+            bind,
+            run_id=state.run_id,
+            lease=lease,
+        )
+
     # Prefer the orchestrator-stamped start time (set in stream_chat_events).
     # The legacy reconstruction below from stage_timings["total_stream_ms"]
     # only worked for the durable-task early-exit path — for normal chat the
@@ -723,6 +736,12 @@ async def run_persist(
         )
 
     # Persist artifacts
+    if lease is not None and state.run_id:
+        heartbeat_chat_run_lease(
+            bind,
+            run_id=state.run_id,
+            lease=lease,
+        )
     if state.artifacts:
         artifact_batch = persist_run_artifacts(
             bind,
@@ -1368,6 +1387,12 @@ async def run_persist(
         )
 
     # Persist assistant message
+    if lease is not None and state.run_id:
+        heartbeat_chat_run_lease(
+            bind,
+            run_id=state.run_id,
+            lease=lease,
+        )
     effective_user_content = req.content
     if state.steering_inputs:
         effective_user_content = "\n\n".join(
@@ -1385,6 +1410,14 @@ async def run_persist(
         effective_user_content,
         metadata or None,
     )
+    if state.run_id and state.rollout_task_id and assistant_message_id is not None:
+        attach_chat_run_assistant_message(
+            bind,
+            run_id=state.run_id,
+            conversation_id=int(runtime.conv_id),
+            message_id=int(assistant_message_id),
+            lease=lease,
+        )
     if pending_action_ids and assistant_message_id:
         try:
             with Session(bind) as session:

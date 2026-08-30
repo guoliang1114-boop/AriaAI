@@ -13,11 +13,12 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models.db import TaskEvent, TaskRun, User
+from app.models.db import ChatRun, TaskEvent, TaskRun, User
 from app.routers.auth import get_current_user
 from app.routers.chat_security import require_chat_request_access, require_conversation_access
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat_streaming import prepare_chat_runtime_async, stream_chat_events
+from app.services.chat.product_run_events import make_run_id
 from app.services.time_utils import utc_now_naive
 
 logger = logging.getLogger(__name__)
@@ -73,13 +74,17 @@ def _append_task_event(session: Session, task_id: int, event_type: str, message:
 
 
 def _create_background_chat_run(session: Session, runtime, req: SendMessageRequest) -> TaskRun:
+    input_payload = req.model_dump(mode="json")
+    assigned_run_id = str(getattr(runtime, "prepared_run_id", "") or "")
+    if assigned_run_id:
+        input_payload["chat_run_id"] = assigned_run_id
     task = TaskRun(
         project_id=req.project_id,
         conversation_id=runtime.conv_id,
         task_type="background_chat",
         goal=(req.content or "")[:240],
         status="pending",
-        input_json=_safe_json(req.model_dump(mode="json")),
+        input_json=_safe_json(input_payload),
         created_at=utc_now_naive(),
         updated_at=utc_now_naive(),
     )
@@ -90,7 +95,10 @@ def _create_background_chat_run(session: Session, runtime, req: SendMessageReque
         task.id,
         "task_created",
         "后台对话任务已创建",
-        {"conversation_id": runtime.conv_id},
+        {
+            "conversation_id": runtime.conv_id,
+            "chat_run_id": assigned_run_id or None,
+        },
     )
     session.commit()
     session.refresh(task)
@@ -124,6 +132,51 @@ def _mark_background_chat_run(bind, task_id: int | None, status: str, message: s
         session.commit()
 
 
+def _link_background_chat_run(bind, task_id: int | None, run_id: str) -> None:
+    if not task_id or not run_id:
+        return
+    with Session(bind) as session:
+        task = session.get(TaskRun, int(task_id))
+        if task is None:
+            return
+        try:
+            payload = json.loads(task.input_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        if payload.get("chat_run_id") == run_id:
+            return
+        payload["chat_run_id"] = run_id
+        task.input_json = _safe_json(payload)
+        task.updated_at = utc_now_naive()
+        session.add(task)
+        session.commit()
+
+
+def _background_chat_run_id(task: TaskRun | None) -> str:
+    if task is None:
+        return ""
+    try:
+        payload = json.loads(task.input_json or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return ""
+    return str(payload.get("chat_run_id") or "") if isinstance(payload, dict) else ""
+
+
+def _chat_run_has_live_lease(run: ChatRun, *, now: datetime | None = None) -> bool:
+    """Return cross-worker liveness only while the durable lease is valid."""
+
+    expires_at = run.lease_expires_at
+    return bool(
+        run.completed_at is None
+        and run.lease_token
+        and run.lease_owner
+        and expires_at is not None
+        and expires_at > (now or utc_now_naive())
+    )
+
+
 def _latest_background_chat_run(session: Session, conversation_id: int) -> TaskRun | None:
     return session.exec(
         select(TaskRun)
@@ -142,6 +195,8 @@ async def _execute_chat_in_background(runtime, req: SendMessageRequest, bind, ta
     _mark_background_chat_run(bind, task_run_id, "running", "后台对话任务开始执行")
     try:
         phase_error: dict | None = None
+        terminal_failure: dict | None = None
+        linked_run_id = ""
         async for event in stream_chat_events(runtime, req, bind):
             # Events are consumed but not streamed to any client.
             # persist_assistant_message inside stream_chat_events saves the result.
@@ -149,10 +204,18 @@ async def _execute_chat_in_background(runtime, req: SendMessageRequest, bind, ta
             metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else payload
             if isinstance(metadata, dict) and isinstance(metadata.get("phase_error"), dict):
                 phase_error = metadata["phase_error"]
-        if phase_error:
+            event_type = str(payload.get("type") or "")
+            event_run_id = str(payload.get("run_id") or "")
+            if event_run_id and not linked_run_id:
+                linked_run_id = event_run_id
+                _link_background_chat_run(bind, task_run_id, linked_run_id)
+            if event_type == "run_failed":
+                terminal_failure = payload
+        if phase_error or terminal_failure:
             error_message = str(
-                phase_error.get("friendly_message")
-                or phase_error.get("message")
+                (phase_error or {}).get("friendly_message")
+                or (phase_error or {}).get("message")
+                or (terminal_failure or {}).get("message")
                 or "后台对话任务执行失败"
             )
             _background_chat_status[runtime.conv_id] = {
@@ -221,6 +284,8 @@ async def send_message_async(
             detail="Turn recovery requires the interactive /chat/send endpoint",
         )
     runtime = await prepare_chat_runtime_async(session, req, owner_user_id=current_user.id)
+    if not str(getattr(runtime, "prepared_run_id", "") or ""):
+        runtime.prepared_run_id = make_run_id()
     bind = session.get_bind()
     task_run = _create_background_chat_run(session, runtime, req)
 
@@ -259,9 +324,25 @@ def get_chat_task_status(
     task_run = _latest_background_chat_run(session, conversation_id)
     messages = get_conversation_messages(session, conversation_id, limit=1)
     persisted_status = task_run.status if task_run else None
+    chat_run_id = _background_chat_run_id(task_run)
+    chat_run = (
+        session.exec(select(ChatRun).where(ChatRun.run_id == chat_run_id)).first()
+        if chat_run_id
+        else None
+    )
 
     if is_running:
         status = "running"
+    elif chat_run is not None and _chat_run_has_live_lease(chat_run):
+        # Cross-worker authoritative liveness. The local registry is only the
+        # fast path; the ChatRun lease identifies an active remote worker.
+        status = "running"
+    elif chat_run is not None and chat_run.completed_at is not None:
+        status = chat_run.status
+    elif chat_run is not None:
+        # An expired, missing, or malformed lease is not worker liveness. The
+        # scheduled reaper will persist the exact interrupted reason shortly.
+        status = "stale"
     elif status_record.get("status"):
         status = status_record.get("status")
     elif persisted_status == "running":

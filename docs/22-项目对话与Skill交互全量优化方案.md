@@ -427,7 +427,17 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 恢复来源 Run/会话/项目、`GeneratedFile/ProjectFile`、output identity、受控路径与真实字节 SHA-256 必须全部精确匹配，才复用附件。恢复守卫的多动作 HITAS 批次在任何业务写入前拒绝，必须拆成单动作预览并逐次确认。
 - 卡片显示已验证/待处理 effect 数、状态变化和重复处理策略；无法验证的内部代码不直接暴露给用户。HTTP 200 不等于激活：前端等到 `conversation_id` 或 `run_started` 才发布本地恢复用户气泡，且只接受同一 `run_id` 的 `run_started`→`run_done(completed|waiting_confirmation)` 为成功。用户停止、`run_done(cancelled)`、网络、SSE 错误/空流、`run_failed`、缺失启动身份、终态身份不一致或并发确认都不会误报恢复成功；激活前取消不生成本地 Assistant 气泡，409 会清除旧草稿并要求重新预览。
 - Assistant Message/交付证据持久化后，必须先提交 Rollout/`ChatRun` 终态，才释放 legacy `done` 和 Product `run_done`；终态提交失败只发 `run_failed(PERSISTENCE_ERROR)`，不会产生成功假象。
-- 迁移 `036_v1_36` 增加恢复 parent/snapshot 唯一身份与耐久输入表。当前没有 active `ChatRun` worker lease、heartbeat 或通用 reaper；仅能在 TTL 后审计失效尚未激活且无 Assistant Message 的 `reserved` 恢复子 Run。active Run lease/reaper 属于 Phase 3O，不在 036 中。该阶段不恢复 Codex transcript，不运行或连接 Codex；项目、消息、记忆、Skill、任务、工具、权限、审批和审计全部继续属于 Aria。
+- 迁移 `036_v1_36` 增加恢复 parent/snapshot 唯一身份与耐久输入表；未激活且无 Assistant Message 的 `reserved` 恢复子 Run 继续使用独立 TTL。激活后的 active Run lease/reaper 已由 Phase 3O 和 `037_v1_37` 落地，两类超时不会互相接管。
+
+### Phase 3O：active Run 租约、心跳与跨进程故障收口（已实施）
+
+- 每个新 ChatRun 在正常启动或恢复预留激活时绑定内部 worker owner hash、64-hex fencing token、generation、heartbeat 与 expiry；同步 SSE 和异步后台聊天使用同一事实源。token 不出现在 API、事件、消息、Trace 或日志。
+- 邮箱领取/关闭、工具批次、Durable Task 控制、checkpoint、Persist、Assistant Message 投影和终态提交均要求精确运行代且租约未过期。租约丢失会停止当前 worker，迟到结果不能写成新的 checkpoint、Message 绑定或成功终态；lease 只证明执行代，不替代 Aria ACL、HITAS 或业务授权。
+- Assistant Message 保存后、终态提交前会先用同一租约挂接 ChatRun 并追加一次 `message_persisted`。进程在此后崩溃时，reaper 可以保留精确 Assistant 身份与 Rollout；若崩溃发生得更早、没有可核验 Assistant，则只允许 fresh Turn，不伪造“安全续跑”。
+- Scheduler 使用 PostgreSQL `FOR UPDATE SKIP LOCKED` 回收确实过期的 active Run，并把异常收口为 `interrupted + retryable`、`run_interrupted` 和 `unapplied` 邮箱输入。它不接管、不续跑、不重放 Provider/工具/业务写；正常 heartbeat/checkpoint/finalizer 已持锁的 Run 会被跳过。
+- 异步包装 TaskRun 持久保存真实 ChatRun ID；跨 worker 查询优先读取 ChatRun lease/terminal，而非只看当前 Python 进程的 task registry。诊断接口显示无敏感 token 的 owner hash、generation、heartbeat 和 expiry。
+- 幂等迁移 `037_v1_37` 增加租约字段、索引与一致性 CHECK，并保持单一 Alembic head。运行参数具有保守默认值和硬上下限；滚动部署期间的旧无租约 active Run 只有超过独立保护期才会被收口。
+- 本阶段不恢复 Codex transcript，不运行或连接 Codex；项目、消息、记忆、Skill、任务、工具、权限、审批和审计全部继续属于 Aria。
 
 ## 11. 官方资料与许可证
 

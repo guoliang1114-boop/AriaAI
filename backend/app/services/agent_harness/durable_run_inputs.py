@@ -30,6 +30,10 @@ from app.services.agent_harness.turn_interrupt import (
     SteeringInput,
 )
 from app.services.time_utils import utc_now_naive
+from app.services.agent_harness.active_run_lease import (
+    ChatRunLease,
+    require_chat_run_lease,
+)
 
 
 INPUT_KIND_STEERING = "steering"
@@ -156,6 +160,24 @@ def _locked_run(
     ).first()
 
 
+def _run_lease_accepts_input(run: ChatRun) -> bool:
+    """Reject a known leased generation after expiry, before the reaper runs."""
+
+    generation = int(getattr(run, "lease_generation", 0) or 0)
+    if generation == 0:
+        # Rolling-upgrade/direct-fixture compatibility for pre-v1.37 rows.
+        return True
+    token = str(getattr(run, "lease_token", "") or "")
+    owner = str(getattr(run, "lease_owner", "") or "")
+    expires_at = getattr(run, "lease_expires_at", None)
+    return bool(
+        token
+        and owner
+        and expires_at is not None
+        and expires_at > utc_now_naive()
+    )
+
+
 def _require_active_run(
     session: Session,
     *,
@@ -175,6 +197,11 @@ def _require_active_run(
             "run_not_active",
             "Durable chat run is no longer active",
         )
+    if not _run_lease_accepts_input(run):
+        raise DurableRunInputRejected(
+            "run_lease_inactive",
+            "Durable chat run worker lease is no longer active",
+        )
     return run
 
 
@@ -190,6 +217,11 @@ def resolve_active_durable_run(session: Session, *, run_id: str) -> ChatRun:
         raise DurableRunInputRejected(
             "run_not_active",
             "Durable chat run is no longer active",
+        )
+    if not _run_lease_accepts_input(run):
+        raise DurableRunInputRejected(
+            "run_lease_inactive",
+            "Durable chat run worker lease is no longer active",
         )
     return run
 
@@ -270,6 +302,7 @@ def persist_non_steerable_run_state(
     conversation_id: int,
     action_policy: str,
     phase: str,
+    lease: ChatRunLease | None = None,
 ) -> None:
     """Persist a cross-worker-visible non-steerable execution boundary."""
 
@@ -287,6 +320,7 @@ def persist_non_steerable_run_state(
             run_id=run_id,
             conversation_id=conversation_id,
         )
+        require_chat_run_lease(run, lease)
         if normalized_policy:
             run.action_policy = normalized_policy
         run.phase = normalized_phase
@@ -483,6 +517,7 @@ def claim_durable_run_inputs_in_session(
     *,
     run_id: str,
     conversation_id: int,
+    lease: ChatRunLease | None = None,
 ) -> DurableRunInputBatch:
     """Stage an authoritative input claim in the caller's transaction.
 
@@ -505,6 +540,7 @@ def claim_durable_run_inputs_in_session(
             "conversation_mismatch",
             "Authoritative durable chat run conversation mismatch",
         )
+    require_chat_run_lease(run, lease)
 
     rows = list(
         session.exec(
@@ -620,6 +656,7 @@ def claim_durable_run_inputs(
     *,
     run_id: str,
     conversation_id: int,
+    lease: ChatRunLease | None = None,
 ) -> DurableRunInputBatch:
     """Atomically commit accepted inputs at one Agent Loop safe boundary."""
 
@@ -628,6 +665,7 @@ def claim_durable_run_inputs(
             session,
             run_id=run_id,
             conversation_id=conversation_id,
+            lease=lease,
         )
         session.commit()
         return batch
@@ -639,6 +677,7 @@ def claim_durable_run_cancel_in_session(
     run_id: str,
     conversation_id: int,
     defer_terminal_ack: bool = False,
+    lease: ChatRunLease | None = None,
 ) -> DurableRunInputBatch:
     """Stage a cancel-only claim in the caller's current transaction.
 
@@ -663,6 +702,7 @@ def claim_durable_run_cancel_in_session(
             "conversation_mismatch",
             "Authoritative durable chat run conversation mismatch",
         )
+    require_chat_run_lease(run, lease)
 
     cancel_rows = list(
         session.exec(
@@ -742,6 +782,7 @@ def claim_durable_run_cancel(
     *,
     run_id: str,
     conversation_id: int,
+    lease: ChatRunLease | None = None,
 ) -> DurableRunInputBatch:
     """Atomically commit a cancel-only claim without touching lone steering."""
 
@@ -750,6 +791,7 @@ def claim_durable_run_cancel(
             session,
             run_id=run_id,
             conversation_id=conversation_id,
+            lease=lease,
         )
         session.commit()
         return batch

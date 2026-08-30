@@ -61,6 +61,11 @@ from app.services.agent_harness.turn_interrupt import (
     set_active_turn_stage,
 )
 from app.services.agent_harness.durable_run_inputs import claim_durable_run_inputs
+from app.services.agent_harness.active_run_lease import (
+    ChatRunLeaseError,
+    chat_run_lease_from_state,
+    heartbeat_chat_run_lease,
+)
 from app.services.chat.agent_step import AgentStep, build_agent_step_event
 from app.services.chat.product_run_events import (
     StepCompletedStatus,
@@ -257,12 +262,14 @@ def _drain_steering_boundary(
                     phase=close_phase,
                     force_close=force_close,
                     claim_steering=claim_steering,
+                    lease=chat_run_lease_from_state(state),
                 )
             else:
                 durable_batch = claim_durable_run_inputs(
                     state.rollout_bind,
                     run_id=state.run_id,
                     conversation_id=conversation_id,
+                    lease=chat_run_lease_from_state(state),
                 )
         except Exception as exc:
             logger.exception(
@@ -935,6 +942,14 @@ def _checkpoint_step(state: ChatSessionState, step: AgentStep) -> None:
             step,
             state,
         )
+    except ChatRunLeaseError as exc:
+        state.run_lease_lost = True
+        state.record_trace_event(
+            "rollout_checkpoint_fenced",
+            stage=f"step_{step.index}",
+            error_code=exc.code,
+        )
+        raise
     except Exception as exc:
         logger.warning("[rollout] failed to persist step checkpoint: %s", exc)
         state.record_trace_event(
@@ -942,6 +957,17 @@ def _checkpoint_step(state: ChatSessionState, step: AgentStep) -> None:
             stage=f"step_{step.index}",
             error=str(exc)[:500],
         )
+
+
+def _renew_tool_execution_lease(state: ChatSessionState) -> None:
+    lease = chat_run_lease_from_state(state)
+    if lease is None or state.rollout_bind is None or not state.run_id:
+        return
+    heartbeat_chat_run_lease(
+        state.rollout_bind,
+        run_id=state.run_id,
+        lease=lease,
+    )
 
 
 _PARALLEL_TOOL_STATE_LIST_FIELDS = (
@@ -1276,6 +1302,10 @@ async def _run_agent_loop_impl(
                     for event in steering_events:
                         yield event
                     break
+
+            # Provider output is only a plan. Re-fence the exact serving
+            # generation immediately before any tool can perform a read/write.
+            _renew_tool_execution_lease(state)
 
             # Emit every running event before a parallel batch begins. Terminal
             # events and model-visible results are still replayed in call order.

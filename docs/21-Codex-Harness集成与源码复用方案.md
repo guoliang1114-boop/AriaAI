@@ -795,7 +795,20 @@ Skill 运行契约同步也移除了旧的 `type=legacy` 假工具占位符。�
 - 前端恢复卡片展示策略、已验证/待处理 effect 数、项目状态变化和重复处理策略。HTTP 200 仅表示打开 StreamingResponse；本地恢复用户气泡要等到激活后才可发出的 `conversation_id` 或 `run_started`，成功则必须等到同一 `run_id` 的 `run_started`→`run_done(completed|waiting_confirmation)`。用户停止、`run_done(cancelled)`、网络/HTTP/SSE 空流、`run_failed`、缺失启动身份、终态身份不一致和并发恢复均不会误报“已创建”；激活前取消不生成本地 Assistant 气泡。旧 v1 与不能证明的 effect 只允许人工复核。
 - Assistant Message/交付证据持久化后，普通 Agent Loop 仍须先将 Rollout/`ChatRun` 终态事务提交成功，才释放 legacy `done` 和 Product `run_done`。终态提交失败仅发送 `run_failed(PERSISTENCE_ERROR)`，不发送成功收口；预算/完成证据失败也只在对应失败终态提交后对外结束。
 
-数据库变更由幂等迁移 `036_v1_36` 管理，并保持单一 Alembic head。当前没有 active `ChatRun` worker lease、heartbeat 或通用 reaper；未激活恢复预留的 TTL 不能接管已激活 Run。该能力属于 Phase 3O，不在 `036_v1_36` 中。实现不恢复 Codex Provider transcript，不引入 Codex App Server、SDK、子进程、协议、账号或通信。所有 Run、effect、项目事实、任务、权限、HITAS 和审计状态仍由 Aria 原生服务拥有。
+数据库变更由幂等迁移 `036_v1_36` 管理，并保持单一 Alembic head。未激活恢复预留的 TTL 不接管已激活 Run；激活后的通用存活治理由后续 Phase 3O / `037_v1_37` 独立负责。实现不恢复 Codex Provider transcript，不引入 Codex App Server、SDK、子进程、协议、账号或通信。所有 Run、effect、项目事实、任务、权限、HITAS 和审计状态仍由 Aria 原生服务拥有。
+
+### Phase 3O：active ChatRun worker lease 与跨进程回收（已实施）
+
+本阶段把 Aria 已用于知识任务的“有时限租约 + fencing generation + 不自动重放”原则扩展到普通对话运行，同时延续 Codex task/abort 与 Rollout 中稳定运行身份、终态重建的最小机制边界。实现仍是 Aria Python/SQLModel/TaskRun，不引入第二运行时：
+
+- 每个同步或异步 ChatRun 在正常启动或恢复预留激活时生成内部 64-hex token、内容安全 owner hash、单调 generation、expiry 与 heartbeat。token 不进入 API、事件、日志、Message、Trace 或前端；诊断只返回 owner hash、generation 和时间。
+- Agent Loop 邮箱领取/关闭、Durable Task 控制、step checkpoint、每批工具执行前、Persist、Assistant Message 投影与 Rollout 终态全部校验精确 owner/token/generation 和未过期时间。Provider 输出不是执行授权；租约丢失会取消本 worker，且不会继续提交迟到工具、消息或成功终态。
+- Heartbeat 在独立 asyncio task 中按配置续租，数据库短暂失败可在当前有效窗口内重试；任何明确的 fenced/expired/terminal 结果立即停止当前流。正常终态先停止心跳，再在 ChatRun→TaskRun 的统一锁序内提交 terminal event 和投影，清除 active owner/token/expiry，保留 generation/last heartbeat。
+- Scheduler 每分钟执行上限批次的 reaper。PostgreSQL 使用 `FOR UPDATE SKIP LOCKED`，让正在 heartbeat/checkpoint/finalize 的行先完成；只有已过期、或无租约/畸形租约且超过 rolling-upgrade 保护期的 active Run 被标记为 `interrupted`。回收会追加 `run_interrupted`、收口 TaskRun、保留已挂接 Assistant、把 accepted 邮箱输入转为 `unapplied`，但绝不自动调用模型、工具、HITAS 或业务 writer。
+- `/chat/send-async` 的包装 TaskRun 会持久关联真实 ChatRun；跨 worker 状态查询以数据库租约和 ChatRun 终态为准，不再把“当前进程 registry 不存在”直接等同于 stale。ChatRun 诊断新增不含 token 的 lease 状态。
+- 配置项为 `CHAT_RUN_LEASE_SECONDS`、`CHAT_RUN_HEARTBEAT_SECONDS`、`CHAT_RUN_REAPER_MINUTES` 和 `CHAT_RUN_UNLEASED_GRACE_SECONDS`，均有服务端上下限。幂等迁移 `037_v1_37` 增加字段、索引和一致性约束，并保持单一 Alembic head。
+
+该阶段只判定“旧 worker 是否仍有权继续”，不声称能把任意外部副作用回滚，也不恢复 Codex/Provider transcript。业务授权仍由 ACL/HITAS/final-authorized writer 决定；worker lease 不能替代用户授权。
 
 ## 8. 许可证与升级流程
 
