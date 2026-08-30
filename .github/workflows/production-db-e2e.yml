@@ -25,6 +25,10 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
           port: ${{ secrets.SERVER_PORT || '22' }}
+          # The PostgreSQL suite currently takes about ten minutes on the
+          # production host. Keep this below the 30-minute job limit while
+          # leaving enough time for backup and postflight cleanup.
+          command_timeout: 25m
           script: |
             set -eu
 
@@ -49,6 +53,45 @@ jobs:
             chmod 700 "$BACKUP_DIR"
             BACKUP_PATH="$BACKUP_DIR/ariaai_pre_e2e_$(date -u +%Y%m%dT%H%M%SZ)_${RUN_TAG}.dump"
             export BACKUP_PATH DB_TEST_WORKER TEST_SCHEMA
+
+            # The maintenance concurrency group guarantees no other production
+            # E2E is active. Remove only abandoned schemas minted by an earlier
+            # timed-out production E2E before taking the next backup.
+            "$PYTHON" - <<'PY'
+            import re
+
+            from sqlalchemy import create_engine, text
+
+            from app.config import DATABASE_URL
+
+            safe_pattern = re.compile(r"ariaai_test_prod_[0-9]+_[0-9]+\Z")
+            engine = create_engine(DATABASE_URL)
+            try:
+                with engine.begin() as connection:
+                    candidates = list(
+                        connection.execute(
+                            text(
+                                "SELECT schema_name FROM information_schema.schemata "
+                                "WHERE schema_name LIKE 'ariaai_test_prod_%' "
+                                "ORDER BY schema_name"
+                            )
+                        ).scalars()
+                    )
+                    for schema_name in candidates:
+                        if not safe_pattern.fullmatch(str(schema_name)):
+                            raise SystemExit(
+                                f"Refusing unexpected production E2E schema: {schema_name!r}"
+                            )
+                        connection.exec_driver_sql(
+                            f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'
+                        )
+                        print(
+                            "Removed abandoned production E2E schema: "
+                            f"schema={schema_name}"
+                        )
+            finally:
+                engine.dispose()
+            PY
 
             # Create a full custom-format backup before any test schema exists.
             # DATABASE_URL is loaded inside Python so credentials never enter the
