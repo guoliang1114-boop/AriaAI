@@ -30,6 +30,9 @@ from app.models.db import (
     Message,
     PendingToolAction,
     Project,
+    ProjectMember,
+    Skill,
+    User,
 )
 from app.services.chat import stream_chat_events
 from app.services.chat_tools import ChatRuntime
@@ -208,6 +211,36 @@ class ChatEndToEndBase(unittest.IsolatedAsyncioTestCase):
         """Install a tool dispatcher: ``async def handler(name, input) -> dict``."""
         self._tool_handler = handler
 
+    def bind_project_context(self) -> int:
+        """Give a test the same authenticated project scope as production chat."""
+
+        with Session(self.engine) as session:
+            actor = User(email="chat-e2e-owner@example.com", password_hash="x")
+            project = Project(name="Chat E2E", client="Acme", description="d")
+            session.add(actor)
+            session.add(project)
+            session.flush()
+            session.add(
+                ProjectMember(
+                    project_id=int(project.id),
+                    user_id=int(actor.id),
+                    role="editor",
+                )
+            )
+            conversation = session.get(Conversation, self.conv_id)
+            assert conversation is not None
+            conversation.project_id = int(project.id)
+            conversation.owner_user_id = int(actor.id)
+            session.add(conversation)
+            session.commit()
+            project_id = int(project.id)
+            actor_id = int(actor.id)
+
+        self.runtime.project_id = project_id
+        self.runtime.actor_user_id = actor_id
+        self.req.project_id = project_id
+        return project_id
+
     async def drain(self) -> list[dict]:
         """Run the orchestrator and return parsed SSE events."""
         raw_events: list[str] = []
@@ -312,12 +345,13 @@ class SingleToolCallTests(ChatEndToEndBase):
     """Model emits one tool_use, tool runs, model produces final text."""
 
     async def test_executes_tool_then_streams_final_text(self) -> None:
+        project_id = self.bind_project_context()
         tool_block = json.dumps(
             {
                 "type": "tool_use",
                 "id": "tu_1",
                 "name": "read_project_markdown_document",
-                "input": {"action": "list"},
+                "input": {"action": "list", "project_id": project_id},
             }
         )
         # First LLM call → emit tool_use; second call (P3 follow-up) → final text
@@ -374,22 +408,7 @@ class DestructiveConfirmationTests(ChatEndToEndBase):
 
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()
-        # Create a real Project so manage_project_files has a valid target.
-        with Session(self.engine) as session:
-            project = Project(name="P", client="C", description="d")
-            session.add(project)
-            session.commit()
-            session.refresh(project)
-            self.project_id = project.id
-        # Re-create the conversation linked to this project so policy gating
-        # treats it as a project conversation.
-        with Session(self.engine) as session:
-            conv = session.get(Conversation, self.conv_id)
-            assert conv is not None
-            conv.project_id = self.project_id
-            session.add(conv)
-            session.commit()
-        self.runtime.project_id = self.project_id
+        self.project_id = self.bind_project_context()
         self.runtime.chat_mode = "project_deep_dive"
         self.runtime.action_policy = "destructive_action"
         self.runtime.tool_access_policy = "write_allowed"
@@ -694,8 +713,14 @@ class ProductRunEventV1BoundaryTests(ChatEndToEndBase):
         self.assertIsInstance(timeline.get("artifacts"), list)
 
     async def test_run_started_carries_skill_identity_when_set(self) -> None:
+        with Session(self.engine) as session:
+            skill = Skill(name="digital-strategy", category="deep_task")
+            session.add(skill)
+            session.commit()
+            session.refresh(skill)
+            skill_id = int(skill.id)
         self.runtime.skill_name = "digital-strategy"
-        self.runtime.skill_id = 42
+        self.runtime.skill_id = skill_id
         self.runtime.skill_activation_source = "auto"
         self.set_llm_stream([["ok"]])
 
@@ -703,17 +728,17 @@ class ProductRunEventV1BoundaryTests(ChatEndToEndBase):
         started = _events_of_type(events, "run_started")[0]
         self.assertEqual(
             started.get("skill"),
-            {"name": "digital-strategy", "id": "42", "source": "auto"},
+            {"name": "digital-strategy", "id": str(skill_id), "source": "auto"},
         )
 
         assistant = [m for m in self.assistant_messages() if m.role == "assistant"]
         metadata = json.loads(assistant[0].metadata_json or "{}")
-        self.assertEqual(metadata.get("skill_id"), 42)
+        self.assertEqual(metadata.get("skill_id"), skill_id)
         self.assertEqual(metadata.get("skill_name"), "digital-strategy")
         self.assertEqual(metadata.get("skill_activation_source"), "auto")
         self.assertEqual(
             metadata.get("activity_timeline", {}).get("skill"),
-            {"name": "digital-strategy", "id": "42", "source": "auto"},
+            {"name": "digital-strategy", "id": str(skill_id), "source": "auto"},
         )
 
     async def test_no_skill_means_no_skill_field_on_run_started(self) -> None:
@@ -817,12 +842,13 @@ class ProductRunEventV1InsideEventsTests(ChatEndToEndBase):
         self.assertEqual(last_v1, "run_done")
 
     async def test_tool_progress_emits_running_then_completed(self) -> None:
+        project_id = self.bind_project_context()
         tool_block = json.dumps(
             {
                 "type": "tool_use",
                 "id": "tu_ok",
                 "name": "read_project_markdown_document",
-                "input": {"action": "list"},
+                "input": {"action": "list", "project_id": project_id},
             }
         )
         self.set_llm_stream(

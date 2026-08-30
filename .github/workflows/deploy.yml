@@ -303,6 +303,7 @@ jobs:
                 tests/test_chat_actions.py \
                 tests/test_chat_async_recovery.py \
                 tests/test_chat_continuity_feedback.py \
+                tests/test_chat_end_to_end.py \
                 tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_stream_chat_events_persists_friendly_phase_errors \
                 tests/test_sse_events.py \
                 tests/test_chat_multiturn_golden.py

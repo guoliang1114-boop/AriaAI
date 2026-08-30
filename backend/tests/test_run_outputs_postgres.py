@@ -230,6 +230,12 @@ class RunOutputsPostgresContractTests(unittest.TestCase):
                 "summary": "PostgreSQL HITAS lock contract",
                 "preview_text": "Approved",
             }
+            generation = chat_actions._capture_action_execution_generation(
+                self.engine,
+                action_id=action_id,
+                expected_tool_name=office_documents.WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+                expected_tool_input=tool_input,
+            )
             finalizer_locked = threading.Event()
             release_finalizer = threading.Event()
             reaper_started = threading.Event()
@@ -255,6 +261,7 @@ class RunOutputsPostgresContractTests(unittest.TestCase):
                             action_id,
                             office_documents.WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
                             tool_input,
+                            generation,
                             prepared,
                             emit_message=True,
                         )
