@@ -395,7 +395,14 @@ def update_user(
     current_admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    user = session.get(User, user_id)
+    # Serialize account demotion/deactivation with final candidate-decision
+    # authorization, which holds this actor row through its commit.
+    user = session.exec(
+        select(User)
+        .where(User.id == user_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     # Prevent disabling or demoting the only active admin
@@ -435,7 +442,15 @@ def delete_user(
     current_admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    user = session.get(User, user_id)
+    # Candidate decisions use User -> Candidate.  Keep account deletion on the
+    # same order so a concurrent user-scope decision cannot form the inverse
+    # Candidate -> User deadlock on PostgreSQL.
+    user = session.exec(
+        select(User)
+        .where(User.id == user_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if user.id == current_admin.id:

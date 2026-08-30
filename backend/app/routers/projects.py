@@ -350,18 +350,12 @@ async def update_project(
     current_user: User = Depends(get_current_user),
 ):
     require_project_access(session, project_id, current_user, require_write=True)
-    existing = session.exec(
-        select(Project)
-        .where(Project.id == project_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
-    if existing is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    previous_status = existing.status if existing else None
-    previous_client = existing.client if existing else ""
     changes = data.model_dump(exclude_none=True)
-    project = update_project_record(session, project_id, changes)
+    project, previous_status, previous_client = update_project_record(
+        session,
+        project_id,
+        changes,
+    )
     updated_client = str(project.client or "")
     client_reassigned = (
         "client" in changes

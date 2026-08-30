@@ -548,9 +548,11 @@ async def test_archive_promotion_failure_is_persisted_without_failing_project_pa
     session = _OwnerSession(project)
 
     def update_record(_session, _project_id, changes):
+        previous_status = project.status
+        previous_client = project.client
         for key, value in changes.items():
             setattr(project, key, value)
-        return project
+        return project, previous_status, previous_client
 
     with patch.object(projects, "require_project_access"), patch.object(
         projects,
@@ -593,9 +595,11 @@ async def test_archive_promotion_missing_client_is_recorded_instead_of_silently_
     session = _OwnerSession(project)
 
     def update_record(_session, _project_id, changes):
+        previous_status = project.status
+        previous_client = project.client
         for key, value in changes.items():
             setattr(project, key, value)
-        return project
+        return project, previous_status, previous_client
 
     with patch.object(projects, "require_project_access"), patch.object(
         projects,
@@ -644,7 +648,7 @@ async def test_failed_archive_promotion_retries_but_completed_receipt_is_idempot
     with patch.object(projects, "require_project_access"), patch.object(
         projects,
         "update_project_record",
-        return_value=project,
+        return_value=(project, "archived", "Acme"),
     ), patch.object(projects, "_mark_project_memory_stale"), patch.object(
         projects,
         "_auto_promote_archived_project_to_client_memory",
@@ -672,7 +676,7 @@ async def test_failed_archive_promotion_retries_but_completed_receipt_is_idempot
     with patch.object(projects, "require_project_access"), patch.object(
         projects,
         "update_project_record",
-        return_value=project,
+        return_value=(project, "archived", "Acme"),
     ), patch.object(projects, "_mark_project_memory_stale"), patch.object(
         projects,
         "_auto_promote_archived_project_to_client_memory",
@@ -761,9 +765,11 @@ async def test_project_reassignment_stales_previous_and_current_client_scopes():
     stale_clients = Mock()
 
     def update_record(_session, _project_id, changes):
+        previous_status = project.status
+        previous_client = project.client
         for key, value in changes.items():
             setattr(project, key, value)
-        return project
+        return project, previous_status, previous_client
 
     with patch.object(projects, "require_project_access"), patch.object(
         projects,

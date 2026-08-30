@@ -6,6 +6,10 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import Project, ProjectFolder, ProjectMember
+from app.services.client_identity import (
+    lock_client_identity_values,
+    resolve_client_identity,
+)
 from app.services.time_utils import utc_now_naive
 
 
@@ -73,6 +77,7 @@ def find_duplicate_project(session: Session, *, name: str, client: str) -> Proje
 
 
 def create_project_record(session: Session, data: dict) -> Project:
+    lock_client_identity_values(session, (str(data.get("client") or ""),))
     duplicate = find_duplicate_project(
         session,
         name=str(data.get("name") or ""),
@@ -106,8 +111,43 @@ def get_project_or_404(session: Session, project_id: int) -> Project:
     return project
 
 
-def update_project_record(session: Session, project_id: int, changes: dict) -> Project:
-    project = get_project_or_404(session, project_id)
+def update_project_record(
+    session: Session,
+    project_id: int,
+    changes: dict,
+) -> tuple[Project, str, str]:
+    locator = session.exec(
+        select(Project)
+        .where(Project.id == project_id)
+        .execution_options(populate_existing=True)
+    ).first()
+    if locator is None:
+        raise HTTPException(404, "Project not found")
+    previous_identity: str | None = None
+    if "client" in changes:
+        previous_identity, _requested_identity = lock_client_identity_values(
+            session,
+            (locator.client, str(changes.get("client") or "")),
+        )
+    session.expire(locator)
+    project = session.exec(
+        select(Project)
+        .where(Project.id == project_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if project is None:
+        raise HTTPException(404, "Project not found")
+    if (
+        previous_identity is not None
+        and resolve_client_identity(session, project.client) != previous_identity
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Project client changed during update; reload and retry.",
+        )
+    previous_status = str(project.status or "")
+    previous_client = str(project.client or "")
     for key, value in changes.items():
         setattr(project, key, value)
     project.memory_stale = True
@@ -115,4 +155,4 @@ def update_project_record(session: Session, project_id: int, changes: dict) -> P
     session.add(project)
     session.commit()
     session.refresh(project)
-    return project
+    return project, previous_status, previous_client

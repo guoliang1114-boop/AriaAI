@@ -426,7 +426,7 @@ Phase 2P 从 Codex 的 typed `ResponseItem` 与 Artifact lifecycle fact 中吸�
 - 缺失文件、路径逃逸、Schema 缺项或 ProjectFile 证据不一致均失败关闭，不生成附件卡、不发送 `artifact_ready`，完成裁决产生 `OUTPUT_PERSISTENCE_FAILED`；
 - `GeneratedFile` 增加 `run_id/output_id/source_tool/content_sha256/output_record_version`，Artifact 事件、持久化时间线、Rollout 和 Evaluation 共用相同输出身份；
 - `MemoryCandidate` 作为另一类 Run Output，只在运行记录中保存 candidate ID、scope、类型、状态和内容哈希；候选正文、来源引用与裁决信息保存在 Aria 自己的业务表；
-- 对话消息可以提交项目候选，但默认状态始终为 `pending`；项目/客户权限在创建与裁决时重新校验，接受后才写正式记忆版本，拒绝不会改变正式记忆；
+- 对话消息可以提交项目候选，但默认状态始终为 `pending`；项目/客户权限在创建与裁决时重新校验，accept/reject 的最终写事务会锁定当前账号、目标业务对象、成员授权行和候选行，撤权或停用先完成时必须失败关闭；空白/重名客户关系不得用于授权，客户和项目的名称关系写入与裁决共享 PostgreSQL transaction advisory namespace lock，防止并发新建/改名穿过谓词行锁；接受候选、更新正式记忆投影和同步来源消息必须同一事务提交，拒绝不会改变正式记忆；
 - accepted 项目和客户内容同时记录为受保护锚点，后续 AI 重建会与新模型输出确定性合并，避免“用户已经确认的记忆被下一次总结覆盖”；
 - 前端 Run Activity Store 对 Artifact 与 Candidate 采用 Item ID upsert，同一个生命周期事件重放不会产生重复卡片。
 

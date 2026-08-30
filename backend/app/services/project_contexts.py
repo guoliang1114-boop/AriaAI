@@ -1144,6 +1144,7 @@ def save_project_memory(
     rebuild_mode: str | None = None,
     fallback_reason: str = "",
     rebuild_plan: MemoryRebuildPlan | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     if rebuild_plan is not None:
         session.expire_all()
@@ -1300,8 +1301,11 @@ def save_project_memory(
             created_at=project.memory_updated_at,
         )
     )
-    session.commit()
-    session.refresh(project)
+    if commit:
+        session.commit()
+        session.refresh(project)
+    else:
+        session.flush()
     return get_project_memory_payload(project)
 
 

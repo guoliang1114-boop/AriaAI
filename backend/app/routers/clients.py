@@ -29,6 +29,10 @@ from app.models.db import (
 from app.services import scheduler as scheduler_service
 from app.services.cache import clients_cache
 from app.services.client_contexts import build_client_memory_summary_prompt
+from app.services.client_identity import (
+    lock_client_identity_values,
+    resolve_client_identity,
+)
 from app.services.project_ai import extract_json_array_from_text
 from app.services.project_contexts import mark_project_memories_stale_by_client_name
 from app.services.project_llm import complete_with_selected_model
@@ -187,6 +191,7 @@ def list_clients_paginated(
 
 @router.post("", response_model=ClientOut)
 def create_client(body: ClientCreate, session: Session = Depends(get_session)):
+    lock_client_identity_values(session, (body.name,))
     client = ClientRecord(**body.model_dump())
     session.add(client)
     session.commit()
@@ -206,6 +211,20 @@ def get_client(client_id: int, session: Session = Depends(get_session)):
 
 @router.put("/{client_id}", response_model=ClientOut)
 def update_client(client_id: int, body: ClientUpdate, session: Session = Depends(get_session)):
+    locator = session.exec(
+        select(ClientRecord)
+        .where(ClientRecord.id == client_id)
+        .execution_options(populate_existing=True)
+    ).first()
+    if not locator:
+        raise HTTPException(status_code=404, detail="Client not found")
+    changes = body.model_dump(exclude_none=True)
+    requested_name = str(changes.get("name", locator.name) or "")
+    previous_identity, _requested_identity = lock_client_identity_values(
+        session,
+        (locator.name, requested_name),
+    )
+    session.expire(locator)
     client = session.exec(
         select(ClientRecord)
         .where(ClientRecord.id == client_id)
@@ -214,9 +233,14 @@ def update_client(client_id: int, body: ClientUpdate, session: Session = Depends
     ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    if resolve_client_identity(session, client.name) != previous_identity:
+        raise HTTPException(
+            status_code=409,
+            detail="Client changed during update; reload and retry.",
+        )
 
     previous_name = client.name
-    for field, value in body.model_dump(exclude_none=True).items():
+    for field, value in changes.items():
         setattr(client, field, value)
     session.add(client)
     session.commit()
@@ -252,6 +276,15 @@ def update_client(client_id: int, body: ClientUpdate, session: Session = Depends
 
 @router.delete("/{client_id}", status_code=204)
 def delete_client(client_id: int, session: Session = Depends(get_session)):
+    locator = session.exec(
+        select(ClientRecord)
+        .where(ClientRecord.id == client_id)
+        .execution_options(populate_existing=True)
+    ).first()
+    if not locator:
+        raise HTTPException(status_code=404, detail="Client not found")
+    previous_identity = lock_client_identity_values(session, (locator.name,))[0]
+    session.expire(locator)
     # Serialize with client-memory writers before touching slot/fact children.
     # This preserves the shared owner -> child lock order and avoids a delete
     # versus rebuild deadlock on PostgreSQL.
@@ -263,6 +296,11 @@ def delete_client(client_id: int, session: Session = Depends(get_session)):
     ).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    if resolve_client_identity(session, client.name) != previous_identity:
+        raise HTTPException(
+            status_code=409,
+            detail="Client changed during deletion; reload and retry.",
+        )
     client_name = client.name
 
     docs = session.exec(select(KnowledgeDocument).where(KnowledgeDocument.client_id == client_id)).all()

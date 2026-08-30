@@ -35,9 +35,22 @@ from app.models.db import (
     ToolCall,
     WeeklyFocusItem,
 )
+from app.services.client_identity import (
+    lock_client_identity_values,
+    resolve_client_identity,
+)
 
 
 def delete_project_cascade(session: Session, project_id: int) -> str:
+    locator = session.exec(
+        select(Project)
+        .where(Project.id == project_id)
+        .execution_options(populate_existing=True)
+    ).first()
+    if not locator:
+        raise HTTPException(404, "Project not found")
+    previous_identity = lock_client_identity_values(session, (locator.client,))[0]
+    session.expire(locator)
     # Use the same owner -> child lock order as memory save/stale paths. Without
     # this lock, deletion could flush ProjectMemorySlot/Fact deletes first while
     # a concurrent rebuild held the project row and waited on those children.
@@ -49,6 +62,11 @@ def delete_project_cascade(session: Session, project_id: int) -> str:
     ).first()
     if not project:
         raise HTTPException(404, "Project not found")
+    if resolve_client_identity(session, project.client) != previous_identity:
+        raise HTTPException(
+            status_code=409,
+            detail="Project client changed during deletion; reload and retry.",
+        )
     client_name = str(project.client or "")
 
     for candidate in session.exec(

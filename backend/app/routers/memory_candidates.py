@@ -5,7 +5,6 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.database import get_session
@@ -17,6 +16,7 @@ from app.routers.chat_security import (
     require_project_access,
 )
 from app.services.chat.product_run_events import memory_candidate_ready
+from app.services.client_identity import client_identity_expression
 from app.services.memory_candidates import (
     SCOPE_TYPES,
     accept_memory_candidate,
@@ -105,7 +105,8 @@ def _require_client_access(
         select(ProjectMember)
         .join(Project, Project.id == ProjectMember.project_id)
         .where(
-            func.lower(func.trim(Project.client)) == client.name.strip().lower(),
+            client_identity_expression(Project.client)
+            == client_identity_expression(client.name),
             ProjectMember.user_id == current_user.id,
         )
     ).all()
@@ -153,10 +154,21 @@ def create_candidate(
                 else None
             )
             source_client = session.get(ClientRecord, body.client_id) if body.client_id else None
+            source_link_exists = (
+                session.exec(
+                    select(Project.id).where(
+                        Project.id == source_project.id,
+                        client_identity_expression(Project.client)
+                        == client_identity_expression(source_client.name),
+                    )
+                ).first()
+                if source_project is not None and source_client is not None
+                else None
+            )
             if (
                 source_project is None
                 or source_client is None
-                or source_project.client.strip().lower() != source_client.name.strip().lower()
+                or source_link_exists is None
             ):
                 raise HTTPException(400, "Source message is not linked to the requested client")
         if not content:

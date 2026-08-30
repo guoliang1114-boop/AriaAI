@@ -13,6 +13,7 @@ from app.models.db import (
     MemoryCandidate,
     Message,
     Project,
+    ProjectMember,
     User,
     UserMemory,
 )
@@ -22,6 +23,10 @@ from app.services.agent_harness.run_output_record import (
     normalize_run_output_records,
 )
 from app.services.client_contexts import get_client_memory_payload, save_client_memory
+from app.services.client_identity import (
+    client_identity_expression,
+    lock_client_identity_namespaces,
+)
 from app.services.project_contexts import (
     _default_project_memory,
     _get_existing_raw_memory,
@@ -57,6 +62,10 @@ DEFAULT_TARGET_SLOT = {
     "consulting_lesson": "lessons_learned",
 }
 ACCEPTED_MEMORY_CANDIDATES_KEY = "_accepted_memory_candidates"
+
+
+def _member_can_write(member: ProjectMember) -> bool:
+    return str(member.role or "editor").strip().lower() in {"owner", "editor"}
 
 
 def _content_sha256(content: str) -> str:
@@ -407,6 +416,8 @@ def _mark_accepted(
 def _lock_candidate_owner_then_candidate(
     session: Session,
     candidate: MemoryCandidate,
+    *,
+    actor_user_id: int,
 ) -> tuple[
     MemoryCandidate,
     Project | None,
@@ -414,13 +425,39 @@ def _lock_candidate_owner_then_candidate(
     User | None,
     UserMemory | None,
 ]:
-    """Lock the target owner before the candidate and revalidate its identity."""
+    """Lock actor, authorization rows, target owner, then candidate.
+
+    The router performs an early access check for a fast failure, but that
+    check is not authoritative: project membership, client linkage, or the
+    actor account may change before the decision is committed.  This helper
+    therefore owns the final authorization check while holding every row that
+    can revoke it through the candidate write.
+    """
 
     candidate_id = candidate.id
     owner_user_id = candidate.owner_user_id
     scope = candidate.scope
     project_id = candidate.project_id
     client_id = candidate.client_id
+    if int(actor_user_id) != int(owner_user_id):
+        # Candidate decisions are private to their owner.  Keep the same
+        # anti-enumeration behavior as the router's owned-candidate lookup.
+        raise HTTPException(404, "Memory candidate not found")
+
+    # Client authorization is currently derived from the mutable project
+    # client-name link. Resolve the locator with the exact same SQL expression
+    # used by the locked queries; Python strip/lower and PostgreSQL trim/lower
+    # disagree for characters such as TAB and NBSP. Then lock matching projects
+    # *before* ClientRecord to preserve Aria's shared cross-owner lock order.
+    client_name_identity = ""
+    if scope == "client" and client_id is not None:
+        resolved_identity = session.exec(
+            select(client_identity_expression(ClientRecord.name)).where(
+                ClientRecord.id == client_id
+            )
+        ).first()
+        client_name_identity = str(resolved_identity or "")
+        lock_client_identity_namespaces(session, (client_name_identity,))
     identity = (
         owner_user_id,
         scope,
@@ -434,9 +471,19 @@ def _lock_candidate_owner_then_candidate(
     # so expire them before acquiring the authoritative owner -> candidate
     # locks and also force locked queries to populate existing instances.
     session.expire_all()
+    actor = session.exec(
+        select(User)
+        .where(User.id == actor_user_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if actor is None:
+        raise HTTPException(404, "Memory candidate owner not found")
+    if not actor.is_active:
+        raise HTTPException(403, "Memory candidate owner is inactive")
+
     project: Project | None = None
     client: ClientRecord | None = None
-    owner: User | None = None
     user_memory: UserMemory | None = None
     if scope == "project":
         project = session.exec(
@@ -447,24 +494,76 @@ def _lock_candidate_owner_then_candidate(
         ).first()
         if project is None:
             raise HTTPException(404, "Project not found")
+        memberships = session.exec(
+            select(ProjectMember)
+            .where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.user_id == actor_user_id,
+            )
+            .order_by(ProjectMember.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+        if not actor.is_admin:
+            if not memberships:
+                raise HTTPException(403, "Project membership required")
+            if not any(_member_can_write(member) for member in memberships):
+                raise HTTPException(403, "Project write permission required")
     elif scope == "client":
-        client = session.exec(
+        if not client_name_identity:
+            raise HTTPException(
+                409,
+                "Client-project relationship is empty or ambiguous; reload and retry",
+            )
+        matching_projects = session.exec(
+            select(Project)
+            .where(
+                client_identity_expression(Project.client) == client_name_identity
+            )
+            .order_by(Project.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+        matching_clients = session.exec(
             select(ClientRecord)
-            .where(ClientRecord.id == client_id)
+            .where(
+                client_identity_expression(ClientRecord.name)
+                == client_name_identity
+            )
+            .order_by(ClientRecord.id)
             .execution_options(populate_existing=True)
             .with_for_update()
-        ).first()
-        if client is None:
-            raise HTTPException(404, "Client not found")
+        ).all()
+        if (
+            len(matching_clients) != 1
+            or matching_clients[0].id != client_id
+        ):
+            raise HTTPException(
+                409,
+                "Client-project relationship is ambiguous; reload and retry",
+            )
+        client = matching_clients[0]
+        matching_project_ids = [
+            int(item.id) for item in matching_projects if item.id is not None
+        ]
+        memberships = []
+        if matching_project_ids:
+            memberships = session.exec(
+                select(ProjectMember)
+                .where(
+                    ProjectMember.project_id.in_(matching_project_ids),
+                    ProjectMember.user_id == actor_user_id,
+                )
+                .order_by(ProjectMember.id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            ).all()
+        if not actor.is_admin:
+            if not memberships:
+                raise HTTPException(403, "Client project membership required")
+            if not any(_member_can_write(member) for member in memberships):
+                raise HTTPException(403, "Client memory write permission required")
     elif scope == "user":
-        owner = session.exec(
-            select(User)
-            .where(User.id == owner_user_id)
-            .execution_options(populate_existing=True)
-            .with_for_update()
-        ).first()
-        if owner is None:
-            raise HTTPException(404, "User not found")
         user_memory = session.exec(
             select(UserMemory)
             .where(UserMemory.user_id == owner_user_id)
@@ -495,7 +594,7 @@ def _lock_candidate_owner_then_candidate(
     )
     if locked_identity != identity:
         raise HTTPException(409, "Memory candidate changed during decision; reload and retry")
-    return locked, project, client, owner, user_memory
+    return locked, project, client, actor, user_memory
 
 
 def accept_memory_candidate(
@@ -507,9 +606,10 @@ def accept_memory_candidate(
     expected_memory_version: int | None = None,
     allow_conflict: bool = False,
 ) -> MemoryCandidate:
-    candidate, project, client, owner, user_memory = _lock_candidate_owner_then_candidate(
+    candidate, project, client, _actor, user_memory = _lock_candidate_owner_then_candidate(
         session,
         candidate,
+        actor_user_id=user_id,
     )
     if candidate.status == "accepted":
         return candidate
@@ -609,6 +709,7 @@ def accept_memory_candidate(
             coverage=memory.get("_coverage") if isinstance(memory.get("_coverage"), dict) else {},
             rebuilt_slots=(target_slot,),
             rebuild_mode="targeted_edit",
+            commit=False,
         )
         sync_candidate_source_message(session, candidate)
         session.commit()
@@ -632,6 +733,7 @@ def accept_memory_candidate(
             source_project_ids=[candidate.project_id] if candidate.project_id else None,
             rebuilt_slots=(target_slot,),
             rebuild_mode="targeted_edit",
+            commit=False,
         )
         sync_candidate_source_message(session, candidate)
         session.commit()
@@ -646,7 +748,11 @@ def reject_memory_candidate(
     user_id: int,
     decision_note: str = "",
 ) -> MemoryCandidate:
-    candidate, _, _, _, _ = _lock_candidate_owner_then_candidate(session, candidate)
+    candidate, _, _, _, _ = _lock_candidate_owner_then_candidate(
+        session,
+        candidate,
+        actor_user_id=user_id,
+    )
     if candidate.status == "rejected":
         return candidate
     if candidate.status != "pending":
