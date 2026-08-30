@@ -73,12 +73,14 @@ def test_document_job_is_idempotent_and_persists_safe_checkpoints() -> None:
                 job_type="index_document",
                 document_id=document.id,
                 source_id=source.id,
+                trusted_system=True,
             )
             duplicate = knowledge_jobs.enqueue_knowledge_job(
                 session,
                 job_type="index_document",
                 document_id=document.id,
                 source_id=source.id,
+                trusted_system=True,
             )
             assert duplicate.id == first.id
 
@@ -112,6 +114,7 @@ def test_transient_failure_schedules_retry_and_manual_restart_keeps_checkpoint()
                 document_id=document.id,
                 source_id=source.id,
                 max_attempts=1,
+                trusted_system=True,
             )
             with patch.object(knowledge_jobs, "index_document", side_effect=TimeoutError("storage busy")):
                 failed = knowledge_jobs.process_knowledge_job(session, int(job.id))
@@ -151,6 +154,7 @@ def test_expired_worker_lease_is_reclaimed_but_live_lease_is_not() -> None:
                 job_type="index_document",
                 document_id=document.id,
                 source_id=source.id,
+                trusted_system=True,
             )
             job.status = "running"
             job.attempt = 1
@@ -178,6 +182,7 @@ def test_expired_worker_lease_is_reclaimed_but_live_lease_is_not() -> None:
                 document_id=document.id,
                 source_id=source.id,
                 force_new=True,
+                trusted_system=True,
             )
             second.status = "running"
             second.lease_token = "live-worker"
@@ -194,6 +199,7 @@ def test_permanent_job_failure_is_not_automatically_retried() -> None:
         job = knowledge_jobs.enqueue_knowledge_job(
             session,
             job_type="unsupported",
+            trusted_system=True,
         )
         failed = knowledge_jobs.process_knowledge_job(session, int(job.id))
         assert failed is not None

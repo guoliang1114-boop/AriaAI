@@ -202,11 +202,6 @@ interface ClientStakeholdersState {
   refetch: () => Promise<void>
 }
 
-interface ClientListItem {
-  id: number
-  name: string
-}
-
 interface ClientStakeholdersResult {
   clientKey: string
   matchedClientId: number | null
@@ -214,8 +209,6 @@ interface ClientStakeholdersResult {
   stakeholders: ClientStakeholder[]
   error: string | null
 }
-
-const normalizeClientName = (v: string) => v.trim().toLowerCase()
 
 /** Conversations for a project — used by the project Chat tab. The
  * list is fetched once on mount; refetch() lets the new-conversation
@@ -450,12 +443,17 @@ export function useClientsList(): ClientsListState {
   return { data, loading }
 }
 
-/** Resolve client-side stakeholders for a project: match `project.client`
- * (free-text name) against `/clients` to find the linked client_id,
- * then load `/clients/:id/stakeholders`. Mirrors the legacy
- * ProjectStakeholdersTab approach. */
-export function useClientStakeholders(clientName: string | null | undefined): ClientStakeholdersState {
-  const clientKey = normalizeClientName(clientName ?? '')
+/** Resolve client-side stakeholders for a project. Stable `client_id` is the
+ * sole authority; a missing ID means the project is not linked to a client. */
+export function useClientStakeholders(
+  clientId: number | null | undefined,
+  clientName: string | null | undefined,
+): ClientStakeholdersState {
+  const directClientId =
+    typeof clientId === 'number' && Number.isInteger(clientId) && clientId > 0
+      ? clientId
+      : null
+  const clientKey = directClientId != null ? `id:${directClientId}` : ''
   const [result, setResult] = useState<ClientStakeholdersResult | null>(null)
   const [loadingClientKey, setLoadingClientKey] = useState<string | null>(null)
   const requestIdRef = useRef(0)
@@ -464,24 +462,13 @@ export function useClientStakeholders(clientName: string | null | undefined): Cl
     const requestId = ++requestIdRef.current
     if (!clientKey) return Promise.resolve()
     return api
-      .get<ClientListItem[]>('/clients')
-      .then(async (clients) => {
-        if (requestId !== requestIdRef.current) {
-          return { match: null, stakeholders: [] as ClientStakeholder[] }
-        }
-        const match = clients.find((item) => normalizeClientName(item.name) === clientKey)
-        if (!match) {
-          return { match: null, stakeholders: [] as ClientStakeholder[] }
-        }
-        const stakeholders = await api.get<ClientStakeholder[]>(`/clients/${match.id}/stakeholders`)
-        return { match, stakeholders }
-      })
-      .then(({ match, stakeholders }) => {
+      .get<ClientStakeholder[]>(`/clients/${directClientId}/stakeholders`)
+      .then((stakeholders) => {
         if (requestId !== requestIdRef.current) return
         setResult({
           clientKey,
-          matchedClientId: match?.id ?? null,
-          matchedClientName: match?.name ?? null,
+          matchedClientId: directClientId,
+          matchedClientName: String(clientName || '').trim() || `#${directClientId}`,
           stakeholders,
           error: null,
         })
@@ -499,7 +486,7 @@ export function useClientStakeholders(clientName: string | null | undefined): Cl
       .finally(() => {
         if (requestId === requestIdRef.current) setLoadingClientKey(null)
       })
-  }, [clientKey])
+  }, [clientKey, clientName, directClientId])
 
   useEffect(() => {
     void fetchOnce()

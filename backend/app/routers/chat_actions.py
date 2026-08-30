@@ -20,6 +20,13 @@ from app.services.agent_harness.approval_envelope import (
 from app.services.chat.action_background import schedule_background_job, should_execute_in_background
 from app.services.chat.action_executor import execute_tool_by_name
 from app.services.chat.action_metrics import build_hitas_action_metrics
+from app.services.chat.action_project_writes import (
+    FINAL_AUTH_PROJECT_WRITE_TOOLS,
+    cleanup_prepared_project_write,
+    persist_prepared_project_write,
+    prepare_pending_project_write,
+)
+from app.services.project_core import lock_and_require_project_write
 from app.services.time_utils import utc_now_naive
 
 router = APIRouter(tags=["chat-actions"])
@@ -229,6 +236,16 @@ async def confirm_action(
             approval_batch_id=approval_batch_id,
             action_ids=[action_id],
         )
+
+    if tool_name in FINAL_AUTH_PROJECT_WRITE_TOOLS:
+        finalized = await _execute_final_authorized_project_write(
+            bind,
+            action_id,
+            tool_name,
+            tool_input,
+            emit_message=True,
+        )
+        return _finalized_action_response(finalized)
 
     try:
         result = await execute_tool_by_name(tool_name, tool_input)
@@ -625,6 +642,15 @@ async def _confirm_batch(
 
 
 async def _execute_action_in_background(bind, action_id: int, tool_name: str, tool_input: dict[str, Any]) -> None:
+    if tool_name in FINAL_AUTH_PROJECT_WRITE_TOOLS:
+        await _execute_final_authorized_project_write(
+            bind,
+            action_id,
+            tool_name,
+            tool_input,
+            emit_message=True,
+        )
+        return
     try:
         result = await execute_tool_by_name(tool_name, tool_input)
         _persist_action_result(bind, action_id, result)
@@ -643,6 +669,7 @@ async def _execute_batch_actions_in_background(
 async def _execute_batch_actions(bind, batch_id: str, execution_specs: list[dict[str, Any]]) -> ConfirmActionResponse:
     executions: list[dict[str, Any]] = []
     previous_failed = False
+    suppress_remaining_receipts = False
     for spec in execution_specs:
         if previous_failed:
             result = {
@@ -650,13 +677,35 @@ async def _execute_batch_actions(bind, batch_id: str, execution_specs: list[dict
                 "skipped": True,
                 "error": "Skipped because a previous action in this approval batch failed.",
             }
+            if suppress_remaining_receipts:
+                result["_action_terminal_without_receipt"] = True
         else:
-            try:
-                result = await execute_tool_by_name(str(spec["tool_name"]), spec["tool_input"])
-            except Exception as exc:
-                result = {"success": False, "error": str(exc) or exc.__class__.__name__}
+            tool_name = str(spec["tool_name"])
+            if tool_name in FINAL_AUTH_PROJECT_WRITE_TOOLS:
+                finalized = await _execute_final_authorized_project_write(
+                    bind,
+                    int(spec["id"]),
+                    tool_name,
+                    spec["tool_input"],
+                    emit_message=False,
+                )
+                result = finalized.get("result") if isinstance(finalized.get("result"), dict) else {}
+                result = {
+                    "success": finalized.get("status") == "completed",
+                    **result,
+                }
+                if finalized.get("suppress_followup_receipt"):
+                    result["_action_terminal_without_receipt"] = True
+                if not result.get("success") and not result.get("error"):
+                    result["error"] = finalized.get("error_message") or "Action is no longer executable"
+            else:
+                try:
+                    result = await execute_tool_by_name(tool_name, spec["tool_input"])
+                except Exception as exc:
+                    result = {"success": False, "error": str(exc) or exc.__class__.__name__}
         if not result.get("success"):
             previous_failed = True
+            suppress_remaining_receipts = bool(result.get("_action_terminal_without_receipt"))
         executions.append(
             {
                 "pending_action_id": spec["id"],
@@ -665,6 +714,316 @@ async def _execute_batch_actions(bind, batch_id: str, execution_specs: list[dict
             }
         )
     return _persist_batch_action_results(bind, batch_id, executions)
+
+
+def _finalized_action_response(finalized: dict[str, Any]) -> ConfirmActionResponse:
+    return ConfirmActionResponse(
+        status=str(finalized.get("status") or "failed"),
+        result=finalized.get("result") if isinstance(finalized.get("result"), dict) else None,
+        error_message=str(finalized.get("error_message") or "") or None,
+        message_id=finalized.get("message_id"),
+        approval_batch_id=str(finalized.get("approval_batch_id") or "") or None,
+        action_ids=[int(finalized["action_id"])] if finalized.get("action_id") is not None else None,
+    )
+
+
+def _action_finalization_payload(
+    action: PendingToolAction,
+    *,
+    message_id: int | None = None,
+    transient_error: str = "",
+    suppress_followup_receipt: bool = False,
+) -> dict[str, Any]:
+    return {
+        "status": action.status,
+        "result": _load_json_object(action.result_json),
+        "error_message": transient_error or action.error_message or "",
+        "message_id": message_id,
+        "approval_batch_id": action.approval_batch_id or "",
+        "action_id": action.id,
+        "suppress_followup_receipt": suppress_followup_receipt,
+    }
+
+
+def _latest_action_finalization_payload(
+    bind,
+    action_id: int,
+    *,
+    transient_error: str = "",
+) -> dict[str, Any]:
+    with Session(bind) as session:
+        action = session.get(PendingToolAction, action_id)
+        if action is None:
+            return {
+                "status": "failed",
+                "result": {},
+                "error_message": transient_error or "Action not found",
+                "message_id": None,
+                "approval_batch_id": "",
+                "action_id": action_id,
+                "suppress_followup_receipt": True,
+            }
+        return _action_finalization_payload(
+            action,
+            transient_error=transient_error,
+            suppress_followup_receipt=True,
+        )
+
+
+def _lock_final_authorized_project_action(
+    session: Session,
+    *,
+    action_id: int,
+    expected_tool_name: str,
+    expected_tool_input: dict[str, Any],
+) -> tuple[PendingToolAction, Any, User]:
+    """Lock actor/project permission rows before the pending-action child row."""
+
+    locator = session.exec(
+        select(PendingToolAction)
+        .where(PendingToolAction.id == action_id)
+        .execution_options(populate_existing=True)
+    ).first()
+    if locator is None:
+        raise HTTPException(404, "Action not found")
+    if locator.status != "executing":
+        raise HTTPException(409, "Action is no longer executing")
+    if locator.project_id is None or locator.confirmed_by_user_id is None:
+        raise HTTPException(409, "Executing project action is missing its confirmed actor or project")
+    expected_project_id = int(locator.project_id)
+    expected_actor_id = int(locator.confirmed_by_user_id)
+
+    # Repository-wide order: client identity namespace -> active User ->
+    # Project -> exact ProjectMember -> PendingToolAction -> ProjectFile.
+    project, actor = lock_and_require_project_write(
+        session,
+        expected_project_id,
+        actor_user_id=expected_actor_id,
+    )
+    session.expire(locator)
+    action = session.exec(
+        select(PendingToolAction)
+        .where(PendingToolAction.id == action_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if action is None:
+        raise HTTPException(404, "Action not found")
+    if action.status != "executing":
+        raise HTTPException(409, "Action is no longer executing")
+    if (
+        action.project_id != expected_project_id
+        or action.confirmed_by_user_id != expected_actor_id
+        or action.tool_name != expected_tool_name
+    ):
+        raise HTTPException(409, "Action execution generation changed; discard the prepared result")
+    locked_input = _load_tool_input(action)
+    _validate_tool_input_scope(action, locked_input)
+    _validate_approval_snapshot(action, locked_input)
+    if locked_input != expected_tool_input:
+        raise HTTPException(409, "Stored action input changed; discard the prepared result")
+    return action, project, actor
+
+
+def _persist_final_authorized_project_action_failure(
+    bind,
+    action_id: int,
+    tool_name: str,
+    tool_input: dict[str, Any],
+    exc: Exception,
+    *,
+    emit_message: bool,
+) -> dict[str, Any]:
+    """Write a failure only if final authorization and the action lease survive."""
+
+    error = str(getattr(exc, "detail", "") or str(exc) or exc.__class__.__name__)
+    result = {"success": False, "error": error}
+    with Session(bind) as session:
+        try:
+            action, _project, actor = _lock_final_authorized_project_action(
+                session,
+                action_id=action_id,
+                expected_tool_name=tool_name,
+                expected_tool_input=tool_input,
+            )
+        except HTTPException:
+            session.rollback()
+            # Revocation, deactivation, cancellation/reaping, or a changed
+            # approval generation must not create a second failure receipt.
+            return _latest_action_finalization_payload(bind, action_id, transient_error=error)
+
+        cas = session.execute(
+            update(PendingToolAction)
+            .where(PendingToolAction.id == action_id)
+            .where(PendingToolAction.status == "executing")
+            .where(PendingToolAction.confirmed_by_user_id == actor.id)
+            .where(PendingToolAction.project_id == action.project_id)
+            .where(PendingToolAction.tool_name == tool_name)
+            .values(
+                status="failed",
+                result_json=json.dumps(result, ensure_ascii=False, default=str),
+                error_message=error,
+            )
+        )
+        if getattr(cas, "rowcount", 0) != 1:
+            session.rollback()
+            return _latest_action_finalization_payload(bind, action_id, transient_error=error)
+        session.expire(action)
+        action = session.exec(
+            select(PendingToolAction)
+            .where(PendingToolAction.id == action_id)
+            .execution_options(populate_existing=True)
+        ).one()
+        message_id: int | None = None
+        if emit_message:
+            result_message = Message(
+                conversation_id=action.conversation_id,
+                role="assistant",
+                content=_format_action_result_message(action, result),
+                metadata_json=json.dumps(
+                    {
+                        "tool_action_result": {
+                            "pending_action_id": action.id,
+                            "tool_name": action.tool_name,
+                            "status": action.status,
+                            "result": result,
+                        }
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            )
+            session.add(result_message)
+            session.flush()
+            message_id = result_message.id
+        session.commit()
+        return _action_finalization_payload(action, message_id=message_id)
+
+
+def _persist_final_authorized_project_action_success(
+    bind,
+    action_id: int,
+    tool_name: str,
+    tool_input: dict[str, Any],
+    prepared: dict[str, Any],
+    *,
+    emit_message: bool,
+) -> dict[str, Any]:
+    with Session(bind) as session:
+        try:
+            action, project, actor = _lock_final_authorized_project_action(
+                session,
+                action_id=action_id,
+                expected_tool_name=tool_name,
+                expected_tool_input=tool_input,
+            )
+        except HTTPException as exc:
+            session.rollback()
+            return _latest_action_finalization_payload(
+                bind,
+                action_id,
+                transient_error=str(exc.detail),
+            )
+
+        finalized_payload: dict[str, Any]
+        try:
+            with persist_prepared_project_write(
+                session,
+                project=project,
+                tool_name=tool_name,
+                prepared=prepared,
+            ) as result:
+                normalized_result = {"success": True, **result}
+                result_json = json.dumps(normalized_result, ensure_ascii=False, default=str)
+                cas = session.execute(
+                    update(PendingToolAction)
+                    .where(PendingToolAction.id == action_id)
+                    .where(PendingToolAction.status == "executing")
+                    .where(PendingToolAction.confirmed_by_user_id == actor.id)
+                    .where(PendingToolAction.project_id == project.id)
+                    .where(PendingToolAction.tool_name == tool_name)
+                    .values(status="completed", result_json=result_json, error_message=None)
+                )
+                if getattr(cas, "rowcount", 0) != 1:
+                    raise HTTPException(409, "Action execution lease changed before persist")
+                session.expire(action)
+                action = session.exec(
+                    select(PendingToolAction)
+                    .where(PendingToolAction.id == action_id)
+                    .execution_options(populate_existing=True)
+                ).one()
+                _mark_duplicate_pending_actions_superseded(session, action)
+
+                message_id: int | None = None
+                if emit_message:
+                    result_message = Message(
+                        conversation_id=action.conversation_id,
+                        role="assistant",
+                        content=_format_action_result_message(action, normalized_result),
+                        metadata_json=json.dumps(
+                            {
+                                "tool_action_result": {
+                                    "pending_action_id": action.id,
+                                    "tool_name": action.tool_name,
+                                    "status": action.status,
+                                    "result": normalized_result,
+                                }
+                            },
+                            ensure_ascii=False,
+                            default=str,
+                        ),
+                    )
+                    session.add(result_message)
+                    session.flush()
+                    message_id = result_message.id
+                # Freeze the response before commit. SQLAlchemy expires ORM
+                # instances on commit; reading ``action`` afterwards could
+                # issue a second query and, if that query failed, incorrectly
+                # trigger filesystem compensation after the durable database
+                # transaction had already committed.
+                finalized_payload = _action_finalization_payload(
+                    action,
+                    message_id=message_id,
+                )
+                # ProjectFile, disk copy/edit, action CAS, and completion
+                # receipt become visible in one transaction.
+                session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        return finalized_payload
+
+
+async def _execute_final_authorized_project_write(
+    bind,
+    action_id: int,
+    tool_name: str,
+    tool_input: dict[str, Any],
+    *,
+    emit_message: bool,
+) -> dict[str, Any]:
+    prepared: dict[str, Any] | None = None
+    try:
+        prepared = await prepare_pending_project_write(bind, tool_name, tool_input)
+        return _persist_final_authorized_project_action_success(
+            bind,
+            action_id,
+            tool_name,
+            tool_input,
+            prepared,
+            emit_message=emit_message,
+        )
+    except Exception as exc:
+        return _persist_final_authorized_project_action_failure(
+            bind,
+            action_id,
+            tool_name,
+            tool_input,
+            exc,
+            emit_message=emit_message,
+        )
+    finally:
+        cleanup_prepared_project_write(prepared)
 
 
 def _reject_batch(
@@ -757,31 +1116,23 @@ def _persist_batch_action_results(
         action_ids = [item.get("pending_action_id") for item in executions if item.get("pending_action_id") is not None]
         actions = session.exec(
             select(PendingToolAction)
-            .where(PendingToolAction.id.in_(action_ids))
+            .where(PendingToolAction.approval_batch_id == batch_id)
             .order_by(PendingToolAction.sequence_index.asc(), PendingToolAction.id.asc())
+            .execution_options(populate_existing=True)
+            .with_for_update()
         ).all()
         actions_by_id = {action.id: action for action in actions if action.id is not None}
-        dangling_stmt = (
-            select(PendingToolAction)
-            .where(PendingToolAction.approval_batch_id == batch_id)
-            .where(PendingToolAction.status == "executing")
-        )
-        if action_ids:
-            dangling_stmt = dangling_stmt.where(~PendingToolAction.id.in_(action_ids))
-        for action in session.exec(dangling_stmt).all():
-            if action.id is not None:
-                actions_by_id[action.id] = action
-        actions = sorted(actions_by_id.values(), key=lambda action: (action.sequence_index, action.id or 0))
         if not actions:
             raise HTTPException(status_code=404, detail="Action batch not found")
         result_by_id = {item.get("pending_action_id"): item for item in executions}
         completed_count = 0
         failed_count = 0
         skipped_count = 0
+        suppress_result_message = False
         action_results: list[dict[str, Any]] = []
         for action in actions:
             item = result_by_id.get(action.id) or {}
-            result = (
+            raw_result = (
                 item.get("result")
                 if isinstance(item.get("result"), dict)
                 else {
@@ -790,6 +1141,47 @@ def _persist_batch_action_results(
                     "requires_manual_verification": True,
                 }
             )
+            result = dict(raw_result)
+            terminal_without_receipt = bool(result.pop("_action_terminal_without_receipt", False))
+            if terminal_without_receipt:
+                # A revoked actor or lost action generation invalidates this
+                # worker.  Do not turn that observation into another terminal
+                # row or assistant receipt; the cancel/reaper transaction is
+                # the sole owner of the action's externally visible outcome.
+                suppress_result_message = True
+                failed_count += 1
+                action_results.append(
+                    {
+                        "pending_action_id": action.id,
+                        "tool_name": action.tool_name,
+                        "status": action.status,
+                        "result": result,
+                        "error_message": str(result.get("error") or action.error_message or "Action is no longer executable"),
+                    }
+                )
+                continue
+
+            if action.status != "executing":
+                stored_result = _load_json_object(action.result_json)
+                if stored_result:
+                    result = stored_result
+                if action.status == "completed":
+                    completed_count += 1
+                elif action.status == "skipped":
+                    skipped_count += 1
+                else:
+                    failed_count += 1
+                action_results.append(
+                    {
+                        "pending_action_id": action.id,
+                        "tool_name": action.tool_name,
+                        "status": action.status,
+                        "result": result,
+                        "error_message": action.error_message,
+                    }
+                )
+                continue
+
             action.result_json = json.dumps(result, ensure_ascii=False, default=str)
             if result.get("success"):
                 action.status = "completed"
@@ -838,37 +1230,40 @@ def _persist_batch_action_results(
             "skipped_count": skipped_count,
             "actions": action_results,
         }
-        result_message = Message(
-            conversation_id=actions[0].conversation_id,
-            role="assistant",
-            content=_format_batch_action_result_message(actions, batch_result),
-            metadata_json=json.dumps(
-                {
-                    "tool_action_batch_result": {
-                        "approval_batch_id": batch_id,
-                        "pending_action_ids": [action.id for action in actions if action.id],
-                        "status": batch_status,
-                        "result": batch_result,
+        result_message: Message | None = None
+        if not suppress_result_message:
+            result_message = Message(
+                conversation_id=actions[0].conversation_id,
+                role="assistant",
+                content=_format_batch_action_result_message(actions, batch_result),
+                metadata_json=json.dumps(
+                    {
+                        "tool_action_batch_result": {
+                            "approval_batch_id": batch_id,
+                            "pending_action_ids": [action.id for action in actions if action.id],
+                            "status": batch_status,
+                            "result": batch_result,
+                        },
+                        "tool_action_result": {
+                            "pending_action_id": actions[0].id,
+                            "tool_name": actions[0].tool_name,
+                            "status": actions[0].status,
+                            "result": action_results[0]["result"] if action_results else batch_result,
+                        },
                     },
-                    "tool_action_result": {
-                        "pending_action_id": actions[0].id,
-                        "tool_name": actions[0].tool_name,
-                        "status": actions[0].status,
-                        "result": action_results[0]["result"] if action_results else batch_result,
-                    },
-                },
-                ensure_ascii=False,
-                default=str,
-            ),
-        )
-        session.add(result_message)
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            )
+            session.add(result_message)
         session.commit()
-        session.refresh(result_message)
+        if result_message is not None:
+            session.refresh(result_message)
         return ConfirmActionResponse(
             status=batch_status,
             result=batch_result,
             error_message=next((item.get("error_message") for item in action_results if item.get("error_message")), None),
-            message_id=result_message.id,
+            message_id=result_message.id if result_message is not None else None,
             approval_batch_id=batch_id,
             action_ids=[action.id for action in actions if action.id],
         )
@@ -893,9 +1288,16 @@ def _mark_duplicate_pending_actions_superseded(session: Session, action: Pending
 
 def _persist_action_result(bind, action_id: int, result: dict[str, Any]) -> ConfirmActionResponse:
     with Session(bind) as session:
-        action = session.get(PendingToolAction, action_id)
+        action = session.exec(
+            select(PendingToolAction)
+            .where(PendingToolAction.id == action_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
         if action is None:
             raise HTTPException(status_code=404, detail="Action not found")
+        if action.status != "executing":
+            return _existing_action_response(action)
         action.result_json = json.dumps(result, ensure_ascii=False, default=str)
         if result.get("success"):
             action.status = "completed"
@@ -938,9 +1340,16 @@ def _persist_action_failure(bind, action_id: int, exc: Exception) -> ConfirmActi
     error = str(exc) or exc.__class__.__name__
     result = {"success": False, "error": error}
     with Session(bind) as session:
-        action = session.get(PendingToolAction, action_id)
+        action = session.exec(
+            select(PendingToolAction)
+            .where(PendingToolAction.id == action_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
         if action is None:
             raise HTTPException(status_code=404, detail="Action not found")
+        if action.status != "executing":
+            return _existing_action_response(action)
         action.status = "failed"
         action.error_message = error
         action.result_json = json.dumps(result, ensure_ascii=False, default=str)

@@ -4,31 +4,10 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from app.models.db import ClientRecord, ClientStakeholder
+from app.models.db import ClientStakeholder
 
 
 MAX_STAKEHOLDERS_IN_PROMPT = 8
-
-
-def _normalized_client_name(name: str | None) -> str:
-    return (name or "").strip().lower()
-
-
-def find_client_by_name(session: Session, client_name: str | None) -> ClientRecord | None:
-    normalized = _normalized_client_name(client_name)
-    if not normalized:
-        return None
-    direct = session.exec(select(ClientRecord).where(ClientRecord.name == client_name)).first()
-    if direct:
-        return direct
-    return next(
-        (
-            client
-            for client in session.exec(select(ClientRecord)).all()
-            if _normalized_client_name(client.name) == normalized
-        ),
-        None,
-    )
 
 
 def list_client_stakeholder_dicts(
@@ -51,24 +30,6 @@ def list_client_stakeholder_dicts(
         )
         for stakeholder in stakeholders
     ]
-
-
-def list_client_stakeholder_dicts_by_name(
-    session: Session,
-    client_name: str | None,
-    limit: int = MAX_STAKEHOLDERS_IN_PROMPT,
-    *,
-    include_source_id: bool = False,
-) -> list[dict[str, Any]]:
-    client = find_client_by_name(session, client_name)
-    if not client or client.id is None:
-        return []
-    return list_client_stakeholder_dicts(
-        session,
-        client.id,
-        limit=limit,
-        include_source_id=include_source_id,
-    )
 
 
 def serialize_client_stakeholder(

@@ -4,13 +4,20 @@ from __future__ import annotations
 import json
 from typing import List, Optional
 
+from fastapi import HTTPException
+
 import numpy as np
 from fastembed import TextEmbedding
 from sqlalchemy import and_, or_
 from sqlmodel import Session, select
 
 from app.config import CHUNK_SIZE, CHUNK_OVERLAP, TOP_K_RESULTS, EMBEDDING_MODEL
-from app.models.db import ClientRecord, DocumentChunk, KnowledgeDocument, Project
+from app.models.db import ClientRecord, DocumentChunk, KnowledgeDocument, Project, User
+from app.services.knowledge_permissions import (
+    lock_and_require_legacy_document_write,
+    lock_legacy_document_for_trusted_system,
+)
+from app.services.project_clients import find_client_for_project
 
 _model: Optional[TextEmbedding] = None
 
@@ -96,6 +103,7 @@ def retrieve_structured(
     project_id: Optional[int] = None,
     client_id: Optional[int] = None,
     accessible_project_ids: Optional[List[int]] = None,
+    accessible_client_ids: Optional[List[int]] = None,
 ) -> RetrievalContext:
     """
     Retrieve relevant chunks with full source attribution.
@@ -111,29 +119,34 @@ def retrieve_structured(
     # retrieval: a caller cannot widen retrieval merely by guessing another
     # KnowledgeDocument id. ``None`` is reserved for trusted internal callers;
     # an empty list grants only legacy workspace/global documents.
-    if accessible_project_ids is not None:
+    if accessible_project_ids is not None or accessible_client_ids is not None:
         allowed_project_ids = list(
             dict.fromkeys(
                 int(value)
-                for value in accessible_project_ids
+                for value in (accessible_project_ids or [])
                 if isinstance(value, int) and value >= 0
             )
         )
-        allowed_client_ids: list[int] = []
+        allowed_client_ids = list(
+            dict.fromkeys(
+                int(value)
+                for value in (accessible_client_ids or [])
+                if isinstance(value, int) and value >= 0
+            )
+        )
         if allowed_project_ids:
-            client_names = {
-                str(name or "").strip()
-                for name in session.exec(
-                    select(Project.client).where(Project.id.in_(allowed_project_ids))
-                ).all()
-                if str(name or "").strip()
-            }
-            if client_names:
-                allowed_client_ids = list(
-                    session.exec(
-                        select(ClientRecord.id).where(ClientRecord.name.in_(client_names))
-                    ).all()
-                )
+            allowed_projects = session.exec(
+                select(Project).where(Project.id.in_(allowed_project_ids))
+            ).all()
+            allowed_client_ids = sorted(
+                set(allowed_client_ids)
+                | {
+                    int(client.id)
+                    for project in allowed_projects
+                    if (client := find_client_for_project(session, project)) is not None
+                    and client.id is not None
+                }
+            )
         permission_clauses = [
             and_(
                 KnowledgeDocument.project_id.is_(None),
@@ -146,7 +159,10 @@ def retrieve_structured(
             )
         if allowed_client_ids:
             permission_clauses.append(
-                KnowledgeDocument.client_id.in_(allowed_client_ids)
+                and_(
+                    KnowledgeDocument.project_id.is_(None),
+                    KnowledgeDocument.client_id.in_(allowed_client_ids),
+                )
             )
         stmt = stmt.where(or_(*permission_clauses))
     if doc_ids:
@@ -199,6 +215,7 @@ def retrieve(
     project_id: Optional[int] = None,
     client_id: Optional[int] = None,
     accessible_project_ids: Optional[List[int]] = None,
+    accessible_client_ids: Optional[List[int]] = None,
 ) -> str:
     """
     Legacy retrieve function — returns text for LLM prompt.
@@ -212,40 +229,83 @@ def retrieve(
         project_id=project_id,
         client_id=client_id,
         accessible_project_ids=accessible_project_ids,
+        accessible_client_ids=accessible_client_ids,
     ).to_text()
 
 
-async def index_document(document: KnowledgeDocument, text: str, session: Session) -> None:
-    document.vector_status = "processing"
-    document.vector_progress = 0.0
-    session.add(document)
-    session.commit()
+async def index_document(
+    document: KnowledgeDocument,
+    text: str,
+    session: Session,
+    *,
+    actor_user_id: int | None = None,
+    trusted_system: bool = False,
+    expected_source: tuple[object, ...] | None = None,
+) -> None:
+    """Atomically replace legacy chunks after final actor/scope authorization."""
+
+    if (actor_user_id is None) == (not trusted_system):
+        raise ValueError(
+            "Legacy knowledge indexing requires actor_user_id or trusted_system=True"
+        )
+    if document.id is None:
+        raise ValueError("Legacy knowledge document must be persisted before indexing")
+    document_id = int(document.id)
+    expected_source = expected_source or (
+        document.project_id,
+        document.client_id,
+        document.path,
+        document.name,
+        document.file_type,
+    )
+
+    # Chunking/embedding may call a remote provider in production. Do all of it
+    # before opening the final write transaction so revocation cannot leave a
+    # partially replaced chunk set or a misleading processing receipt.
+    chunks = chunk_text(text)
+    embeddings = embed_texts(chunks)
+    session.rollback()
+    if actor_user_id is not None:
+        actor = session.get(User, actor_user_id)
+        if actor is None:
+            raise HTTPException(401, "Not authenticated")
+        current, _ = lock_and_require_legacy_document_write(
+            session,
+            document_id,
+            actor,
+        )
+    else:
+        current = lock_legacy_document_for_trusted_system(session, document_id)
+    if (
+        current.project_id,
+        current.client_id,
+        current.path,
+        current.name,
+        current.file_type,
+    ) != expected_source:
+        session.rollback()
+        raise HTTPException(409, "Knowledge document source changed during indexing")
 
     old_chunks = session.exec(
-        select(DocumentChunk).where(DocumentChunk.document_id == document.id)
+        select(DocumentChunk)
+        .where(DocumentChunk.document_id == document_id)
+        .order_by(DocumentChunk.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
     ).all()
-    for c in old_chunks:
-        session.delete(c)
-    session.commit()
-
-    chunks = chunk_text(text)
-    document.chunk_count = len(chunks)
-
-    embeddings = embed_texts(chunks)
-
+    for old_chunk in old_chunks:
+        session.delete(old_chunk)
     for i, (chunk_text_val, emb) in enumerate(zip(chunks, embeddings)):
-        chunk = DocumentChunk(
-            document_id=document.id,
-            chunk_index=i,
-            content=chunk_text_val,
-            embedding_json=json.dumps(emb),
+        session.add(
+            DocumentChunk(
+                document_id=document_id,
+                chunk_index=i,
+                content=chunk_text_val,
+                embedding_json=json.dumps(emb),
+            )
         )
-        session.add(chunk)
-        document.vector_progress = (i + 1) / len(chunks)
-        session.add(document)
-        session.commit()
-
-    document.vector_status = "synced"
-    document.vector_progress = 1.0
-    session.add(document)
+    current.chunk_count = len(chunks)
+    current.vector_status = "synced"
+    current.vector_progress = 1.0
+    session.add(current)
     session.commit()

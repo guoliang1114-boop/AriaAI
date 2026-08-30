@@ -19,6 +19,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -30,11 +31,24 @@ from app.config import (
     KNOWLEDGE_JOB_RETRY_MAX_SECONDS,
 )
 from app.database import engine
-from app.models.knowledge import KnowledgeJob, KnowledgeSource, KnowledgeV1Document
+from app.models.db import User
+from app.models.knowledge import (
+    KnowledgeDocumentEvent,
+    KnowledgeJob,
+    KnowledgeSource,
+    KnowledgeV1Document,
+)
 from app.services.knowledge_ingestion import (
-    index_document,
-    record_document_event,
+    KnowledgeIngestionSuperseded,
+    index_document_actor_aware as index_document,
     scan_source_files,
+)
+from app.services.knowledge_permissions import (
+    KnowledgeWriteAuthorizationLost,
+    lock_and_require_knowledge_scope_write,
+    lock_and_require_source_document_write,
+    lock_and_require_source_write,
+    lock_source_document_for_trusted_system,
 )
 from app.services.knowledge_migration import (
     LegacyMigrationFailure,
@@ -47,6 +61,7 @@ ACTIVE_JOB_STATUSES = ("queued", "running", "retrying")
 TERMINAL_JOB_STATUSES = ("completed", "failed", "cancelled")
 MAX_CHECKPOINT_DOCUMENT_IDS = 2048
 MAX_JOB_ERROR_CHARS = 2000
+_TRUSTED_SYSTEM_PAYLOAD_KEY = "_trusted_system"
 
 
 class KnowledgeJobFailure(RuntimeError):
@@ -56,6 +71,10 @@ class KnowledgeJobFailure(RuntimeError):
         super().__init__(message)
         self.code = code
         self.retryable = retryable
+
+
+class KnowledgeJobAuthorizationLost(KnowledgeWriteAuthorizationLost):
+    """The durable job no longer has its original actor/scope authority."""
 
 
 def _json(raw: str) -> dict[str, Any]:
@@ -238,12 +257,55 @@ def enqueue_knowledge_job(
     payload: dict[str, Any] | None = None,
     max_attempts: int | None = None,
     force_new: bool = False,
+    trusted_system: bool = False,
 ) -> KnowledgeJob:
     normalized_payload = dict(payload or {})
+    normalized_payload.pop(_TRUSTED_SYSTEM_PAYLOAD_KEY, None)
+    if requested_by_user_id is None and not trusted_system:
+        raise ValueError(
+            "Knowledge jobs require requested_by_user_id or trusted_system=True"
+        )
+    if requested_by_user_id is not None and trusted_system:
+        raise ValueError(
+            "User-requested knowledge jobs cannot use trusted_system=True"
+        )
+    if trusted_system:
+        normalized_payload[_TRUSTED_SYSTEM_PAYLOAD_KEY] = True
     if document_id and source_id is None:
         document = session.get(KnowledgeV1Document, document_id)
         if document:
             source_id = document.source_id
+    # Enqueue itself mutates the job/document/event family, so it must not rely
+    # solely on a router's earlier read check. Authorize before even returning
+    # an idempotent active job so a revoked caller cannot use deduplication as
+    # a job-status oracle.
+    if requested_by_user_id is not None:
+        actor = session.get(User, int(requested_by_user_id))
+        if actor is None:
+            raise ValueError("Knowledge job requester no longer exists")
+        if source_id is not None and document_id is not None:
+            lock_and_require_source_document_write(
+                session,
+                int(source_id),
+                int(document_id),
+                actor,
+            )
+        elif source_id is not None:
+            lock_and_require_source_write(session, int(source_id), actor)
+        else:
+            lock_and_require_knowledge_scope_write(
+                session,
+                actor,
+                scope_type="global",
+                scope_id=None,
+            )
+    elif source_id is not None:
+        lock_source_document_for_trusted_system(
+            session,
+            int(source_id),
+            int(document_id) if document_id is not None else None,
+        )
+
     active_target = _find_active_target_job(
         session,
         job_type=job_type,
@@ -298,6 +360,23 @@ def enqueue_knowledge_job(
             document.updated_at = utc_now_naive()
             session.add(document)
     try:
+        session.flush()
+        if document_id:
+            session.add(
+                KnowledgeDocumentEvent(
+                    document_id=int(document_id),
+                    event_type="job_queued",
+                    status="queued",
+                    metadata_json=json.dumps(
+                        {
+                            "job_id": job.id,
+                            "job_type": job_type,
+                            "trace_id": job.trace_id,
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            )
         session.commit()
     except IntegrityError:
         # The production partial unique index resolves concurrent enqueue races.
@@ -320,14 +399,6 @@ def enqueue_knowledge_job(
             return active_target
         raise
     session.refresh(job)
-    if document_id:
-        record_document_event(
-            session,
-            document_id,
-            "job_queued",
-            "queued",
-            metadata={"job_id": job.id, "job_type": job_type, "trace_id": job.trace_id},
-        )
     _push_to_redis(job)
     return job
 
@@ -356,32 +427,201 @@ def classify_knowledge_job_failure(exc: BaseException) -> tuple[str, bool, str]:
     return "internal_ingestion_error", True, "An unexpected ingestion error interrupted the job."
 
 
-def _claim_knowledge_job(session: Session, job_id: int) -> KnowledgeJob | None:
-    now = utc_now_naive()
-    job = session.exec(
+def _job_scope_signature(job: KnowledgeJob) -> tuple[Any, ...]:
+    payload = _json(job.payload_json)
+    return (
+        job.job_type,
+        job.document_id,
+        job.source_id,
+        job.requested_by_user_id,
+        bool(payload.get(_TRUSTED_SYSTEM_PAYLOAD_KEY)),
+    )
+
+
+def _source_signature(source: KnowledgeSource | None) -> tuple[Any, ...] | None:
+    if source is None:
+        return None
+    return (
+        int(source.id or 0),
+        source.scope_type,
+        source.scope_id,
+        source.owner_user_id,
+    )
+
+
+def _document_signature(
+    document: KnowledgeV1Document | None,
+) -> tuple[Any, ...] | None:
+    if document is None:
+        return None
+    return (
+        int(document.id or 0),
+        document.source_id,
+        document.scope_type,
+        document.scope_id,
+        document.original_storage_key,
+        document.path,
+        document.content_hash,
+        document.file_type,
+        document.title,
+        document.file_name,
+    )
+
+
+def _job_write_snapshot(
+    job: KnowledgeJob,
+    source: KnowledgeSource | None,
+    document: KnowledgeV1Document | None,
+) -> dict[str, Any]:
+    return {
+        "job_scope": _job_scope_signature(job),
+        "runtime": (job.status, int(job.attempt or 0), job.lease_token),
+        "source": _source_signature(source),
+        "document": _document_signature(document),
+    }
+
+
+def _lock_and_require_job_write(
+    session: Session,
+    job_id: int,
+    *,
+    expected: dict[str, Any] | None = None,
+    additional_document_id: int | None = None,
+    allow_dynamic_source: bool = False,
+) -> tuple[
+    KnowledgeJob,
+    KnowledgeSource | None,
+    KnowledgeV1Document | None,
+]:
+    """Authorize actor/scope first, then lock source children and the job."""
+
+    locator = session.exec(
         select(KnowledgeJob)
         .where(KnowledgeJob.id == job_id)
+        .execution_options(populate_existing=True)
+    ).first()
+    if locator is None:
+        raise KnowledgeJobAuthorizationLost("Knowledge job was deleted")
+    payload = _json(locator.payload_json)
+    trusted_system = bool(payload.get(_TRUSTED_SYSTEM_PAYLOAD_KEY))
+    if locator.requested_by_user_id is not None and trusted_system:
+        raise KnowledgeJobAuthorizationLost(
+            "User-requested knowledge job cannot become trusted-system work"
+        )
+    if locator.requested_by_user_id is None and not trusted_system:
+        raise KnowledgeJobAuthorizationLost(
+            "Knowledge job has no actor or explicit trusted-system origin"
+        )
+
+    source: KnowledgeSource | None = None
+    document: KnowledgeV1Document | None = None
+    document_id = additional_document_id or locator.document_id
+    source_id = locator.source_id
+    if document_id is not None and source_id is None:
+        document_locator = session.exec(
+            select(KnowledgeV1Document)
+            .where(KnowledgeV1Document.id == document_id)
+            .execution_options(populate_existing=True)
+        ).first()
+        source_id = document_locator.source_id if document_locator is not None else None
+
+    try:
+        if locator.requested_by_user_id is not None:
+            actor = session.get(User, int(locator.requested_by_user_id))
+            if actor is None:
+                raise HTTPException(401, "Not authenticated")
+            if source_id is not None and document_id is not None:
+                source, document, _ = lock_and_require_source_document_write(
+                    session,
+                    int(source_id),
+                    int(document_id),
+                    actor,
+                )
+            elif source_id is not None:
+                source, _ = lock_and_require_source_write(
+                    session,
+                    int(source_id),
+                    actor,
+                )
+            else:
+                lock_and_require_knowledge_scope_write(
+                    session,
+                    actor,
+                    scope_type="global",
+                    scope_id=None,
+                )
+        elif source_id is not None:
+            source, document = lock_source_document_for_trusted_system(
+                session,
+                int(source_id),
+                int(document_id) if document_id is not None else None,
+            )
+    except HTTPException as exc:
+        raise KnowledgeJobAuthorizationLost(str(exc.detail)) from exc
+
+    session.expire(locator)
+    locked_job = session.exec(
+        select(KnowledgeJob)
+        .where(KnowledgeJob.id == job_id)
+        .execution_options(populate_existing=True)
         .with_for_update()
     ).first()
-    if not job:
+    if locked_job is None:
+        raise KnowledgeJobAuthorizationLost("Knowledge job was deleted")
+    current = _job_write_snapshot(locked_job, source, document)
+    if expected is not None:
+        if current["job_scope"] != expected["job_scope"]:
+            raise KnowledgeJobAuthorizationLost("Knowledge job scope changed")
+        if current["runtime"] != expected["runtime"]:
+            raise KnowledgeJobAuthorizationLost("Knowledge job lease was superseded")
+        if not allow_dynamic_source and current["source"] != expected["source"]:
+            raise KnowledgeJobAuthorizationLost("Knowledge source scope changed")
+        if (
+            not allow_dynamic_source
+            and additional_document_id is None
+            and current["document"] != expected["document"]
+        ):
+            raise KnowledgeJobAuthorizationLost("Knowledge document source changed")
+    return locked_job, source, document
+
+
+def _claim_knowledge_job(
+    session: Session,
+    job_id: int,
+) -> tuple[KnowledgeJob | None, dict[str, Any] | None]:
+    now = utc_now_naive()
+    locator = session.exec(
+        select(KnowledgeJob)
+        .where(KnowledgeJob.id == job_id)
+        .execution_options(populate_existing=True)
+    ).first()
+    if not locator:
         session.rollback()
-        return None
+        return None, None
     running_with_live_lease = (
-        job.status == "running"
-        and job.lease_expires_at is not None
-        and job.lease_expires_at > now
+        locator.status == "running"
+        and locator.lease_expires_at is not None
+        and locator.lease_expires_at > now
     )
     waiting_for_retry = (
-        job.status == "retrying"
-        and job.next_attempt_at is not None
-        and job.next_attempt_at > now
+        locator.status == "retrying"
+        and locator.next_attempt_at is not None
+        and locator.next_attempt_at > now
     )
-    if job.status in TERMINAL_JOB_STATUSES or running_with_live_lease or waiting_for_retry:
+    if locator.status in TERMINAL_JOB_STATUSES or running_with_live_lease or waiting_for_retry:
         session.rollback()
-        return job
+        return locator, None
+    if locator.status not in ACTIVE_JOB_STATUSES:
+        session.rollback()
+        return locator, None
+    job, source, document = _lock_and_require_job_write(session, job_id)
+    now = utc_now_naive()
+    if job.status in TERMINAL_JOB_STATUSES:
+        session.rollback()
+        return job, None
     if job.status not in ACTIVE_JOB_STATUSES:
         session.rollback()
-        return job
+        return job, None
     if job.attempt >= job.max_attempts:
         job.status = "failed"
         job.failure_code = "retry_limit_reached"
@@ -395,7 +635,7 @@ def _claim_knowledge_job(session: Session, job_id: int) -> KnowledgeJob | None:
         session.add(job)
         session.commit()
         session.refresh(job)
-        return job
+        return job, None
 
     job.status = "running"
     job.attempt += 1
@@ -406,9 +646,10 @@ def _claim_knowledge_job(session: Session, job_id: int) -> KnowledgeJob | None:
     job.lease_token = uuid.uuid4().hex
     job.lease_expires_at = now + timedelta(seconds=KNOWLEDGE_JOB_LEASE_SECONDS)
     session.add(job)
+    expected = _job_write_snapshot(job, source, document)
     session.commit()
     session.refresh(job)
-    return job
+    return job, expected
 
 
 def _save_checkpoint(
@@ -431,51 +672,81 @@ def _process_document_job(
     session: Session,
     job: KnowledgeJob,
     payload: dict[str, Any],
-) -> None:
+    expected: dict[str, Any],
+) -> dict[str, Any]:
     if job.document_id is None:
         raise KnowledgeJobFailure("document_id_required", "document_id is required", retryable=False)
 
-    def checkpoint(phase: str, facts: dict[str, Any]) -> None:
-        _save_checkpoint(
+    def final_authorize() -> tuple[KnowledgeSource, KnowledgeV1Document]:
+        _, source, document = _lock_and_require_job_write(
             session,
-            job,
-            phase,
-            document_id=job.document_id,
-            source_id=job.source_id,
-            **facts,
+            int(job.id),
+            expected=expected,
         )
+        if source is None or document is None:
+            raise KnowledgeJobAuthorizationLost(
+                "Knowledge document scope was removed"
+            )
+        return source, document
 
-    document = index_document(
+    result = index_document(
         session,
         job.document_id,
         template_key=payload.get("template_key"),
-        resume_checkpoint=_json(job.checkpoint_json),
-        checkpoint=checkpoint,
+        final_authorize=final_authorize,
     )
+    if isinstance(result, tuple):
+        document, facts = result
+    else:  # Backward-compatible seam for focused tests and adapters.
+        document, facts = result, {}
     if document.status != "indexed":
         raise KnowledgeJobFailure(
             "document_not_indexed",
             document.error_message or "The document could not be indexed.",
             retryable=False,
         )
+    return {
+        "document_id": int(document.id),
+        "source_id": int(document.source_id),
+        "chunk_count": int(facts.get("chunk_count", document.chunk_count) or 0),
+        "token_count": int(facts.get("token_count", document.token_count) or 0),
+        "template_key": str(facts.get("template_key") or payload.get("template_key") or ""),
+    }
 
 
 def _process_source_sync(
     session: Session,
     job: KnowledgeJob,
     payload: dict[str, Any],
-) -> None:
+    expected: dict[str, Any],
+) -> dict[str, Any]:
     if job.source_id is None:
         raise KnowledgeJobFailure("source_id_required", "source_id is required", retryable=False)
-    source = session.get(KnowledgeSource, job.source_id)
-    if not source:
-        raise KnowledgeJobFailure("source_not_found", "Knowledge source not found", retryable=False)
-    source.status = "indexing"
-    source.updated_at = utc_now_naive()
-    session.add(source)
-    session.commit()
 
-    scan_source_files(session, job.source_id)
+    _, source, _ = _lock_and_require_job_write(
+        session,
+        int(job.id),
+        expected=expected,
+    )
+    if source is None:
+        raise KnowledgeJobFailure("source_not_found", "Knowledge source not found", retryable=False)
+    session.rollback()
+
+    def authorize_source_scan() -> KnowledgeSource:
+        _, current_source, _ = _lock_and_require_job_write(
+            session,
+            int(job.id),
+            expected=expected,
+        )
+        if current_source is None:
+            raise KnowledgeJobAuthorizationLost("Knowledge source was removed")
+        return current_source
+
+    scan_source_files(
+        session,
+        job.source_id,
+        final_authorize=authorize_source_scan,
+    )
     documents = session.exec(
         select(KnowledgeV1Document)
         .where(
@@ -494,29 +765,26 @@ def _process_source_sync(
         if document.id in completed_ids and document.status == "indexed":
             continue
 
-        def document_checkpoint(phase: str, facts: dict[str, Any]) -> None:
-            _save_checkpoint(
+        def final_authorize() -> tuple[KnowledgeSource, KnowledgeV1Document]:
+            _, current_source, current_document = _lock_and_require_job_write(
                 session,
-                job,
-                "syncing",
-                source_id=job.source_id,
-                current_document_id=document.id,
-                document_phase=phase,
-                completed_document_ids=sorted(completed_ids),
-                **facts,
+                int(job.id),
+                expected=expected,
+                additional_document_id=int(document.id),
             )
+            if current_source is None or current_document is None:
+                raise KnowledgeJobAuthorizationLost(
+                    "Knowledge sync document scope was removed"
+                )
+            return current_source, current_document
 
-        indexed = index_document(
+        result = index_document(
             session,
             document.id,
             template_key=payload.get("template_key"),
-            resume_checkpoint=(
-                checkpoint_value
-                if checkpoint_value.get("current_document_id") == document.id
-                else {}
-            ),
-            checkpoint=document_checkpoint,
+            final_authorize=final_authorize,
         )
+        indexed = result[0] if isinstance(result, tuple) else result
         if indexed.status != "indexed":
             raise KnowledgeJobFailure(
                 "document_not_indexed",
@@ -524,32 +792,57 @@ def _process_source_sync(
                 retryable=False,
             )
         completed_ids.add(int(document.id))
-        _save_checkpoint(
+        locked_job, _, _ = _lock_and_require_job_write(
             session,
-            job,
-            "syncing",
-            source_id=job.source_id,
-            completed_document_ids=sorted(completed_ids),
-            completed_document_count=len(completed_ids),
+            int(job.id),
+            expected=expected,
         )
-        checkpoint_value = _json(job.checkpoint_json)
+        checkpoint_value = _bounded_checkpoint(
+            {
+                **_json(locked_job.checkpoint_json),
+                "phase": "syncing",
+                "source_id": job.source_id,
+                "completed_document_ids": sorted(completed_ids),
+                "completed_document_count": len(completed_ids),
+            }
+        )
+        locked_job.checkpoint_json = json.dumps(
+            checkpoint_value,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        locked_job.updated_at = utc_now_naive()
+        session.add(locked_job)
+        session.commit()
 
+    locked_job, source, _ = _lock_and_require_job_write(
+        session,
+        int(job.id),
+        expected=expected,
+    )
+    if source is None:
+        raise KnowledgeJobAuthorizationLost("Knowledge source was removed")
     source.status = "active"
     source.updated_at = utc_now_naive()
     session.add(source)
-    job.payload_json = json.dumps(
+    locked_job.payload_json = json.dumps(
         {**payload, "scanned_document_count": len(documents)},
         ensure_ascii=False,
     )
-    session.add(job)
-    session.commit()
+    session.add(locked_job)
+    return {
+        "source_id": int(source.id),
+        "completed_document_ids": sorted(completed_ids),
+        "completed_document_count": len(completed_ids),
+    }
 
 
 def _process_legacy_migration(
     session: Session,
     job: KnowledgeJob,
     payload: dict[str, Any],
-) -> None:
+    expected: dict[str, Any],
+) -> dict[str, Any]:
     raw_plans = payload.get("planned_documents")
     if not isinstance(raw_plans, list) or not raw_plans:
         raise KnowledgeJobFailure(
@@ -566,7 +859,29 @@ def _process_legacy_migration(
         )
 
     def checkpoint(phase: str, facts: dict[str, Any]) -> None:
-        _save_checkpoint(session, job, phase, **facts)
+        locked_job, _, _ = _lock_and_require_job_write(
+            session,
+            int(job.id),
+            expected=expected,
+        )
+        _save_checkpoint(session, locked_job, phase, **facts)
+
+    def authorize_migrated_document(
+        source_id: int,
+        document_id: int,
+    ) -> tuple[KnowledgeSource, KnowledgeV1Document]:
+        _, source, document = _lock_and_require_job_write(
+            session,
+            int(job.id),
+            expected=expected,
+            additional_document_id=document_id,
+            allow_dynamic_source=True,
+        )
+        if source is None or int(source.id or 0) != int(source_id) or document is None:
+            raise KnowledgeJobAuthorizationLost(
+                "Migrated knowledge document scope changed"
+            )
+        return source, document
 
     result = migrate_legacy_documents(
         session,
@@ -574,9 +889,20 @@ def _process_legacy_migration(
         requested_by_user_id=job.requested_by_user_id,
         planned_documents=planned_documents,
         checkpoint=checkpoint,
+        document_final_authorize=authorize_migrated_document,
     )
-    job.payload_json = json.dumps(
+    locked_job, _, _ = _lock_and_require_job_write(
+        session,
+        int(job.id),
+        expected=expected,
+    )
+    locked_job.payload_json = json.dumps(
         {
+            **(
+                {_TRUSTED_SYSTEM_PAYLOAD_KEY: True}
+                if payload.get(_TRUSTED_SYSTEM_PAYLOAD_KEY)
+                else {}
+            ),
             "migration_version": payload.get("migration_version"),
             "plan_hash": payload.get("plan_hash"),
             "planned_document_count": len(planned_documents),
@@ -591,28 +917,50 @@ def _process_legacy_migration(
         },
         ensure_ascii=False,
     )
-    session.add(job)
-    session.commit()
+    session.add(locked_job)
+    return result
 
 
 def process_knowledge_job(session: Session, job_id: int) -> KnowledgeJob | None:
-    job = _claim_knowledge_job(session, job_id)
+    try:
+        job, expected = _claim_knowledge_job(session, job_id)
+    except KnowledgeJobAuthorizationLost:
+        session.rollback()
+        return session.get(KnowledgeJob, job_id)
     if not job or job.status != "running":
+        return job
+    if expected is None:
         return job
 
     payload = _json(job.payload_json)
     try:
+        completion_facts: dict[str, Any]
         if job.job_type in {
             "index_document",
             "extract_document",
             "embed_chunks",
             "extract_template",
         }:
-            _process_document_job(session, job, payload)
+            completion_facts = _process_document_job(
+                session,
+                job,
+                payload,
+                expected,
+            )
         elif job.job_type == "sync_source":
-            _process_source_sync(session, job, payload)
+            completion_facts = _process_source_sync(
+                session,
+                job,
+                payload,
+                expected,
+            )
         elif job.job_type == "migrate_legacy_knowledge":
-            _process_legacy_migration(session, job, payload)
+            completion_facts = _process_legacy_migration(
+                session,
+                job,
+                payload,
+                expected,
+            )
         else:
             raise KnowledgeJobFailure(
                 "unsupported_job_type",
@@ -620,6 +968,11 @@ def process_knowledge_job(session: Session, job_id: int) -> KnowledgeJob | None:
                 retryable=False,
             )
 
+        job, _, _ = _lock_and_require_job_write(
+            session,
+            job_id,
+            expected=expected,
+        )
         now = utc_now_naive()
         job.status = "completed"
         job.error_message = ""
@@ -630,24 +983,38 @@ def process_knowledge_job(session: Session, job_id: int) -> KnowledgeJob | None:
         job.next_attempt_at = None
         job.lease_token = ""
         job.lease_expires_at = None
-        prior_checkpoint = _json(job.checkpoint_json)
-        prior_checkpoint.pop("phase", None)
-        prior_checkpoint["document_id"] = job.document_id
-        prior_checkpoint["source_id"] = job.source_id
-        _save_checkpoint(
-            session,
-            job,
-            "completed",
-            **prior_checkpoint,
+        prior_checkpoint = _bounded_checkpoint(
+            {
+                **_json(job.checkpoint_json),
+                **completion_facts,
+                "phase": "completed",
+                "document_id": job.document_id,
+                "source_id": job.source_id,
+            }
         )
-        job.lease_expires_at = None
+        job.checkpoint_json = json.dumps(
+            prior_checkpoint,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
         session.add(job)
         session.commit()
     except Exception as exc:
         session.rollback()
-        job = session.get(KnowledgeJob, job_id)
-        if not job:
-            return None
+        if isinstance(
+            exc,
+            (KnowledgeJobAuthorizationLost, KnowledgeIngestionSuperseded),
+        ):
+            return session.get(KnowledgeJob, job_id)
+        try:
+            job, source, document = _lock_and_require_job_write(
+                session,
+                job_id,
+                expected=expected,
+            )
+        except KnowledgeJobAuthorizationLost:
+            session.rollback()
+            return session.get(KnowledgeJob, job_id)
         failure_code, retryable, message = classify_knowledge_job_failure(exc)
         now = utc_now_naive()
         will_retry = bool(retryable and job.attempt < job.max_attempts)
@@ -667,35 +1034,36 @@ def process_knowledge_job(session: Session, job_id: int) -> KnowledgeJob | None:
         job.lease_token = ""
         job.lease_expires_at = None
         session.add(job)
-        if job.document_id:
-            document = session.get(KnowledgeV1Document, job.document_id)
-            if document:
-                document.status = "retrying" if will_retry else "failed"
-                document.error_message = message
-                document.updated_at = now
-                session.add(document)
-        if job.source_id and job.job_type == "sync_source":
-            source = session.get(KnowledgeSource, job.source_id)
-            if source:
-                source.status = "indexing" if will_retry else "error"
-                source.updated_at = now
-                session.add(source)
-        session.commit()
-        if job.document_id:
-            record_document_event(
-                session,
-                job.document_id,
-                "job_retry_scheduled" if will_retry else "job_failed",
-                job.status,
-                message=message,
-                metadata={
-                    "job_id": job.id,
-                    "failure_code": failure_code,
-                    "attempt": job.attempt,
-                    "max_attempts": job.max_attempts,
-                    "next_attempt_at": _iso(job.next_attempt_at),
-                },
+        if document is not None:
+            document.status = "retrying" if will_retry else "failed"
+            document.error_message = message
+            document.updated_at = now
+            session.add(document)
+            session.add(
+                KnowledgeDocumentEvent(
+                    document_id=int(document.id),
+                    event_type=(
+                        "job_retry_scheduled" if will_retry else "job_failed"
+                    ),
+                    status=job.status,
+                    message=message,
+                    metadata_json=json.dumps(
+                        {
+                            "job_id": job.id,
+                            "failure_code": failure_code,
+                            "attempt": job.attempt,
+                            "max_attempts": job.max_attempts,
+                            "next_attempt_at": _iso(job.next_attempt_at),
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
             )
+        if source is not None and job.job_type == "sync_source":
+            source.status = "indexing" if will_retry else "error"
+            source.updated_at = now
+            session.add(source)
+        session.commit()
 
     session.refresh(job)
     return job
@@ -707,12 +1075,12 @@ def retry_knowledge_job(
     *,
     force: bool = False,
 ) -> KnowledgeJob:
-    job = session.exec(
-        select(KnowledgeJob).where(KnowledgeJob.id == job_id).with_for_update()
-    ).first()
-    if not job:
-        raise ValueError("Knowledge job not found")
-    if job.status in ACTIVE_JOB_STATUSES:
+    try:
+        job, _, document = _lock_and_require_job_write(session, job_id)
+    except KnowledgeJobAuthorizationLost as exc:
+        session.rollback()
+        raise ValueError(str(exc)) from exc
+    if job.status in ACTIVE_JOB_STATUSES and not force:
         session.rollback()
         return job
     if job.status == "completed":
@@ -740,13 +1108,11 @@ def retry_knowledge_job(
     job.lease_expires_at = None
     job.updated_at = utc_now_naive()
     session.add(job)
-    if job.document_id:
-        document = session.get(KnowledgeV1Document, job.document_id)
-        if document:
-            document.status = "queued"
-            document.error_message = None
-            document.updated_at = utc_now_naive()
-            session.add(document)
+    if document is not None:
+        document.status = "queued"
+        document.error_message = None
+        document.updated_at = utc_now_naive()
+        session.add(document)
     session.commit()
     session.refresh(job)
     _push_to_redis(job)
@@ -804,5 +1170,6 @@ def index_knowledge_document_job(document_id: int, template_key: str | None = No
             job_type="index_document",
             document_id=document_id,
             payload={"template_key": template_key} if template_key else {},
+            trusted_system=True,
         )
         process_knowledge_job(session, int(job.id))

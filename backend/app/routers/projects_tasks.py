@@ -29,7 +29,7 @@ from app.services.task_orchestrator import (
     serialize_task_run,
 )
 
-from app.routers.chat_security import maybe_require_project_access
+from app.routers.chat_security import maybe_require_project_access, require_project_write_access
 
 router = APIRouter(
     tags=["project tasks"],
@@ -75,7 +75,10 @@ def list_task_runs(project_id: int, session: Session = Depends(get_session)):
     return list_project_task_runs(session, project_id)
 
 
-@router.post("/{project_id}/task-runs")
+@router.post(
+    "/{project_id}/task-runs",
+    dependencies=[Depends(require_project_write_access)],
+)
 def create_project_task_run(
     project_id: int,
     body: ProjectTaskCreate,
@@ -109,7 +112,10 @@ def get_project_task_run(project_id: int, task_id: int, session: Session = Depen
     return serialize_task_run(session, task, include_events=True)
 
 
-@router.post("/{project_id}/task-runs/{task_id}/retry")
+@router.post(
+    "/{project_id}/task-runs/{task_id}/retry",
+    dependencies=[Depends(require_project_write_access)],
+)
 def retry_project_task_run(
     project_id: int,
     task_id: int,
@@ -125,47 +131,79 @@ def retry_project_task_run(
     return serialize_task_run(session, task, include_events=True)
 
 
-@router.post("/{project_id}/task-runs/{task_id}/cancel")
-def cancel_project_task_run(project_id: int, task_id: int, session: Session = Depends(get_session)):
+@router.post(
+    "/{project_id}/task-runs/{task_id}/cancel",
+    dependencies=[Depends(require_project_write_access)],
+)
+def cancel_project_task_run(
+    project_id: int,
+    task_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     task = get_task_run_or_none(session, task_id)
     if task is None or task.project_id != project_id:
         raise HTTPException(status_code=404, detail="Task run not found")
     if task.status == "completed":
         raise HTTPException(status_code=400, detail="Completed task runs cannot be canceled")
-    payload = cancel_task_run_in_session(session, task.id)
+    payload = cancel_task_run_in_session(
+        session,
+        task.id,
+        actor_user_id=current_user.id,
+    )
     if payload is None:
         raise HTTPException(status_code=404, detail="Task run not found")
     _sync_task_run_into_chat_message(session, payload)
     return payload
 
 
-@router.post("/{project_id}/task-runs/{task_id}/pause")
-def pause_project_task_run(project_id: int, task_id: int, session: Session = Depends(get_session)):
+@router.post(
+    "/{project_id}/task-runs/{task_id}/pause",
+    dependencies=[Depends(require_project_write_access)],
+)
+def pause_project_task_run(
+    project_id: int,
+    task_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     task = get_task_run_or_none(session, task_id)
     if task is None or task.project_id != project_id:
         raise HTTPException(status_code=404, detail="Task run not found")
     if task.status in {"completed", "failed", "canceled"}:
         raise HTTPException(status_code=400, detail="Only pending or running task runs can be paused")
-    payload = pause_task_run_in_session(session, task.id)
+    payload = pause_task_run_in_session(
+        session,
+        task.id,
+        actor_user_id=current_user.id,
+    )
     if payload is None:
         raise HTTPException(status_code=404, detail="Task run not found")
     _sync_task_run_into_chat_message(session, payload)
     return payload
 
 
-@router.post("/{project_id}/task-runs/{task_id}/resume")
+@router.post(
+    "/{project_id}/task-runs/{task_id}/resume",
+    dependencies=[Depends(require_project_write_access)],
+)
 def resume_project_task_run(
     project_id: int,
     task_id: int,
     background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     task = get_task_run_or_none(session, task_id)
     if task is None or task.project_id != project_id:
         raise HTTPException(status_code=404, detail="Task run not found")
     if task.status != "paused":
         raise HTTPException(status_code=400, detail="Only paused task runs can be resumed")
-    payload = resume_task_run_in_session(session, task.id)
+    payload = resume_task_run_in_session(
+        session,
+        task.id,
+        actor_user_id=current_user.id,
+    )
     if payload is None:
         raise HTTPException(status_code=404, detail="Task run not found")
     _sync_task_run_into_chat_message(session, payload)

@@ -25,6 +25,7 @@ from app.services.memory_slots import (
     project_memory_promotion_payload,
 )
 from app.services.project_contexts import _resolve_output_language, normalize_summary_language
+from app.services.project_clients import list_projects_for_client
 from app.services.stakeholder_contexts import (
     format_client_stakeholders_for_prompt,
     list_client_stakeholder_dicts,
@@ -41,6 +42,12 @@ SUPPORTED_CLIENT_MEMORY_SUMMARY_TYPES = {
     "relationship",
     "delivery",
 }
+
+# A cancel epoch stored in ``ClientRecord.client_memory_json`` because the
+# legacy client table has no operational generation column.  This token is
+# execution control, not product memory, so it must never enter prompts or API
+# payloads. Rebuild start never writes it; cancellation alone rotates it.
+CLIENT_MEMORY_REBUILD_GENERATION_KEY = "_rebuild_generation"
 
 CORE_CLIENT_MEMORY_SUMMARY_TYPES = [
     "overview",
@@ -85,6 +92,8 @@ def get_client_memory_payload(client: ClientRecord) -> dict[str, Any]:
     except json.JSONDecodeError:
         parsed = {}
 
+    parsed.pop(CLIENT_MEMORY_REBUILD_GENERATION_KEY, None)
+
     return {
         **base,
         **parsed,
@@ -128,7 +137,13 @@ def _merge_accepted_memory_candidates(
     return memory
 
 
-def mark_client_memory_stale(session: Session, client_id: int, trigger: str = "data_changed") -> None:
+def mark_client_memory_stale(
+    session: Session,
+    client_id: int,
+    trigger: str = "data_changed",
+    *,
+    commit: bool = True,
+) -> None:
     client = session.exec(
         select(ClientRecord)
         .where(ClientRecord.id == client_id)
@@ -144,26 +159,8 @@ def mark_client_memory_stale(session: Session, client_id: int, trigger: str = "d
     mark_client_memory_facts_stale(session, client_id, trigger)
     client.client_memory_stale = True
     session.add(client)
-    session.commit()
-
-
-def mark_client_memory_stale_by_name(session: Session, client_name: str, trigger: str = "project_changed") -> None:
-    normalized = (client_name or "").strip().lower()
-    if not normalized:
-        return
-    client = session.exec(select(ClientRecord).where(ClientRecord.name == client_name)).first()
-    if client is None:
-        client = next(
-            (
-                record
-                for record in session.exec(select(ClientRecord)).all()
-                if (record.name or "").strip().lower() == normalized
-            ),
-            None,
-        )
-    if client is None:
-        return
-    mark_client_memory_stale(session, client.id, trigger=trigger)
+    if commit:
+        session.commit()
 
 
 def build_client_memory_data(
@@ -197,7 +194,6 @@ def build_client_memory_data(
             "sensitive_topics",
         }
     )
-    normalized = (client.name or "").strip().lower()
     structured_stakeholders = (
         list_client_stakeholder_dicts(
             session,
@@ -208,13 +204,11 @@ def build_client_memory_data(
         else []
     )
     projects = (
-        [
-            project
-            for project in session.exec(
-                select(Project).order_by(Project.updated_at.desc())
-            ).all()
-            if (project.client or "").strip().lower() == normalized
-        ]
+        sorted(
+            list_projects_for_client(session, client),
+            key=lambda project: project.updated_at,
+            reverse=True,
+        )
         if needs_projects
         else []
     )

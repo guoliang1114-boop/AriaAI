@@ -118,7 +118,7 @@ export function CxProjectStakeholders({ projectId, detail, refetch }: Stakeholde
     loading,
     error,
     refetch: refetchStakeholders,
-  } = useClientStakeholders(project.client)
+  } = useClientStakeholders(project.client_id, project.client)
   const [inviting, setInviting] = useState(false)
   const [removing, setRemoving] = useState<ProjectMember | null>(null)
   const [creatingStakeholder, setCreatingStakeholder] = useState(false)
@@ -285,11 +285,10 @@ export function CxProjectStakeholders({ projectId, detail, refetch }: Stakeholde
                   lineHeight: 1.7,
                 }}
               >
-                在「<a href="/clients" style={{ color: 'var(--accent)' }}>客户空间</a>
-                」里新建或编辑一个同名客户档案后,客户侧干系人(CTO、COO、决策链等)会自动出现在此处。
+                该项目尚未通过客户 ID 关联客户档案。请编辑项目信息，并从客户候选项中明确选择一条客户档案。
               </p>
               <a
-                href="/clients"
+                href={`/projects/${projectId}/overview`}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -302,7 +301,7 @@ export function CxProjectStakeholders({ projectId, detail, refetch }: Stakeholde
                   textDecoration: 'none',
                 }}
               >
-                去客户空间 <CxIcon name="arrow-right" size={11} />
+                编辑项目信息 <CxIcon name="arrow-right" size={11} />
               </a>
             </CxPanel>
           ) : rows.length === 0 ? (
@@ -781,8 +780,8 @@ export function CxProjectStakeholders({ projectId, detail, refetch }: Stakeholde
               </a>
             ) : (
               <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
-                项目的客户字段「{project.client || '—'}
-                」未匹配到任何客户档案。可在客户空间新建同名档案。
+                项目的客户字段「{project.client || '—'}」尚未通过客户 ID
+                关联客户档案。请在项目信息中明确选择客户。
               </div>
             )}
           </CxPanel>

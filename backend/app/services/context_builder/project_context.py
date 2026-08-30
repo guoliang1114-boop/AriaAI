@@ -22,11 +22,11 @@ from app.models.db import (
 from app.services.project_files import active_project_files_stmt
 from app.services.document_text import extract_text_from_file
 from app.services.stakeholder_contexts import (
-    find_client_by_name,
     format_client_stakeholders_for_prompt,
     list_client_stakeholder_dicts,
     serialize_client_stakeholder,
 )
+from app.services.project_clients import find_client_for_project
 from app.services.context_builder.constants import (
     MAX_FILE_CONTENT_CHARS,
     MAX_SINGLE_FILE_CHARS,
@@ -105,7 +105,7 @@ def build_project_context(
         lines.append(f"**Description:** {project.description}")
     if project.contract_amount:
         lines.append(f"**Contract Amount:** ¥{project.contract_amount:,.0f}")
-    client = find_client_by_name(session, project.client)
+    client = find_client_for_project(session, project)
     mention = mention_context or {}
     mentioned_stakeholder_ids = mention.get("stakeholder_ids") or []
     mentioned_milestone_ids = mention.get("milestone_ids") or []

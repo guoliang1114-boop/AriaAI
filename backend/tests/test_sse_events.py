@@ -334,14 +334,18 @@ class TruncationSseContract(SseEventContractBase):
         compact = _unique_in_order(types)
 
         self.assertEqual(compact[0], "conversation_id")
-        self.assertEqual(compact[-1], "run_done")
-        # Legacy ``done`` is still emitted during v1 double-send and precedes ``run_done``.
+        # A second truncation leaves the requested output incomplete. The
+        # legacy stream still closes with ``done``, while the canonical product
+        # run truthfully records an incomplete terminal state as ``run_failed``
+        # (OUTPUT_TRUNCATED) so clients can offer recovery instead of claiming
+        # success.
+        self.assertEqual(compact[-1], "run_failed")
         self.assertIn("done", compact, "legacy done must still be emitted alongside v1")
-        self.assertLess(compact.index("done"), compact.index("run_done"))
+        self.assertLess(compact.index("done"), compact.index("run_failed"))
         self.assertIn("truncated", compact)
         # truncated must come before the run terminators
         self.assertLess(compact.index("truncated"), compact.index("done"))
-        self.assertLess(compact.index("truncated"), compact.index("run_done"))
+        self.assertLess(compact.index("truncated"), compact.index("run_failed"))
 
 
 if __name__ == "__main__":  # pragma: no cover

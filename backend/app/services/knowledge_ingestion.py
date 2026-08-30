@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import fnmatch
 import json
+import logging
 import math
 import os
 from pathlib import Path
 from typing import Any, Callable
+import uuid
 
+from sqlalchemy import event
 from sqlmodel import Session, select
 
 from app.config import EMBEDDING_MODEL, UPLOADS_DIR
@@ -21,6 +24,7 @@ from app.models.knowledge import (
     KnowledgeV1Document,
 )
 from app.services.document_text import extract_text_from_file
+from app.services.knowledge_permissions import KnowledgeWriteAuthorizationLost
 from app.services.knowledge_templates import extract_template_fields, identify_template
 from app.services.storage import StorageService
 from app.services.time_utils import utc_now_naive
@@ -30,9 +34,102 @@ CHUNK_OVERLAP_TOKENS = 100
 EMBEDDING_DIMENSION = 1536
 SUPPORTED_SOURCE_FILE_TYPES = {"pptx", "pdf", "docx", "md", "txt", "xlsx"}
 
+logger = logging.getLogger(__name__)
+
+_PENDING_STORAGE_WRITES_KEY = "aria_knowledge_pending_storage_writes"
+
+
+def _clear_committed_storage_writes(session: Session) -> None:
+    """Forget rollback cleanup only after the database commit succeeds."""
+
+    session.info.pop(_PENDING_STORAGE_WRITES_KEY, None)
+
+
+def _discard_rolled_back_storage_writes(session: Session) -> None:
+    """Compensate unique files published by a rolled-back DB transaction."""
+
+    pending = session.info.pop(_PENDING_STORAGE_WRITES_KEY, [])
+    for storage, storage_key in reversed(pending):
+        _delete_storage_best_effort(storage, storage_key)
+
+
+def _discard_unfinished_storage_writes(session: Session, transaction: Any) -> None:
+    """Compensate when ``Session.close()`` ends an uncommitted transaction."""
+
+    if transaction.parent is None and not transaction.nested:
+        _discard_rolled_back_storage_writes(session)
+
+
+def _delete_storage_best_effort(
+    storage: StorageService,
+    storage_key: str,
+) -> None:
+    try:
+        storage.delete(storage_key)
+    except OSError:
+        # The database remains authoritative.  Keep rollback usable even if
+        # an operator must later remove a filesystem orphan manually.
+        logger.warning(
+            "Could not remove rolled-back knowledge artifact %s",
+            storage_key,
+            exc_info=True,
+        )
+
+
+event.listen(Session, "after_commit", _clear_committed_storage_writes)
+event.listen(Session, "after_rollback", _discard_rolled_back_storage_writes)
+event.listen(Session, "after_transaction_end", _discard_unfinished_storage_writes)
+
+
+def _register_rollback_storage_write(
+    session: Session,
+    storage: StorageService,
+    storage_key: str,
+) -> None:
+    pending = session.info.setdefault(_PENDING_STORAGE_WRITES_KEY, [])
+    pending.append((storage, storage_key))
+
+
+def _put_rollback_guarded_bytes(
+    session: Session,
+    storage: StorageService,
+    storage_key: str,
+    content: bytes,
+) -> str:
+    """Publish a unique artifact and remove it if this DB unit rolls back."""
+
+    _register_rollback_storage_write(session, storage, storage_key)
+    try:
+        return storage.put_bytes(storage_key, content)
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _versioned_json_storage_key(
+    *,
+    category: str,
+    document_id: int,
+    stem: str,
+    content: bytes,
+) -> str:
+    digest = sha256_bytes(content)[:16]
+    return (
+        f"knowledge/{category}/{document_id}/"
+        f"{stem}-{digest}-{uuid.uuid4().hex}.json"
+    )
+
 
 def sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def normalize_file_type(file_name: str) -> str:
@@ -58,6 +155,7 @@ def record_document_event(
     message: str = "",
     duration_ms: int = 0,
     metadata: dict[str, Any] | None = None,
+    commit: bool = True,
 ) -> KnowledgeDocumentEvent:
     event = KnowledgeDocumentEvent(
         document_id=document_id,
@@ -68,8 +166,11 @@ def record_document_event(
         metadata_json=json.dumps(metadata or {}, ensure_ascii=False),
     )
     session.add(event)
-    session.commit()
-    session.refresh(event)
+    if commit:
+        session.commit()
+        session.refresh(event)
+    else:
+        session.flush()
     return event
 
 
@@ -242,6 +343,7 @@ def create_document_from_bytes(
     relative_path: str,
     template_key: str | None = None,
     source_metadata: dict[str, Any] | None = None,
+    commit: bool = True,
 ) -> KnowledgeV1Document:
     content_hash = sha256_bytes(content)
     existing = session.exec(
@@ -273,9 +375,18 @@ def create_document_from_bytes(
         status="uploaded",
     )
     session.add(doc)
-    session.commit()
-    session.refresh(doc)
-    record_document_event(session, doc.id, "document_uploaded", doc.status, message=f"Uploaded {file_name}")
+    session.flush()
+    record_document_event(
+        session,
+        int(doc.id),
+        "document_uploaded",
+        doc.status,
+        message=f"Uploaded {file_name}",
+        commit=False,
+    )
+    if commit:
+        session.commit()
+        session.refresh(doc)
     return doc
 
 
@@ -299,6 +410,7 @@ def _materialize_consulting_assets(
     template_key: str,
     extracted: dict[str, Any],
     metadata: dict[str, Any],
+    commit: bool = True,
 ) -> None:
     if not source:
         return
@@ -311,7 +423,10 @@ def _materialize_consulting_assets(
     for method in existing_methods:
         if doc_id_text in (method.source_document_ids or ""):
             session.delete(method)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
 
     if template_key == "consulting_case":
         session.add(
@@ -354,7 +469,264 @@ def _materialize_consulting_assets(
                 owner_user_id=source.owner_user_id,
             )
         )
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
+
+
+class KnowledgeIngestionSuperseded(KnowledgeWriteAuthorizationLost):
+    """Provider output no longer belongs to the frozen source/document."""
+
+
+def _v1_document_source_signature(
+    source: KnowledgeSource,
+    document: KnowledgeV1Document,
+) -> tuple[Any, ...]:
+    return (
+        int(source.id or 0),
+        source.scope_type,
+        source.scope_id,
+        source.owner_user_id,
+        int(document.id or 0),
+        document.source_id,
+        document.scope_type,
+        document.scope_id,
+        document.original_storage_key,
+        document.path,
+        document.content_hash,
+        document.file_type,
+        document.title,
+        document.file_name,
+        document.metadata_json,
+    )
+
+
+def index_document_actor_aware(
+    session: Session,
+    document_id: int,
+    *,
+    final_authorize: Callable[[], tuple[KnowledgeSource, KnowledgeV1Document]],
+    template_key: str | None = None,
+) -> tuple[KnowledgeV1Document, dict[str, Any]]:
+    """Prepare provider-backed indexing, then atomically stage authorized writes.
+
+    The caller owns the final commit together with its durable job/checkpoint.
+    No document, chunk, extraction, event, or consulting-asset mutation is
+    flushed before the second authorization check.
+    """
+
+    session.rollback()
+    source, document = final_authorize()
+    if int(document.id or 0) != int(document_id):
+        session.rollback()
+        raise KnowledgeIngestionSuperseded("Knowledge document changed before indexing")
+    expected_source = _v1_document_source_signature(source, document)
+    original_storage_key = document.original_storage_key or document.path
+    expected_content_hash = document.content_hash
+    file_type = document.file_type
+    title = document.title
+    initial_metadata = parse_json_object(document.metadata_json)
+    session.rollback()
+
+    storage = StorageService(UPLOADS_DIR)
+    path = storage.resolve_path(original_storage_key)
+    if _sha256_file(path) != expected_content_hash:
+        raise KnowledgeIngestionSuperseded(
+            "Knowledge original content does not match its committed hash"
+        )
+    text = extract_text_from_file(
+        path,
+        file_type,
+        max_chars=200_000,
+        empty_placeholder="",
+        unsupported_placeholder="",
+        error_prefix="",
+    )
+    if _sha256_file(path) != expected_content_hash:
+        raise KnowledgeIngestionSuperseded(
+            "Knowledge original changed while it was being extracted"
+        )
+    if not text.strip():
+        raise ValueError("No text could be extracted from this document.")
+    frontmatter: dict[str, Any] = {}
+    if file_type == "md":
+        frontmatter, text = parse_markdown_frontmatter(text)
+
+    inferred_template, confidence = identify_template(file_type, text)
+    final_template = str(template_key or initial_metadata.get("template_key") or inferred_template)
+    extracted = extract_template_fields(final_template, text, title)
+    metadata = dict(initial_metadata)
+    metadata.update(frontmatter)
+    metadata.update(infer_metadata_from_text(file_type, text, final_template))
+    metadata.update(extracted)
+    metadata["template_key"] = final_template
+    metadata["extraction_confidence"] = confidence
+    chunks = chunk_markdown_or_text(text)
+    prepared_chunks = [
+        (
+            heading,
+            content,
+            estimate_tokens(content),
+            serialize_embedding(deterministic_embedding(content)),
+        )
+        for heading, content in chunks
+    ]
+
+    # Provider/embedding work is complete. Re-open the source-family locks and
+    # reject scope/content drift before staging a single durable mutation.
+    session.rollback()
+    source, document = final_authorize()
+    if _v1_document_source_signature(source, document) != expected_source:
+        session.rollback()
+        raise KnowledgeIngestionSuperseded(
+            "Knowledge source changed during indexing"
+        )
+    current_path = storage.resolve_path(
+        document.original_storage_key or document.path
+    )
+    if current_path != path or _sha256_file(current_path) != expected_content_hash:
+        session.rollback()
+        raise KnowledgeIngestionSuperseded(
+            "Knowledge original changed during indexing"
+        )
+
+    old_chunks = session.exec(
+        select(KnowledgeChunk)
+        .where(KnowledgeChunk.document_id == document_id)
+        .order_by(KnowledgeChunk.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    old_extractions = session.exec(
+        select(KnowledgeTemplateExtraction)
+        .where(KnowledgeTemplateExtraction.document_id == document_id)
+        .order_by(KnowledgeTemplateExtraction.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    for row in [*old_chunks, *old_extractions]:
+        session.delete(row)
+
+    extracted_payload = json.dumps(
+        {"document_id": document_id, "text": text, "frontmatter": frontmatter},
+        ensure_ascii=False,
+    ).encode("utf-8")
+    chunks_payload = json.dumps(
+        [
+            {
+                "heading_path": heading,
+                "content": content,
+                "token_count": token_count,
+            }
+            for heading, content, token_count, _ in prepared_chunks
+        ],
+        ensure_ascii=False,
+    ).encode("utf-8")
+    # The document continues pointing at its prior immutable artifacts until
+    # the caller's final authorization/job transaction commits.  A rollback
+    # removes only these unique versions, so DB=A/disk=A is preserved on any
+    # flush or commit failure.  Prior committed versions are intentionally
+    # retained because a concurrent reader may already hold their DB key.
+    extracted_key = _versioned_json_storage_key(
+        category="extracted",
+        document_id=document_id,
+        stem="text",
+        content=extracted_payload,
+    )
+    chunks_key = _versioned_json_storage_key(
+        category="chunks",
+        document_id=document_id,
+        stem="chunks",
+        content=chunks_payload,
+    )
+    _put_rollback_guarded_bytes(
+        session,
+        storage,
+        extracted_key,
+        extracted_payload,
+    )
+    _put_rollback_guarded_bytes(
+        session,
+        storage,
+        chunks_key,
+        chunks_payload,
+    )
+
+    try:
+        _materialize_consulting_assets(
+            session,
+            doc=document,
+            source=source,
+            template_key=final_template,
+            extracted=extracted,
+            metadata=metadata,
+            commit=False,
+        )
+    except Exception:
+        session.rollback()
+        raise
+    session.add(
+        KnowledgeTemplateExtraction(
+            document_id=document_id,
+            template_key=final_template,
+            status="completed",
+            extracted_json=json.dumps(extracted, ensure_ascii=False),
+            confidence=confidence,
+        )
+    )
+    for index, (heading, content, token_count, embedding) in enumerate(prepared_chunks):
+        session.add(
+            KnowledgeChunk(
+                document_id=document_id,
+                chunk_index=index,
+                heading_path=json.dumps(heading, ensure_ascii=False),
+                content=content,
+                token_count=token_count,
+                embedding_model=EMBEDDING_MODEL,
+                embedding=embedding,
+                metadata_json=json.dumps(
+                    {
+                        "template_key": final_template,
+                        "confidential_level": metadata.get("confidential_level"),
+                        "reuse_policy": metadata.get("reuse_policy"),
+                        "industries": metadata.get("industries") or [],
+                        "service_lines": metadata.get("service_lines") or [],
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        )
+
+    now = utc_now_naive()
+    document.metadata_json = json.dumps(metadata, ensure_ascii=False)
+    document.extracted_text_storage_key = extracted_key
+    document.chunks_storage_key = chunks_key
+    document.token_count = estimate_tokens(text)
+    document.page_count = text.count("[Page ") or 0
+    document.slide_count = text.count("[Slide ") or 0
+    document.chunk_count = len(prepared_chunks)
+    document.status = "indexed"
+    document.error_message = None
+    document.updated_at = now
+    session.add(document)
+    session.add(
+        KnowledgeDocumentEvent(
+            document_id=document_id,
+            event_type="index_completed",
+            status="indexed",
+            message=f"Indexed {len(prepared_chunks)} chunks",
+            metadata_json=json.dumps(
+                {"template_key": final_template},
+                ensure_ascii=False,
+            ),
+        )
+    )
+    return document, {
+        "template_key": final_template,
+        "chunk_count": len(prepared_chunks),
+        "token_count": document.token_count,
+    }
 
 
 def index_document(
@@ -605,16 +977,48 @@ def _matches_any(path: Path, root: Path, patterns: list[str]) -> bool:
     return False
 
 
-def scan_source_files(session: Session, source_id: int) -> list[KnowledgeV1Document]:
-    source = session.get(KnowledgeSource, source_id)
+def scan_source_files(
+    session: Session,
+    source_id: int,
+    *,
+    final_authorize: Callable[[], KnowledgeSource] | None = None,
+) -> list[KnowledgeV1Document]:
+    source = final_authorize() if final_authorize is not None else session.get(KnowledgeSource, source_id)
     if not source:
         raise ValueError(f"Knowledge source not found: {source_id}")
+    expected_source = (
+        int(source.id or 0),
+        source.scope_type,
+        source.scope_id,
+        source.owner_user_id,
+        source.source_type,
+        source.config_json,
+        source.include_patterns,
+        source.exclude_patterns,
+    )
     config = parse_json_object(source.config_json)
     root_value = str(config.get("root_path") or "").strip()
     if source.source_type not in {"markdown_folder", "obsidian_vault", "git_repo"} or not root_value:
         return []
     root = Path(root_value).expanduser().resolve()
     if not root.is_dir():
+        if final_authorize is not None:
+            session.rollback()
+            source = final_authorize()
+            if (
+                int(source.id or 0),
+                source.scope_type,
+                source.scope_id,
+                source.owner_user_id,
+                source.source_type,
+                source.config_json,
+                source.include_patterns,
+                source.exclude_patterns,
+            ) != expected_source:
+                session.rollback()
+                raise KnowledgeIngestionSuperseded(
+                    "Knowledge source changed during scan"
+                )
         source.status = "error"
         source.updated_at = utc_now_naive()
         session.add(source)
@@ -636,15 +1040,77 @@ def scan_source_files(session: Session, source_id: int) -> list[KnowledgeV1Docum
             continue
         content = path.read_bytes()
         content_hash = sha256_bytes(content)
-        storage_key = f"knowledge/originals/source-{source.id}/{content_hash}.{file_type}"
-        StorageService(UPLOADS_DIR).put_bytes(storage_key, content)
-        document = create_document_from_bytes(
-            session=session,
-            source=source,
-            file_name=path.name,
-            content=content,
-            relative_path=storage_key,
-            source_metadata={"source_relative_path": path.relative_to(root).as_posix()},
+        # A scan attempt owns a unique original key.  This makes compensation
+        # safe even when two workers discover identical content concurrently:
+        # one failed transaction can never delete the other's committed file.
+        storage_key = (
+            f"knowledge/originals/source-{source.id}/"
+            f"{content_hash}-{uuid.uuid4().hex}.{file_type}"
         )
+        if final_authorize is not None:
+            session.rollback()
+            source = final_authorize()
+            if (
+                int(source.id or 0),
+                source.scope_type,
+                source.scope_id,
+                source.owner_user_id,
+                source.source_type,
+                source.config_json,
+                source.include_patterns,
+                source.exclude_patterns,
+            ) != expected_source:
+                session.rollback()
+                raise KnowledgeIngestionSuperseded(
+                    "Knowledge source changed during scan"
+                )
+        storage = StorageService(UPLOADS_DIR)
+        storage.put_bytes(storage_key, content)
+        if final_authorize is not None:
+            session.rollback()
+            try:
+                source = final_authorize()
+            except Exception:
+                _delete_storage_best_effort(storage, storage_key)
+                raise
+            if (
+                int(source.id or 0),
+                source.scope_type,
+                source.scope_id,
+                source.owner_user_id,
+                source.source_type,
+                source.config_json,
+                source.include_patterns,
+                source.exclude_patterns,
+            ) != expected_source:
+                session.rollback()
+                _delete_storage_best_effort(storage, storage_key)
+                raise KnowledgeIngestionSuperseded(
+                    "Knowledge source changed during scan"
+                )
+        _register_rollback_storage_write(session, storage, storage_key)
+        try:
+            document = create_document_from_bytes(
+                session=session,
+                source=source,
+                file_name=path.name,
+                content=content,
+                relative_path=storage_key,
+                source_metadata={"source_relative_path": path.relative_to(root).as_posix()},
+                commit=False,
+            )
+            staged_original_is_referenced = (
+                document.original_storage_key == storage_key
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        if not staged_original_is_referenced:
+            # Deduplication returned a previously committed document.  Its
+            # original remains authoritative, so this unique scan copy is not
+            # needed after the successful DB transaction.
+            _delete_storage_best_effort(storage, storage_key)
+        session.refresh(document)
         documents.append(document)
     return documents

@@ -12,7 +12,18 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.routers.projects_deps import get_session
-from app.models.db import ClientStakeholder, ClientRecord, Conversation, Message, Project
+from app.models.db import (
+    ClientStakeholder,
+    ClientRecord,
+    Conversation,
+    Milestone,
+    Message,
+    Project,
+    ProjectFile,
+    ProjectMember,
+    ProjectTodo,
+    User,
+)
 from app.services.stakeholder_detection import detect_stakeholders_from_text
 from app.routers.projects_deps import (
     _build_project_briefing,
@@ -25,11 +36,10 @@ from app.routers.projects_deps import (
     _bust_project,
     _mark_project_memory_stale,
     _ensure_project_memory,
-    _find_client_record_by_name,
+    _find_client_record_for_project,
     _serialize_client_stakeholder_dict,
     _extract_first_json_object_from_text,
     _normalize_name,
-    _set_project_memory_failure,
     _project_summary_lock_key,
     _get_project_summary_lock,
     _CLIENTS_KEY,
@@ -40,20 +50,30 @@ from app.routers.projects_deps import (
 from app.services.project_contexts import (
     get_project_memory_summary_cache,
     get_project_memory_payload,
-    mark_project_memories_stale_by_client_name,
+    mark_project_memories_stale_by_client_id,
     normalize_summary_language,
     save_project_memory_summary_cache,
 )
 from app.services.client_contexts import (
     get_client_memory_payload,
-    mark_client_memory_stale_by_name,
+    mark_client_memory_stale,
 )
-from app.services.project_core import get_project_or_404
+from app.services.client_permissions import lock_and_require_client_access
+from app.services.memory_operations import classify_memory_failure
+from app.services.project_core import (
+    get_project_or_404,
+    lock_and_require_project_write as lock_project_write,
+)
 from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
 from app.services.cache import clients_cache, projects_cache
 from app.services.time_utils import utc_now_naive
 
-from app.routers.chat_security import maybe_require_project_access
+from app.routers.auth import get_current_user
+from app.routers.chat_security import (
+    maybe_require_project_access,
+    member_can_write,
+    require_project_access,
+)
 
 router = APIRouter(
     tags=["projects"],
@@ -133,6 +153,240 @@ def _project_stakeholder_analysis_baseline(
     )
 
 
+def _lock_and_require_source_project_client_write(
+    session: Session,
+    *,
+    project_id: int,
+    client_id: int,
+    current_user: User,
+) -> tuple[Project, ClientRecord]:
+    """Finalize a project-scoped client write under the shared lock order.
+
+    Client write permission alone is insufficient here: the request originated
+    from one project, so a non-admin must still be an owner/editor of that exact
+    source project. ``lock_and_require_client_access`` reloads and locks the
+    active actor, all stable-linked projects, the client, and the actor's
+    memberships before client-owned child rows are locked by the caller.
+    """
+
+    client, actor, locked_projects = lock_and_require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
+    project = next(
+        (
+            candidate
+            for candidate in locked_projects
+            if candidate.id == project_id and candidate.client_id == client_id
+        ),
+        None,
+    )
+    if project is None:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Project client changed; reload and retry.",
+        )
+    if actor.is_admin:
+        return project, client
+
+    membership = session.exec(
+        select(ProjectMember)
+        .where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == actor.id,
+        )
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if membership is None:
+        session.rollback()
+        raise HTTPException(status_code=403, detail="Project membership required")
+    if not member_can_write(membership):
+        session.rollback()
+        raise HTTPException(status_code=403, detail="Project write permission required")
+    return project, client
+
+
+def _lock_and_require_project_write(
+    session: Session,
+    *,
+    project_id: int,
+    current_user: User,
+) -> tuple[Project, User]:
+    """Reload and authorize through the repository-wide project lock order."""
+
+    return lock_project_write(
+        session,
+        project_id,
+        actor_user_id=int(current_user.id or 0),
+    )
+
+
+def _require_current_briefing_source(
+    session: Session,
+    *,
+    project_id: int,
+    meeting_type: str,
+    expected_source_version: int,
+) -> dict:
+    """Reject a model result when any deterministic prompt source changed."""
+
+    session.expire_all()
+    current_briefing = _build_project_briefing(session, project_id)
+    current_source_version = _briefing_source_version(
+        current_briefing,
+        meeting_type,
+    )
+    if current_source_version != expected_source_version:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Briefing sources changed during generation; retry with current data.",
+        )
+    return current_briefing
+
+
+def _lock_and_require_briefing_sources(
+    session: Session,
+    *,
+    project_id: int,
+    expected_client_id: int | None,
+    current_user: User,
+) -> tuple[Project, ClientRecord | None]:
+    """Authorize and freeze every row family used by a briefing prompt.
+
+    PostgreSQL foreign-key checks take key-share locks on their parent rows.
+    Holding the Project/Client/Conversation parents plus every existing source
+    child therefore blocks both new inserts and updates/deletes until the
+    summary cache commit.  The final source hash is rebuilt only after this
+    source set is frozen, closing the post-verification/pre-save race.
+    """
+
+    if expected_client_id is not None:
+        project, client = _lock_and_require_source_project_client_write(
+            session,
+            project_id=project_id,
+            client_id=expected_client_id,
+            current_user=current_user,
+        )
+    else:
+        project, _ = _lock_and_require_project_write(
+            session,
+            project_id=project_id,
+            current_user=current_user,
+        )
+        if project.client_id is not None:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Project client changed during briefing generation; retry.",
+            )
+        client = None
+
+    session.exec(
+        select(Milestone)
+        .where(Milestone.project_id == project_id)
+        .order_by(Milestone.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    session.exec(
+        select(ProjectTodo)
+        .where(ProjectTodo.project_id == project_id)
+        .order_by(ProjectTodo.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    session.exec(
+        select(ProjectFile)
+        .where(ProjectFile.project_id == project_id)
+        .order_by(ProjectFile.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    conversations = list(
+        session.exec(
+            select(Conversation)
+            .where(Conversation.project_id == project_id)
+            .order_by(Conversation.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+    )
+    conversation_ids = [
+        int(conversation.id)
+        for conversation in conversations
+        if conversation.id is not None
+    ]
+    if conversation_ids:
+        session.exec(
+            select(Message)
+            .where(Message.conversation_id.in_(conversation_ids))
+            .order_by(Message.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+    if client is not None:
+        session.exec(
+            select(ClientStakeholder)
+            .where(ClientStakeholder.client_id == int(client.id))
+            .order_by(ClientStakeholder.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+    return project, client
+
+
+def _record_authorized_project_memory_failure(
+    session: Session,
+    *,
+    project_id: int,
+    current_user: User,
+    stage: str,
+    message: str,
+    expected_memory_version: int,
+    expected_rebuild_status: str,
+) -> bool:
+    """Persist a request failure only while final project write auth is held."""
+
+    session.rollback()
+    current, _ = _lock_and_require_project_write(
+        session,
+        project_id=project_id,
+        current_user=current_user,
+    )
+    if (
+        current.memory_version > expected_memory_version
+        or (
+            expected_rebuild_status in {"queued", "rebuilding"}
+            and current.memory_rebuild_status == "idle"
+        )
+    ):
+        session.rollback()
+        return False
+    try:
+        memory = json.loads(current.context_memory_json or "{}")
+        if not isinstance(memory, dict):
+            memory = {}
+    except json.JSONDecodeError:
+        memory = {}
+    failed_at = utc_now_naive()
+    memory["_last_failure"] = {
+        "category": classify_memory_failure(stage, message),
+        "stage": stage,
+        "message": message[:400],
+        "retry_count": 0,
+        "failed_at": failed_at.isoformat(),
+    }
+    current.context_memory_json = json.dumps(memory, ensure_ascii=False)
+    session.add(current)
+    session.commit()
+    return True
+
+
 @router.get("/{project_id}/briefing")
 def get_project_meeting_briefing(project_id: int, session: Session = Depends(get_session)):
     """Return a deterministic pre-meeting briefing assembled from memory and project signals."""
@@ -144,14 +398,22 @@ async def refine_project_meeting_briefing(
     project_id: int,
     body: ProjectBriefingRefineRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Generate or reuse an AI-refined briefing for the current deterministic briefing payload."""
     project = get_project_or_404(session, project_id)
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
     meeting_type = _normalize_briefing_meeting_type(body.meeting_type)
     normalized_language = normalize_summary_language(body.language)
     briefing = _build_project_briefing(session, project_id)
     cache_type = _briefing_cache_type(meeting_type)
     source_version = _briefing_source_version(briefing, meeting_type)
+    expected_client_id = project.client_id
     expected_memory_version = project.memory_version
     expected_rebuild_status = project.memory_rebuild_status
 
@@ -177,6 +439,13 @@ async def refine_project_meeting_briefing(
     summary_lock = _get_project_summary_lock(lock_key)
     session.rollback()
     async with summary_lock:
+        _require_current_briefing_source(
+            session,
+            project_id=project_id,
+            meeting_type=meeting_type,
+            expected_source_version=source_version,
+        )
+        session.rollback()
         if not body.force_refresh:
             fresh_cached = get_project_memory_summary_cache(
                 session,
@@ -202,9 +471,10 @@ async def refine_project_meeting_briefing(
                 max_tokens=1800,
             )
         except Exception as e:
-            _set_project_memory_failure(
+            _record_authorized_project_memory_failure(
                 session,
-                project_id,
+                project_id=project_id,
+                current_user=current_user,
                 stage=f"briefing_refine:{meeting_type}",
                 message=str(e),
                 expected_memory_version=expected_memory_version,
@@ -212,6 +482,19 @@ async def refine_project_meeting_briefing(
             )
             raise
 
+        session.expire_all()
+        _lock_and_require_briefing_sources(
+            session,
+            project_id=project_id,
+            expected_client_id=expected_client_id,
+            current_user=current_user,
+        )
+        _require_current_briefing_source(
+            session,
+            project_id=project_id,
+            meeting_type=meeting_type,
+            expected_source_version=source_version,
+        )
         cached = save_project_memory_summary_cache(
             session,
             project_id=project_id,
@@ -235,6 +518,7 @@ async def refine_project_meeting_briefing_stream(
     project_id: int,
     body: ProjectBriefingRefineRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Streaming variant of /briefing/refine — yields SSE events as
     the LLM produces tokens, so the frontend can render the script
@@ -251,11 +535,18 @@ async def refine_project_meeting_briefing_stream(
     progressive rendering to instant rendering without a code split.
     """
     project = get_project_or_404(session, project_id)
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
     meeting_type = _normalize_briefing_meeting_type(body.meeting_type)
     normalized_language = normalize_summary_language(body.language)
     briefing = _build_project_briefing(session, project_id)
     cache_type = _briefing_cache_type(meeting_type)
     source_version = _briefing_source_version(briefing, meeting_type)
+    expected_client_id = project.client_id
     prompt = _build_project_briefing_refine_prompt(briefing, meeting_type, normalized_language)
     expected_memory_version = project.memory_version
     expected_rebuild_status = project.memory_rebuild_status
@@ -269,6 +560,21 @@ async def refine_project_meeting_briefing_stream(
 
         # 1. Try cache first unless force_refresh is set. If hit, send
         #    meta + done in two events so the UI gets the same shape.
+        try:
+            _require_current_briefing_source(
+                session,
+                project_id=project_id,
+                meeting_type=meeting_type,
+                expected_source_version=source_version,
+            )
+        except HTTPException as source_exc:
+            yield sse({
+                "type": "error",
+                "message": str(source_exc.detail),
+                "status_code": source_exc.status_code,
+            })
+            return
+        session.rollback()
         if not body.force_refresh:
             cached = get_project_memory_summary_cache(
                 session,
@@ -345,14 +651,23 @@ async def refine_project_meeting_briefing_stream(
                 # Cooperative yield so other requests can run.
                 await asyncio.sleep(0)
         except Exception as exc:  # noqa: BLE001
-            _set_project_memory_failure(
-                session,
-                project_id,
-                stage=f"briefing_refine_stream:{meeting_type}",
-                message=str(exc),
-                expected_memory_version=expected_memory_version,
-                expected_rebuild_status=expected_rebuild_status,
-            )
+            try:
+                _record_authorized_project_memory_failure(
+                    session,
+                    project_id=project_id,
+                    current_user=current_user,
+                    stage=f"briefing_refine_stream:{meeting_type}",
+                    message=str(exc),
+                    expected_memory_version=expected_memory_version,
+                    expected_rebuild_status=expected_rebuild_status,
+                )
+            except HTTPException as auth_exc:
+                yield sse({
+                    "type": "error",
+                    "message": str(auth_exc.detail),
+                    "status_code": auth_exc.status_code,
+                })
+                return
             yield sse({"type": "error", "message": str(exc)})
             return
 
@@ -361,6 +676,27 @@ async def refine_project_meeting_briefing_stream(
             yield sse({"type": "error", "message": "Empty LLM response"})
             return
 
+        session.expire_all()
+        try:
+            _lock_and_require_briefing_sources(
+                session,
+                project_id=project_id,
+                expected_client_id=expected_client_id,
+                current_user=current_user,
+            )
+            _require_current_briefing_source(
+                session,
+                project_id=project_id,
+                meeting_type=meeting_type,
+                expected_source_version=source_version,
+            )
+        except HTTPException as auth_exc:
+            yield sse({
+                "type": "error",
+                "message": str(auth_exc.detail),
+                "status_code": auth_exc.status_code,
+            })
+            return
         cached = save_project_memory_summary_cache(
             session,
             project_id=project_id,
@@ -397,7 +733,7 @@ def scan_recent_stakeholder_candidates(
     """Scan recent assistant messages in the project's conversations and return
     stakeholder candidates that are NOT already in the stakeholder table."""
     project = get_project_or_404(session, project_id)
-    client = _find_client_record_by_name(session, project.client)
+    client = _find_client_record_for_project(session, project)
     if client is None:
         raise HTTPException(status_code=404, detail="Linked client not found")
 
@@ -445,7 +781,7 @@ def list_project_stakeholder_candidates(
     session: Session = Depends(get_session),
 ):
     project = get_project_or_404(session, project_id)
-    client = _find_client_record_by_name(session, project.client)
+    client = _find_client_record_for_project(session, project)
     if client is None:
         raise HTTPException(status_code=404, detail="Linked client not found")
     return {
@@ -461,20 +797,45 @@ def apply_project_stakeholder_candidates(
     project_id: int,
     body: ProjectStakeholderCaptureRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     project = get_project_or_404(session, project_id)
-    client = _find_client_record_by_name(session, project.client)
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    client = _find_client_record_for_project(session, project)
     if client is None:
         raise HTTPException(status_code=404, detail="Linked client not found")
+    client_id = int(client.id)
 
     candidates = _extract_stakeholder_candidates_from_text(body.text)
     if not candidates:
         return {"project_id": project_id, "client_id": client.id, "candidates": [], "created": [], "skipped": []}
 
+    # Release the early read transaction, then make authorization and the
+    # source project's stable client relationship part of the write boundary.
+    session.rollback()
+    project, client = _lock_and_require_source_project_client_write(
+        session,
+        project_id=project_id,
+        client_id=client_id,
+        current_user=current_user,
+    )
+    locked_stakeholders = session.exec(
+        select(ClientStakeholder)
+        .where(ClientStakeholder.client_id == client_id)
+        .order_by(ClientStakeholder.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
     existing = {
         _normalize_name(stakeholder.name)
-        for stakeholder in session.exec(select(ClientStakeholder).where(ClientStakeholder.client_id == client.id)).all()
+        for stakeholder in locked_stakeholders
     }
+    created_rows: list[ClientStakeholder] = []
     created: list[dict] = []
     skipped: list[dict] = []
     now = utc_now_naive()
@@ -494,32 +855,38 @@ def apply_project_stakeholder_candidates(
             updated_at=now,
         )
         session.add(stakeholder)
-        session.commit()
-        session.refresh(stakeholder)
+        created_rows.append(stakeholder)
         existing.add(normalized_name)
-        created.append(
-            {
-                "id": stakeholder.id,
-                "client_id": stakeholder.client_id,
-                "name": stakeholder.name,
-                "role": stakeholder.role,
-                "influence_type": stakeholder.influence_type,
-                "relationship_status": stakeholder.relationship_status,
-                "note": stakeholder.note,
-            }
+
+    if created_rows:
+        session.flush()
+        for stakeholder in created_rows:
+            created.append(
+                {
+                    "id": stakeholder.id,
+                    "client_id": stakeholder.client_id,
+                    "name": stakeholder.name,
+                    "role": stakeholder.role,
+                    "influence_type": stakeholder.influence_type,
+                    "relationship_status": stakeholder.relationship_status,
+                    "note": stakeholder.note,
+                }
+            )
+        mark_client_memory_stale(
+            session,
+            client_id,
+            trigger="stakeholder_created",
+            commit=False,
         )
+        mark_project_memories_stale_by_client_id(
+            session,
+            client_id,
+            trigger="stakeholder_created",
+            commit=False,
+        )
+        session.commit()
 
     if created:
-        mark_client_memory_stale_by_name(
-            session,
-            project.client,
-            trigger="stakeholder_created",
-        )
-        mark_project_memories_stale_by_client_name(
-            session,
-            project.client,
-            trigger="stakeholder_created",
-        )
         _bust_project(project_id)
 
     return {
@@ -538,9 +905,16 @@ async def analyze_project_stakeholder(
     stakeholder_id: int,
     body: ProjectStakeholderAnalyzeRequest | None = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     project = get_project_or_404(session, project_id)
-    client = _find_client_record_by_name(session, project.client)
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    client = _find_client_record_for_project(session, project)
     if client is None:
         raise HTTPException(status_code=404, detail="Linked client not found")
     stakeholder = session.get(ClientStakeholder, stakeholder_id)
@@ -590,23 +964,20 @@ async def analyze_project_stakeholder(
         parsed = {}
 
     session.expire_all()
-    # Use the shared Project -> Client -> Stakeholder lock order. These rows
-    # carry both authorization and the source baseline for the AI write.
-    project = session.exec(
-        select(Project)
-        .where(Project.id == project_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
-    client = session.exec(
-        select(ClientRecord)
-        .where(ClientRecord.id == analysis_client_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
+    # Re-authorize after the provider wait. The shared helper reloads the
+    # active actor and locks stable project/client ownership before the child.
+    project, client = _lock_and_require_source_project_client_write(
+        session,
+        project_id=project_id,
+        client_id=analysis_client_id,
+        current_user=current_user,
+    )
     stakeholder = session.exec(
         select(ClientStakeholder)
-        .where(ClientStakeholder.id == stakeholder_id)
+        .where(
+            ClientStakeholder.id == stakeholder_id,
+            ClientStakeholder.client_id == analysis_client_id,
+        )
         .execution_options(populate_existing=True)
         .with_for_update()
     ).first()
@@ -615,7 +986,7 @@ async def analyze_project_stakeholder(
         or not client
         or not stakeholder
         or stakeholder.client_id != client.id
-        or _normalize_name(project.client) != _normalize_name(client.name)
+        or project.client_id != client.id
     ):
         session.rollback()
         raise HTTPException(
@@ -628,26 +999,26 @@ async def analyze_project_stakeholder(
             status_code=409,
             detail="Stakeholder analysis sources changed during generation; retry with current data.",
         )
-    project_client_name = str(project.client or "")
-
     stakeholder.personality_profile = str(parsed.get("personality_profile") or "").strip()[:2000]
     stakeholder.decision_style = str(parsed.get("decision_style") or "").strip()[:2000]
     stakeholder.communication_strategy = str(parsed.get("communication_strategy") or "").strip()[:2400]
     stakeholder.trust_signals = str(parsed.get("trust_signals") or "").strip()[:2000]
     stakeholder.updated_at = utc_now_naive()
     session.add(stakeholder)
+    mark_client_memory_stale(
+        session,
+        int(client.id),
+        trigger="stakeholder_analyzed",
+        commit=False,
+    )
+    mark_project_memories_stale_by_client_id(
+        session,
+        int(client.id),
+        trigger="stakeholder_analyzed",
+        commit=False,
+    )
     session.commit()
     session.refresh(stakeholder)
-    mark_client_memory_stale_by_name(
-        session,
-        project_client_name,
-        trigger="stakeholder_analyzed",
-    )
-    mark_project_memories_stale_by_client_name(
-        session,
-        project_client_name,
-        trigger="stakeholder_analyzed",
-    )
     _bust_project(project_id)
     clients_cache.delete(_CLIENTS_KEY)
     return _serialize_client_stakeholder_dict(stakeholder)

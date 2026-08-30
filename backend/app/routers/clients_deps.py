@@ -4,11 +4,12 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import uuid
 from datetime import timedelta
-from typing import Optional
+from typing import Callable, Optional
 
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session, select
 
 from app.config import (
@@ -20,10 +21,12 @@ from app.config import (
     MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS,
 )
 from app.database import engine
-from app.models.db import ClientMemorySummary, ClientRecord, ClientStakeholder
+from app.models.db import ClientMemorySummary, ClientRecord, ClientStakeholder, Project
 from app.services.cache import clients_cache
 from app.services import scheduler as scheduler_service
+from app.services.client_identity import lock_client_identity_values, resolve_client_identity
 from app.services.client_contexts import (
+    CLIENT_MEMORY_REBUILD_GENERATION_KEY,
     CORE_CLIENT_MEMORY_SUMMARY_TYPES,
     EXTENDED_CLIENT_MEMORY_SUMMARY_TYPES,
     build_client_memory_data,
@@ -65,6 +68,10 @@ _MEMORY_REBUILD_OUTPUT_GUARD = (
 )
 
 
+class ClientMemoryRebuildSuperseded(MemoryRebuildConflict):
+    """An older provider result lost ownership to cancel or a newer rebuild."""
+
+
 def _build_client_memory_rebuild_prompt(
     client_data: str,
     slot_keys: tuple[str, ...] | None = None,
@@ -73,6 +80,111 @@ def _build_client_memory_rebuild_prompt(
         f"{build_client_memory_prompt(client_data, slot_keys)}\n\n"
         f"Output safety: {_MEMORY_REBUILD_OUTPUT_GUARD}"
     )
+
+
+def _lock_client_memory_sources_after_provider(
+    session: Session,
+    client_id: int,
+    *,
+    final_authorize: Callable[[], ClientRecord] | None,
+    trusted_system: bool,
+) -> ClientRecord:
+    """Lock the full client-memory source family in repository order.
+
+    User calls enter through ``lock_and_require_client_access`` via the supplied
+    callback, which already owns namespace -> User -> Projects -> Client ->
+    memberships. Trusted scheduler calls have no fabricated user, so they take
+    namespace -> Projects -> Client directly. Both paths then lock stakeholder
+    children before re-reading prompt sources and saving memory.
+    """
+
+    if final_authorize is not None:
+        client = final_authorize()
+        if client is None or int(client.id or 0) != client_id:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Client changed during rebuild authorization; retry.",
+            )
+        # The authorization helper already owns every currently linked Project
+        # row. Re-selecting them documents and verifies the source family while
+        # retaining the same transaction and lock set.
+        session.exec(
+            select(Project)
+            .where(Project.client_id == client_id)
+            .order_by(Project.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+    elif trusted_system:
+        locator = session.exec(
+            select(ClientRecord)
+            .where(ClientRecord.id == client_id)
+            .execution_options(populate_existing=True)
+        ).first()
+        if locator is None:
+            raise HTTPException(status_code=404, detail="Client not found")
+        expected_identity = lock_client_identity_values(
+            session,
+            (locator.name,),
+        )[0]
+        session.exec(
+            select(Project)
+            .where(Project.client_id == client_id)
+            .order_by(Project.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+        session.expire(locator)
+        client = session.exec(
+            select(ClientRecord)
+            .where(ClientRecord.id == client_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if client is None:
+            raise HTTPException(status_code=404, detail="Client not found")
+        if resolve_client_identity(session, client.name) != expected_identity:
+            session.rollback()
+            raise MemoryRebuildConflict(
+                "memory rebuild conflict: client identity changed during generation"
+            )
+    else:  # Guarded at the public helper boundary; fail closed if reused.
+        raise ValueError(
+            "Client memory rebuilds require final_authorize or trusted_system=True"
+        )
+
+    session.exec(
+        select(ClientStakeholder)
+        .where(ClientStakeholder.client_id == client_id)
+        .order_by(ClientStakeholder.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    return client
+
+
+def _assert_client_rebuild_generation(
+    client: ClientRecord,
+    *,
+    expected_rebuild_status: str,
+    expected_generation: str,
+) -> None:
+    current_status = str(client.client_memory_rebuild_status or "idle")
+    current_generation = str(
+        _get_raw_client_memory(client).get(
+            CLIENT_MEMORY_REBUILD_GENERATION_KEY,
+            "",
+        )
+        or ""
+    )
+    if (
+        current_status != expected_rebuild_status
+        or current_generation != expected_generation
+    ):
+        raise ClientMemoryRebuildSuperseded(
+            "memory rebuild conflict: client rebuild was cancelled or superseded"
+        )
 
 
 def _current_complete_with_selected_model():
@@ -112,6 +224,8 @@ class AISuggestion(BaseModel):
 
 
 class ClientOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     industry: str
@@ -125,10 +239,6 @@ class ClientOut(BaseModel):
     client_memory_updated_at: Optional[str] = None
     client_memory_rebuild_status: str = "idle"
     client_memory_rebuild_failed_at: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
 
 class ClientMemoryResponse(BaseModel):
     client_id: int
@@ -304,6 +414,16 @@ def _get_raw_client_memory(client: ClientRecord) -> dict:
         return {}
 
 
+def _rotate_client_memory_rebuild_generation(client: ClientRecord) -> str:
+    """Cancel every older in-flight rebuild without a schema migration."""
+
+    generation = uuid.uuid4().hex
+    memory = _get_raw_client_memory(client)
+    memory[CLIENT_MEMORY_REBUILD_GENERATION_KEY] = generation
+    client.client_memory_json = json.dumps(memory, ensure_ascii=False)
+    return generation
+
+
 def _set_client_memory_failure(
     session: Session,
     client: ClientRecord | int,
@@ -313,8 +433,19 @@ def _set_client_memory_failure(
     retry_count: int = 0,
     expected_memory_version: int | None = None,
     expected_rebuild_status: str | None = None,
+    expected_rebuild_generation: str | None = None,
     mark_rebuild_failed: bool = False,
+    final_authorize: Callable[[], ClientRecord] | None = None,
+    trusted_system: bool = False,
 ) -> bool:
+    if final_authorize is None and not trusted_system:
+        raise ValueError(
+            "Client memory failure writes require final_authorize or trusted_system=True"
+        )
+    if final_authorize is not None and trusted_system:
+        raise ValueError(
+            "Client memory failure writes cannot mix final_authorize and trusted_system=True"
+        )
     client_id = client if isinstance(client, int) else client.id
     if client_id is None:
         return False
@@ -325,9 +456,23 @@ def _set_client_memory_failure(
             expected_rebuild_status = client.client_memory_rebuild_status
 
     session.rollback()
-    current = session.exec(
-        select(ClientRecord).where(ClientRecord.id == client_id).with_for_update()
-    ).first()
+    if final_authorize is not None:
+        current = final_authorize()
+        if current is not None and int(current.id or 0) != int(client_id):
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Client changed during failure authorization; retry.",
+            )
+    else:
+        # Scheduler jobs are Aria-owned execution, not a fabricated user. They
+        # still serialize the owner row before writing an operational receipt.
+        current = session.exec(
+            select(ClientRecord)
+            .where(ClientRecord.id == client_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
     if current is None:
         session.rollback()
         return False
@@ -337,6 +482,16 @@ def _set_client_memory_failure(
     ) or (
         expected_rebuild_status in {"queued", "rebuilding"}
         and current.client_memory_rebuild_status == "idle"
+    ) or (
+        expected_rebuild_generation is not None
+        and str(
+            _get_raw_client_memory(current).get(
+                CLIENT_MEMORY_REBUILD_GENERATION_KEY,
+                "",
+            )
+            or ""
+        )
+        != expected_rebuild_generation
     ):
         session.rollback()
         return False
@@ -396,33 +551,10 @@ def _get_client_memory_successes(client: ClientRecord) -> list[dict]:
 def _build_client_out(
     client: ClientRecord,
     docs_by_client: dict[int, list],
-    projects_by_client_name: dict[str, list[str]],
+    projects_by_client_id: dict[int, list[str]],
 ) -> ClientOut:
     docs = docs_by_client.get(client.id, [])
-    matching = projects_by_client_name.get(_normalized_name(client.name), [])
-    return ClientOut(
-        id=client.id,
-        name=client.name,
-        industry=client.industry,
-        contact=client.contact,
-        notes=client.notes,
-        created_at=client.created_at.isoformat(),
-        document_count=len(docs),
-        project_names=matching,
-        client_memory_version=client.client_memory_version,
-        client_memory_stale=client.client_memory_stale,
-        client_memory_updated_at=client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else None,
-        client_memory_rebuild_status=client.client_memory_rebuild_status,
-        client_memory_rebuild_failed_at=client.client_memory_rebuild_failed_at.isoformat() if client.client_memory_rebuild_failed_at else None,
-    )
-
-
-def _client_out(client: ClientRecord, session: Session) -> ClientOut:
-    from app.models.db import KnowledgeDocument, Project
-    docs = session.exec(select(KnowledgeDocument).where(KnowledgeDocument.client_id == client.id)).all()
-    all_projects = session.exec(select(Project)).all()
-    client_key = _normalized_name(client.name)
-    matching = [project.name for project in all_projects if _normalized_name(project.client) == client_key]
+    matching = projects_by_client_id.get(int(client.id or 0), [])
     return ClientOut(
         id=client.id,
         name=client.name,
@@ -531,7 +663,60 @@ async def _rebuild_client_memory(
     client_id: int,
     *,
     trigger: str = "manual",
+    final_authorize: Callable[[], ClientRecord] | None = None,
+    trusted_system: bool = False,
+    start_rebuild_status: str | None = None,
+    start_rebuild_generation: str | None = None,
 ) -> dict:
+    if final_authorize is None and not trusted_system:
+        raise ValueError(
+            "Client memory rebuilds require final_authorize or trusted_system=True"
+        )
+    if final_authorize is not None and trusted_system:
+        raise ValueError(
+            "Client memory rebuilds cannot mix final_authorize and trusted_system=True"
+        )
+    if (start_rebuild_status is None) != (start_rebuild_generation is None):
+        raise ValueError(
+            "Client memory rebuild start status and generation must be supplied together"
+        )
+    # Capture the cancel epoch under the same source-family locks used for final
+    # persistence. Rebuild start is deliberately read-only: if authorization is
+    # revoked during provider latency, the request must leave no control-field
+    # receipt behind. Cancel rotates the epoch, so even an ABA sequence
+    # (rebuilding -> idle -> rebuilding) cannot let an old provider result win.
+    session.rollback()
+    client = _lock_client_memory_sources_after_provider(
+        session,
+        client_id,
+        final_authorize=final_authorize,
+        trusted_system=trusted_system,
+    )
+    locked_rebuild_status = str(client.client_memory_rebuild_status or "idle")
+    locked_generation = str(
+        _get_raw_client_memory(client).get(
+            CLIENT_MEMORY_REBUILD_GENERATION_KEY,
+            "",
+        )
+        or ""
+    )
+    expected_rebuild_status = (
+        str(start_rebuild_status)
+        if start_rebuild_status is not None
+        else locked_rebuild_status
+    )
+    expected_generation = (
+        str(start_rebuild_generation)
+        if start_rebuild_generation is not None
+        else locked_generation
+    )
+    _assert_client_rebuild_generation(
+        client,
+        expected_rebuild_status=expected_rebuild_status,
+        expected_generation=expected_generation,
+    )
+    session.rollback()
+
     begin_memory_prompt_snapshot(session)
     client = session.get(ClientRecord, client_id)
     if not client:
@@ -567,9 +752,17 @@ async def _rebuild_client_memory(
         max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
     )
     session.expire_all()
-    client = session.get(ClientRecord, client_id)
-    if client is None:
-        raise HTTPException(status_code=404, detail="Client not found")
+    client = _lock_client_memory_sources_after_provider(
+        session,
+        client_id,
+        final_authorize=final_authorize,
+        trusted_system=trusted_system,
+    )
+    _assert_client_rebuild_generation(
+        client,
+        expected_rebuild_status=expected_rebuild_status,
+        expected_generation=expected_generation,
+    )
     (
         client,
         _,
@@ -617,9 +810,17 @@ async def _rebuild_client_memory(
                 max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
             )
             session.expire_all()
-            client = session.get(ClientRecord, client_id)
-            if client is None:
-                raise HTTPException(status_code=404, detail="Client not found")
+            client = _lock_client_memory_sources_after_provider(
+                session,
+                client_id,
+                final_authorize=final_authorize,
+                trusted_system=trusted_system,
+            )
+            _assert_client_rebuild_generation(
+                client,
+                expected_rebuild_status=expected_rebuild_status,
+                expected_generation=expected_generation,
+            )
             (
                 client,
                 _,
@@ -716,7 +917,13 @@ async def _generate_client_memory_summary_cache(
     summary_type: str,
     language: str | None = None,
     force_refresh: bool = False,
+    final_authorize: Callable[[], ClientRecord] | None = None,
+    trusted_system: bool = False,
 ) -> str:
+    if (final_authorize is None) == (not trusted_system):
+        raise ValueError(
+            "Client summary writes require exactly one of final_authorize or trusted_system=True"
+        )
     client_id = int(client.id or 0)
     memory_version = int(memory_payload.get("memory_version", 0) or 0)
     if not force_refresh:
@@ -747,7 +954,12 @@ async def _generate_client_memory_summary_cache(
         max_tokens=900,
     )
     session.expire_all()
-    current_client = session.get(ClientRecord, client_id)
+    current_client = _lock_client_memory_sources_after_provider(
+        session,
+        client_id,
+        final_authorize=final_authorize,
+        trusted_system=trusted_system,
+    )
     if current_client is None:
         session.rollback()
         raise MemoryRebuildConflict(
@@ -782,7 +994,13 @@ async def _warm_client_memory_summary_caches(
     summary_types: list[str] | None = None,
     language: str | None = None,
     force_refresh: bool = False,
+    final_authorize: Callable[[], ClientRecord] | None = None,
+    trusted_system: bool = False,
 ) -> list[str]:
+    if (final_authorize is None) == (not trusted_system):
+        raise ValueError(
+            "Client summary warming requires exactly one of final_authorize or trusted_system=True"
+        )
     requested_types = _normalize_client_summary_types(summary_types)
     normalized_language = normalize_summary_language(language)
     warmed: list[str] = []
@@ -807,6 +1025,8 @@ async def _warm_client_memory_summary_caches(
             summary_type,
             language=language,
             force_refresh=force_refresh,
+            final_authorize=final_authorize,
+            trusted_system=trusted_system,
         )
         warmed.append(summary_type)
 
@@ -838,6 +1058,7 @@ async def _run_client_memory_summary_warm_job(
                     summary_types=summary_types,
                     language=language,
                     force_refresh=force_refresh,
+                    trusted_system=True,
                 )
                 return
             except MemoryRebuildConflict:
@@ -853,6 +1074,7 @@ async def _run_client_memory_summary_warm_job(
                         stage="summary_warm",
                         message=str(exc),
                         retry_count=attempt,
+                        trusted_system=True,
                     )
                     raise
                 wait_seconds = MEMORY_SUMMARY_WARM_INTERVAL_SECONDS * (2 ** attempt)
@@ -894,24 +1116,53 @@ def _schedule_client_memory_summary_warm(
 
 async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounced") -> None:
     with Session(engine) as session:
-        client = session.get(ClientRecord, client_id)
+        client = session.exec(
+            select(ClientRecord)
+            .where(ClientRecord.id == client_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
         if not client:
+            return
+        # A missing scheduler entry may be restored from a stale ``rebuilding``
+        # status after process interruption. ``idle`` is the committed cancel
+        # state and must never be reclaimed by a previously submitted job.
+        if client.client_memory_rebuild_status not in {"queued", "rebuilding"}:
+            session.rollback()
             return
 
         client.client_memory_rebuild_status = "rebuilding"
         client.client_memory_rebuild_failed_at = None
+        expected_memory_version = int(client.client_memory_version or 0)
+        expected_rebuild_status = "rebuilding"
+        expected_rebuild_generation = str(
+            _get_raw_client_memory(client).get(
+                CLIENT_MEMORY_REBUILD_GENERATION_KEY,
+                "",
+            )
+            or ""
+        )
         session.add(client)
         session.commit()
-        expected_memory_version = int(client.client_memory_version or 0)
 
         try:
-            await _rebuild_client_memory(session, client_id, trigger=trigger)
+            await _rebuild_client_memory(
+                session,
+                client_id,
+                trigger=trigger,
+                trusted_system=True,
+                start_rebuild_status=expected_rebuild_status,
+                start_rebuild_generation=expected_rebuild_generation,
+            )
             _schedule_client_memory_summary_warm(
                 client_id,
                 summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
                 trigger="rebuild_completed",
             )
             clients_cache.delete(_CLIENTS_KEY)
+        except ClientMemoryRebuildSuperseded:
+            session.rollback()
+            return
         except Exception as exc:
             session.rollback()
             client = session.exec(
@@ -923,6 +1174,14 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
                 if (
                     int(client.client_memory_version or 0) > expected_memory_version
                     or client.client_memory_rebuild_status == "idle"
+                    or str(
+                        _get_raw_client_memory(client).get(
+                            CLIENT_MEMORY_REBUILD_GENERATION_KEY,
+                            "",
+                        )
+                        or ""
+                    )
+                    != expected_rebuild_generation
                 ):
                     session.rollback()
                     return
@@ -959,7 +1218,9 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
                     retry_count=retry_count if 'retry_count' in locals() else 0,
                     expected_memory_version=expected_memory_version,
                     expected_rebuild_status="rebuilding",
+                    expected_rebuild_generation=expected_rebuild_generation,
                     mark_rebuild_failed=True,
+                    trusted_system=True,
                 )
             raise
 
@@ -999,7 +1260,7 @@ def _restore_missing_client_memory_rebuild_jobs(session: Session, clients: list[
         return rebuild_job_client_ids
 
     restore_index = 0
-    updated_status = False
+    status_changed = False
     for client in clients:
         if client.id in rebuild_job_client_ids:
             continue
@@ -1011,21 +1272,21 @@ def _restore_missing_client_memory_rebuild_jobs(session: Session, clients: list[
         if not needs_rebuild:
             continue
 
+        if client.client_memory_rebuild_status != "rebuilding":
+            client.client_memory_rebuild_status = "queued"
+            client.client_memory_rebuild_failed_at = None
+            session.add(client)
+            session.commit()
+            status_changed = True
         _schedule_client_memory_rebuild(
             client.id,
             trigger="restore_missing_job",
             delay_seconds=restore_index * CLIENT_MEMORY_REBUILD_RETRY_BASE_DELAY_SECONDS,
         )
-        if client.client_memory_rebuild_status != "rebuilding":
-            client.client_memory_rebuild_status = "queued"
-            client.client_memory_rebuild_failed_at = None
-            session.add(client)
-            updated_status = True
         rebuild_job_client_ids.add(client.id)
         restore_index += 1
 
-    if updated_status:
-        session.commit()
+    if status_changed:
         clients_cache.delete(_CLIENTS_KEY)
 
     return rebuild_job_client_ids
@@ -1034,8 +1295,8 @@ def _restore_missing_client_memory_rebuild_jobs(session: Session, clients: list[
 def _mark_client_memory_stale(session: Session, client_id: int, trigger: str = "data_changed") -> None:
     mark_client_memory_stale(session, client_id, trigger=trigger)
     client = session.get(ClientRecord, client_id)
-    _schedule_client_memory_rebuild(client_id, trigger=trigger)
     if client and client.client_memory_rebuild_status != "rebuilding":
         client.client_memory_rebuild_status = "queued" if scheduler_service.is_running() else "idle"
         session.add(client)
         session.commit()
+    _schedule_client_memory_rebuild(client_id, trigger=trigger)

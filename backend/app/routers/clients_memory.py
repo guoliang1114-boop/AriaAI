@@ -16,10 +16,15 @@ from app.config import (
     MEMORY_SUMMARY_WARM_INTERVAL_SECONDS,
 )
 from app.database import get_session
-from app.models.db import ClientMemorySnapshot, ClientRecord, Project
+from app.models.db import ClientMemorySnapshot, ClientRecord, Project, User
 from app.services import scheduler as scheduler_service
 from app.services.cache import clients_cache
+from app.services.client_permissions import (
+    lock_and_require_client_access,
+    require_client_access,
+)
 from app.services.client_contexts import (
+    CLIENT_MEMORY_REBUILD_GENERATION_KEY,
     CORE_CLIENT_MEMORY_SUMMARY_TYPES,
     build_client_memory_data,
     build_client_memory_prompt,
@@ -44,6 +49,7 @@ from app.services.memory_rebuilds import (
     latest_memory_rebuild_metadata,
     plan_client_memory_rebuild,
 )
+from app.services.project_clients import project_belongs_to_client
 from app.services.project_contexts import (
     get_project_memory_payload,
     normalize_summary_language,
@@ -59,15 +65,18 @@ from app.routers.clients_deps import (
     _generate_client_memory_summary_cache,
     _get_client_memory_failure,
     _get_client_memory_successes,
+    _get_raw_client_memory,
     _normalize_client_summary_types,
     _normalized_name,
     _parse_client_memory_job,
     _rebuild_client_memory,
+    _rotate_client_memory_rebuild_generation,
     _set_client_memory_failure,
     _restore_missing_client_memory_rebuild_jobs,
     _schedule_client_memory_rebuild,
     _schedule_client_memory_summary_warm,
     _warm_client_memory_summary_caches,
+    ClientMemoryRebuildSuperseded,
     ClientMemoryBatchRebuildItem,
     ClientMemoryBatchRebuildRequest,
     ClientMemoryBatchRebuildResponse,
@@ -81,7 +90,7 @@ from app.routers.clients_deps import (
     PromoteProjectMemoryRequest,
 )
 
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, require_admin
 
 router = APIRouter(
     tags=["clients"],
@@ -98,8 +107,25 @@ def _current_complete_with_selected_model():
     )
 
 
+def _lock_client_write(
+    session: Session,
+    client_id: int,
+    current_user: User,
+) -> ClientRecord:
+    client, _, _ = lock_and_require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
+    return client
+
+
 @router.get("/memory/jobs", response_model=ClientMemoryJobsResponse)
-def list_client_memory_jobs(session: Session = Depends(get_session)):
+def list_client_memory_jobs(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin),
+):
     all_clients = session.exec(select(ClientRecord)).all()
     client_lookup = {client.id: client for client in all_clients}
     rebuild_job_client_ids = _restore_missing_client_memory_rebuild_jobs(session, all_clients)
@@ -179,17 +205,28 @@ def list_client_memory_jobs(session: Session = Depends(get_session)):
 
 
 @router.post("/memory/jobs/{client_id}/cancel")
-def cancel_client_memory_jobs(client_id: int, session: Session = Depends(get_session)):
+def cancel_client_memory_jobs(
+    client_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin),
+):
+    require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
+    client = _lock_client_write(session, client_id, current_user)
     scheduler_service.remove_job(_client_memory_rebuild_job_id(client_id))
     for language in ("zh", "en", "default"):
         scheduler_service.remove_job(_client_memory_summary_warm_job_id(client_id, language))
-    client = session.get(ClientRecord, client_id)
-    if client and client.client_memory_rebuild_status in {"queued", "rebuilding"}:
+    _rotate_client_memory_rebuild_generation(client)
+    if client.client_memory_rebuild_status in {"queued", "rebuilding"}:
         client.client_memory_rebuild_status = "idle"
         client.client_memory_rebuild_failed_at = None
-        session.add(client)
-        session.commit()
-        clients_cache.delete(_CLIENTS_KEY)
+    session.add(client)
+    session.commit()
+    clients_cache.delete(_CLIENTS_KEY)
     return {"ok": True, "client_id": client_id}
 
 
@@ -197,23 +234,45 @@ def cancel_client_memory_jobs(client_id: int, session: Session = Depends(get_ses
 async def run_client_memory_jobs_now(
     client_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin),
 ):
+    client = require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
+    client = _lock_client_write(session, client_id, current_user)
     scheduler_service.remove_job(_client_memory_rebuild_job_id(client_id))
     for language in ("zh", "en", "default"):
         scheduler_service.remove_job(_client_memory_summary_warm_job_id(client_id, language))
-    client = session.get(ClientRecord, client_id)
     expected_memory_version = (
         int(client.client_memory_version or 0) if client is not None else None
     )
     expected_rebuild_status = (
         client.client_memory_rebuild_status if client is not None else None
     )
+    expected_rebuild_generation = str(
+        _get_raw_client_memory(client).get(
+            CLIENT_MEMORY_REBUILD_GENERATION_KEY,
+            "",
+        )
+        or ""
+    )
     try:
         payload = await _rebuild_client_memory(
             session,
             client_id,
             trigger="manual_queue_run",
+            final_authorize=lambda: _lock_client_write(
+                session,
+                client_id,
+                current_user,
+            ),
         )
+    except ClientMemoryRebuildSuperseded as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         # The queue entry is gone at this point. Persist a visible terminal
         # failure so operators can retry it deliberately instead of seeing a
@@ -226,7 +285,13 @@ async def run_client_memory_jobs_now(
             message=str(exc),
             expected_memory_version=expected_memory_version,
             expected_rebuild_status=expected_rebuild_status,
+            expected_rebuild_generation=expected_rebuild_generation,
             mark_rebuild_failed=True,
+            final_authorize=lambda: _lock_client_write(
+                session,
+                client_id,
+                current_user,
+            ),
         )
         if session.get(ClientRecord, client_id):
             clients_cache.delete(_CLIENTS_KEY)
@@ -252,6 +317,7 @@ async def run_client_memory_jobs_now(
 async def rebuild_client_memory_batch(
     body: ClientMemoryBatchRebuildRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin),
 ):
     rebuilt: list[ClientMemoryBatchRebuildItem] = []
     queued: list[dict] = []
@@ -272,14 +338,20 @@ async def rebuild_client_memory_batch(
             if scheduler_service.get_job(job_id):
                 skipped.append({"client_id": client_id, "reason": "already_queued"})
                 continue
+            client = _lock_client_write(session, client_id, current_user)
+            if body.stale_only and not client.client_memory_stale:
+                skipped.append({"client_id": client_id, "reason": "not_stale"})
+                session.rollback()
+                continue
+            client.client_memory_rebuild_status = "queued"
+            client.client_memory_rebuild_failed_at = None
+            session.add(client)
+            session.commit()
             _schedule_client_memory_rebuild(
                 client_id,
                 trigger="batch_rebuild",
                 delay_seconds=len(queued) * CLIENT_MEMORY_REBUILD_RETRY_BASE_DELAY_SECONDS,
             )
-            client.client_memory_rebuild_status = "queued"
-            client.client_memory_rebuild_failed_at = None
-            session.add(client)
             queued.append(
                 {
                     "client_id": client_id,
@@ -290,8 +362,22 @@ async def rebuild_client_memory_batch(
             )
             continue
 
-        payload = await _rebuild_client_memory(session, client_id, trigger="batch_rebuild")
-        refreshed = session.get(ClientRecord, client_id)
+        payload = await _rebuild_client_memory(
+            session,
+            client_id,
+            trigger="batch_rebuild",
+            final_authorize=lambda client_id=client_id: _lock_client_write(
+                session,
+                client_id,
+                current_user,
+            ),
+        )
+        refreshed = _lock_client_write(session, client_id, current_user)
+        _schedule_client_memory_summary_warm(
+            client_id,
+            summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
+            trigger="batch_rebuild_completed",
+        )
         rebuilt.append(
             ClientMemoryBatchRebuildItem(
                 client_id=client_id,
@@ -307,14 +393,8 @@ async def rebuild_client_memory_batch(
                 else None,
             )
         )
-        _schedule_client_memory_summary_warm(
-            client_id,
-            summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
-            trigger="batch_rebuild_completed",
-        )
+        session.rollback()
 
-    if queued:
-        session.commit()
     clients_cache.delete(_CLIENTS_KEY)
     return ClientMemoryBatchRebuildResponse(
         ok=True,
@@ -331,6 +411,7 @@ async def rebuild_client_memory_batch(
 async def warm_client_memory_summaries_batch(
     body: ClientMemoryBatchWarmSummariesRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin),
 ):
     requested_ids = [int(client_id) for client_id in body.client_ids if int(client_id) > 0]
     if not requested_ids:
@@ -374,14 +455,20 @@ async def warm_client_memory_summaries_batch(
                 skipped.append({"client_id": client.id, "reason": "already_queued"})
                 continue
 
+            locked_client = _lock_client_write(
+                session,
+                int(client.id),
+                current_user,
+            )
             queued = _schedule_client_memory_summary_warm(
-                client.id,
+                int(locked_client.id),
                 language=body.language,
                 summary_types=normalized_summary_types,
                 force_refresh=body.force_refresh,
                 delay_seconds=queued_count * MEMORY_SUMMARY_WARM_INTERVAL_SECONDS,
                 trigger="batch_warm",
             )
+            session.rollback()
             if queued:
                 queued_count += 1
                 processed.append(
@@ -401,6 +488,11 @@ async def warm_client_memory_summaries_batch(
             summary_types=normalized_summary_types,
             language=body.language,
             force_refresh=body.force_refresh,
+            final_authorize=lambda client_id=int(client.id): _lock_client_write(
+                session,
+                client_id,
+                current_user,
+            ),
         )
         warmed_count += len(warmed_types)
         processed.append(
@@ -424,10 +516,12 @@ async def warm_client_memory_summaries_batch(
 
 
 @router.get("/{client_id}/memory", response_model=ClientMemoryResponse)
-def get_client_memory(client_id: int, session: Session = Depends(get_session)):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+def get_client_memory(
+    client_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    client = require_client_access(session, client_id, current_user)
     return ClientMemoryResponse(
         client_id=client_id,
         memory=get_client_memory_payload(client),
@@ -440,10 +534,12 @@ def get_client_memory(client_id: int, session: Session = Depends(get_session)):
 
 
 @router.get("/{client_id}/memory/status", response_model=ClientMemoryStatusResponse)
-def get_client_memory_status(client_id: int, session: Session = Depends(get_session)):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+def get_client_memory_status(
+    client_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    client = require_client_access(session, client_id, current_user)
     return ClientMemoryStatusResponse(
         client_id=client_id,
         has_memory=(client.client_memory_version or 0) > 0,
@@ -456,10 +552,12 @@ def get_client_memory_status(client_id: int, session: Session = Depends(get_sess
 
 
 @router.get("/{client_id}/memory/slots")
-def get_client_memory_slots(client_id: int, session: Session = Depends(get_session)):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+def get_client_memory_slots(
+    client_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    client = require_client_access(session, client_id, current_user)
     slots = get_client_memory_slot_states(session, client_id)
     stale_count = sum(item["status"] in {"stale", "corrupt"} for item in slots)
     rebuild_metadata = latest_memory_rebuild_metadata(get_client_memory_payload(client))
@@ -475,10 +573,12 @@ def get_client_memory_slots(client_id: int, session: Session = Depends(get_sessi
 
 
 @router.get("/{client_id}/memory/facts")
-def get_client_memory_facts(client_id: int, session: Session = Depends(get_session)):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+def get_client_memory_facts(
+    client_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    client = require_client_access(session, client_id, current_user)
     facts = get_client_memory_fact_states(session, client_id)
     return {
         "scope": "client",
@@ -505,10 +605,12 @@ def get_client_memory_facts(client_id: int, session: Session = Depends(get_sessi
 
 
 @router.get("/{client_id}/memory/snapshots")
-def list_client_memory_snapshots(client_id: int, session: Session = Depends(get_session)):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+def list_client_memory_snapshots(
+    client_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_client_access(session, client_id, current_user)
     snapshots = session.exec(
         select(ClientMemorySnapshot)
         .where(ClientMemorySnapshot.client_id == client_id)
@@ -528,10 +630,13 @@ def list_client_memory_snapshots(client_id: int, session: Session = Depends(get_
 
 
 @router.get("/{client_id}/memory/snapshots/{snapshot_id}")
-def get_client_memory_snapshot(client_id: int, snapshot_id: int, session: Session = Depends(get_session)):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+def get_client_memory_snapshot(
+    client_id: int,
+    snapshot_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_client_access(session, client_id, current_user)
     snapshot = session.get(ClientMemorySnapshot, snapshot_id)
     if not snapshot or snapshot.client_id != client_id:
         raise HTTPException(status_code=404, detail="Client memory snapshot not found")
@@ -546,10 +651,13 @@ def get_client_memory_snapshot(client_id: int, snapshot_id: int, session: Sessio
 
 
 @router.get("/{client_id}/memory/snapshots/{snapshot_id}/diff")
-def get_client_memory_snapshot_diff(client_id: int, snapshot_id: int, session: Session = Depends(get_session)):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+def get_client_memory_snapshot_diff(
+    client_id: int,
+    snapshot_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    client = require_client_access(session, client_id, current_user)
     snapshot = session.get(ClientMemorySnapshot, snapshot_id)
     if not snapshot or snapshot.client_id != client_id:
         raise HTTPException(status_code=404, detail="Client memory snapshot not found")
@@ -583,12 +691,32 @@ def get_client_memory_snapshot_diff(client_id: int, snapshot_id: int, session: S
 
 
 @router.post("/{client_id}/memory/snapshots/{snapshot_id}/rollback", response_model=ClientMemoryResponse)
-def rollback_client_memory_snapshot(client_id: int, snapshot_id: int, session: Session = Depends(get_session)):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+def rollback_client_memory_snapshot(
+    client_id: int,
+    snapshot_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
     snapshot = session.get(ClientMemorySnapshot, snapshot_id)
     if not snapshot or snapshot.client_id != client_id:
+        raise HTTPException(status_code=404, detail="Client memory snapshot not found")
+    _lock_client_write(session, client_id, current_user)
+    snapshot = session.exec(
+        select(ClientMemorySnapshot)
+        .where(
+            ClientMemorySnapshot.id == snapshot_id,
+            ClientMemorySnapshot.client_id == client_id,
+        )
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if snapshot is None:
         raise HTTPException(status_code=404, detail="Client memory snapshot not found")
     try:
         memory = json.loads(snapshot.memory_json or "{}")
@@ -617,15 +745,34 @@ def rollback_client_memory_snapshot(client_id: int, snapshot_id: int, session: S
 
 
 @router.post("/{client_id}/memory/rebuild", response_model=ClientMemoryResponse)
-async def rebuild_client_memory(client_id: int, session: Session = Depends(get_session)):
-    payload = await _rebuild_client_memory(session, client_id, trigger="manual")
+async def rebuild_client_memory(
+    client_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
+    payload = await _rebuild_client_memory(
+        session,
+        client_id,
+        trigger="manual",
+        final_authorize=lambda: _lock_client_write(
+            session,
+            client_id,
+            current_user,
+        ),
+    )
+    refreshed = _lock_client_write(session, client_id, current_user)
     _schedule_client_memory_summary_warm(
         client_id,
         summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
         trigger="manual_rebuild_completed",
     )
     clients_cache.delete(_CLIENTS_KEY)
-    refreshed = session.get(ClientRecord, client_id)
     return ClientMemoryResponse(
         client_id=client_id,
         memory=payload,
@@ -644,18 +791,22 @@ async def promote_project_memory_to_client(
     client_id: int,
     body: PromoteProjectMemoryRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     # Client, project, prompt payload, and project-memory digest must all come
     # from the same committed database snapshot.
     begin_memory_prompt_snapshot(session)
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+    client = require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
 
     project = session.get(Project, body.project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if _normalized_name(project.client) != _normalized_name(client.name):
+    if not project_belongs_to_client(session, project, client):
         raise HTTPException(status_code=400, detail="Project does not belong to this client")
 
     project_memory = get_project_memory_payload(project)
@@ -701,26 +852,25 @@ async def promote_project_memory_to_client(
         max_tokens=3200,
     )
     session.expire_all()
-    # Lock the promoted source before validating its ownership and digest, then
-    # keep the lock through the client save. This closes the final
-    # validate-to-commit window for reassignment, mutation, or deletion.
-    project = session.exec(
-        select(Project)
-        .where(Project.id == body.project_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
-    client = session.exec(
-        select(ClientRecord)
-        .where(ClientRecord.id == client_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
-    if client is None:
-        raise HTTPException(status_code=404, detail="Client not found")
+    # The shared lock helper preserves the global namespace -> User -> Projects
+    # -> Client -> ProjectMembers order and rechecks write access after the LLM
+    # wait. Use its already-locked project rows through the final save.
+    client, _, locked_projects = lock_and_require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
+    project = next(
+        (project for project in locked_projects if project.id == body.project_id),
+        None,
+    )
     if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if _normalized_name(project.client) != _normalized_name(client.name):
+        raise HTTPException(
+            status_code=409,
+            detail="Project client ownership changed during promotion; retry with current data.",
+        )
+    if not project_belongs_to_client(session, project, client):
         raise HTTPException(
             status_code=409,
             detail="Project client ownership changed during promotion; retry with current data.",
@@ -762,6 +912,7 @@ async def promote_project_memory_to_client(
     except MemoryRebuildConflict as exc:
         session.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    client = _lock_client_write(session, client_id, current_user)
     _schedule_client_memory_summary_warm(
         client_id,
         summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
@@ -787,18 +938,39 @@ async def summarize_client_memory(
     client_id: int,
     body: ClientMemorySummaryRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+    client = require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
 
     memory = get_client_memory_payload(client)
     if (client.client_memory_version or 0) == 0 or client.client_memory_stale:
-        memory = await _rebuild_client_memory(session, client_id, trigger="on_demand")
+        memory = await _rebuild_client_memory(
+            session,
+            client_id,
+            trigger="on_demand",
+            final_authorize=lambda: _lock_client_write(
+                session,
+                client_id,
+                current_user,
+            ),
+        )
+        _lock_client_write(session, client_id, current_user)
         _schedule_client_memory_summary_warm(
             client_id,
             summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
             trigger="on_demand_rebuild_completed",
+        )
+        session.rollback()
+        client = require_client_access(
+            session,
+            client_id,
+            current_user,
+            require_write=True,
         )
 
     normalized_language = normalize_summary_language(body.language)
@@ -830,6 +1002,11 @@ async def summarize_client_memory(
             normalized_summary_type,
             language=body.language,
             force_refresh=True,
+            final_authorize=lambda: _lock_client_write(
+                session,
+                client_id,
+                current_user,
+            ),
         )
     except MemoryRebuildConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -857,10 +1034,9 @@ def get_client_memory_summary(
     summary_type: str,
     language: Optional[str] = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+    client = require_client_access(session, client_id, current_user)
 
     memory_version = int(client.client_memory_version or 0)
     if memory_version <= 0:

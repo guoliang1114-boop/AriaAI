@@ -51,7 +51,10 @@ def lock_client_identity_namespaces(
     if getattr(dialect, "name", "") != "postgresql":
         return
 
-    normalized = sorted({str(identity) for identity in identities if str(identity)})
+    # Empty/whitespace-only names share one real namespace too. Skipping it
+    # would leave blank-name client updates on a different lock order from
+    # project/candidate writers and reopen a deadlock/TOCTOU window.
+    normalized = sorted({str(identity) for identity in identities})
     for identity in normalized:
         lock_key = f"{CLIENT_IDENTITY_LOCK_NAMESPACE}:{identity}"
         session.exec(

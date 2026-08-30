@@ -7,6 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.models.db import ClientRecord, DocumentChunk, KnowledgeDocument, Project
 from app.services import rag as rag_module
+from app.services.context_builder.rag_context import build_rag_context
 from sqlmodel import select
 from tests.test_database import create_test_engine, drop_all_tables
 
@@ -147,6 +148,163 @@ class RetrieveStructuredTestCase(unittest.TestCase):
             self.assertEqual(len(ctx.results), 1)
 
     @patch.object(rag_module, "embed_texts")
+    def test_creator_client_scope_is_retrievable_without_a_linked_project(self, mock_embed):
+        mock_embed.return_value = [[1.0, 0.0, 0.0]]
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Creator-only client")
+            session.add(client)
+            session.flush()
+            document = KnowledgeDocument(
+                name="creator-client.pdf",
+                file_type="pdf",
+                path="creator-client.pdf",
+                client_id=client.id,
+            )
+            session.add(document)
+            session.flush()
+            session.add(
+                DocumentChunk(
+                    document_id=int(document.id),
+                    chunk_index=0,
+                    content="Creator client briefing",
+                    embedding_json=json.dumps([1.0, 0.0, 0.0]),
+                )
+            )
+            session.commit()
+
+            denied = rag_module.retrieve_structured(
+                "briefing",
+                session,
+                accessible_project_ids=[],
+                accessible_client_ids=[],
+            )
+            allowed = rag_module.retrieve_structured(
+                "briefing",
+                session,
+                accessible_project_ids=[],
+                accessible_client_ids=[int(client.id)],
+            )
+
+            self.assertEqual(denied.results, [])
+            self.assertEqual([item.document_id for item in allowed.results], [document.id])
+
+    @patch.object(rag_module, "embed_texts")
+    def test_project_scope_precedes_same_client_scope_for_ambient_and_explicit_docs(
+        self,
+        mock_embed,
+    ):
+        mock_embed.return_value = [[1.0, 0.0, 0.0]]
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Shared client")
+            session.add(client)
+            session.flush()
+            project_a = Project(
+                name="Visible project",
+                client=client.name,
+                client_id=client.id,
+            )
+            project_b = Project(
+                name="Hidden project",
+                client=client.name,
+                client_id=client.id,
+            )
+            session.add_all([project_a, project_b])
+            session.flush()
+            documents = [
+                KnowledgeDocument(
+                    name="visible-project.pdf",
+                    file_type="pdf",
+                    path="visible-project.pdf",
+                    project_id=project_a.id,
+                    client_id=client.id,
+                ),
+                KnowledgeDocument(
+                    name="hidden-project.pdf",
+                    file_type="pdf",
+                    path="hidden-project.pdf",
+                    project_id=project_b.id,
+                    client_id=client.id,
+                ),
+                KnowledgeDocument(
+                    name="client-only.pdf",
+                    file_type="pdf",
+                    path="client-only.pdf",
+                    client_id=client.id,
+                ),
+            ]
+            session.add_all(documents)
+            session.flush()
+            for document in documents:
+                session.add(
+                    DocumentChunk(
+                        document_id=int(document.id),
+                        chunk_index=0,
+                        content=document.name,
+                        embedding_json=json.dumps([1.0, 0.0, 0.0]),
+                    )
+                )
+            session.commit()
+
+            ambient = rag_module.retrieve_structured(
+                "briefing",
+                session,
+                accessible_project_ids=[int(project_a.id)],
+                accessible_client_ids=[int(client.id)],
+            )
+            explicit_hidden = rag_module.retrieve_structured(
+                "briefing",
+                session,
+                doc_ids=[int(documents[1].id)],
+                accessible_project_ids=[int(project_a.id)],
+                accessible_client_ids=[int(client.id)],
+            )
+
+            self.assertEqual(
+                {result.document_id for result in ambient.results},
+                {int(documents[0].id), int(documents[2].id)},
+            )
+            self.assertEqual(explicit_hidden.results, [])
+
+    @patch("app.services.context_builder.rag_context._current_retrieve_structured")
+    def test_client_scope_uses_stable_id_when_display_snapshot_is_blank(self, mock_current):
+        mock_retrieve = MagicMock()
+        mock_retrieve.return_value = MagicMock(results=[], query="briefing")
+        mock_retrieve.return_value.to_text.return_value = ""
+        mock_current.return_value = mock_retrieve
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Stable client")
+            session.add(client)
+            session.flush()
+            client_id = int(client.id)
+            project = Project(
+                name="Blank display snapshot",
+                client="",
+                client_id=client_id,
+            )
+            session.add(project)
+            session.flush()
+            session.add(
+                KnowledgeDocument(
+                    name="stable-client.pdf",
+                    file_type="pdf",
+                    path="stable-client.pdf",
+                    client_id=client_id,
+                    vector_status="synced",
+                )
+            )
+            session.commit()
+
+            build_rag_context(
+                session,
+                "briefing",
+                project_id=int(project.id),
+                knowledge_scope="client",
+            )
+
+        self.assertEqual(mock_retrieve.call_args.kwargs["client_id"], client_id)
+        self.assertIsNone(mock_retrieve.call_args.kwargs["project_id"])
+
+    @patch.object(rag_module, "embed_texts")
     def test_explicit_document_ids_cannot_widen_project_membership(self, mock_embed):
         mock_embed.return_value = [[1.0, 0.0, 0.0]]
         with Session(self.engine) as session:
@@ -276,7 +434,12 @@ class IndexDocumentTestCase(unittest.TestCase):
             session.add(doc)
             session.commit()
             session.refresh(doc)
-            await rag_module.index_document(doc, text, session)
+            await rag_module.index_document(
+                doc,
+                text,
+                session,
+                trusted_system=True,
+            )
             return doc.id
 
     def test_indexing(self):

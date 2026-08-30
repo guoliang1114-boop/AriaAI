@@ -22,6 +22,17 @@ class KnowledgeRouterTestCase(unittest.TestCase):
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:
+            user = User(
+                email="test@example.com",
+                display_name="Test User",
+                password_hash="",
+                is_admin=True,
+                is_active=True,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            self.user_id = int(user.id)
             doc = KnowledgeDocument(
                 name="test-doc.pdf",
                 file_type="pdf",
@@ -52,15 +63,12 @@ class KnowledgeRouterTestCase(unittest.TestCase):
             with Session(self.engine) as session:
                 yield session
 
+        def override_user():
+            with Session(self.engine) as session:
+                return session.get(User, self.user_id)
+
         app.dependency_overrides[knowledge_module.get_session] = override_session
-        app.dependency_overrides[knowledge_module.get_current_user] = lambda: User(
-            id=1,
-            email="test@example.com",
-            display_name="Test User",
-            password_hash="",
-            is_admin=True,
-            is_active=True,
-        )
+        app.dependency_overrides[knowledge_module.get_current_user] = override_user
         self.client = TestClient(app, raise_server_exceptions=False)
 
     def tearDown(self):

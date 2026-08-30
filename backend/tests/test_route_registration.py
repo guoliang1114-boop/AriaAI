@@ -1,0 +1,22 @@
+from __future__ import annotations
+
+from collections import Counter
+
+import main
+
+
+def test_http_route_signatures_are_registered_once() -> None:
+    signatures = Counter(
+        (
+            tuple(sorted(getattr(route, "methods", set()) or set())),
+            getattr(route, "path", ""),
+        )
+        for route in main.app.routes
+    )
+
+    duplicates = {
+        signature: count
+        for signature, count in signatures.items()
+        if count > 1
+    }
+    assert duplicates == {}

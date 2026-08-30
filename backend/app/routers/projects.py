@@ -20,8 +20,8 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.db import Project, User
 from app.services import scheduler as scheduler_service
-from app.services.cache import projects_cache
-from app.services.client_contexts import mark_client_memory_stale_by_name
+from app.services.cache import clients_cache, projects_cache
+from app.services.client_contexts import mark_client_memory_stale
 from app.services.memory_operations import classify_memory_failure
 from app.services.project_ai import (
     build_project_ai_suggest_messages,
@@ -38,6 +38,7 @@ from app.services.project_core import (
     get_project_or_404,
     init_default_project_folders,
     list_projects_basic,
+    lock_and_require_project_write,
     update_project_record,
 )
 from app.services.project_deletion import delete_project_cascade
@@ -124,6 +125,16 @@ def _client_promotion_completed(project: Project | None) -> bool:
     return bool(state.get("promoted_at"))
 
 
+def _mark_linked_client_memory_stale(
+    session: Session,
+    *,
+    client_id: int | None,
+    trigger: str,
+) -> None:
+    if client_id is not None:
+        mark_client_memory_stale(session, int(client_id), trigger=trigger)
+
+
 def _should_auto_promote_archived_project(
     project: Project,
     *,
@@ -143,18 +154,30 @@ def _record_client_promotion_failure(
     session: Session,
     project_id: int,
     error: Exception,
-) -> None:
+    *,
+    actor_user_id: int,
+) -> bool:
     session.rollback()
+    current = session.get(Project, project_id)
+    if current is None or _client_promotion_completed(current):
+        return False
+    try:
+        project, _locked_actor = lock_and_require_project_write(
+            session,
+            project_id,
+            actor_user_id=actor_user_id,
+        )
+    except HTTPException as exc:
+        if exc.status_code in {401, 403, 404, 409}:
+            session.rollback()
+            return False
+        raise
     # Serialize the failure receipt with the atomic promotion commit. A losing
     # concurrent attempt must observe a completed receipt written by the
     # winner instead of overwriting it with its own baseline-conflict failure.
-    project = session.exec(
-        select(Project).where(Project.id == project_id).with_for_update()
-    ).first()
-    if not project:
-        return
     if _client_promotion_completed(project):
-        return
+        session.rollback()
+        return False
 
     memory = _get_existing_raw_memory(project)
     previous = _client_promotion_state(project)
@@ -182,6 +205,7 @@ def _record_client_promotion_failure(
     project.context_memory_json = json.dumps(memory, ensure_ascii=False)
     session.add(project)
     session.commit()
+    return True
 
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -220,34 +244,27 @@ def create_project(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    project = create_project_record(session, data.model_dump())
-    # Auto-add the creator as owner so they immediately have read +
-    # write access — without this every newly-created project would
-    # 403 the creator on the very next request.
-    try:
-        add_project_member(session, project.id, current_user.id, "owner")
-    except HTTPException as exc:
-        # 409 means a membership already existed (shouldn't happen
-        # for a brand-new project but is non-fatal). Anything else
-        # we surface so the create doesn't silently leave a project
-        # without an owner.
-        if exc.status_code != 409:
-            raise
+    project = create_project_record(
+        session,
+        data.model_dump(),
+        actor_user_id=int(current_user.id),
+    )
     # Seed initial memory so AI has basic context immediately (no waiting for async rebuild)
     seed_memory = _default_project_memory(project)
     save_project_memory(session, project.id, seed_memory, trigger="project_created")
-    mark_client_memory_stale_by_name(
+    _mark_linked_client_memory_stale(
         session,
-        project.client,
+        client_id=project.client_id,
         trigger="project_created",
     )
-    _schedule_project_memory_rebuild(project.id, trigger="project_created")
     if scheduler_service.is_running():
         project.memory_rebuild_status = "queued"
         session.add(project)
         session.commit()
         session.refresh(project)
+    _schedule_project_memory_rebuild(project.id, trigger="project_created")
     projects_cache.delete_prefix("list:")   # no detail key yet — project just created
+    clients_cache.clear()
     return project
 
 
@@ -306,6 +323,7 @@ def list_projects_dashboard_summary(
         Project.id,
         Project.name,
         Project.client,
+        Project.client_id,
         Project.status,
         Project.contract_amount,
         Project.updated_at,
@@ -321,6 +339,7 @@ def list_projects_dashboard_summary(
             "id": project_id,
             "name": name,
             "client": client,
+            "client_id": client_id,
             "status": status,
             "contract_amount": contract_amount,
             "updated_at": updated_at,
@@ -331,6 +350,7 @@ def list_projects_dashboard_summary(
             project_id,
             name,
             client,
+            client_id,
             status,
             contract_amount,
             updated_at,
@@ -351,16 +371,28 @@ async def update_project(
 ):
     require_project_access(session, project_id, current_user, require_write=True)
     changes = data.model_dump(exclude_none=True)
-    project, previous_status, previous_client = update_project_record(
+    if "client_id" in data.model_fields_set:
+        # Field absence preserves the existing relationship; explicit NULL
+        # detaches it. Runtime reads never infer a client from display text.
+        changes["client_id"] = data.client_id
+    project, previous_status, previous_client, previous_client_id = update_project_record(
         session,
         project_id,
         changes,
+        actor_user_id=int(current_user.id),
     )
     updated_client = str(project.client or "")
+    updated_client_id = project.client_id
     client_reassigned = (
-        "client" in changes
-        and " ".join(str(previous_client or "").strip().lower().split())
-        != " ".join(updated_client.strip().lower().split())
+        "client" in changes or "client_id" in changes
+    ) and (
+        previous_client_id != updated_client_id
+        or (
+            previous_client_id is None
+            and updated_client_id is None
+            and " ".join(str(previous_client or "").strip().lower().split())
+            != " ".join(updated_client.strip().lower().split())
+        )
     )
     trigger_parts: list[str] = []
     if "status" in changes:
@@ -374,14 +406,15 @@ async def update_project(
     stale_trigger = "_".join(trigger_parts or ["project_profile"]) + "_changed"
     _mark_project_memory_stale(session, project_id, trigger=stale_trigger)
     if client_reassigned:
-        mark_client_memory_stale_by_name(
+        _mark_linked_client_memory_stale(
             session,
-            previous_client,
+            client_id=previous_client_id,
             trigger="project_reassigned",
         )
-        mark_client_memory_stale_by_name(
+        clients_cache.clear()
+        _mark_linked_client_memory_stale(
             session,
-            updated_client,
+            client_id=updated_client_id,
             trigger="project_reassigned",
         )
     session.expire_all()
@@ -404,6 +437,7 @@ async def update_project(
             promoted = await _auto_promote_archived_project_to_client_memory(
                 session,
                 project_id,
+                actor=current_user,
                 # The helper's transition guard remains useful for normal
                 # archive operations. Failed/missing receipts on an already
                 # archived project deliberately bypass it for retry.
@@ -419,9 +453,29 @@ async def update_project(
                         RuntimeError(
                             "Auto-promotion could not run because no client record matched the project."
                         ),
+                        actor_user_id=int(current_user.id),
                     )
+        except HTTPException as exc:
+            if exc.status_code in {401, 403}:
+                # Authorization is a request outcome, not a provider failure.
+                # Roll back the final lock transaction and never let a revoked
+                # actor write even a failure receipt onto the project.
+                session.rollback()
+                raise
+            _record_client_promotion_failure(
+                session,
+                project_id,
+                exc,
+                actor_user_id=int(current_user.id),
+            )
+            logger.exception("Failed to auto-promote archived project %s into client memory", project_id)
         except Exception as exc:
-            _record_client_promotion_failure(session, project_id, exc)
+            _record_client_promotion_failure(
+                session,
+                project_id,
+                exc,
+                actor_user_id=int(current_user.id),
+            )
             logger.exception("Failed to auto-promote archived project %s into client memory", project_id)
     _bust_project(project_id)
     session.expire_all()
@@ -446,13 +500,18 @@ def delete_project(
     current_user: User = Depends(get_current_user),
 ):
     require_project_access(session, project_id, current_user, require_write=True)
-    client_name = delete_project_cascade(session, project_id)
-    mark_client_memory_stale_by_name(
+    client_id, client_name = delete_project_cascade(
         session,
-        client_name,
+        project_id,
+        actor_user_id=int(current_user.id),
+    )
+    _mark_linked_client_memory_stale(
+        session,
+        client_id=client_id,
         trigger="project_deleted",
     )
     _bust_project(project_id)
+    clients_cache.clear()
     return {"ok": True}
 
 

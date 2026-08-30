@@ -141,6 +141,28 @@ def maybe_require_project_access(
     require_project_access(session, project_id, current_user)
 
 
+def require_project_write_access(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """FastAPI dependency for project sub-resource mutation routes.
+
+    Router-wide project gates intentionally grant viewers read access.  Attach
+    this dependency to every mutating sub-route so a read membership can never
+    be mistaken for business authorization to persist state or start work.
+    Provider-backed handlers must still perform their final locked
+    authorization after the provider returns.
+    """
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+
+
 def require_chat_request_access(
     session: Session,
     *,

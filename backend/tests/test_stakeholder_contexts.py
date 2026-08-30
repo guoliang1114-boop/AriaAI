@@ -3,7 +3,6 @@ import unittest
 from types import SimpleNamespace
 
 from app.services.stakeholder_contexts import (
-    _normalized_client_name,
     serialize_client_stakeholder,
     format_client_stakeholders_for_prompt,
 )
@@ -20,20 +19,6 @@ def _make_stakeholder(**kwargs):
     )
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
-
-
-class NormalizedClientNameTestCase(unittest.TestCase):
-    def test_lowercase(self):
-        self.assertEqual(_normalized_client_name("Alice Corp"), "alice corp")
-
-    def test_strips_whitespace(self):
-        self.assertEqual(_normalized_client_name("  Hello  "), "hello")
-
-    def test_none_returns_empty(self):
-        self.assertEqual(_normalized_client_name(None), "")
-
-    def test_empty_string(self):
-        self.assertEqual(_normalized_client_name(""), "")
 
 
 class SerializeClientStakeholderTestCase(unittest.TestCase):

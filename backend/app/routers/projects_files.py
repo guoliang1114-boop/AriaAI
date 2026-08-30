@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 
 # UPLOADS_DIR imported below via projects_deps
 from app.routers.projects_deps import get_session
-from app.models.db import Conversation, Message, Project, ProjectFile, ProjectFileVersion
+from app.models.db import Conversation, Message, Project, ProjectFile, ProjectFileVersion, User
 from app.routers.projects_deps import (
     UPLOADS_DIR,
     _bust_project,
@@ -70,7 +70,7 @@ from app.routers.projects_deps import get_current_user
 
 logger = logging.getLogger(__name__)
 
-from app.routers.chat_security import maybe_require_project_access
+from app.routers.chat_security import maybe_require_project_access, require_project_write_access
 
 router = APIRouter(
     tags=["projects"],
@@ -144,7 +144,10 @@ def list_trashed_files(project_id: int, session: Session = Depends(get_session))
     return list_archived_project_files(session, project_id)
 
 
-@router.post("/{project_id}/files/{file_id}/restore")
+@router.post(
+    "/{project_id}/files/{file_id}/restore",
+    dependencies=[Depends(require_project_write_access)],
+)
 def restore_file(project_id: int, file_id: int, session: Session = Depends(get_session)):
     restored = restore_project_file(session, project_id, file_id)
     _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
@@ -152,7 +155,11 @@ def restore_file(project_id: int, file_id: int, session: Session = Depends(get_s
     return _refresh_instance(session, restored)
 
 
-@router.post("/{project_id}/documents", status_code=201)
+@router.post(
+    "/{project_id}/documents",
+    status_code=201,
+    dependencies=[Depends(require_project_write_access)],
+)
 def create_project_document(
     project_id: int,
     data: ProjectDocumentCreate,
@@ -177,7 +184,10 @@ def get_project_document(project_id: int, file_id: int, session: Session = Depen
     return get_project_document_payload(session, project_id, file_id, uploads_dir=UPLOADS_DIR)
 
 
-@router.patch("/{project_id}/documents/{file_id}")
+@router.patch(
+    "/{project_id}/documents/{file_id}",
+    dependencies=[Depends(require_project_write_access)],
+)
 def update_project_document(
     project_id: int,
     file_id: int,
@@ -199,7 +209,11 @@ def update_project_document(
     return _refresh_instance(session, result)
 
 
-@router.post("/{project_id}/conversations/{conv_id}/save-markdown", status_code=201)
+@router.post(
+    "/{project_id}/conversations/{conv_id}/save-markdown",
+    status_code=201,
+    dependencies=[Depends(require_project_write_access)],
+)
 def save_conversation_markdown(
     project_id: int,
     conv_id: int,
@@ -227,7 +241,22 @@ def save_conversation_markdown(
     if data.action == "merge":
         if not data.file_id:
             raise HTTPException(400, "file_id is required for merge action")
-        project_file = get_project_document_file_or_404(session, project_id, data.file_id)
+        project = session.exec(
+            select(Project).where(Project.id == project_id).with_for_update()
+        ).first()
+        if project is None:
+            raise HTTPException(404, "Project not found")
+        project_file = session.exec(
+            select(ProjectFile)
+            .where(
+                ProjectFile.id == data.file_id,
+                ProjectFile.project_id == project_id,
+                ProjectFile.deleted_at.is_(None),
+            )
+            .with_for_update()
+        ).first()
+        if project_file is None:
+            raise HTTPException(404, "File not found")
         if project_file.file_type.lower() != "md":
             raise HTTPException(400, "Only markdown documents can be merged")
 
@@ -248,6 +277,7 @@ def save_conversation_markdown(
             uploads_dir=UPLOADS_DIR,
             append=True,
         )
+        project_file.summary = ""
         session.add(project_file)
         session.commit()
         session.refresh(project_file)
@@ -304,7 +334,11 @@ def save_conversation_markdown(
     }
 
 
-@router.post("/{project_id}/messages/{message_id}/save-to-document", status_code=201)
+@router.post(
+    "/{project_id}/messages/{message_id}/save-to-document",
+    status_code=201,
+    dependencies=[Depends(require_project_write_access)],
+)
 def save_message_to_document(
     project_id: int,
     message_id: int,
@@ -328,7 +362,22 @@ def save_message_to_document(
     if data.action == "merge":
         if not data.file_id:
             raise HTTPException(400, "file_id is required for merge action")
-        project_file = get_project_document_file_or_404(session, project_id, data.file_id)
+        project = session.exec(
+            select(Project).where(Project.id == project_id).with_for_update()
+        ).first()
+        if project is None:
+            raise HTTPException(404, "Project not found")
+        project_file = session.exec(
+            select(ProjectFile)
+            .where(
+                ProjectFile.id == data.file_id,
+                ProjectFile.project_id == project_id,
+                ProjectFile.deleted_at.is_(None),
+            )
+            .with_for_update()
+        ).first()
+        if project_file is None:
+            raise HTTPException(404, "File not found")
         if project_file.file_type.lower() != "md":
             raise HTTPException(400, "Only markdown documents can be merged")
 
@@ -349,6 +398,7 @@ def save_message_to_document(
             uploads_dir=UPLOADS_DIR,
             append=True,
         )
+        project_file.summary = ""
         session.add(project_file)
         session.commit()
         session.refresh(project_file)
@@ -406,7 +456,11 @@ def save_message_to_document(
     }
 
 
-@router.post("/{project_id}/messages/{message_id}/confirm-markdown-save", status_code=201)
+@router.post(
+    "/{project_id}/messages/{message_id}/confirm-markdown-save",
+    status_code=201,
+    dependencies=[Depends(require_project_write_access)],
+)
 async def confirm_message_markdown_save(
     project_id: int,
     message_id: int,
@@ -487,7 +541,10 @@ def list_file_versions(project_id: int, file_id: int, session: Session = Depends
     }
 
 
-@router.patch("/{project_id}/files/{file_id}/folder")
+@router.patch(
+    "/{project_id}/files/{file_id}/folder",
+    dependencies=[Depends(require_project_write_access)],
+)
 def move_project_file(
     project_id: int,
     file_id: int,
@@ -511,7 +568,10 @@ def move_project_file(
     return _refresh_instance(session, project_file)
 
 
-@router.post("/{project_id}/files/{file_id}/versions/{version_id}/restore")
+@router.post(
+    "/{project_id}/files/{file_id}/versions/{version_id}/restore",
+    dependencies=[Depends(require_project_write_access)],
+)
 def restore_file_version(project_id: int, file_id: int, version_id: int, session: Session = Depends(get_session)):
     project_file = get_project_document_file_or_404(session, project_id, file_id)
     version = session.get(ProjectFileVersion, version_id)
@@ -536,13 +596,18 @@ def restore_file_version(project_id: int, file_id: int, version_id: int, session
 # sync endpoints in a threadpool, so a large upload no longer blocks the
 # asyncio event loop (which previously stalled concurrent requests and made
 # uploads appear to hang).
-@router.post("/{project_id}/files", status_code=201)
+@router.post(
+    "/{project_id}/files",
+    status_code=201,
+    dependencies=[Depends(require_project_write_access)],
+)
 def upload_file(
     project_id: int,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     folder_id: Optional[int] = Form(None),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     pf, dest_file, file_type = create_project_upload(
         session,
@@ -554,7 +619,13 @@ def upload_file(
 
     # Auto-generate file summary and companion markdown in the background
     background_tasks.add_task(
-        _auto_summarize_file, pf.id, str(dest_file), file_type, project_id, folder_id
+        _auto_summarize_file,
+        pf.id,
+        str(dest_file),
+        file_type,
+        project_id,
+        folder_id,
+        int(current_user.id),
     )
 
     _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
@@ -562,7 +633,10 @@ def upload_file(
     return _refresh_instance(session, pf)
 
 
-@router.delete("/{project_id}/files/{file_id}")
+@router.delete(
+    "/{project_id}/files/{file_id}",
+    dependencies=[Depends(require_project_write_access)],
+)
 def delete_file(project_id: int, file_id: int, session: Session = Depends(get_session)):
     archive_project_file(session, project_id, file_id, reason="Manual project file delete")
     _mark_project_memory_stale(session, project_id, trigger="project_file_changed")
@@ -587,10 +661,14 @@ def download_file(project_id: int, file_id: int, session: Session = Depends(get_
 
 @router.get("/{project_id}/folders")
 def list_folders(project_id: int, session: Session = Depends(get_session)):
-    return list_project_folders(session, project_id, init_default_folders=init_default_project_folders)
+    return list_project_folders(session, project_id)
 
 
-@router.post("/{project_id}/folders", status_code=201)
+@router.post(
+    "/{project_id}/folders",
+    status_code=201,
+    dependencies=[Depends(require_project_write_access)],
+)
 def create_folder(project_id: int, data: FolderCreate, session: Session = Depends(get_session)):
     folder = create_project_folder(
         session,
@@ -602,7 +680,10 @@ def create_folder(project_id: int, data: FolderCreate, session: Session = Depend
     return _refresh_instance(session, folder)
 
 
-@router.delete("/{project_id}/folders/{folder_id}")
+@router.delete(
+    "/{project_id}/folders/{folder_id}",
+    dependencies=[Depends(require_project_write_access)],
+)
 def delete_folder(project_id: int, folder_id: int, session: Session = Depends(get_session)):
     delete_project_folder(session, project_id, folder_id)
     _bust_project(project_id)

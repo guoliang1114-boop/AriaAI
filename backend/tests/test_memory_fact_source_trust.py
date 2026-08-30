@@ -555,9 +555,18 @@ def test_project_promotion_protects_existing_fact_lineage_but_links_new_fact():
     try:
         with Session(engine) as session:
             client = ClientRecord(name="Acme")
-            first_project = Project(name="First", client="Acme")
-            promoted_project = Project(name="Second", client="Acme")
             session.add(client)
+            session.flush()
+            first_project = Project(
+                name="First",
+                client="Acme",
+                client_id=int(client.id),
+            )
+            promoted_project = Project(
+                name="Second",
+                client="Acme",
+                client_id=int(client.id),
+            )
             session.add(first_project)
             session.add(promoted_project)
             session.commit()
@@ -652,14 +661,16 @@ def test_project_memory_source_drift_downgrades_dependent_client_state():
     try:
         with Session(engine) as session:
             client = ClientRecord(name="Acme")
+            session.add(client)
+            session.flush()
             project = Project(
                 name="Pilot",
                 client="Acme",
+                client_id=int(client.id),
                 context_memory_json=json.dumps(
                     {"financial_status": "Deposit pending"}
                 ),
             )
-            session.add(client)
             session.add(project)
             session.commit()
             session.refresh(client)
@@ -731,8 +742,13 @@ def test_stakeholder_source_drift_downgrades_dependent_project_state():
     try:
         with Session(engine) as session:
             client = ClientRecord(name="Acme")
-            project = Project(name="Pilot", client="Acme")
             session.add(client)
+            session.flush()
+            project = Project(
+                name="Pilot",
+                client="Acme",
+                client_id=int(client.id),
+            )
             session.add(project)
             session.commit()
             session.refresh(client)

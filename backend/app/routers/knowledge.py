@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import shutil
 import uuid
 from pathlib import Path
@@ -21,6 +22,7 @@ from app.models.knowledge import (
     KnowledgeJob,
     KnowledgeLegacyMigration,
     KnowledgeSource,
+    KnowledgeTemplate,
     KnowledgeTemplateExtraction,
     KnowledgeV1Document,
 )
@@ -33,6 +35,9 @@ from app.jobs.knowledge_jobs import (
     retry_knowledge_job,
 )
 from app.services import parser, rag
+from app.services.client_permissions import (
+    accessible_client_ids as accessible_client_record_ids,
+)
 from app.services.knowledge_ingestion import (
     SUPPORTED_SOURCE_FILE_TYPES,
     create_document_from_bytes,
@@ -51,11 +56,17 @@ from app.services.knowledge_permissions import (
     accessible_project_ids,
     can_access_legacy_document,
     can_access_source,
-    has_client_access,
-    has_project_access,
+    can_write_legacy_document,
+    can_write_legacy_scope,
+    can_write_source,
+    lock_and_require_knowledge_scope_write,
+    lock_and_require_legacy_document_write,
+    lock_and_require_legacy_scope_write,
+    lock_and_require_source_document_write,
+    lock_and_require_source_write,
 )
 from app.services.knowledge_retrieval import search_knowledge
-from app.services.knowledge_templates import seed_builtin_templates, template_to_dict
+from app.services.knowledge_templates import BUILTIN_KNOWLEDGE_TEMPLATES, template_to_dict
 from app.services.storage import StorageService
 from app.services.time_utils import utc_now_naive
 
@@ -66,6 +77,8 @@ router = APIRouter(
     tags=["knowledge"],
     dependencies=[Depends(get_current_user)],
 )
+
+logger = logging.getLogger(__name__)
 
 KB_UPLOADS = UPLOADS_DIR / "knowledge"
 KB_UPLOADS.mkdir(parents=True, exist_ok=True)
@@ -216,9 +229,17 @@ def _require_source_access(
     session: Session,
     current_user: User,
     source: KnowledgeSource,
+    *,
+    require_write: bool = False,
 ) -> None:
-    if not can_access_source(current_user, source, session):
-        raise HTTPException(403, "Knowledge source access denied")
+    allowed = (
+        can_write_source(current_user, source, session)
+        if require_write
+        else can_access_source(current_user, source, session)
+    )
+    if not allowed:
+        permission = "write" if require_write else "access"
+        raise HTTPException(403, f"Knowledge source {permission} denied")
 
 
 def _job_or_404(session: Session, job_id: int) -> KnowledgeJob:
@@ -232,6 +253,8 @@ def _require_job_access(
     session: Session,
     current_user: User,
     job: KnowledgeJob,
+    *,
+    require_write: bool = False,
 ) -> None:
     if current_user.is_admin and job.job_type == "migrate_legacy_knowledge":
         return
@@ -239,8 +262,64 @@ def _require_job_access(
     if not source and job.document_id:
         document = session.get(KnowledgeV1Document, job.document_id)
         source = session.get(KnowledgeSource, document.source_id) if document else None
-    if not source or not can_access_source(current_user, source, session):
+    if source is None:
+        allowed = False
+    elif require_write:
+        allowed = can_write_source(current_user, source, session)
+    else:
+        allowed = can_access_source(current_user, source, session)
+    if not allowed:
         raise HTTPException(403, "Knowledge job access denied")
+
+
+def _lock_and_require_job_write(
+    session: Session,
+    current_user: User,
+    job: KnowledgeJob,
+) -> tuple[KnowledgeJob, User]:
+    """Finalize job authorization before retrying and dispatching it."""
+
+    expected = (job.job_type, job.source_id, job.document_id)
+    if job.job_type == "migrate_legacy_knowledge":
+        actor = lock_and_require_knowledge_scope_write(
+            session,
+            current_user,
+            scope_type="global",
+            scope_id=None,
+        )
+    else:
+        source_id = job.source_id
+        if source_id is None and job.document_id is not None:
+            document = session.get(KnowledgeV1Document, job.document_id)
+            source_id = document.source_id if document is not None else None
+        if source_id is None:
+            raise HTTPException(403, "Knowledge job write permission required")
+        if job.document_id is not None:
+            _, _, actor = lock_and_require_source_document_write(
+                session,
+                int(source_id),
+                int(job.document_id),
+                current_user,
+            )
+        else:
+            _, actor = lock_and_require_source_write(
+                session,
+                int(source_id),
+                current_user,
+            )
+
+    session.expire(job)
+    locked_job = session.exec(
+        select(KnowledgeJob)
+        .where(KnowledgeJob.id == job.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if locked_job is None:
+        raise HTTPException(409, "Knowledge job was deleted; reload and retry.")
+    if (locked_job.job_type, locked_job.source_id, locked_job.document_id) != expected:
+        raise HTTPException(409, "Knowledge job scope changed; reload and retry.")
+    return locked_job, actor
 
 
 def _knowledge_scope_filters(project_id: Optional[int], client_id: Optional[int]):
@@ -340,8 +419,21 @@ def create_knowledge_source(
     )
     if not source.name:
         raise HTTPException(400, "Knowledge source name is required")
-    if not can_access_source(current_user, source, session):
-        raise HTTPException(403, "Knowledge source scope access denied")
+    if not can_write_source(current_user, source, session):
+        raise HTTPException(403, "Knowledge source scope write denied")
+    actor = lock_and_require_knowledge_scope_write(
+        session,
+        current_user,
+        scope_type=source.scope_type,
+        scope_id=source.scope_id,
+        owner_user_id=source.owner_user_id,
+    )
+    if (
+        source_type in {"markdown_folder", "obsidian_vault", "git_repo"}
+        and not actor.is_admin
+    ):
+        raise HTTPException(403, "Admin access is required for server filesystem sources")
+    source.owner_user_id = actor.id
     session.add(source)
     session.commit()
     session.refresh(source)
@@ -378,7 +470,7 @@ async def upload_source_document(
     current_user: User = Depends(get_current_user),
 ):
     source = _source_or_404(session, source_id)
-    _require_source_access(session, current_user, source)
+    _require_source_access(session, current_user, source, require_write=True)
     file_name = file.filename or "document.txt"
     file_type = normalize_file_type(file_name)
     if file_type not in SUPPORTED_SOURCE_FILE_TYPES:
@@ -386,6 +478,7 @@ async def upload_source_document(
     content = await file.read()
     if not content:
         raise HTTPException(400, "Knowledge document is empty")
+    source, actor = lock_and_require_source_write(session, source_id, current_user)
     content_hash = sha256_bytes(content)
     storage_key = f"knowledge/originals/source-{source.id}/{content_hash}.{file_type}"
     StorageService(UPLOADS_DIR).put_bytes(storage_key, content)
@@ -400,12 +493,18 @@ async def upload_source_document(
     )
     if document.status == "indexed":
         return _document_to_dict(document, session=session)
+    source, document, actor = lock_and_require_source_document_write(
+        session,
+        source_id,
+        int(document.id),
+        actor,
+    )
     job = enqueue_knowledge_job(
         session,
         job_type="index_document",
         document_id=document.id,
         source_id=source.id,
-        requested_by_user_id=current_user.id,
+        requested_by_user_id=actor.id,
         payload={"template_key": template_key} if template_key else {},
     )
     background_tasks.add_task(process_knowledge_job_by_id, int(job.id), session.get_bind())
@@ -421,12 +520,13 @@ def sync_knowledge_source(
     current_user: User = Depends(get_current_user),
 ):
     source = _source_or_404(session, source_id)
-    _require_source_access(session, current_user, source)
+    _require_source_access(session, current_user, source, require_write=True)
+    source, actor = lock_and_require_source_write(session, source_id, current_user)
     job = enqueue_knowledge_job(
         session,
         job_type="sync_source",
         source_id=source.id,
-        requested_by_user_id=current_user.id,
+        requested_by_user_id=actor.id,
     )
     background_tasks.add_task(process_knowledge_job_by_id, int(job.id), session.get_bind())
     return knowledge_job_to_dict(job)
@@ -441,16 +541,22 @@ def reindex_source_document(
     current_user: User = Depends(get_current_user),
 ):
     source = _source_or_404(session, source_id)
-    _require_source_access(session, current_user, source)
+    _require_source_access(session, current_user, source, require_write=True)
     document = _document_or_404(session, document_id)
     if document.source_id != source.id:
         raise HTTPException(404, "Knowledge document not found in source")
+    source, document, actor = lock_and_require_source_document_write(
+        session,
+        source_id,
+        document_id,
+        current_user,
+    )
     job = enqueue_knowledge_job(
         session,
         job_type="index_document",
         source_id=source.id,
         document_id=document.id,
-        requested_by_user_id=current_user.id,
+        requested_by_user_id=actor.id,
         force_new=True,
     )
     background_tasks.add_task(process_knowledge_job_by_id, int(job.id), session.get_bind())
@@ -465,17 +571,26 @@ def delete_source_document(
     current_user: User = Depends(get_current_user),
 ):
     source = _source_or_404(session, source_id)
-    _require_source_access(session, current_user, source)
+    _require_source_access(session, current_user, source, require_write=True)
     document = _document_or_404(session, document_id)
     if document.source_id != source.id:
         raise HTTPException(404, "Knowledge document not found in source")
-    active_job = session.exec(
-        select(KnowledgeJob).where(
-            KnowledgeJob.document_id == document.id,
-            KnowledgeJob.status.in_(ACTIVE_JOB_STATUSES),
-        )
-    ).first()
-    if active_job:
+    _, document, _ = lock_and_require_source_document_write(
+        session,
+        source_id,
+        document_id,
+        current_user,
+    )
+    document_jobs = list(
+        session.exec(
+            select(KnowledgeJob)
+            .where(KnowledgeJob.document_id == document.id)
+            .order_by(KnowledgeJob.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+    )
+    if any(job.status in ACTIVE_JOB_STATUSES for job in document_jobs):
         raise HTTPException(409, "Knowledge document still has an active ingestion job")
 
     migration_rows = session.exec(
@@ -485,21 +600,35 @@ def delete_source_document(
     ).all()
     for migration_row in migration_rows:
         session.delete(migration_row)
-    for model in (KnowledgeChunk, KnowledgeTemplateExtraction, KnowledgeDocumentEvent, KnowledgeJob):
+    for model in (KnowledgeChunk, KnowledgeTemplateExtraction, KnowledgeDocumentEvent):
         rows = session.exec(select(model).where(model.document_id == document.id)).all()
         for row in rows:
             session.delete(row)
-    storage = StorageService(UPLOADS_DIR)
-    for storage_key in (
-        document.original_storage_key,
-        document.extracted_text_storage_key,
-        document.chunks_storage_key,
-        document.preview_storage_key,
-    ):
-        if storage_key:
-            storage.delete(storage_key)
+    for job in document_jobs:
+        session.delete(job)
+    storage_keys = tuple(
+        storage_key
+        for storage_key in (
+            document.original_storage_key,
+            document.extracted_text_storage_key,
+            document.chunks_storage_key,
+            document.preview_storage_key,
+        )
+        if storage_key
+    )
     session.delete(document)
     session.commit()
+    storage = StorageService(UPLOADS_DIR)
+    for storage_key in storage_keys:
+        try:
+            storage.delete(storage_key)
+        except Exception:
+            logger.warning(
+                "Knowledge document %s was deleted but storage cleanup failed for %s",
+                document_id,
+                storage_key,
+                exc_info=True,
+            )
     return {"ok": True}
 
 
@@ -547,9 +676,18 @@ def retry_failed_knowledge_job(
     current_user: User = Depends(get_current_user),
 ):
     job = _job_or_404(session, job_id)
-    _require_job_access(session, current_user, job)
-    if force and not current_user.is_admin:
+    _require_job_access(session, current_user, job, require_write=True)
+    job, actor = _lock_and_require_job_write(session, current_user, job)
+    if force and not actor.is_admin:
         raise HTTPException(403, "Admin access is required to force a permanent failure retry")
+    # A manual retry is a new user-triggered execution. Bind the durable job to
+    # the actor who was just re-authorized instead of silently retaining a
+    # deleted, inactive, or no-longer-authorized original requester.
+    job.requested_by_user_id = int(actor.id)
+    payload = parse_json_object(job.payload_json)
+    payload.pop("_trusted_system", None)
+    job.payload_json = json.dumps(payload, ensure_ascii=False)
+    session.add(job)
     try:
         job = retry_knowledge_job(session, job_id, force=force)
     except KnowledgeJobFailure as exc:
@@ -625,7 +763,37 @@ def get_document_template_result(
 def list_knowledge_templates(
     session: Session = Depends(get_session),
 ):
-    return {"templates": [template_to_dict(item) for item in seed_builtin_templates(session)]}
+    # A read endpoint must not upsert global rows on behalf of a viewer. Return
+    # persisted built-ins when present and a read-only static representation on
+    # a fresh database; explicit setup code may still call seed_builtin_templates.
+    stored = session.exec(
+        select(KnowledgeTemplate).where(
+            KnowledgeTemplate.key.in_(
+                [str(item["key"]) for item in BUILTIN_KNOWLEDGE_TEMPLATES]
+            )
+        )
+    ).all()
+    stored_by_key = {template.key: template for template in stored}
+    templates = []
+    for item in BUILTIN_KNOWLEDGE_TEMPLATES:
+        key = str(item["key"])
+        persisted = stored_by_key.get(key)
+        if persisted is not None:
+            templates.append(template_to_dict(persisted))
+            continue
+        templates.append(
+            {
+                "id": None,
+                "key": key,
+                "name": item["name"],
+                "description": item["description"],
+                "supported_file_types": list(item["supported_file_types"]),
+                "required_fields": list(item["required_fields"]),
+                "optional_fields": list(item["optional_fields"]),
+                "status": "active",
+            }
+        )
+    return {"templates": templates}
 
 
 @router.post("/search")
@@ -704,10 +872,16 @@ def execute_legacy_knowledge_migration(
     plans = list(preview["ready_plans"][: body.batch_size])
     if not plans:
         raise HTTPException(409, "No migration-ready legacy documents remain")
+    actor = lock_and_require_knowledge_scope_write(
+        session,
+        current_user,
+        scope_type="global",
+        scope_id=None,
+    )
     job = enqueue_knowledge_job(
         session,
         job_type="migrate_legacy_knowledge",
-        requested_by_user_id=current_user.id,
+        requested_by_user_id=actor.id,
         payload={
             "migration_version": LEGACY_MIGRATION_VERSION,
             "plan_hash": preview["plan_hash"],
@@ -854,19 +1028,28 @@ async def upload_document(
         project = session.get(Project, project_id)
         if not project:
             raise HTTPException(404, "Project not found")
-        if not current_user.is_admin and not has_project_access(current_user.id, project_id, session):
-            raise HTTPException(403, "Project knowledge access denied")
     if client_id is not None:
         client = session.get(ClientRecord, client_id)
         if not client:
             raise HTTPException(404, "Client not found")
-        if not current_user.is_admin and not has_client_access(current_user.id, client_id, session):
-            raise HTTPException(403, "Client knowledge access denied")
+    if not can_write_legacy_scope(
+        current_user,
+        project_id=project_id,
+        client_id=client_id,
+        session=session,
+    ):
+        raise HTTPException(403, "Knowledge document write permission required")
 
     suffix = Path(file.filename or "file").suffix.lower()
     dest_name = f"{uuid.uuid4().hex}{suffix}"
     dest_file = KB_UPLOADS / dest_name
 
+    actor = lock_and_require_legacy_scope_write(
+        session,
+        current_user,
+        project_id=project_id,
+        client_id=client_id,
+    )
     with dest_file.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
@@ -883,34 +1066,111 @@ async def upload_document(
     session.commit()
     session.refresh(doc)
 
-    background_tasks.add_task(_index_background, doc.id, str(dest_file))
+    background_tasks.add_task(
+        _index_background,
+        doc.id,
+        str(dest_file),
+        int(actor.id),
+    )
     return doc
 
 
-def _index_background(doc_id: int, file_path: str) -> None:
+def _index_background(doc_id: int, file_path: str, actor_user_id: int) -> None:
     with Session(engine) as session:
-        doc = session.get(KnowledgeDocument, doc_id)
-        if not doc:
+        actor = session.get(User, actor_user_id)
+        if actor is None:
             return
-        doc.vector_status = "processing"
-        doc.vector_progress = 0.0
-        session.add(doc)
-        session.commit()
+        try:
+            doc, _ = lock_and_require_legacy_document_write(
+                session,
+                doc_id,
+                actor,
+            )
+        except HTTPException:
+            session.rollback()
+            return
+        expected_source = (
+            doc.project_id,
+            doc.client_id,
+            doc.path,
+            doc.name,
+            doc.file_type,
+        )
+        session.rollback()
+
         try:
             text = parser.extract_text(file_path)
         except Exception:
-            doc.vector_status = "failed"
-            doc.vector_progress = 0.0
-            session.add(doc)
-            session.commit()
+            _record_legacy_index_failure(
+                session,
+                doc_id,
+                actor_user_id,
+                expected_source,
+            )
             return
         if not text.strip():
-            doc.vector_status = "failed"
-            doc.vector_progress = 0.0
-            session.add(doc)
-            session.commit()
+            _record_legacy_index_failure(
+                session,
+                doc_id,
+                actor_user_id,
+                expected_source,
+            )
             return
-        asyncio.run(rag.index_document(doc, text, session))
+        try:
+            asyncio.run(
+                rag.index_document(
+                    doc,
+                    text,
+                    session,
+                    actor_user_id=actor_user_id,
+                    expected_source=expected_source,
+                )
+            )
+        except Exception:
+            session.rollback()
+            _record_legacy_index_failure(
+                session,
+                doc_id,
+                actor_user_id,
+                expected_source,
+            )
+
+
+def _record_legacy_index_failure(
+    session: Session,
+    doc_id: int,
+    actor_user_id: int,
+    expected_source: tuple[object, ...],
+) -> bool:
+    """Write a failure receipt only while the original actor still owns scope."""
+
+    session.rollback()
+    actor = session.get(User, actor_user_id)
+    if actor is None:
+        return False
+    try:
+        document, _ = lock_and_require_legacy_document_write(
+            session,
+            doc_id,
+            actor,
+        )
+    except HTTPException:
+        session.rollback()
+        return False
+    if (
+        document.project_id,
+        document.client_id,
+        document.path,
+        document.name,
+        document.file_type,
+    ) != expected_source:
+        session.rollback()
+        return False
+    document.vector_status = "failed"
+    document.vector_progress = 0.0
+    session.add(document)
+    session.commit()
+    return True
 
 
 @router.post("/documents/{doc_id}/reindex")
@@ -923,9 +1183,13 @@ def reindex_document(
     doc = session.get(KnowledgeDocument, doc_id)
     if not doc:
         raise HTTPException(404, "Document not found")
-    if not can_access_legacy_document(current_user, doc, session):
-        raise HTTPException(403, "Knowledge document access denied")
+    if not can_write_legacy_document(current_user, doc, session):
+        raise HTTPException(403, "Knowledge document write permission required")
 
+    full_path = UPLOADS_DIR / doc.path
+    if not full_path.is_file():
+        raise HTTPException(404, "Document file not found")
+    doc, actor = lock_and_require_legacy_document_write(session, doc_id, current_user)
     full_path = UPLOADS_DIR / doc.path
     if not full_path.is_file():
         raise HTTPException(404, "Document file not found")
@@ -937,7 +1201,12 @@ def reindex_document(
     session.commit()
     session.refresh(doc)
 
-    background_tasks.add_task(_index_background, doc.id, str(full_path))
+    background_tasks.add_task(
+        _index_background,
+        doc.id,
+        str(full_path),
+        int(actor.id),
+    )
     return doc
 
 
@@ -950,15 +1219,25 @@ def delete_document(
     doc = session.get(KnowledgeDocument, doc_id)
     if not doc:
         raise HTTPException(404, "Document not found")
-    if not can_access_legacy_document(current_user, doc, session):
-        raise HTTPException(403, "Knowledge document access denied")
-    for c in session.exec(select(DocumentChunk).where(DocumentChunk.document_id == doc_id)).all():
+    if not can_write_legacy_document(current_user, doc, session):
+        raise HTTPException(403, "Knowledge document write permission required")
+    doc, _ = lock_and_require_legacy_document_write(session, doc_id, current_user)
+    storage_key = doc.path
+    for c in session.exec(
+        select(DocumentChunk).where(DocumentChunk.document_id == doc_id)
+    ).all():
         session.delete(c)
-    full_path = UPLOADS_DIR / doc.path
-    if full_path.is_file():
-        full_path.unlink()
     session.delete(doc)
     session.commit()
+    try:
+        StorageService(UPLOADS_DIR).delete(storage_key)
+    except Exception:
+        logger.warning(
+            "Legacy knowledge document %s was deleted but storage cleanup failed for %s",
+            doc_id,
+            storage_key,
+            exc_info=True,
+        )
     return {"ok": True}
 
 
@@ -994,12 +1273,21 @@ def query_knowledge(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    if current_user.is_admin:
+        allowed_project_ids = None
+        allowed_client_ids = None
+    else:
+        allowed_project_ids = accessible_project_ids(current_user, session)
+        allowed_client_ids = sorted(
+            accessible_client_record_ids(session, current_user) or set()
+        )
     result = rag.retrieve(
         query,
         session,
         doc_ids,
         project_id=project_id,
         client_id=client_id,
-        accessible_project_ids=accessible_project_ids(current_user, session),
+        accessible_project_ids=allowed_project_ids,
+        accessible_client_ids=allowed_client_ids,
     )
     return {"context": result}

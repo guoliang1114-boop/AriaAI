@@ -7,17 +7,28 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models.db import ClientRecord, ClientStakeholder, ClientStakeholderHistory, Project
+from app.models.db import (
+    ClientRecord,
+    ClientStakeholder,
+    ClientStakeholderHistory,
+    User,
+)
 from app.services.cache import clients_cache
-from app.services.client_contexts import get_client_memory_payload
-from app.services.project_contexts import mark_project_memories_stale_by_client_name
+from app.services.client_contexts import (
+    get_client_memory_payload,
+    mark_client_memory_stale,
+)
+from app.services.client_permissions import (
+    lock_and_require_client_access,
+    require_client_access,
+)
+from app.services.project_contexts import mark_project_memories_stale_by_client_id
+from app.services.project_clients import list_projects_for_client
 from app.services.project_llm import complete_with_selected_model
 from app.services.time_utils import utc_now_naive
 from app.routers.clients_deps import (
     _CLIENTS_KEY,
     _extract_first_json_object_from_text,
-    _mark_client_memory_stale,
-    _normalized_name,
     _serialize_client_stakeholder,
     ClientStakeholderAnalyzeRequest,
     ClientStakeholderCreate,
@@ -57,14 +68,11 @@ def _stakeholder_analysis_sources(
     stakeholder: ClientStakeholder,
 ) -> tuple[dict, list[dict], tuple[int, ...], str]:
     client_memory = get_client_memory_payload(client)
-    client_key = _normalized_name(client.name)
-    linked_projects = [
-        project
-        for project in session.exec(
-            select(Project).order_by(Project.updated_at.desc())
-        ).all()
-        if _normalized_name(project.client) == client_key
-    ][:12]
+    linked_projects = sorted(
+        list_projects_for_client(session, client),
+        key=lambda project: project.updated_at,
+        reverse=True,
+    )[:12]
     project_context = [
         {
             "name": project.name,
@@ -127,10 +135,12 @@ def _stakeholder_analysis_sources(
 
 
 @router.get("/{client_id}/stakeholders", response_model=list[ClientStakeholderOut])
-def list_client_stakeholders(client_id: int, session: Session = Depends(get_session)):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+def list_client_stakeholders(
+    client_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_client_access(session, client_id, current_user)
     stakeholders = session.exec(
         select(ClientStakeholder)
         .where(ClientStakeholder.client_id == client_id)
@@ -144,30 +154,35 @@ def create_client_stakeholder(
     client_id: int,
     body: ClientStakeholderCreate,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    client = session.exec(
-        select(ClientRecord)
-        .where(ClientRecord.id == client_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-    client_name = str(client.name or "")
+    lock_and_require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Stakeholder name is required")
     stakeholder = ClientStakeholder(client_id=client_id, **body.model_dump())
     stakeholder.name = name
     session.add(stakeholder)
+    session.flush()
+    mark_client_memory_stale(
+        session,
+        client_id,
+        trigger="stakeholder_created",
+        commit=False,
+    )
+    mark_project_memories_stale_by_client_id(
+        session,
+        client_id,
+        trigger="stakeholder_created",
+        commit=False,
+    )
     session.commit()
     session.refresh(stakeholder)
-    _mark_client_memory_stale(session, client_id, trigger="stakeholder_created")
-    mark_project_memories_stale_by_client_name(
-        session,
-        client_name,
-        trigger="stakeholder_created",
-    )
     clients_cache.delete(_CLIENTS_KEY)
     return _serialize_client_stakeholder(stakeholder)
 
@@ -178,16 +193,14 @@ def update_client_stakeholder(
     stakeholder_id: int,
     body: ClientStakeholderUpdate,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    client = session.exec(
-        select(ClientRecord)
-        .where(ClientRecord.id == client_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-    client_name = str(client.name or "")
+    lock_and_require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
     stakeholder = session.exec(
         select(ClientStakeholder)
         .where(
@@ -229,14 +242,20 @@ def update_client_stakeholder(
     session.add(stakeholder)
     for change in changes:
         session.add(change)
+    mark_client_memory_stale(
+        session,
+        client_id,
+        trigger="stakeholder_updated",
+        commit=False,
+    )
+    mark_project_memories_stale_by_client_id(
+        session,
+        client_id,
+        trigger="stakeholder_updated",
+        commit=False,
+    )
     session.commit()
     session.refresh(stakeholder)
-    _mark_client_memory_stale(session, client_id, trigger="stakeholder_updated")
-    mark_project_memories_stale_by_client_name(
-        session,
-        client_name,
-        trigger="stakeholder_updated",
-    )
     clients_cache.delete(_CLIENTS_KEY)
     return _serialize_client_stakeholder(stakeholder)
 
@@ -247,10 +266,14 @@ async def analyze_client_stakeholder(
     stakeholder_id: int,
     body: ClientStakeholderAnalyzeRequest | None = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+    client = require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
     stakeholder = session.get(ClientStakeholder, stakeholder_id)
     if not stakeholder or stakeholder.client_id != client_id:
         raise HTTPException(status_code=404, detail="Stakeholder not found")
@@ -328,27 +351,24 @@ async def analyze_client_stakeholder(
         parsed = {}
 
     session.expire_all()
-    # Lock prompt Projects in stable ID order, then Client -> Stakeholder. This
-    # matches the shared Project -> Client ownership order and prevents a
-    # source update or client deletion from crossing final validation.
-    locked_project_ids: tuple[int, ...] = ()
-    if prompt_project_ids:
-        locked_projects = session.exec(
-            select(Project)
-            .where(Project.id.in_(prompt_project_ids))
-            .order_by(Project.id)
-            .execution_options(populate_existing=True)
-            .with_for_update()
-        ).all()
-        locked_project_ids = tuple(
-            int(project.id) for project in locked_projects if project.id is not None
-        )
-    client = session.exec(
-        select(ClientRecord)
-        .where(ClientRecord.id == client_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
+    # Re-authorize after the provider wait under the shared lock order:
+    # identity namespace -> User -> Projects -> Client -> memberships, then
+    # the stakeholder child row. This prevents a permission or ownership
+    # change during generation from crossing the final write boundary.
+    client, _, locked_projects = lock_and_require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
+    locked_project_id_set = {
+        int(project.id) for project in locked_projects if project.id is not None
+    }
+    locked_project_ids = tuple(
+        project_id
+        for project_id in prompt_project_ids
+        if project_id in locked_project_id_set
+    )
     stakeholder = session.exec(
         select(ClientStakeholder)
         .where(ClientStakeholder.id == stakeholder_id)
@@ -377,7 +397,6 @@ async def analyze_client_stakeholder(
             status_code=409,
             detail="Stakeholder analysis sources changed during generation; retry with current data.",
         )
-    client_name = str(client.name or "")
 
     for field, limit in {
         "personality_profile": 2400,
@@ -407,14 +426,20 @@ async def analyze_client_stakeholder(
 
     stakeholder.updated_at = utc_now_naive()
     session.add(stakeholder)
+    mark_client_memory_stale(
+        session,
+        client_id,
+        trigger="stakeholder_analyzed",
+        commit=False,
+    )
+    mark_project_memories_stale_by_client_id(
+        session,
+        client_id,
+        trigger="stakeholder_analyzed",
+        commit=False,
+    )
     session.commit()
     session.refresh(stakeholder)
-    _mark_client_memory_stale(session, client_id, trigger="stakeholder_analyzed")
-    mark_project_memories_stale_by_client_name(
-        session,
-        client_name,
-        trigger="stakeholder_analyzed",
-    )
     clients_cache.delete(_CLIENTS_KEY)
     return _serialize_client_stakeholder(stakeholder)
 
@@ -424,17 +449,16 @@ def delete_client_stakeholder(
     client_id: int,
     stakeholder_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     # Follow the same owner -> child lock order as client-memory writers and
     # delete history explicitly because the legacy FK has no ON DELETE CASCADE.
-    client = session.exec(
-        select(ClientRecord)
-        .where(ClientRecord.id == client_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+    lock_and_require_client_access(
+        session,
+        client_id,
+        current_user,
+        require_write=True,
+    )
     stakeholder = session.exec(
         select(ClientStakeholder)
         .where(ClientStakeholder.id == stakeholder_id)
@@ -443,7 +467,6 @@ def delete_client_stakeholder(
     ).first()
     if not stakeholder or stakeholder.client_id != client_id:
         raise HTTPException(status_code=404, detail="Stakeholder not found")
-    client_name = client.name
     for history in session.exec(
         select(ClientStakeholderHistory).where(
             ClientStakeholderHistory.stakeholder_id == stakeholder_id
@@ -455,13 +478,19 @@ def delete_client_stakeholder(
     # deletes. Flush the child rows before deleting their parent.
     session.flush()
     session.delete(stakeholder)
-    session.commit()
-    _mark_client_memory_stale(session, client_id, trigger="stakeholder_deleted")
-    mark_project_memories_stale_by_client_name(
+    mark_client_memory_stale(
         session,
-        client_name,
+        client_id,
         trigger="stakeholder_deleted",
+        commit=False,
     )
+    mark_project_memories_stale_by_client_id(
+        session,
+        client_id,
+        trigger="stakeholder_deleted",
+        commit=False,
+    )
+    session.commit()
     clients_cache.delete(_CLIENTS_KEY)
     return None
 
@@ -471,10 +500,9 @@ def get_stakeholder_history(
     client_id: int,
     stakeholder_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    client = session.get(ClientRecord, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+    require_client_access(session, client_id, current_user)
     stakeholder = session.get(ClientStakeholder, stakeholder_id)
     if not stakeholder or stakeholder.client_id != client_id:
         raise HTTPException(status_code=404, detail="Stakeholder not found")

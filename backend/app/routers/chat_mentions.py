@@ -12,7 +12,7 @@ from app.models.db import ClientRecord, ClientStakeholder, Milestone, Project, P
 from app.routers.auth import get_current_user
 from app.routers.chat_security import require_project_access
 from app.services.project_files import active_project_files_stmt
-from app.services.stakeholder_contexts import find_client_by_name
+from app.services.project_clients import find_client_for_project
 
 router = APIRouter()
 
@@ -57,7 +57,7 @@ def list_mentionables(
     files = session.exec(active_project_files_stmt(project_id)).all()
 
     stakeholders: list[ClientStakeholder] = []
-    client = find_client_by_name(session, project.client)
+    client = find_client_for_project(session, project)
     if client and client.id is not None:
         stakeholders = session.exec(
             select(ClientStakeholder).where(ClientStakeholder.client_id == client.id)

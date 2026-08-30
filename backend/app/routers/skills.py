@@ -3127,14 +3127,21 @@ def ensure_builtin_pro_skills(session: Session) -> int:
     global _last_skill_root_sync
     from app.tools import registry as _registry
 
+    def registered_tool_names(tool_names: list[str]) -> list[str]:
+        """Publish only executable Aria tools, never legacy placeholders."""
+
+        return [
+            tool_name
+            for tool_name in dict.fromkeys(tool_names)
+            if _registry.get(tool_name) is not None
+        ]
+
     def build_tool_defs(tool_names: list[str]) -> list[dict[str, Any]]:
         tool_defs = []
-        for tool_name in tool_names:
+        for tool_name in registered_tool_names(tool_names):
             tool_def = _registry.get(tool_name)
-            if tool_def:
+            if tool_def is not None:
                 tool_defs.append(tool_def.to_anthropic_schema())
-            else:
-                tool_defs.append({"name": tool_name, "type": "legacy"})
         return tool_defs
 
     prompt_markers = {
@@ -3236,7 +3243,7 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                     if getattr(existing_skill, field) != next_value:
                         setattr(existing_skill, field, next_value)
                         patched = True
-                tool_names = skill_def.get("tools", [])
+                tool_names = registered_tool_names(skill_def.get("tools", []))
                 next_tool_defs = json.dumps(build_tool_defs(tool_names))
                 if existing_skill.tools_definition_json != next_tool_defs:
                     existing_skill.tools_definition_json = next_tool_defs
@@ -3260,6 +3267,44 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                 elif existing_skill.category != skill_def["category"]:
                     existing_skill.category = skill_def["category"]
                     patched = True
+            # Older built-ins stored conceptual workflow verbs such as
+            # ``diagnose`` or ``issue-tree`` as fake ``type=legacy`` tools.
+            # They have no registry implementation and can never execute, so
+            # keeping them in the runtime contract misleads both the model and
+            # users. Preserve any real registered additions while removing the
+            # obsolete placeholders on every publish sync.
+            stored_tool_names = list(existing_skill.tools or [])
+            executable_tool_names = registered_tool_names(stored_tool_names)
+            try:
+                stored_tool_defs = json.loads(existing_skill.tools_definition_json or "[]")
+            except json.JSONDecodeError:
+                stored_tool_defs = []
+            defined_tool_names = {
+                str(tool_def.get("name") or "")
+                for tool_def in stored_tool_defs
+                if isinstance(tool_def, dict)
+            } if isinstance(stored_tool_defs, list) else set()
+            invalid_tool_defs = (
+                not isinstance(stored_tool_defs, list)
+                or any(
+                    not isinstance(tool_def, dict)
+                    or tool_def.get("type") == "legacy"
+                    or _registry.get(str(tool_def.get("name") or "")) is None
+                    for tool_def in (
+                        stored_tool_defs if isinstance(stored_tool_defs, list) else []
+                    )
+                )
+                or not set(executable_tool_names).issubset(defined_tool_names)
+            )
+            if (
+                executable_tool_names != stored_tool_names
+                or invalid_tool_defs
+            ):
+                existing_skill.tools = executable_tool_names
+                existing_skill.tools_definition_json = json.dumps(
+                    build_tool_defs(executable_tool_names)
+                )
+                patched = True
             prompt_marker = prompt_markers.get(existing_skill.name)
             if not source_changed and prompt_marker and prompt_marker not in (existing_skill.system_prompt or ""):
                 for field in ("description", "system_prompt", "user_template", "estimated_time"):
@@ -3268,7 +3313,7 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                         setattr(existing_skill, field, next_value)
                         patched = True
             if not source_changed and existing_skill.name in template_tool_names:
-                tool_names = skill_def.get("tools", [])
+                tool_names = registered_tool_names(skill_def.get("tools", []))
                 try:
                     existing_tool_defs = json.loads(existing_skill.tools_definition_json or "[]")
                 except json.JSONDecodeError:
@@ -3278,7 +3323,11 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                     for item in existing_tool_defs
                     if isinstance(item, dict)
                 }
-                required_tool_names = set(template_tool_names.get(existing_skill.name, []))
+                required_tool_names = set(
+                    registered_tool_names(
+                        template_tool_names.get(existing_skill.name, [])
+                    )
+                )
                 if not required_tool_names.issubset(existing_tool_names):
                     existing_skill.tools_definition_json = json.dumps(build_tool_defs(tool_names))
                     existing_skill.tools = tool_names
@@ -3298,8 +3347,9 @@ def ensure_builtin_pro_skills(session: Session) -> int:
             continue
 
         skill = Skill(**{k: v for k, v in skill_def.items() if k != "tools"})
-        skill.tools_definition_json = json.dumps(build_tool_defs(skill_def.get("tools", [])))
-        skill.tools = skill_def.get("tools", [])
+        tool_names = registered_tool_names(skill_def.get("tools", []))
+        skill.tools_definition_json = json.dumps(build_tool_defs(tool_names))
+        skill.tools = tool_names
         skill.builtin_key = builtin_key
         skill.builtin_hash = builtin_hash
         session.add(skill)

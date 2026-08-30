@@ -397,6 +397,22 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 确定性发布门禁扩展为 63 个场景、19 项指标，新增 `memory_direct_source_accuracy`，当前全部通过。
 - 本阶段复用现有事实账本、证据 JSON、slot 双写、Provider adapter 与权限边界，不新增数据库迁移。机制只参考 Codex world-state 的稳定身份原则，已重写为 Aria Python/FastAPI/SQLModel 服务；不启动、不导入、不连接 Codex 运行时。
 
+### Phase 3M：稳定客户身份、项目交互隔离与写后验证（已实施）
+
+- 项目对话、客户记忆、Stakeholder、知识检索和跨项目组合统一以 `Project.client_id` 解析客户；客户名称只作展示，不再承担权限或归属。迁移 `035_v1_35` 仅首次对唯一历史名称回填，重名/空白/未匹配保持未关联，后建同名客户不能认领旧项目。
+- 新建和编辑项目提供稳定客户选择。重复名称显示记录 ID；未触碰客户字段的普通保存不发送客户关系字段；显式 `client_id: null` 才解除关系。选中某个同名客户后，相似项目和 Stakeholder 只查询该 ID，不回退到名称。
+- 客户读取覆盖管理员、创建者和稳定关联项目成员；客户普通写入仅允许管理员、创建者、项目 `owner/editor`。`viewer` 可阅读授权范围内信息，但不能通过项目子路由、客户记忆、Briefing 或知识接口产生持久写入。改名和删除属于 client-wide 写入：非管理员/创建者必须对每个关联项目都有 owner/editor 权限，仅能写项目 A 的成员不能改写或解除项目 B 的客户关系。
+- 所有经过 Provider 等待的客户/项目写入，在结果保存前重新加载 active User、项目、客户和成员关系。撤权、停用、降级、改绑或来源漂移会返回 403/409，旧模型结果不会覆盖当前业务状态。
+- 项目子路由的文件/文档/文件夹与 Durable Task 变更统一使用 write gate；文件夹 GET 不再惰性写库。上传后的后台摘要携带真实发起人，Provider 返回后同时复核项目写权限、文件记录快照和磁盘内容 SHA-256，撤权或文件内容变化时丢弃旧结果。
+- Briefing 保存前按稳定身份锁定 Project、Client、成员关系以及 Milestone、Todo、File、Conversation、Message、Stakeholder 全部确定性来源，冻结后再计算 source version；父行锁同时阻断新的来源子记录，关闭“最终校验通过后、缓存提交前”的漂移窗口。客户/项目记忆失败回执也在内部 rollback 后重新最终授权，不能由已撤权用户写入。
+- 文档从项目/客户范围改挂时同时校验来源和目标写权限；客户删除与解除文档关联不会把 client-only 内容静默扩大为全局知识。知识上传、同步、重建、删除和任务重试使用独立 write gate，不再把 read access 当 write access。
+- Knowledge job 冻结 `requested_by_user_id` 或代码级 trusted-system 二选一上下文，并以 `status + attempt + lease_token` 做 worker CAS。Provider/embedding/文件读取后的 chunk、document/source status、checkpoint、成功与失败 event 都必须再次通过精确 Project-first 授权；同客户的另一项目权限不能成为替代授权。
+- Knowledge 的磁盘派生物不再覆盖固定 JSON：extracted/chunks 使用唯一版本 key，文件以同目录临时文件 + `fsync` + `os.replace` 原子发布，并由 Session rollback journal 在 flush/commit 失败或未提交关闭时删除新版本。原件在抽取前后和最终复权后均校验 path/SHA-256；成功提交保留旧版本供已经捕获旧 DB key 的并发读者完成读取。
+- Durable TaskRun 冻结真实发起人，每个 TaskStep 用不对 API 序列化的内部 lease token 标识当前执行代。cancel 将未完成步骤改为 skipped，pause 将 running 步骤退回 pending，二者都清除 lease；Office/Markdown 先生成临时结果，最终授权 + lease CAS 事务才创建 ProjectFile、TaskArtifact 和 step receipt，撤权或取消后临时源会被清理。
+- HITAS 确认后的 Office 新建/编辑与 Markdown 更新也采用 prepare→finalize：长耗时阶段只产生私有临时结果，最终按 active User、精确项目成员、PendingToolAction 状态/actor/project/tool/input 快照和目标文件重新加锁。数据库提交失败会补偿删除新文件或恢复原文件；撤权、停用、reaper、拒绝或 supersede 后既不落业务文件，也不追加迟到的完成/失败回执。
+- 内置 Skill 的发布契约只保留工具注册表中真实可执行的工具。历史上仅表示流程步骤、从未有实现的 `diagnose`、`issue-tree` 等 `type=legacy` 占位符会在同步时清除；这些方法论仍保留在 Skill Prompt 中，但不会再误导模型发起必然失败的工具调用。
+- 这一阶段借鉴 Codex world-state 的稳定身份与 verify-before-write 原则，但关系、ACL、锁、数据库、模型调用和事件均由 Aria 原生实现；不启动、不调用、不连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

@@ -12,6 +12,12 @@ from app.services.time_utils import utc_now_naive
 class ClientRecord(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
+    created_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
     industry: str = ""
     contact: str = ""          # primary contact person name
     notes: str = ""
@@ -65,6 +71,15 @@ class Project(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     client: str
+    # Stable business identity for the linked client. ``client`` remains a
+    # denormalized display snapshot during the compatibility window so older
+    # API consumers and historical free-text projects keep working.
+    client_id: Optional[int] = Field(
+        default=None,
+        foreign_key="clientrecord.id",
+        ondelete="SET NULL",
+        index=True,
+    )
     description: str = ""
     status: str = "lead"            # lead | opportunity | won | delivering | archived
     context_freshness: float = 1.0  # 0–1

@@ -20,6 +20,10 @@ class ChatRuntime:
     tools: list | None
     max_tokens: int
     temperature: float
+    # Authenticated Aria actor that owns writes initiated by this turn.  This
+    # is never model-controlled and is propagated to durable TaskRuns so their
+    # background work can re-authorize the same user after every await.
+    actor_user_id: int | None = None
     project_id: int | None = None
     skill_id: int | None = None
     skill_name: str = ""

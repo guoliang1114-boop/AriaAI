@@ -31,7 +31,11 @@ def reap_stale_executing_actions(
     """
     cutoff = utc_now_naive() - timedelta(minutes=stale_after_minutes)
     actions = session.exec(
-        select(PendingToolAction).where(PendingToolAction.status == "executing")
+        select(PendingToolAction)
+        .where(PendingToolAction.status == "executing")
+        .order_by(PendingToolAction.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
     ).all()
     reaped = 0
     for action in actions:

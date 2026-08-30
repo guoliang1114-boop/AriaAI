@@ -755,6 +755,22 @@ Provider 输出不是授权证据。Aria 先限制归因数量、槽位和事实
 
 确定性发布门禁同步扩展为 63 个场景、19 项指标，新增 `memory_direct_source_accuracy`，当前全部通过。
 
+### Phase 3M：项目—客户稳定身份与全链路授权（已实施）
+
+继续参考 `codex-rs/core/src/context/world_state/mod.rs`（固定提交 `83d1fe0e67b1323f71febc2925817732b449f1d9`）中“状态关系必须绑定稳定身份而不是可变展示文本”的原则，并重写为 Aria 原生业务模型。`Project.client_id` 成为项目归属客户的唯一关系事实，`Project.client` 只保留为兼容展示快照；运行时读取、客户记忆、Stakeholder、RAG、Context Builder、候选裁决和项目组合均不再用客户名称推断归属。幂等迁移 `035_v1_35` 只在首次新增字段时，对规范化后唯一的历史名称执行一次回填；重名、空白和未匹配项目保持 `NULL`，以后新建的同名客户不会反向认领这些项目。
+
+客户记录新增可空创建者身份，并采用统一 ACL：管理员和创建者可读写；稳定关联项目的成员可读，只有 `owner/editor` 可写，`viewer` 不能修改客户、记忆、Stakeholder、知识或派生缓存。普通客户元数据保持“任一关联项目可写成员”语义；改名/删除会重写或解除全部关联项目，因此非管理员/创建者必须对每个受影响项目均有 owner/editor 权限。关键写入在最终事务内按 `Client identity namespace → active User → Projects（ID 顺序）→ Clients（ID 顺序）→ ProjectMembers（ID 顺序）→ child rows` 重新授权；模型生成前的检查不是最终授权，LLM 返回后若账号停用、成员撤销、角色降级、项目改绑或来源变化，结果必须失败关闭且不得落库。项目删除、归档自动晋升、Briefing、记忆候选和知识任务同样遵守最终复核。
+
+项目文件、文档、文件夹与 Durable Task 子路由已把 read membership 和 write authorization 分离，viewer 的 GET 不再触发默认文件夹写入。文件后台摘要保存前校验真实上传者、ProjectFile 投影与磁盘 SHA-256。Briefing 的最终事务会在稳定项目/客户授权之后锁定里程碑、待办、文件、会话、消息和干系人来源，再重建 source version 并提交缓存；父行锁阻断并发新增来源，避免校验后到提交前落入旧结果。项目/客户记忆的失败回执同样在 helper 自身 rollback 后重新取得最终用户授权；调度器路径则显式作为 Aria trusted-system 执行。
+
+文档范围改变同时校验来源与目标的写权限。删除客户不会把 client-only 文档静默变成全局文档；这类文档必须先显式重新分配或删除。项目范围文档只有在保留项目边界时才可解除客户关联。前端只在用户明确修改/选择客户时发送 `client/client_id`，普通项目编辑不会让后来创建的同名客户认领未关联项目；相似项目和 Stakeholder 查询只使用选定的稳定 ID。
+
+Knowledge 导入/重建/source sync 与 Durable TaskRun 不再把路由入口的读权当作后台执行授权。用户任务冻结真实 actor，actor-less 执行只能由代码级显式 `trusted_system=True` 启动，两者互斥且不对 API/模型暴露。Knowledge worker 以 `status + attempt + lease_token` 冻结运行代，TaskStep 以内部 lease token 冻结当前步骤；embedding、Provider、解析或 Office 生成返回后，撤权、停用、cancel/pause/retry 或 lease 更换会使旧 worker 失效。chunk/document/checkpoint/event 以及 ProjectFile/TaskArtifact/step receipt 分别在各自的最终授权事务中原子提交，旧 worker 不会留下成功或失败回执。Knowledge extracted/chunks 改用唯一版本 key 和原子文件替换；Session rollback journal 会在 flush/commit 失败或未提交关闭时删除新版本，原件 path/SHA 也在读取前后及最终复权后重验，从而避免数据库仍指向 A、固定磁盘文件却已变成 B。HITAS 的 Office 新建/编辑和 Markdown 写入也把长耗时 prepare 与最终落盘分离，最终事务重新锁定 active User、精确项目成员、PendingToolAction 运行代和目标文件；取消、reaper、supersede 或输入快照变化会丢弃临时结果，数据库失败则补偿删除或恢复磁盘文件。项目/客户记忆队列同样将可声明状态先持久化再发布 scheduler job，并用 generation/status 基线关闭 cancel 前后和 ABA 重排队窗口。
+
+本阶段只吸收稳定身份和重建后验证的工程原则，所有数据、权限、Provider、事务和审计仍由 Aria 服务拥有；不运行、不导入、不连接 Codex，也不新增第二运行时。数据库变更仅为加法迁移 `035_v1_35`。
+
+Skill 运行契约同步也移除了旧的 `type=legacy` 假工具占位符。仅有 Prompt 中的分析阶段名称不再伪装成可执行 Tool；数据库发布快照和模型可见工具列表只包含 Aria registry 中存在且受权限策略管理的实现，从而减少无效工具循环与“看似可调用、实际必失败”的交互噪声。
+
 ## 8. 许可证与升级流程
 
 Aria 主项目继续使用 MIT License；从 Codex 改编的具体文件同时受 Apache License 2.0 的适用要求约束。

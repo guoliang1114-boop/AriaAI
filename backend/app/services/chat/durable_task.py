@@ -693,9 +693,15 @@ async def run_durable_task(
                 input_data=task_input,
                 plan_steps=list(task_route.plan_steps),
                 conversation_id=runtime.conv_id,
+                created_by_user_id=runtime.actor_user_id,
             )
             if confirmation_reason:
-                task_payload = pause_task_run_in_session(task_session, task.id, reason=confirmation_reason)
+                task_payload = pause_task_run_in_session(
+                    task_session,
+                    task.id,
+                    reason=confirmation_reason,
+                    actor_user_id=runtime.actor_user_id,
+                )
                 task_payload = task_payload or serialize_task_run(task_session, task, include_events=True)
                 full_text = f"已创建任务，但不会自动执行：{confirmation_reason}\n\n请在右上角「任务」面板确认后再开始。"
                 metadata = {

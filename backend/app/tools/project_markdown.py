@@ -269,7 +269,22 @@ def _apply_structured_markdown_action(
     preflight: object,
 ) -> dict[str, Any]:
     with Session(engine) as session:
-        project_file = get_project_document_file_or_404(session, project_id, file_id)
+        project = session.exec(
+            select(Project).where(Project.id == project_id).with_for_update()
+        ).first()
+        if project is None:
+            raise HTTPException(404, "Project not found")
+        project_file = session.exec(
+            select(ProjectFile)
+            .where(
+                ProjectFile.id == file_id,
+                ProjectFile.project_id == project_id,
+                ProjectFile.deleted_at.is_(None),
+            )
+            .with_for_update()
+        ).first()
+        if project_file is None:
+            raise HTTPException(404, "File not found")
         if project_file.file_type.lower() != "md":
             raise HTTPException(400, "Only markdown documents are supported")
         full_path = _structured_project_file_path(project_file)
@@ -306,6 +321,7 @@ def _apply_structured_markdown_action(
             wrote_file = False
             try:
                 project_file.size_bytes = atomic_write_text(full_path, plan.result_content)
+                project_file.summary = ""
                 wrote_file = True
                 session.add(project_file)
                 applied_version = create_project_file_version_snapshot(
@@ -318,13 +334,11 @@ def _apply_structured_markdown_action(
                         else "structured_patch"
                     ),
                 )
-                project = session.get(Project, project_id)
-                if project is not None:
-                    project.memory_stale = True
-                    if project.memory_rebuild_status != "rebuilding":
-                        project.memory_rebuild_status = "idle"
-                    project.updated_at = utc_now_naive()
-                    session.add(project)
+                project.memory_stale = True
+                if project.memory_rebuild_status != "rebuilding":
+                    project.memory_rebuild_status = "idle"
+                project.updated_at = utc_now_naive()
+                session.add(project)
                 session.commit()
             except Exception as exc:
                 session.rollback()

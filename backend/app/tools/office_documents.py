@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 from app.config import UPLOADS_DIR
 from app.database import engine
 from app.models.db import Project, ProjectFile, ProjectFolder
+from app.services.agent_harness.structured_patch import locked_text_path
 from app.services.cache import projects_cache
 from app.services.document_text import extract_text_from_file
 from app.services.project_contexts import mark_project_memory_stale
@@ -537,6 +538,7 @@ def _register_generated_project_file(
     folder_id: int | None,
     summary: str,
     preview_text: str,
+    commit: bool = True,
 ) -> ProjectFile:
     project = session.get(Project, project_id)
     if not project:
@@ -545,7 +547,15 @@ def _register_generated_project_file(
     folder = infer_project_folder(
         session,
         project_id,
-        init_default_folders=init_default_project_folders,
+        init_default_folders=(
+            init_default_project_folders
+            if commit
+            else lambda target_session, target_project_id: init_default_project_folders(
+                target_session,
+                target_project_id,
+                commit=False,
+            )
+        ),
         preferred_folder_id=folder_id,
         name=file_name,
         content=preview_text,
@@ -568,10 +578,58 @@ def _register_generated_project_file(
         summary=summary,
         origin="ai_generated",
     )
-    session.add(project_file)
-    session.commit()
-    session.refresh(project_file)
-    return project_file
+    try:
+        session.add(project_file)
+        if commit:
+            session.commit()
+            session.refresh(project_file)
+        else:
+            session.flush()
+        return project_file
+    except Exception:
+        # A transaction rollback cannot remove a file already copied into the
+        # project space.  Compensate flush/commit failures here; callers using
+        # ``commit=False`` additionally compensate any later outer failure.
+        try:
+            dest_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def persist_prepared_project_office_document(
+    session: Session,
+    *,
+    project_id: int,
+    prepared: dict[str, Any],
+) -> ProjectFile:
+    """Materialize an already-generated office file in the caller transaction.
+
+    Durable TaskRun execution uses this after its final actor/lease check.  The
+    generator may take minutes, so it must never create a ``ProjectFile`` (or a
+    project-space disk copy) before the writer has re-authorized the actor and
+    proven that the running step still owns its lease.
+    """
+
+    source_path = Path(str(prepared.get("source_path") or ""))
+    if not source_path.is_file():
+        raise HTTPException(500, "Generated file not found")
+    try:
+        source_path.resolve().relative_to(UPLOADS_DIR.resolve())
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid generated file path") from exc
+
+    return _register_generated_project_file(
+        session,
+        project_id,
+        source_path=source_path,
+        file_name=str(prepared.get("file_name") or source_path.name),
+        file_type=str(prepared.get("file_type") or source_path.suffix.lstrip(".")),
+        folder_id=prepared.get("folder_id"),
+        summary=str(prepared.get("summary") or "AI generated document"),
+        preview_text=str(prepared.get("preview_text") or ""),
+        commit=False,
+    )
 
 
 @registry.register(
@@ -630,6 +688,7 @@ async def write_project_office_document(
     slides: list[dict] | None = None,
     folder_id: int | None = None,
     summary: str = "",
+    persist: bool = True,
 ) -> dict[str, Any]:
     if not project_id:
         raise HTTPException(400, "Project id is required")
@@ -662,6 +721,21 @@ async def write_project_office_document(
         raise HTTPException(500, "Generated file not found")
 
     preview_text = _content_preview(file_type, title=title, content=content, sections=sections, sheets=sheets)
+    if not persist:
+        return {
+            "ok": True,
+            "name": _safe_name(file_name, file_type),
+            "file_type": file_type,
+            "_prepared_project_file": {
+                "source_path": str(source_path),
+                "file_name": file_name,
+                "file_type": file_type,
+                "folder_id": folder_id,
+                "summary": summary or f"AI generated {file_type.upper()} document",
+                "preview_text": preview_text,
+            },
+        }
+
     with Session(engine) as session:
         project_file = _register_generated_project_file(
             session,
@@ -1095,37 +1169,56 @@ async def edit_project_office_document(
         raise HTTPException(400, "edits is required")
 
     with Session(engine) as session:
-        project_file = _find_project_file(session, project_id, file_id, file_name)
+        locator = _find_project_file(session, project_id, file_id, file_name)
+        locator_id = int(locator.id)
+        project = session.exec(
+            select(Project).where(Project.id == project_id).with_for_update()
+        ).first()
+        if project is None:
+            raise HTTPException(404, "Project not found")
+        session.expire(locator)
+        project_file = session.exec(
+            select(ProjectFile)
+            .where(
+                ProjectFile.id == locator_id,
+                ProjectFile.project_id == project_id,
+                ProjectFile.deleted_at.is_(None),
+            )
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if project_file is None:
+            raise HTTPException(404, "File not found")
         source_path = _file_path(project_file)
-
-        detected_type = file_type or project_file.file_type or source_path.suffix.lstrip(".").lower()
+        detected_type = (
+            file_type
+            or project_file.file_type
+            or source_path.suffix.lstrip(".").lower()
+        )
         if detected_type not in EDITABLE_TYPES:
-            raise HTTPException(400, f"Cannot edit file type '{detected_type}'. Supported: {', '.join(sorted(EDITABLE_TYPES))}")
+            raise HTTPException(
+                400,
+                f"Cannot edit file type '{detected_type}'. Supported: {', '.join(sorted(EDITABLE_TYPES))}",
+            )
 
         if output_name:
             out_name = _safe_name(output_name, detected_type)
-            out_path = source_path.parent / out_name
-            shutil.copy2(source_path, out_path)
-            target_path = out_path
-        else:
-            target_path = source_path
-
-    if detected_type == "pptx":
-        result = _edit_pptx(target_path, edits)
-    elif detected_type == "docx":
-        result = _edit_docx(target_path, edits)
-    elif detected_type == "xlsx":
-        result = _edit_xlsx(target_path, edits)
-    else:
-        result = {"success": False, "error": f"Unsupported type: {detected_type}"}
-
-    if not result.get("success"):
-        if output_name and target_path.is_file():
-            target_path.unlink()
-        raise HTTPException(500, result.get("error") or "Failed to edit document")
-
-    with Session(engine) as session:
-        if output_name:
+            target_path = source_path.parent / out_name
+            with locked_text_path(source_path):
+                shutil.copy2(source_path, target_path)
+            if detected_type == "pptx":
+                result = _edit_pptx(target_path, edits)
+            elif detected_type == "docx":
+                result = _edit_docx(target_path, edits)
+            else:
+                result = _edit_xlsx(target_path, edits)
+            if not result.get("success"):
+                if target_path.is_file():
+                    target_path.unlink()
+                raise HTTPException(
+                    500,
+                    result.get("error") or "Failed to edit document",
+                )
             project_file = _register_generated_project_file(
                 session,
                 project_id,
@@ -1145,10 +1238,29 @@ async def edit_project_office_document(
                 "message": f"Created edited copy: {project_file.name}",
             }
         else:
-            project_file.size_bytes = target_path.stat().st_size
-            session.add(project_file)
-            session.commit()
-            mark_project_memory_stale(session, project_id, trigger=f"{detected_type}_tool_edit")
+            target_path = source_path
+            with locked_text_path(target_path):
+                if detected_type == "pptx":
+                    result = _edit_pptx(target_path, edits)
+                elif detected_type == "docx":
+                    result = _edit_docx(target_path, edits)
+                else:
+                    result = _edit_xlsx(target_path, edits)
+                if not result.get("success"):
+                    raise HTTPException(
+                        500,
+                        result.get("error") or "Failed to edit document",
+                    )
+                project_file.size_bytes = target_path.stat().st_size
+                project_file.summary = ""
+                session.add(project_file)
+                # Commit the changed artifact, stale slots/facts, and cleared
+                # summary while the source path remains frozen.
+                mark_project_memory_stale(
+                    session,
+                    project_id,
+                    trigger=f"{detected_type}_tool_edit",
+                )
             _bust_project_cache(project_id)
             output = {
                 "ok": True,

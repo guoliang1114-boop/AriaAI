@@ -4,13 +4,14 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from app.models.db import ClientRecord, KnowledgeDocument, Project
+from app.models.db import KnowledgeDocument, Project
 from app.services.agent_harness.knowledge_evidence import (
     build_knowledge_evidence_manifest,
     build_knowledge_evidence_prompt,
     knowledge_evidence_references,
 )
 from app.services.rag import retrieve_structured as _retrieve_structured
+from app.services.project_clients import find_client_for_project
 
 
 def retrieve_structured(*args, **kwargs):
@@ -32,6 +33,7 @@ def build_rag_context(
     knowledge_scope: str = "global",
     auto_trigger: bool = True,
     accessible_project_ids: Optional[list[int]] = None,
+    accessible_client_ids: Optional[list[int]] = None,
 ) -> dict:
     """
     Build RAG context from knowledge documents.
@@ -47,14 +49,13 @@ def build_rag_context(
         effective_project_id = project_id
     elif not rag_doc_ids and knowledge_scope == "client" and project_id is not None:
         project = session.get(Project, project_id)
-        if project and project.client.strip():
-            client = session.exec(
-                select(ClientRecord).where(ClientRecord.name.ilike(project.client.strip()))
-            ).first()
-            if client:
+        if project is not None:
+            client = find_client_for_project(session, project)
+            if client is not None:
                 client_id = client.id
             else:
-                # Fall back to the current project instead of widening to global retrieval.
+                # An unlinked or dangling client identity must stay bounded to
+                # the current project instead of widening to global retrieval.
                 effective_project_id = project_id
 
     should_retrieve = bool(rag_doc_ids) or (auto_trigger and "#doc" in query)
@@ -78,6 +79,7 @@ def build_rag_context(
         project_id=effective_project_id,
         client_id=client_id,
         accessible_project_ids=accessible_project_ids,
+        accessible_client_ids=accessible_client_ids,
     )
     results = list(getattr(ctx, "results", None) or [])
     if not results:

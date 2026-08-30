@@ -81,13 +81,18 @@ with a Codex runtime. The adapted mechanisms currently cover:
   attribution declarations, exact validation against the Aria-owned per-slot
   source whitelist, and direct/matched/scoped provenance fallback adapted to
   Aria-native project and client memory rebuilds; and
+- stable world-state entity identity adapted into Aria-native
+  `Project.client_id` relationships, one-time ambiguity-safe legacy backfill,
+  display-snapshot separation, and verify-before-write client authorization;
+  and
 - expected-turn-bound active-run steering, text-only mailbox delivery, safe
   model/tool boundary injection, stale planned-tool supersession, and concise
   turn-understanding receipts without exposing prompts or hidden reasoning.
 
 Recorded upstream audit baselines include commits
 `83d1fe0e67b1323f71febc2925817732b449f1d9` and
-`343074d4207d572809bd8cea15f4be1d09d98e0b`. The specific upstream source path,
+`343074d4207d572809bd8cea15f4be1d09d98e0b`, plus the later run-completion
+baseline `99660ab3c7b861c916e467581fa9b8723504d66b`. The specific upstream source path,
 pinned commit, and Aria modification notice are recorded in each adapted
 Python module.
 

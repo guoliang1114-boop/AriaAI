@@ -33,8 +33,10 @@ from app.services.knowledge_ingestion import (
     SUPPORTED_SOURCE_FILE_TYPES,
     create_document_from_bytes,
     index_document,
+    index_document_actor_aware,
     sha256_bytes,
 )
+from app.services.knowledge_permissions import KnowledgeWriteAuthorizationLost
 from app.services.storage import StorageService
 from app.services.time_utils import utc_now_naive
 
@@ -391,6 +393,10 @@ def migrate_legacy_documents(
     planned_documents: list[dict[str, Any]],
     uploads_root: Path | None = None,
     checkpoint: Callable[[str, dict[str, Any]], None] | None = None,
+    document_final_authorize: Callable[
+        [int, int], tuple[KnowledgeSource, KnowledgeV1Document]
+    ]
+    | None = None,
 ) -> dict[str, Any]:
     uploads_root = uploads_root or UPLOADS_DIR
     storage = StorageService(uploads_root)
@@ -516,16 +522,24 @@ def migrate_legacy_documents(
                         },
                     )
 
-            indexed = (
-                document
-                if document.status == "indexed"
-                else index_document(
+            if document.status == "indexed":
+                indexed = document
+            elif document_final_authorize is not None:
+                indexed, _ = index_document_actor_aware(
+                    session,
+                    int(document.id),
+                    final_authorize=lambda: document_final_authorize(
+                        int(source.id),
+                        int(document.id),
+                    ),
+                )
+            else:
+                indexed = index_document(
                     session,
                     int(document.id),
                     resume_checkpoint={},
                     checkpoint=document_checkpoint,
                 )
-            )
             if indexed.status != "indexed":
                 failed_legacy_ids.append(legacy_id)
                 _upsert_mapping(
@@ -570,6 +584,9 @@ def migrate_legacy_documents(
                         "failed_document_count": len(failed_legacy_ids),
                     },
                 )
+        except KnowledgeWriteAuthorizationLost:
+            session.rollback()
+            raise
         except LegacyMigrationFailure as exc:
             session.rollback()
             failed_legacy_ids.append(legacy_id)

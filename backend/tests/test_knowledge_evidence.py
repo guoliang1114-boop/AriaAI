@@ -161,8 +161,17 @@ def test_explicit_document_ids_are_filtered_by_accessible_projects() -> None:
         denied_client = ClientRecord(name="Other")
         session.add(allowed_client)
         session.add(denied_client)
-        allowed_project = Project(name="Allowed", client="Acme")
-        denied_project = Project(name="Denied", client="Other")
+        session.flush()
+        allowed_project = Project(
+            name="Allowed",
+            client="Acme",
+            client_id=allowed_client.id,
+        )
+        denied_project = Project(
+            name="Denied",
+            client="Other",
+            client_id=denied_client.id,
+        )
         session.add(allowed_project)
         session.add(denied_project)
         session.commit()

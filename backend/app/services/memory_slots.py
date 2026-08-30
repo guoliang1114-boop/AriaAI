@@ -33,6 +33,7 @@ from app.models.db import (
     ProjectTodo,
 )
 from app.services.stakeholder_contexts import MAX_STAKEHOLDERS_IN_PROMPT
+from app.services.project_clients import find_client_for_project, list_projects_for_client
 from app.services.time_utils import utc_now_naive
 
 
@@ -386,25 +387,6 @@ def _accepted_candidate_refs(
     return by_slot
 
 
-def _matching_client(session: Session, client_name: str) -> ClientRecord | None:
-    normalized = " ".join(str(client_name or "").strip().lower().split())
-    if not normalized:
-        return None
-    exact = session.exec(
-        select(ClientRecord).where(ClientRecord.name == client_name)
-    ).first()
-    if exact is not None:
-        return exact
-    return next(
-        (
-            item
-            for item in session.exec(select(ClientRecord)).all()
-            if " ".join(str(item.name or "").strip().lower().split()) == normalized
-        ),
-        None,
-    )
-
-
 def build_project_slot_evidence_refs(
     session: Session,
     project: Project,
@@ -437,9 +419,10 @@ def build_project_slot_evidence_refs(
                 "content": item.content,
                 "next_step": item.next_step,
                 "risk": item.risk,
-                "created_by": (
-                    item.created_by.display_name if item.created_by else "unknown"
-                ),
+                # The ProjectProgressUpdate row is part of the final source
+                # freeze; its related User row is not. Persist the stable FK,
+                # never mutable User.display_name, in the evidence digest.
+                "created_by_user_id": item.created_by_user_id,
             },
         )
         for item in progress
@@ -537,7 +520,7 @@ def build_project_slot_evidence_refs(
         )
         for item in payments
     ]
-    client = _matching_client(session, project.client)
+    client = find_client_for_project(session, project)
     stakeholders = (
         session.exec(
             select(ClientStakeholder)
@@ -614,15 +597,18 @@ def build_client_slot_evidence_refs(
         for value in list(memory.get("source_project_ids") or [])
         if str(value).isdigit()
     }
-    normalized_name = " ".join(str(client.name or "").strip().lower().split())
-    matching_projects = [
-        project
-        for project in session.exec(select(Project).order_by(Project.updated_at.desc())).all()
-        if (
-            int(project.id or 0) in source_project_ids
-            or " ".join(str(project.client or "").strip().lower().split()) == normalized_name
-        )
-    ]
+    matching_projects_by_id = {
+        int(project.id): project
+        for project in list_projects_for_client(session, client)
+        if project.id is not None
+    }
+    if source_project_ids:
+        for project in session.exec(
+            select(Project).where(Project.id.in_(sorted(source_project_ids)))
+        ).all():
+            if project.id is not None:
+                matching_projects_by_id[int(project.id)] = project
+    matching_projects = list(matching_projects_by_id.values())
     # Explicitly requested sources (notably an older project being promoted)
     # must remain inside the bounded evidence window.
     matching_projects.sort(

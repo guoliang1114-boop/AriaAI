@@ -52,7 +52,7 @@ from app.services.memory_facts import (
 )
 from app.services.project_contexts import (
     get_project_memory_payload,
-    mark_project_memories_stale_by_client_name,
+    mark_project_memories_stale_by_client_id,
     mark_project_memory_stale,
     save_project_memory,
 )
@@ -1016,18 +1016,22 @@ def test_client_rebuild_planner_selects_stakeholder_slots():
     assert set(plan.slot_keys) == stale
 
 
-def test_stakeholder_change_stales_every_matching_project_scope():
+def test_stakeholder_change_stales_only_stably_linked_project_scope():
     engine = _engine()
     try:
         with Session(engine) as session:
+            client = ClientRecord(name="Acme")
+            session.add(client)
+            session.flush()
             matching = [
-                Project(name="Pilot", client="Acme"),
-                Project(name="Rollout", client="  ACME  "),
+                Project(name="Pilot", client="Acme", client_id=client.id),
+                Project(name="Rollout", client="  ACME  ", client_id=client.id),
             ]
             unrelated = Project(name="Other", client="Globex")
-            session.add_all([*matching, unrelated])
+            same_name_unlinked = Project(name="Unlinked", client="Acme")
+            session.add_all([*matching, unrelated, same_name_unlinked])
             session.commit()
-            for project in [*matching, unrelated]:
+            for project in [*matching, unrelated, same_name_unlinked]:
                 session.refresh(project)
                 save_project_memory(
                     session,
@@ -1036,9 +1040,9 @@ def test_stakeholder_change_stales_every_matching_project_scope():
                     trigger="test",
                 )
 
-            mark_project_memories_stale_by_client_name(
+            mark_project_memories_stale_by_client_id(
                 session,
-                " acme ",
+                int(client.id),
                 trigger="stakeholder_updated",
             )
 
@@ -1053,6 +1057,7 @@ def test_stakeholder_change_stales_every_matching_project_scope():
                 assert states["client_stakeholders"] == "stale"
                 assert states["project_brief"] == "ready"
             assert session.get(Project, unrelated.id).memory_stale is False
+            assert session.get(Project, same_name_unlinked.id).memory_stale is False
     finally:
         engine.dispose()
 
@@ -1092,6 +1097,7 @@ def test_project_partial_rebuild_updates_only_selected_slots_and_facts():
                         session,
                         project.id,
                         trigger="payment_created",
+                        trusted_system=True,
                     )
                 )
 
@@ -1151,6 +1157,7 @@ def test_project_partial_rebuild_uses_full_fallback_for_invalid_patch():
                         session,
                         project.id,
                         trigger="payment_created",
+                        trusted_system=True,
                     )
                 )
 
@@ -1277,6 +1284,7 @@ def test_client_partial_rebuild_updates_only_stale_stakeholder_slots():
                         session,
                         client.id,
                         trigger="stakeholder_updated",
+                        trusted_system=True,
                     )
                 )
 
@@ -1314,6 +1322,7 @@ def test_project_full_rebuild_rejects_truncated_json_without_overwriting_memory(
                             session,
                             project.id,
                             trigger="manual",
+                            trusted_system=True,
                         )
                     )
 
@@ -1366,6 +1375,7 @@ def test_project_rebuild_rejects_prompt_source_change_during_provider():
                             session,
                             project.id,
                             trigger="manual",
+                            trusted_system=True,
                         )
                     )
 
@@ -1402,6 +1412,7 @@ def test_project_full_fallback_rejects_truncated_json_without_overwriting_memory
                             session,
                             project.id,
                             trigger="payment_created",
+                            trusted_system=True,
                         )
                     )
 
@@ -1442,6 +1453,7 @@ def test_client_full_rebuild_rejects_truncated_json_without_overwriting_memory()
                             session,
                             client.id,
                             trigger="manual",
+                            trusted_system=True,
                         )
                     )
 
@@ -1490,6 +1502,7 @@ def test_client_rebuild_rejects_prompt_source_change_during_provider():
                             session,
                             client.id,
                             trigger="manual",
+                            trusted_system=True,
                         )
                     )
 
@@ -1530,6 +1543,7 @@ def test_client_full_fallback_rejects_truncated_json_without_overwriting_memory(
                             session,
                             client.id,
                             trigger="stakeholder_updated",
+                            trusted_system=True,
                         )
                     )
 

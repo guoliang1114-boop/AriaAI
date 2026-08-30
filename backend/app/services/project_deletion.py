@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import (
@@ -35,39 +34,25 @@ from app.models.db import (
     ToolCall,
     WeeklyFocusItem,
 )
-from app.services.client_identity import (
-    lock_client_identity_values,
-    resolve_client_identity,
-)
+from app.services.project_core import lock_and_require_project_write
 
 
-def delete_project_cascade(session: Session, project_id: int) -> str:
-    locator = session.exec(
-        select(Project)
-        .where(Project.id == project_id)
-        .execution_options(populate_existing=True)
-    ).first()
-    if not locator:
-        raise HTTPException(404, "Project not found")
-    previous_identity = lock_client_identity_values(session, (locator.client,))[0]
-    session.expire(locator)
+def delete_project_cascade(
+    session: Session,
+    project_id: int,
+    *,
+    actor_user_id: int,
+) -> tuple[int | None, str]:
     # Use the same owner -> child lock order as memory save/stale paths. Without
     # this lock, deletion could flush ProjectMemorySlot/Fact deletes first while
     # a concurrent rebuild held the project row and waited on those children.
-    project = session.exec(
-        select(Project)
-        .where(Project.id == project_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
-    if not project:
-        raise HTTPException(404, "Project not found")
-    if resolve_client_identity(session, project.client) != previous_identity:
-        raise HTTPException(
-            status_code=409,
-            detail="Project client changed during deletion; reload and retry.",
-        )
+    project, _actor = lock_and_require_project_write(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+    )
     client_name = str(project.client or "")
+    client_id = project.client_id
 
     for candidate in session.exec(
         select(MemoryCandidate).where(MemoryCandidate.project_id == project_id)
@@ -316,4 +301,4 @@ def delete_project_cascade(session: Session, project_id: int) -> str:
 
     session.delete(project)
     session.commit()
-    return client_name
+    return client_id, client_name

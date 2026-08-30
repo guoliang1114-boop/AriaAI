@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 
 from sqlalchemy import inspect, text
@@ -26,6 +27,102 @@ from app.database import (  # noqa: E402
     engine,
     get_database_migration_governance,
 )
+from app.services.client_identity import CLIENT_IDENTITY_TRIM_CHARS  # noqa: E402
+
+
+def _quoted_identifier(conn, value: str) -> str:
+    preparer = getattr(getattr(conn, "dialect", None), "identifier_preparer", None)
+    if preparer is not None:
+        return str(preparer.quote(value))
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+        raise RuntimeError(f"Unsafe database identifier: {value!r}")
+    return f'"{value}"'
+
+
+def _is_set_null_foreign_key(
+    foreign_key: dict,
+    *,
+    column_name: str,
+    referred_table: str,
+) -> bool:
+    referred_columns = [
+        str(value) for value in foreign_key.get("referred_columns") or []
+    ]
+    return (
+        [str(value) for value in foreign_key.get("constrained_columns") or []]
+        == [column_name]
+        and str(foreign_key.get("referred_table") or "") == referred_table
+        and (not referred_columns or referred_columns == ["id"])
+        and str((foreign_key.get("options") or {}).get("ondelete") or "")
+        .upper()
+        .replace("_", " ")
+        == "SET NULL"
+    )
+
+
+def _repair_postgres_set_null_foreign_key(
+    conn,
+    inspector,
+    *,
+    table_name: str,
+    column_name: str,
+    referred_table: str,
+    constraint_name: str,
+    report_only: bool,
+) -> None:
+    if conn.dialect.name != "postgresql":
+        return
+    matching = [
+        foreign_key
+        for foreign_key in inspector.get_foreign_keys(table_name)
+        if [
+            str(value)
+            for value in foreign_key.get("constrained_columns") or []
+        ]
+        == [column_name]
+    ]
+    compatible = any(
+        _is_set_null_foreign_key(
+            foreign_key,
+            column_name=column_name,
+            referred_table=referred_table,
+        )
+        for foreign_key in matching
+    )
+    for foreign_key in matching:
+        if _is_set_null_foreign_key(
+            foreign_key,
+            column_name=column_name,
+            referred_table=referred_table,
+        ):
+            continue
+        existing_name = str(foreign_key.get("name") or "")
+        if not existing_name:
+            raise RuntimeError(
+                f"Cannot repair unnamed foreign key on {table_name}.{column_name}"
+            )
+        print(f"Drop incompatible foreign key {existing_name}")
+        if not report_only:
+            conn.execute(
+                text(
+                    f"ALTER TABLE {_quoted_identifier(conn, table_name)} "
+                    f"DROP CONSTRAINT {_quoted_identifier(conn, existing_name)}"
+                )
+            )
+    if compatible:
+        print(f"Compatible SET NULL foreign key already exists for {table_name}.{column_name}")
+        return
+    print(f"Create foreign key {constraint_name}")
+    if not report_only:
+        conn.execute(
+            text(
+                f"ALTER TABLE {_quoted_identifier(conn, table_name)} "
+                f"ADD CONSTRAINT {_quoted_identifier(conn, constraint_name)} "
+                f"FOREIGN KEY ({_quoted_identifier(conn, column_name)}) "
+                f"REFERENCES {_quoted_identifier(conn, referred_table)}"
+                f"({_quoted_identifier(conn, 'id')}) ON DELETE SET NULL"
+            )
+        )
 
 
 def _print_governance(prefix: str, tables: list[str], current_revision: str | None) -> None:
@@ -56,6 +153,134 @@ def _ensure_project_columns(conn, inspector, report_only: bool) -> None:
             conn.execute(text("ALTER TABLE project ADD COLUMN md_notes TEXT NOT NULL DEFAULT ''"))
     else:
         print("project.md_notes already exists")
+
+
+def _ensure_project_client_identity(conn, inspector, report_only: bool) -> None:
+    tables = set(inspector.get_table_names())
+    if not {"project", "clientrecord"}.issubset(tables):
+        print("project/clientrecord not present, skip stable client identity")
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("project")}
+    added_client_id_column = "client_id" not in columns
+    if added_client_id_column:
+        print("Add column project.client_id")
+        if not report_only:
+            conn.execute(text("ALTER TABLE project ADD COLUMN client_id INTEGER"))
+    else:
+        print("project.client_id already exists")
+
+    if report_only and added_client_id_column:
+        print("Backfill only uniquely matched project.client_id values")
+    elif not report_only and added_client_id_column:
+        client_rows = conn.execute(
+            text(
+                "SELECT id, lower(trim(name, :trim_chars)) AS identity "
+                "FROM clientrecord ORDER BY id"
+            ),
+            {"trim_chars": CLIENT_IDENTITY_TRIM_CHARS},
+        ).mappings().all()
+        ids_by_identity: dict[str, list[int]] = {}
+        for row in client_rows:
+            identity = str(row.get("identity") or "")
+            if identity:
+                ids_by_identity.setdefault(identity, []).append(int(row["id"]))
+        unique_ids = {
+            identity: ids[0]
+            for identity, ids in ids_by_identity.items()
+            if len(ids) == 1
+        }
+        project_rows = conn.execute(
+            text(
+                "SELECT id, lower(trim(client, :trim_chars)) AS identity "
+                "FROM project WHERE client_id IS NULL"
+            ),
+            {"trim_chars": CLIENT_IDENTITY_TRIM_CHARS},
+        ).mappings().all()
+        backfilled = 0
+        for row in project_rows:
+            client_id = unique_ids.get(str(row.get("identity") or ""))
+            if client_id is None:
+                continue
+            result = conn.execute(
+                text(
+                    "UPDATE project SET client_id = :client_id "
+                    "WHERE id = :project_id AND client_id IS NULL"
+                ),
+                {"client_id": client_id, "project_id": int(row["id"])},
+            )
+            backfilled += int(result.rowcount or 0)
+        print(f"Backfilled project.client_id rows: {backfilled}")
+    else:
+        print("Skip project.client_id backfill; column already existed")
+
+    current_inspector = inspect(conn)
+    indexes = {
+        str(index["name"])
+        for index in current_inspector.get_indexes("project")
+    }
+    if "ix_project_client_id" not in indexes:
+        print("Create index ix_project_client_id")
+        if not report_only:
+            conn.execute(text("CREATE INDEX ix_project_client_id ON project (client_id)"))
+    else:
+        print("ix_project_client_id already exists")
+
+    _repair_postgres_set_null_foreign_key(
+        conn,
+        current_inspector,
+        table_name="project",
+        column_name="client_id",
+        referred_table="clientrecord",
+        constraint_name="fk_project_client_id_clientrecord",
+        report_only=report_only,
+    )
+
+
+def _ensure_client_creator_identity(conn, inspector, report_only: bool) -> None:
+    tables = set(inspector.get_table_names())
+    if "clientrecord" not in tables:
+        print("clientrecord not present, skip creator identity")
+        return
+    columns = {
+        column["name"] for column in inspector.get_columns("clientrecord")
+    }
+    if "created_by_user_id" not in columns:
+        print("Add column clientrecord.created_by_user_id")
+        if not report_only:
+            conn.execute(
+                text("ALTER TABLE clientrecord ADD COLUMN created_by_user_id INTEGER")
+            )
+    else:
+        print("clientrecord.created_by_user_id already exists")
+
+    current_inspector = inspect(conn)
+    indexes = {
+        str(index["name"])
+        for index in current_inspector.get_indexes("clientrecord")
+    }
+    if "ix_clientrecord_created_by_user_id" not in indexes:
+        print("Create index ix_clientrecord_created_by_user_id")
+        if not report_only:
+            conn.execute(
+                text(
+                    "CREATE INDEX ix_clientrecord_created_by_user_id "
+                    "ON clientrecord (created_by_user_id)"
+                )
+            )
+    else:
+        print("ix_clientrecord_created_by_user_id already exists")
+
+    if "user" in tables:
+        _repair_postgres_set_null_foreign_key(
+            conn,
+            current_inspector,
+            table_name="clientrecord",
+            column_name="created_by_user_id",
+            referred_table="user",
+            constraint_name="fk_clientrecord_created_by_user_id_user",
+            report_only=report_only,
+        )
 
 
 def _ensure_projecttodo(conn, inspector, report_only: bool) -> None:
@@ -363,6 +588,8 @@ def main() -> None:
         _print_governance("Before", tables_before, _get_current_revision(conn, tables_before))
 
         _ensure_project_columns(conn, inspector, args.report_only)
+        _ensure_project_client_identity(conn, inspector, args.report_only)
+        _ensure_client_creator_identity(conn, inspector, args.report_only)
         _ensure_projecttodo(conn, inspector, args.report_only)
         _ensure_projectmember(conn, inspector, args.report_only)
         _ensure_knowledge_document_project(conn, inspector, args.report_only)

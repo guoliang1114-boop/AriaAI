@@ -157,29 +157,51 @@ describe('project data hooks', () => {
     expect(result.current.data?.project.id).toBe(2)
   })
 
-  it('does not resolve stakeholders for a stale client match', async () => {
-    const firstClients = deferred<Array<{ id: number; name: string }>>()
-    const secondClients = deferred<Array<{ id: number; name: string }>>()
+  it('loads stakeholders directly from the stable client id', async () => {
+    mockGet.mockResolvedValue([stakeholder(20, 2)])
+
+    const { result } = renderHook(() => useClientStakeholders(2, '同名客户'))
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.matchedClientId).toBe(2)
+    expect(result.current.matchedClientName).toBe('同名客户')
+    expect(result.current.stakeholders).toEqual([stakeholder(20, 2)])
+    expect(mockGet).toHaveBeenCalledTimes(1)
+    expect(mockGet).toHaveBeenCalledWith('/clients/2/stakeholders')
+    expect(mockGet).not.toHaveBeenCalledWith('/clients')
+  })
+
+  it('does not scan clients or load stakeholders when client id is missing', async () => {
+    const { result } = renderHook(() => useClientStakeholders(null, '同名客户'))
+
+    expect(result.current.loading).toBe(false)
+    expect(result.current.matchedClientId).toBeNull()
+    expect(result.current.matchedClientName).toBeNull()
+    expect(result.current.stakeholders).toEqual([])
+    expect(result.current.error).toBeNull()
+    await act(async () => result.current.refetch())
+    expect(mockGet).not.toHaveBeenCalled()
+  })
+
+  it('does not apply stale stakeholders after the linked client changes', async () => {
+    const firstStakeholders = deferred<ClientStakeholder[]>()
+    const secondStakeholders = deferred<ClientStakeholder[]>()
     mockGet.mockImplementation((url: string) => {
-      if (url === '/clients') {
-        return mockGet.mock.calls.filter(([calledUrl]) => calledUrl === '/clients').length === 1
-          ? firstClients.promise
-          : secondClients.promise
-      }
-      if (url === '/clients/2/stakeholders') return Promise.resolve([stakeholder(20, 2)])
-      return Promise.resolve([stakeholder(10, 1)])
+      if (url === '/clients/1/stakeholders') return firstStakeholders.promise
+      if (url === '/clients/2/stakeholders') return secondStakeholders.promise
+      return Promise.resolve([])
     })
 
     const { result, rerender } = renderHook(
-      ({ clientName }) => useClientStakeholders(clientName),
-      { initialProps: { clientName: '旧客户' } },
+      ({ clientId, clientName }) => useClientStakeholders(clientId, clientName),
+      { initialProps: { clientId: 1, clientName: '旧客户' } },
     )
-    rerender({ clientName: '新客户' })
+    rerender({ clientId: 2, clientName: '新客户' })
 
-    await act(async () => secondClients.resolve([{ id: 2, name: '新客户' }]))
+    await act(async () => secondStakeholders.resolve([stakeholder(20, 2)]))
     await waitFor(() => expect(result.current.matchedClientId).toBe(2))
-    await act(async () => firstClients.resolve([{ id: 1, name: '旧客户' }]))
+    await act(async () => firstStakeholders.resolve([stakeholder(10, 1)]))
     expect(result.current.matchedClientId).toBe(2)
-    expect(mockGet).not.toHaveBeenCalledWith('/clients/1/stakeholders')
+    expect(result.current.stakeholders).toEqual([stakeholder(20, 2)])
   })
 })

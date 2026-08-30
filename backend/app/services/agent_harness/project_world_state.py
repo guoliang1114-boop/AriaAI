@@ -24,7 +24,7 @@ from app.models.db import (
     ProjectProgressUpdate,
     ProjectTodo,
 )
-from app.services.stakeholder_contexts import find_client_by_name
+from app.services.project_clients import find_client_for_project
 
 WORLD_STATE_SCHEMA_VERSION = 1
 WORLD_STATE_MAX_ITEMS_PER_CATEGORY = 50
@@ -84,7 +84,7 @@ def build_project_world_state_manifest(session: Session, project_id: int) -> dic
     deliverables = session.exec(
         select(GeneratedFile).where(GeneratedFile.project_id == project_id)
     ).all()
-    client = find_client_by_name(session, project.client)
+    client = find_client_for_project(session, project)
     stakeholders = (
         session.exec(
             select(ClientStakeholder).where(ClientStakeholder.client_id == client.id)
@@ -99,6 +99,7 @@ def build_project_world_state_manifest(session: Session, project_id: int) -> dic
                 project_id,
                 {
                     "status": project.status,
+                    "client_id": project.client_id,
                     "description": project.description,
                     "contract_amount": project.contract_amount,
                     "memory_version": project.memory_version,

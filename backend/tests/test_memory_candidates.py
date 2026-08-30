@@ -126,6 +126,7 @@ def test_client_identity_namespace_locks_are_sorted_and_deduplicated() -> None:
         ("beta", "acme", "beta", ""),
     )
     assert session.keys == [
+        "aria.client-identity.v1:",
         "aria.client-identity.v1:acme",
         "aria.client-identity.v1:beta",
     ]
@@ -170,7 +171,7 @@ def test_candidate_decision_locks_actor_scope_permission_then_rechecks_status() 
             self.results = iter((actor, project, [membership], locked))
 
         def exec(self, statement):
-            self.entities.append(statement.column_descriptions[0]["entity"])
+            self.entities.append(statement.column_descriptions[0].get("entity"))
             assert statement._for_update_arg is not None
             return _Result(next(self.results))
 
@@ -212,7 +213,7 @@ def test_client_candidate_decision_uses_cross_owner_authorization_lock_order() -
         password_hash="x",
         is_active=True,
     )
-    project = Project(id=41, name="Client source", client="Acme")
+    project = Project(id=41, name="Client source", client="Acme", client_id=61)
     client = ClientRecord(id=61, name="Acme", client_memory_version=4)
     membership = ProjectMember(id=52, project_id=41, user_id=9, role="editor")
 
@@ -226,16 +227,27 @@ def test_client_candidate_decision_uses_cross_owner_authorization_lock_order() -
         def all(self):
             return self.value if isinstance(self.value, list) else [self.value]
 
+        def one(self):
+            return self.value
+
     class _OrderedSession:
         def __init__(self):
             self.entities = []
             self.results = iter(
-                ("acme", actor, [project], client, [membership], locked)
+                (
+                    "acme",
+                    actor,
+                    [project],
+                    client,
+                    "acme",
+                    [membership],
+                    locked,
+                )
             )
 
         def exec(self, statement):
-            self.entities.append(statement.column_descriptions[0]["entity"])
-            if len(self.entities) == 1:
+            self.entities.append(statement.column_descriptions[0].get("entity"))
+            if len(self.entities) in {1, 5}:
                 assert statement._for_update_arg is None
             else:
                 assert statement._for_update_arg is not None
@@ -256,6 +268,7 @@ def test_client_candidate_decision_uses_cross_owner_authorization_lock_order() -
         User,
         Project,
         ClientRecord,
+        None,
         ProjectMember,
         MemoryCandidate,
     ]
@@ -392,6 +405,65 @@ def test_project_candidate_decision_rechecks_write_access_after_router_check(
 
 
 @pytest.mark.parametrize("decision", ["accept", "reject"])
+@pytest.mark.parametrize("revocation", ["viewer", "removed"])
+def test_user_candidate_decision_rechecks_chat_source_project_write_access(
+    decision: str,
+    revocation: str,
+) -> None:
+    engine = _engine()
+    try:
+        owner_id, _, project_id, message_id = _seed(engine)
+        client = _client(engine, [owner_id])
+        created = client.post(
+            "/memory-candidates",
+            json={
+                "scope": "user",
+                "candidate_type": "user_preference",
+                "content": "Give the conclusion before the supporting detail.",
+                "source_type": "chat_message",
+                "source_id": str(message_id),
+            },
+        )
+        assert created.status_code == 200, created.text
+        candidate_id = int(created.json()["candidate"]["id"])
+
+        with Session(engine) as revocation_session:
+            membership = revocation_session.exec(
+                select(ProjectMember).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.user_id == owner_id,
+                )
+            ).one()
+            if revocation == "viewer":
+                membership.role = "viewer"
+                revocation_session.add(membership)
+            else:
+                revocation_session.delete(membership)
+            revocation_session.commit()
+
+        with Session(engine) as before:
+            source = before.get(Message, message_id)
+            assert source is not None
+            metadata_before = source.metadata_json
+
+        response = client.post(
+            f"/memory-candidates/{candidate_id}/{decision}",
+            json={},
+        )
+        assert response.status_code == 403, response.text
+
+        with Session(engine) as verify:
+            candidate = verify.get(MemoryCandidate, candidate_id)
+            source = verify.get(Message, message_id)
+            assert candidate is not None and candidate.status == "pending"
+            assert candidate.resolved_at is None
+            assert verify.exec(select(UserMemory)).first() is None
+            assert source is not None and source.metadata_json == metadata_before
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("decision", ["accept", "reject"])
 def test_client_candidate_decision_rechecks_write_access_after_router_check(
     decision: str,
 ) -> None:
@@ -405,6 +477,10 @@ def test_client_candidate_decision_rechecks_write_access_after_router_check(
             setup.commit()
             setup.refresh(client)
             client_id = int(client.id)
+            project = setup.get(Project, project_id)
+            assert project is not None
+            project.client_id = client_id
+            setup.add(project)
             candidate, _ = memory_candidates_service.create_memory_candidate(
                 setup,
                 owner_user_id=owner_id,
@@ -466,15 +542,15 @@ def test_client_candidate_decision_rechecks_write_access_after_router_check(
 @pytest.mark.parametrize("decision", ["accept", "reject"])
 @pytest.mark.parametrize("target_index", [0, 1])
 @pytest.mark.parametrize("duplicate_name", ["  ACME  ", "\tACME\t", "\xa0ACME\xa0"])
-def test_client_candidate_decision_rejects_ambiguous_duplicate_client_identity(
+def test_client_candidate_decision_uses_stable_id_with_duplicate_client_names(
     decision: str,
     target_index: int,
     duplicate_name: str,
 ) -> None:
     engine = _engine()
     try:
-        owner_id, _, _, _ = _seed(engine)
-        content = f"Ambiguous client {target_index} must not {decision}."
+        owner_id, _, project_id, _ = _seed(engine)
+        content = f"Stable client {target_index} may {decision}."
         with Session(engine) as setup:
             clients = [
                 ClientRecord(name="Acme", industry="Technology"),
@@ -486,6 +562,11 @@ def test_client_candidate_decision_rejects_ambiguous_duplicate_client_identity(
             for client in clients:
                 setup.refresh(client)
             target_client_id = int(clients[target_index].id)
+            project = setup.get(Project, project_id)
+            assert project is not None
+            project.client_id = target_client_id
+            project.client = clients[target_index].name
+            setup.add(project)
             candidate, _ = memory_candidates_service.create_memory_candidate(
                 setup,
                 owner_user_id=owner_id,
@@ -508,36 +589,37 @@ def test_client_candidate_decision_rejects_ambiguous_duplicate_client_identity(
                 actor,
                 require_write=True,
             )
-            with pytest.raises(HTTPException) as exc_info:
-                if decision == "accept":
-                    memory_candidates_service.accept_memory_candidate(
-                        decision_session,
-                        locator,
-                        user_id=owner_id,
-                    )
-                else:
-                    memory_candidates_service.reject_memory_candidate(
-                        decision_session,
-                        locator,
-                        user_id=owner_id,
-                    )
-            assert exc_info.value.status_code == 409
-            assert "ambiguous" in str(exc_info.value.detail).lower()
-            decision_session.rollback()
+            if decision == "accept":
+                memory_candidates_service.accept_memory_candidate(
+                    decision_session,
+                    locator,
+                    user_id=owner_id,
+                )
+            else:
+                memory_candidates_service.reject_memory_candidate(
+                    decision_session,
+                    locator,
+                    user_id=owner_id,
+                )
 
         with Session(engine) as verify:
             candidate = verify.get(MemoryCandidate, candidate_id)
             target = verify.get(ClientRecord, target_client_id)
-            assert candidate is not None and candidate.status == "pending"
-            assert target is not None and int(target.client_memory_version or 0) == 0
-            assert content not in target.client_memory_json
+            assert candidate is not None and candidate.status == f"{decision}ed"
+            assert target is not None
+            if decision == "accept":
+                assert int(target.client_memory_version or 0) == 1
+                assert content in target.client_memory_json
+            else:
+                assert int(target.client_memory_version or 0) == 0
+                assert content not in target.client_memory_json
     finally:
         engine.dispose()
 
 
 @pytest.mark.parametrize("decision", ["accept", "reject"])
 @pytest.mark.parametrize("blank_identity", ["   ", "\t\xa0\t"])
-def test_client_candidate_decision_rejects_blank_client_project_identity(
+def test_client_candidate_decision_uses_stable_id_with_blank_legacy_name(
     decision: str,
     blank_identity: str,
 ) -> None:
@@ -553,6 +635,8 @@ def test_client_candidate_decision_rejects_blank_client_project_identity(
             setup.commit()
             setup.refresh(project)
             setup.refresh(client)
+            project.client_id = int(client.id)
+            setup.add(project)
             setup.add(
                 ProjectMember(
                     project_id=int(project.id),
@@ -584,29 +668,30 @@ def test_client_candidate_decision_rejects_blank_client_project_identity(
                 actor,
                 require_write=True,
             )
-            with pytest.raises(HTTPException) as exc_info:
-                if decision == "accept":
-                    memory_candidates_service.accept_memory_candidate(
-                        decision_session,
-                        locator,
-                        user_id=owner_id,
-                    )
-                else:
-                    memory_candidates_service.reject_memory_candidate(
-                        decision_session,
-                        locator,
-                        user_id=owner_id,
-                    )
-            assert exc_info.value.status_code == 409
-            assert "empty or ambiguous" in str(exc_info.value.detail).lower()
-            decision_session.rollback()
+            if decision == "accept":
+                memory_candidates_service.accept_memory_candidate(
+                    decision_session,
+                    locator,
+                    user_id=owner_id,
+                )
+            else:
+                memory_candidates_service.reject_memory_candidate(
+                    decision_session,
+                    locator,
+                    user_id=owner_id,
+                )
 
         with Session(engine) as verify:
             candidate = verify.get(MemoryCandidate, candidate_id)
             client = verify.get(ClientRecord, client_id)
-            assert candidate is not None and candidate.status == "pending"
-            assert client is not None and int(client.client_memory_version or 0) == 0
-            assert content not in client.client_memory_json
+            assert candidate is not None and candidate.status == f"{decision}ed"
+            assert client is not None
+            if decision == "accept":
+                assert int(client.client_memory_version or 0) == 1
+                assert content in client.client_memory_json
+            else:
+                assert int(client.client_memory_version or 0) == 0
+                assert content not in client.client_memory_json
     finally:
         engine.dispose()
 
@@ -654,6 +739,269 @@ def test_candidate_decision_rechecks_actor_active_state_in_final_transaction() -
             assert verify.exec(
                 select(UserMemory).where(UserMemory.user_id == owner_id)
             ).first() is None
+    finally:
+        engine.dispose()
+
+
+def test_candidate_create_rechecks_project_write_access_before_source_sync(
+    monkeypatch,
+) -> None:
+    engine = _engine()
+    try:
+        alice_id, _, project_id, message_id = _seed(engine)
+        client = _client(engine, [alice_id])
+        original_lock = candidates_module._lock_candidate_create_context
+
+        def revoke_then_lock(session, **kwargs):
+            membership = session.exec(
+                select(ProjectMember).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.user_id == alice_id,
+                )
+            ).one()
+            session.delete(membership)
+            session.commit()
+            return original_lock(session, **kwargs)
+
+        monkeypatch.setattr(
+            candidates_module,
+            "_lock_candidate_create_context",
+            revoke_then_lock,
+        )
+        response = client.post(
+            "/memory-candidates",
+            json={
+                "scope": "project",
+                "candidate_type": "project_fact",
+                "content": "This must not survive revoked access.",
+                "source_type": "chat_message",
+                "source_id": str(message_id),
+                "project_id": project_id,
+            },
+        )
+        assert response.status_code == 403, response.text
+
+        with Session(engine) as verify:
+            assert verify.exec(select(MemoryCandidate)).first() is None
+            source = verify.get(Message, message_id)
+            assert source is not None
+            metadata = source.get_metadata()
+            assert "memory_candidates" not in metadata
+            assert "run_outputs" not in metadata
+    finally:
+        engine.dispose()
+
+
+def test_candidate_create_rechecks_client_link_before_source_sync(monkeypatch) -> None:
+    engine = _engine()
+    try:
+        alice_id, _, project_id, message_id = _seed(engine)
+        with Session(engine) as setup:
+            client_record = ClientRecord(
+                name="Acme",
+                industry="Technology",
+                created_by_user_id=alice_id,
+            )
+            setup.add(client_record)
+            setup.flush()
+            project = setup.get(Project, project_id)
+            assert project is not None
+            project.client_id = int(client_record.id)
+            setup.add(project)
+            setup.commit()
+            client_id = int(client_record.id)
+
+        client = _client(engine, [alice_id])
+        original_lock = candidates_module._lock_candidate_create_context
+
+        def unlink_then_lock(session, **kwargs):
+            project = session.get(Project, project_id)
+            assert project is not None
+            project.client_id = None
+            session.add(project)
+            session.commit()
+            return original_lock(session, **kwargs)
+
+        monkeypatch.setattr(
+            candidates_module,
+            "_lock_candidate_create_context",
+            unlink_then_lock,
+        )
+        response = client.post(
+            "/memory-candidates",
+            json={
+                "scope": "client",
+                "candidate_type": "client_preference",
+                "content": "This must remain scoped to the stable client.",
+                "source_type": "chat_message",
+                "source_id": str(message_id),
+                "client_id": client_id,
+            },
+        )
+        assert response.status_code == 409, response.text
+
+        with Session(engine) as verify:
+            assert verify.exec(select(MemoryCandidate)).first() is None
+            source = verify.get(Message, message_id)
+            assert source is not None
+            assert "memory_candidates" not in source.get_metadata()
+    finally:
+        engine.dispose()
+
+
+def test_candidate_create_does_not_mutate_viewer_source_message(monkeypatch) -> None:
+    engine = _engine()
+    try:
+        alice_id, _, project_id, message_id = _seed(engine)
+        with Session(engine) as setup:
+            client_record = ClientRecord(
+                name="Creator-owned client",
+                created_by_user_id=alice_id,
+            )
+            setup.add(client_record)
+            setup.flush()
+            project = setup.get(Project, project_id)
+            assert project is not None
+            project.client_id = int(client_record.id)
+            setup.add(project)
+            setup.commit()
+            client_id = int(client_record.id)
+
+        client = _client(engine, [alice_id])
+        original_lock = candidates_module._lock_candidate_create_context
+
+        def downgrade_then_lock(session, **kwargs):
+            membership = session.exec(
+                select(ProjectMember).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.user_id == alice_id,
+                )
+            ).one()
+            membership.role = "viewer"
+            session.add(membership)
+            session.commit()
+            return original_lock(session, **kwargs)
+
+        monkeypatch.setattr(
+            candidates_module,
+            "_lock_candidate_create_context",
+            downgrade_then_lock,
+        )
+        response = client.post(
+            "/memory-candidates",
+            json={
+                "scope": "client",
+                "candidate_type": "client_preference",
+                "content": "A viewer source must stay read-only.",
+                "source_type": "chat_message",
+                "source_id": str(message_id),
+                "client_id": client_id,
+            },
+        )
+
+        assert response.status_code == 403, response.text
+        with Session(engine) as verify:
+            assert verify.exec(select(MemoryCandidate)).first() is None
+            source = verify.get(Message, message_id)
+            assert source is not None
+            assert "memory_candidates" not in source.get_metadata()
+            assert "run_outputs" not in source.get_metadata()
+    finally:
+        engine.dispose()
+
+
+def test_candidate_create_rechecks_actor_active_state(monkeypatch) -> None:
+    engine = _engine()
+    try:
+        alice_id, _, _, _ = _seed(engine)
+        client = _client(engine, [alice_id])
+        original_lock = candidates_module._lock_candidate_create_context
+
+        def deactivate_then_lock(session, **kwargs):
+            actor = session.get(User, alice_id)
+            assert actor is not None
+            actor.is_active = False
+            session.add(actor)
+            session.commit()
+            return original_lock(session, **kwargs)
+
+        monkeypatch.setattr(
+            candidates_module,
+            "_lock_candidate_create_context",
+            deactivate_then_lock,
+        )
+        response = client.post(
+            "/memory-candidates",
+            json={
+                "scope": "user",
+                "candidate_type": "user_preference",
+                "content": "This inactive user must not create memory.",
+            },
+        )
+        assert response.status_code == 403, response.text
+
+        with Session(engine) as verify:
+            assert verify.exec(select(MemoryCandidate)).first() is None
+    finally:
+        engine.dispose()
+
+
+def test_candidate_create_rejects_source_conversation_project_rebind(
+    monkeypatch,
+) -> None:
+    engine = _engine()
+    try:
+        alice_id, _, project_id, message_id = _seed(engine)
+        with Session(engine) as setup:
+            other_project = Project(name="Other source project", client="Other")
+            setup.add(other_project)
+            setup.flush()
+            setup.add(
+                ProjectMember(
+                    project_id=int(other_project.id),
+                    user_id=alice_id,
+                    role="owner",
+                )
+            )
+            setup.commit()
+            other_project_id = int(other_project.id)
+
+        client = _client(engine, [alice_id])
+        original_lock = candidates_module._lock_candidate_create_context
+
+        def rebind_then_lock(session, **kwargs):
+            source = session.get(Message, message_id)
+            assert source is not None
+            conversation = session.get(Conversation, source.conversation_id)
+            assert conversation is not None
+            conversation.project_id = other_project_id
+            session.add(conversation)
+            session.commit()
+            return original_lock(session, **kwargs)
+
+        monkeypatch.setattr(
+            candidates_module,
+            "_lock_candidate_create_context",
+            rebind_then_lock,
+        )
+        response = client.post(
+            "/memory-candidates",
+            json={
+                "scope": "project",
+                "candidate_type": "project_fact",
+                "content": "A rebound source must not cross project scope.",
+                "source_type": "chat_message",
+                "source_id": str(message_id),
+                "project_id": project_id,
+            },
+        )
+        assert response.status_code == 409, response.text
+
+        with Session(engine) as verify:
+            assert verify.exec(select(MemoryCandidate)).first() is None
+            source = verify.get(Message, message_id)
+            assert source is not None
+            assert "memory_candidates" not in source.get_metadata()
     finally:
         engine.dispose()
 
@@ -752,6 +1100,10 @@ def test_candidate_acceptance_rolls_back_every_projection_when_source_sync_fails
                 setup.commit()
                 setup.refresh(client)
                 client_id = int(client.id)
+                project = setup.get(Project, project_id)
+                assert project is not None
+                project.client_id = client_id
+                setup.add(project)
             candidate, _ = memory_candidates_service.create_memory_candidate(
                 setup,
                 owner_user_id=owner_id,
@@ -911,6 +1263,9 @@ def test_client_candidate_requires_related_project_write_access_and_survives_reb
         project = session.exec(select(Project).where(Project.client == "Acme")).one()
         client_record = ClientRecord(name="Acme", industry="Technology")
         session.add(client_record)
+        session.flush()
+        project.client_id = int(client_record.id)
+        session.add(project)
         session.add(ProjectMember(project_id=project.id, user_id=bob_id, role="viewer"))
         session.commit()
         session.refresh(client_record)

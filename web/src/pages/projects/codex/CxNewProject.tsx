@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../../api/client'
 import { useToast } from '../../../contexts/ToastContext'
 import type { Project, SkillSummary, User } from '../../../types/api'
 import type { ProjectStatus } from '../../../types/enums'
 import { CxIcon } from './CxIcons'
+import {
+  ProjectClientPicker,
+  type ProjectClientOption,
+} from './ProjectClientPicker'
 import { useClientsList, useProjectsList, formatAmountWan, firstGlyph } from './useProjectsApi'
 
 /** New-project wizard (Codex redesign · cx-new-project).
@@ -61,6 +65,7 @@ interface FormState {
   contract_amount: number | ''
   signing_date: string
   client: string
+  client_id: number | null
   status: ProjectStatus
 }
 
@@ -71,6 +76,7 @@ const INITIAL_FORM: FormState = {
   contract_amount: '',
   signing_date: '',
   client: '',
+  client_id: null,
   status: 'lead',
 }
 
@@ -116,13 +122,16 @@ export function CxNewProject() {
     }
   }, [])
 
-  // Match the client field against the known client list — drives
-  // the AI assist panel's "已识别客户" affordance.
+  // A client is linked only after the user selects its stable id. Name-based
+  // auto-matching used to pick the first duplicate name and could silently
+  // connect a project to the wrong client record.
   const matchedClient = useMemo(() => {
-    const q = form.client.trim().toLowerCase()
-    if (!q) return null
-    return clients.find((c) => c.name.toLowerCase() === q) || null
-  }, [clients, form.client])
+    if (form.client_id == null) return null
+    return clients.find((c) => c.id === form.client_id) ?? {
+      id: form.client_id,
+      name: form.client,
+    }
+  }, [clients, form.client, form.client_id])
 
   const clientSuggestions = useMemo(() => {
     const q = form.client.trim().toLowerCase()
@@ -134,6 +143,10 @@ export function CxNewProject() {
     const q = form.client.trim().toLowerCase()
     const all = existingProjects ?? []
     const liveProjects = all.filter((p) => p.status !== 'archived')
+    if (form.client_id != null) {
+      const sameClient = liveProjects.filter((p) => p.client_id === form.client_id)
+      return sameClient.slice(0, 3)
+    }
     if (q) {
       const sameClient = liveProjects.filter((p) =>
         (p.client || '').toLowerCase().includes(q),
@@ -141,7 +154,7 @@ export function CxNewProject() {
       if (sameClient.length > 0) return sameClient.slice(0, 3)
     }
     return liveProjects.slice(0, 3)
-  }, [existingProjects, form.client])
+  }, [existingProjects, form.client, form.client_id])
 
   const recommendedSkills = skills.slice(0, 3)
 
@@ -162,8 +175,8 @@ export function CxNewProject() {
       setForm((s) => ({ ...s, [k]: next } as FormState))
     }
 
-  const pickClient = (name: string) => {
-    setForm((s) => ({ ...s, client: name }))
+  const pickClient = (client: ProjectClientOption) => {
+    setForm((s) => ({ ...s, client: client.name, client_id: client.id }))
   }
 
   const toggleSkillAssociation = (skillId: number) => {
@@ -200,6 +213,7 @@ export function CxNewProject() {
       const created = await api.post<Project>('/projects', {
         name: form.name.trim(),
         client: form.client.trim(),
+        ...(form.client_id != null ? { client_id: form.client_id } : {}),
         description: form.description.trim(),
         status,
         contract_amount: typeof form.contract_amount === 'number' ? form.contract_amount : 0,
@@ -364,11 +378,11 @@ export function CxNewProject() {
           <Panel title="客户与阶段">
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
               <Field label="关联客户 *">
-                <ClientPicker
+                <ProjectClientPicker
                   value={form.client}
                   matched={matchedClient}
                   suggestions={clientSuggestions}
-                  onChange={(v) => setForm((s) => ({ ...s, client: v }))}
+                  onChange={(v) => setForm((s) => ({ ...s, client: v, client_id: null }))}
                   onPick={pickClient}
                 />
                 {matchedClient && (
@@ -849,158 +863,6 @@ function MemberRow({
         >
           ● 负责人
         </span>
-      )}
-    </div>
-  )
-}
-
-/* ── Client picker with typeahead ──────────────────────── */
-
-function ClientPicker({
-  value,
-  matched,
-  suggestions,
-  onChange,
-  onPick,
-}: {
-  value: string
-  matched: { id: number; name: string } | null
-  suggestions: Array<{ id: number; name: string }>
-  onChange: (v: string) => void
-  onPick: (name: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const wrapperRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDocClick = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [open])
-
-  if (matched) {
-    return (
-      <div
-        style={{
-          ...INPUT_STYLE,
-          border: '1px solid var(--accent)',
-          background: 'var(--accent-bg)',
-          color: 'var(--accent-ink)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 8,
-        }}
-      >
-        <span
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            overflow: 'hidden',
-          }}
-        >
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: 99,
-              background: 'var(--accent)',
-              flexShrink: 0,
-            }}
-          />
-          <span
-            style={{
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {matched.name}
-          </span>
-        </span>
-        <button
-          type="button"
-          onClick={() => onChange('')}
-          style={{
-            fontSize: 11,
-            color: 'var(--accent)',
-            background: 'transparent',
-            border: 'none',
-            cursor: 'pointer',
-            flexShrink: 0,
-          }}
-        >
-          更换
-        </button>
-      </div>
-    )
-  }
-
-  return (
-    <div ref={wrapperRef} style={{ position: 'relative' }}>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => {
-          onChange(e.target.value)
-          setOpen(true)
-        }}
-        onFocus={() => setOpen(true)}
-        placeholder="搜索现有客户,或直接填写新客户名称"
-        className="codex-input"
-        style={INPUT_STYLE}
-      />
-      {open && suggestions.length > 0 && (
-        <ul
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            marginTop: 4,
-            padding: 4,
-            background: 'var(--bg-elev)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--r-sm)',
-            boxShadow: '0 10px 28px -10px rgba(0,0,0,0.18)',
-            listStyle: 'none',
-            zIndex: 5,
-            maxHeight: 220,
-            overflowY: 'auto',
-          }}
-        >
-          {suggestions.map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                onClick={() => {
-                  onPick(c.name)
-                  setOpen(false)
-                }}
-                className="row-hov"
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '7px 10px',
-                  fontSize: 12.5,
-                  color: 'var(--ink)',
-                  border: 'none',
-                  background: 'transparent',
-                  borderRadius: 'var(--r-sm)',
-                  cursor: 'pointer',
-                }}
-              >
-                {c.name}
-              </button>
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   )

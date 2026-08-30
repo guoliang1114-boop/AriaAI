@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import json
-import asyncio
-import logging
-from typing import Optional, List
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -17,8 +15,7 @@ from app.config import (
     PROJECT_MEMORY_REBUILD_RETRY_ATTEMPTS,
 )
 from app.routers.projects_deps import get_session
-from app.database import engine
-from app.models.db import Project, ProjectMemorySnapshot, ProjectMemorySummary
+from app.models.db import Project, ProjectMemorySnapshot, ProjectMemorySummary, User
 from app.services import scheduler as scheduler_service
 from app.services.project_contexts import (
     EDITABLE_MEMORY_SLOTS,
@@ -37,13 +34,13 @@ from app.services.project_contexts import (
     save_project_memory_summary_cache,
     stream_llm_text_chunks,
 )
-from app.services.project_core import get_project_or_404
+from app.services.project_core import get_project_or_404, lock_and_require_project_write
 from app.routers.projects_deps import complete_with_selected_model, stream_with_selected_model
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
 from app.services.memory_facts import get_project_memory_fact_states
 from app.services.memory_slots import get_project_memory_slot_states
 from app.services.memory_rebuilds import latest_memory_rebuild_metadata
-from app.routers.projects_deps import get_current_user
+from app.services.time_utils import utc_now_naive
 from app.routers.projects_deps import (
     _get_project_memory_lock,
     _get_project_summary_lock,
@@ -74,10 +71,8 @@ from app.routers.projects_deps import (
     ProjectMemoryBatchWarmSummariesRequest,
 )
 
-logger = logging.getLogger(__name__)
-
-from app.routers.auth import require_admin
-from app.routers.chat_security import maybe_require_project_access
+from app.routers.auth import get_current_user, require_admin
+from app.routers.chat_security import maybe_require_project_access, require_project_access
 
 router = APIRouter(
     tags=["projects"],
@@ -88,6 +83,51 @@ router = APIRouter(
     # /{project_id}/memory/* surface.
     dependencies=[Depends(maybe_require_project_access)],
 )
+
+
+def _actor_user_id(current_user: User) -> int:
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return int(current_user.id)
+
+
+def _require_project_memory_write(
+    session: Session,
+    project_id: int,
+    current_user: User,
+) -> int:
+    """Apply the inexpensive request-entry write gate before any side effect."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    return _actor_user_id(current_user)
+
+
+def _lock_project_memory_write(
+    session: Session,
+    project_id: int,
+    *,
+    actor_user_id: int,
+) -> Project:
+    """Final-lock the active actor and exact project membership before writing."""
+
+    project, _ = lock_and_require_project_write(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+    )
+    return project
+
+
+def _http_error_message(exc: HTTPException) -> str:
+    detail = exc.detail
+    if isinstance(detail, str):
+        return detail
+    return json.dumps(detail, ensure_ascii=False, default=str)
 
 
 def _project_memory_search_conditions(search: str | None):
@@ -168,9 +208,15 @@ async def generate_project_context(
     project_id: int,
     body: Optional[ProjectContextGenerateRequest] = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Generate overview summary from structured project memory, rebuilding memory when stale."""
-    project, memory_payload = await _ensure_project_memory(session, project_id)
+    actor_user_id = _require_project_memory_write(session, project_id, current_user)
+    project, memory_payload = await _ensure_project_memory(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+    )
 
     messages = [
         {
@@ -182,6 +228,9 @@ async def generate_project_context(
             ),
         }
     ]
+    # Do not retain the request transaction while the streaming provider is
+    # running; the final write uses a fresh, authorization-locked session.
+    session.rollback()
 
     async def event_stream():
         accumulated: list[str] = []
@@ -194,6 +243,7 @@ async def generate_project_context(
                 project_id,
                 stage="overview_summary",
                 message=str(e),
+                actor_user_id=actor_user_id,
             )
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             return
@@ -203,9 +253,49 @@ async def generate_project_context(
         # Save to DB with a fresh session
         from app.database import engine as _engine
         from sqlmodel import Session as _S
-        with _S(_engine) as write_session:
-            save_project_context_summary(write_session, project_id, summary)
-            _bust_project(project_id)
+        try:
+            with _S(_engine) as write_session:
+                current_project = _lock_project_memory_write(
+                    write_session,
+                    project_id,
+                    actor_user_id=actor_user_id,
+                )
+                current_prompt = build_project_summary_from_memory_prompt(
+                    get_project_memory_payload(current_project),
+                    current_project.name,
+                    body.language if body else None,
+                )
+                if current_prompt != messages[0]["content"]:
+                    write_session.rollback()
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "Project memory changed during context generation; "
+                            "retry with current data."
+                        ),
+                    )
+                save_project_context_summary(write_session, project_id, summary)
+        except HTTPException as exc:
+            yield (
+                "data: "
+                + json.dumps(
+                    {"type": "error", "message": _http_error_message(exc)},
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
+            return
+        except Exception as exc:
+            _record_project_memory_failure_by_id(
+                project_id,
+                stage="overview_summary",
+                message=str(exc),
+                actor_user_id=actor_user_id,
+            )
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+            return
+
+        _bust_project(project_id)
 
         yield f"data: {json.dumps({'type': 'done', 'context_summary': summary}, ensure_ascii=False)}\n\n"
 
@@ -293,11 +383,22 @@ async def update_project_memory_slot(
     slot_name: str,
     body: ProjectMemorySlotUpdateRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
+    actor_user_id = _require_project_memory_write(session, project_id, current_user)
     if slot_name not in EDITABLE_MEMORY_SLOTS:
         raise HTTPException(status_code=400, detail="Unsupported memory slot")
 
-    project, _ = await _ensure_project_memory(session, project_id)
+    await _ensure_project_memory(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+    )
+    project = _lock_project_memory_write(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+    )
     raw_memory = _get_existing_raw_memory(project)
     coverage = raw_memory.get("_coverage", {}) if isinstance(raw_memory.get("_coverage"), dict) else {}
     raw_memory[slot_name] = _normalize_editable_slot(raw_memory.get(slot_name), pinned=body.pinned)
@@ -310,6 +411,11 @@ async def update_project_memory_slot(
         rebuilt_slots=(slot_name,),
         rebuild_mode="targeted_edit",
     )
+    _lock_project_memory_write(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+    )
     _schedule_project_memory_summary_warm(
         project_id,
         summary_types=["overview", "risk", "stakeholder"],
@@ -317,6 +423,7 @@ async def update_project_memory_slot(
         trigger=f"slot_update:{slot_name}",
     )
     _bust_project(project_id)
+    session.rollback()
     refreshed_project = get_project_or_404(session, project_id)
     return {
         "ok": True,
@@ -333,11 +440,13 @@ async def update_project_memory_slot(
     }
 
 
-@router.post("/memory/rebuild-batch", dependencies=[Depends(require_admin)])
+@router.post("/memory/rebuild-batch")
 async def rebuild_project_memory_batch(
     body: ProjectMemoryBatchRebuildRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin),
 ):
+    actor_user_id = _actor_user_id(current_user)
     requested_ids = [int(project_id) for project_id in body.project_ids if int(project_id) > 0]
     if requested_ids:
         candidate_projects = session.exec(
@@ -372,14 +481,27 @@ async def rebuild_project_memory_batch(
             )
             continue
 
+        _require_project_memory_write(session, int(project.id), current_user)
+        saved_memory = await _rebuild_project_memory(
+            session,
+            int(project.id),
+            project,
+            trigger="batch",
+            actor_user_id=actor_user_id,
+        )
+        _lock_project_memory_write(
+            session,
+            int(project.id),
+            actor_user_id=actor_user_id,
+        )
         scheduler_service.remove_job(_memory_rebuild_job_id(project.id))
-        saved_memory = await _rebuild_project_memory(session, project.id, project, trigger="batch")
         _schedule_project_memory_summary_warm(
             project.id,
             summary_types=["overview", "risk", "stakeholder"],
             trigger="batch_rebuild_completed",
         )
         _bust_project(project.id)
+        session.rollback()
         rebuilt.append(
             {
                 "project_id": project.id,
@@ -401,15 +523,31 @@ async def rebuild_project_memory_batch(
 
 
 @router.post("/{project_id}/memory/rebuild")
-async def rebuild_project_memory(project_id: int, session: Session = Depends(get_session)):
+async def rebuild_project_memory(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    actor_user_id = _require_project_memory_write(session, project_id, current_user)
+    saved_memory = await _rebuild_project_memory(
+        session,
+        project_id,
+        trigger="manual",
+        actor_user_id=actor_user_id,
+    )
+    _lock_project_memory_write(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+    )
     scheduler_service.remove_job(_memory_rebuild_job_id(project_id))
-    saved_memory = await _rebuild_project_memory(session, project_id, trigger="manual")
     _schedule_project_memory_summary_warm(
         project_id,
         summary_types=["overview", "risk", "stakeholder"],
         trigger="manual_rebuild_completed",
     )
     _bust_project(project_id)
+    session.rollback()
     return {
         "ok": True,
         "project_id": project_id,
@@ -422,11 +560,13 @@ async def rebuild_project_memory(project_id: int, session: Session = Depends(get
     }
 
 
-@router.post("/memory/warm-summaries-batch", dependencies=[Depends(require_admin)])
+@router.post("/memory/warm-summaries-batch")
 async def warm_project_memory_summaries_batch(
     body: ProjectMemoryBatchWarmSummariesRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin),
 ):
+    actor_user_id = _actor_user_id(current_user)
     requested_ids = [int(project_id) for project_id in body.project_ids if int(project_id) > 0]
     if not requested_ids:
         return {
@@ -482,6 +622,8 @@ async def warm_project_memory_summaries_batch(
             skipped.append({"project_id": project.id, "reason": "already_cached"})
             continue
 
+        _require_project_memory_write(session, int(project.id), current_user)
+
         if scheduler_running:
             if budget_used_today + queued_count >= MEMORY_SUMMARY_WARM_DAILY_LIMIT:
                 skipped.append({"project_id": project.id, "reason": "daily_limit_reached"})
@@ -492,6 +634,11 @@ async def warm_project_memory_summaries_batch(
                 skipped.append({"project_id": project.id, "reason": "already_queued"})
                 continue
 
+            _lock_project_memory_write(
+                session,
+                int(project.id),
+                actor_user_id=actor_user_id,
+            )
             queued = _schedule_project_memory_summary_warm(
                 project.id,
                 language=body.language,
@@ -501,6 +648,7 @@ async def warm_project_memory_summaries_batch(
                 trigger="batch_warm",
             )
             if queued:
+                session.rollback()
                 queued_count += 1
                 processed.append(
                     {
@@ -511,6 +659,7 @@ async def warm_project_memory_summaries_batch(
                     }
                 )
                 continue
+            session.rollback()
 
         warmed_types = await _warm_project_memory_summary_caches(
             session,
@@ -519,6 +668,7 @@ async def warm_project_memory_summaries_batch(
             summary_types=normalized_summary_types,
             language=body.language,
             force_refresh=body.force_refresh,
+            actor_user_id=actor_user_id,
         )
         warmed_count += len(warmed_types)
         processed.append(
@@ -625,17 +775,29 @@ def list_project_memory_jobs(session: Session = Depends(get_session)):
 
 
 @router.post("/memory/jobs/{project_id}/cancel")
-def cancel_project_memory_jobs(project_id: int, session: Session = Depends(get_session)):
+def cancel_project_memory_jobs(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    actor_user_id = _require_project_memory_write(session, project_id, current_user)
+    project = _lock_project_memory_write(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+    )
     scheduler_service.remove_job(_memory_rebuild_job_id(project_id))
     for language in ("zh", "en", "default"):
         scheduler_service.remove_job(_memory_summary_warm_job_id(project_id, language))
-    project = session.get(Project, project_id)
-    if project and project.memory_rebuild_status in {"queued", "rebuilding"}:
+    if project.memory_rebuild_status in {"queued", "rebuilding"}:
         project.memory_rebuild_status = "idle"
         project.memory_rebuild_failed_at = None
+        project.updated_at = utc_now_naive()
         session.add(project)
         session.commit()
         _bust_project(project_id)
+    else:
+        session.rollback()
     return {"ok": True, "project_id": project_id}
 
 
@@ -643,45 +805,33 @@ def cancel_project_memory_jobs(project_id: int, session: Session = Depends(get_s
 async def run_project_memory_jobs_now(
     project_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    scheduler_service.remove_job(_memory_rebuild_job_id(project_id))
-    for language in ("zh", "en", "default"):
-        scheduler_service.remove_job(_memory_summary_warm_job_id(project_id, language))
-
+    actor_user_id = _require_project_memory_write(session, project_id, current_user)
     project = get_project_or_404(session, project_id)
     if project.memory_stale or (project.memory_version or 0) == 0:
-        expected_memory_version = int(project.memory_version or 0)
-        expected_rebuild_status = project.memory_rebuild_status
-        try:
-            saved_memory = await _rebuild_project_memory(
-                session,
-                project_id,
-                project,
-                trigger="manual_queue_run",
-            )
-        except Exception as exc:
-            # The scheduler job has already been removed, so a failed manual
-            # run must leave a durable terminal state instead of an orphaned
-            # ``queued`` owner with no job available to execute it.
-            session.rollback()
-            _set_project_memory_failure(
-                session,
-                project_id,
-                stage="rebuild",
-                message=str(exc),
-                expected_memory_version=expected_memory_version,
-                expected_rebuild_status=expected_rebuild_status,
-                mark_rebuild_failed=True,
-            )
-            if session.get(Project, project_id):
-                _bust_project(project_id)
-            raise
+        saved_memory = await _rebuild_project_memory(
+            session,
+            project_id,
+            project,
+            trigger="manual_queue_run",
+            actor_user_id=actor_user_id,
+        )
+        _lock_project_memory_write(
+            session,
+            project_id,
+            actor_user_id=actor_user_id,
+        )
+        scheduler_service.remove_job(_memory_rebuild_job_id(project_id))
+        for language in ("zh", "en", "default"):
+            scheduler_service.remove_job(_memory_summary_warm_job_id(project_id, language))
         _schedule_project_memory_summary_warm(
             project_id,
             summary_types=["overview", "risk", "stakeholder"],
             trigger="run_now_after_rebuild",
         )
         _bust_project(project_id)
+        session.rollback()
         return {
             "ok": True,
             "project_id": project_id,
@@ -696,13 +846,24 @@ async def run_project_memory_jobs_now(
         memory_payload,
         summary_types=["overview", "risk", "stakeholder"],
         force_refresh=False,
+        actor_user_id=actor_user_id,
     )
+    project = _lock_project_memory_write(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+    )
+    scheduler_service.remove_job(_memory_rebuild_job_id(project_id))
+    for language in ("zh", "en", "default"):
+        scheduler_service.remove_job(_memory_summary_warm_job_id(project_id, language))
     if project.memory_rebuild_status in {"queued", "rebuilding"}:
         project.memory_rebuild_status = "idle"
         project.memory_rebuild_failed_at = None
         session.add(project)
         session.commit()
         _bust_project(project_id)
+    else:
+        session.rollback()
     return {
         "ok": True,
         "project_id": project_id,
@@ -716,10 +877,17 @@ async def summarize_project_memory(
     project_id: int,
     body: ProjectMemorySummarizeRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
+    actor_user_id = _require_project_memory_write(session, project_id, current_user)
     project = get_project_or_404(session, project_id)
     if body.rebuild_if_stale:
-        project, memory_payload = await _ensure_project_memory(session, project_id, project)
+        project, memory_payload = await _ensure_project_memory(
+            session,
+            project_id,
+            project,
+            actor_user_id=actor_user_id,
+        )
     else:
         memory_payload = get_project_memory_payload(project)
 
@@ -857,21 +1025,62 @@ async def summarize_project_memory(
                         project_id,
                         stage=f"memory_summary:{summary_type}",
                         message=str(e),
+                        actor_user_id=actor_user_id,
                     )
                     yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
                     return
 
                 content = "".join(accumulated).strip()
-                with Session(session_bind) as write_session:
-                    cached = save_project_memory_summary_cache(
-                        write_session,
-                        project_id=project_id,
-                        summary_type=summary_type,
-                        language=normalized_language,
-                        memory_version=memory_version,
-                        content=content,
+                try:
+                    with Session(session_bind) as write_session:
+                        current_project = _lock_project_memory_write(
+                            write_session,
+                            project_id,
+                            actor_user_id=actor_user_id,
+                        )
+                        current_prompt = build_project_memory_view_prompt(
+                            get_project_memory_payload(current_project),
+                            current_project.name,
+                            summary_type,
+                            body.language,
+                        )
+                        if current_prompt != prompt:
+                            write_session.rollback()
+                            raise HTTPException(
+                                status_code=409,
+                                detail=(
+                                    "Project memory changed during summary generation; "
+                                    "retry with current data."
+                                ),
+                            )
+                        cached = save_project_memory_summary_cache(
+                            write_session,
+                            project_id=project_id,
+                            summary_type=summary_type,
+                            language=normalized_language,
+                            memory_version=memory_version,
+                            content=content,
+                        )
+                        generated_at = cached.updated_at.isoformat()
+                except HTTPException as exc:
+                    yield (
+                        "data: "
+                        + json.dumps(
+                            {"type": "error", "message": _http_error_message(exc)},
+                            ensure_ascii=False,
+                        )
+                        + "\n\n"
                     )
-                    generated_at = cached.updated_at.isoformat()
+                    return
+                except Exception as exc:
+                    _record_project_memory_failure_by_id(
+                        project_id,
+                        stage=f"memory_summary:{summary_type}",
+                        message=str(exc),
+                        actor_user_id=actor_user_id,
+                    )
+                    yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+                    return
                 yield (
                     "data: "
                     + json.dumps(
@@ -918,23 +1127,20 @@ async def summarize_project_memory(
                 max_tokens=1400,
             )
         except Exception as e:
-            session.expire_all()
-            project = session.get(Project, project_id) or project
             _set_project_memory_failure(
                 session,
-                project,
+                project_id,
                 stage=f"memory_summary:{summary_type}",
                 message=str(e),
+                actor_user_id=actor_user_id,
             )
             raise
         session.expire_all()
-        current_project = session.get(Project, project_id)
-        if current_project is None:
-            session.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail="Project was removed during summary generation.",
-            )
+        current_project = _lock_project_memory_write(
+            session,
+            project_id,
+            actor_user_id=actor_user_id,
+        )
         current_prompt = build_project_memory_view_prompt(
             get_project_memory_payload(current_project),
             current_project.name,
@@ -1011,10 +1217,17 @@ async def generate_project_memory_summaries(
     project_id: int,
     body: ProjectMemoryGenerateSummariesRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
+    actor_user_id = _require_project_memory_write(session, project_id, current_user)
     project = get_project_or_404(session, project_id)
     if body.rebuild_if_stale:
-        project, memory_payload = await _ensure_project_memory(session, project_id, project)
+        project, memory_payload = await _ensure_project_memory(
+            session,
+            project_id,
+            project,
+            actor_user_id=actor_user_id,
+        )
     else:
         memory_payload = get_project_memory_payload(project)
 
@@ -1097,24 +1310,21 @@ async def generate_project_memory_summaries(
                     body.language,
                 )
         except Exception as e:
-            session.expire_all()
-            project = session.get(Project, project_id) or project
             _set_project_memory_failure(
                 session,
-                project,
+                project_id,
                 stage="memory_summary:all",
                 message=str(e),
+                actor_user_id=actor_user_id,
             )
             raise
 
         session.expire_all()
-        current_project = session.get(Project, project_id)
-        if current_project is None:
-            session.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail="Project was removed during summary generation.",
-            )
+        current_project = _lock_project_memory_write(
+            session,
+            project_id,
+            actor_user_id=actor_user_id,
+        )
         current_prompt = build_project_memory_multi_summary_prompt(
             get_project_memory_payload(current_project),
             current_project.name,
@@ -1130,6 +1340,26 @@ async def generate_project_memory_summaries(
 
         saved_summaries: dict[str, ProjectMemorySummary] = {}
         for summary_type, content in summary_contents.items():
+            current_project = _lock_project_memory_write(
+                session,
+                project_id,
+                actor_user_id=actor_user_id,
+            )
+            current_prompt = build_project_memory_multi_summary_prompt(
+                get_project_memory_payload(current_project),
+                current_project.name,
+                summary_types=summary_types,
+                language=body.language,
+            )
+            if current_prompt != prompt:
+                session.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Project memory changed during summary generation; "
+                        "retry with current data."
+                    ),
+                )
             saved_summaries[summary_type] = save_project_memory_summary_cache(
                 session,
                 project_id=project_id,
@@ -1140,6 +1370,26 @@ async def generate_project_memory_summaries(
             )
 
         if summary_contents.get("overview"):
+            current_project = _lock_project_memory_write(
+                session,
+                project_id,
+                actor_user_id=actor_user_id,
+            )
+            current_prompt = build_project_memory_multi_summary_prompt(
+                get_project_memory_payload(current_project),
+                current_project.name,
+                summary_types=summary_types,
+                language=body.language,
+            )
+            if current_prompt != prompt:
+                session.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Project memory changed during summary generation; "
+                        "retry with current data."
+                    ),
+                )
             save_project_context_summary(session, project_id, summary_contents["overview"])
 
         return _build_project_memory_summaries_response(
@@ -1261,10 +1511,31 @@ def get_project_memory_snapshot_diff(project_id: int, snapshot_id: int, session:
 
 
 @router.post("/{project_id}/memory/snapshots/{snapshot_id}/rollback")
-def rollback_project_memory_snapshot(project_id: int, snapshot_id: int, session: Session = Depends(get_session)):
-    get_project_or_404(session, project_id)
+def rollback_project_memory_snapshot(
+    project_id: int,
+    snapshot_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    actor_user_id = _require_project_memory_write(session, project_id, current_user)
     snapshot = session.get(ProjectMemorySnapshot, snapshot_id)
     if not snapshot or snapshot.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Memory snapshot not found")
+    _lock_project_memory_write(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+    )
+    snapshot = session.exec(
+        select(ProjectMemorySnapshot)
+        .where(
+            ProjectMemorySnapshot.id == snapshot_id,
+            ProjectMemorySnapshot.project_id == project_id,
+        )
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if snapshot is None:
         raise HTTPException(status_code=404, detail="Memory snapshot not found")
     try:
         memory = json.loads(snapshot.memory_json or "{}")
@@ -1276,7 +1547,13 @@ def rollback_project_memory_snapshot(project_id: int, snapshot_id: int, session:
         memory,
         trigger=f"rollback:{snapshot.memory_version}",
     )
+    _lock_project_memory_write(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+    )
     _bust_project(project_id)
+    session.rollback()
     return {
         "project_id": project_id,
         "restored_from_snapshot_id": snapshot.id,

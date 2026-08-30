@@ -28,9 +28,10 @@ from app.services.project_financials import list_project_payments
 from app.services.project_milestones import list_project_milestones
 from app.services.project_progress import list_project_progress_updates
 from app.services.project_todos import list_project_todos
+from app.services.project_clients import find_client_for_project
 from app.services.stakeholder_contexts import (
     format_client_stakeholders_for_prompt,
-    list_client_stakeholder_dicts_by_name,
+    list_client_stakeholder_dicts,
 )
 from app.services.time_utils import utc_now_naive
 
@@ -244,7 +245,13 @@ def get_project_memory_payload(project: Project) -> dict[str, Any]:
     return payload
 
 
-def mark_project_memory_stale(session: Session, project_id: int, trigger: str = "data_changed") -> None:
+def mark_project_memory_stale(
+    session: Session,
+    project_id: int,
+    trigger: str = "data_changed",
+    *,
+    commit: bool = True,
+) -> None:
     project = session.exec(
         select(Project)
         .where(Project.id == project_id)
@@ -263,36 +270,41 @@ def mark_project_memory_stale(session: Session, project_id: int, trigger: str = 
         project.memory_rebuild_status = "idle"
     project.updated_at = utc_now_naive()
     session.add(project)
-    session.commit()
+    if commit:
+        session.commit()
 
 
-def mark_project_memories_stale_by_client_name(
+def mark_project_memories_stale_by_client_id(
     session: Session,
-    client_name: str,
+    client_id: int,
     *,
     trigger: str = "client_source_changed",
+    commit: bool = True,
 ) -> None:
-    """Invalidate every project whose prompt includes this client's sources.
+    """Invalidate projects linked to one stable client identity."""
 
-    Project-memory prompts include structured client stakeholders. Additive
-    stakeholder changes cannot be detected by comparing only already-persisted
-    evidence refs, so the client-to-project dependency must be invalidated at
-    the write boundary.
-    """
+    from app.models.db import ClientRecord
+    from app.services.project_clients import list_projects_for_client
 
-    normalized = " ".join(str(client_name or "").strip().lower().split())
-    if not normalized:
+    client = session.get(ClientRecord, client_id)
+    if client is None:
         return
     project_ids = sorted(
-        int(project_id)
-        for project_id, project_client in session.exec(
-            select(Project.id, Project.client)
-        ).all()
-        if project_id is not None
-        and " ".join(str(project_client or "").strip().lower().split()) == normalized
+        [
+        int(project.id)
+        for project in list_projects_for_client(session, client)
+        if project.id is not None
+        ]
     )
     for project_id in project_ids:
-        mark_project_memory_stale(session, project_id, trigger=trigger)
+        mark_project_memory_stale(
+            session,
+            project_id,
+            trigger=trigger,
+            commit=False,
+        )
+    if commit:
+        session.commit()
 
 
 def build_project_context_data(session: Session, project_id: int) -> tuple[Project, str]:
@@ -315,7 +327,14 @@ def build_project_context_data(session: Session, project_id: int) -> tuple[Proje
     if progress_updates:
         lines.append(f"Progress updates (showing latest {len(progress_updates)}):")
         for update in progress_updates:
-            by = update.created_by.display_name if update.created_by else "unknown"
+            # Keep provider inputs dependent only on the locked progress row.
+            # User.display_name is mutable and the User row is intentionally
+            # outside the Project -> child source-lock family.
+            by = (
+                f"user #{int(update.created_by_user_id)}"
+                if update.created_by_user_id is not None
+                else "unknown"
+            )
             lines.append(f"  - {by}: {update.content}")
             if update.next_step:
                 lines.append(f"    next: {update.next_step}")
@@ -412,13 +431,14 @@ def build_project_memory_data(
         if needs_progress
         else []
     )
+    project_client = find_client_for_project(session, project) if needs_stakeholders else None
     client_stakeholders = (
-        list_client_stakeholder_dicts_by_name(
+        list_client_stakeholder_dicts(
             session,
-            project.client,
+            int(project_client.id),
             include_source_id=True,
         )
-        if needs_stakeholders
+        if project_client is not None and project_client.id is not None
         else []
     )
     prompt_milestones = sorted(
@@ -488,7 +508,11 @@ def build_project_memory_data(
     if progress_updates:
         lines.append(f"Progress updates ({len(progress_updates)} recent):")
         for update in progress_updates:
-            by = update.created_by.display_name if update.created_by else "unknown"
+            by = (
+                f"user #{int(update.created_by_user_id)}"
+                if update.created_by_user_id is not None
+                else "unknown"
+            )
             source = f"[project_progress:{update.id}]"
             lines.append(f"  - {source} {by}: {update.content}")
             if update.next_step:

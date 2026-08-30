@@ -232,6 +232,9 @@ jobs:
             # Run the focused harness suite. Behavioral tests use pure unit or
             # isolated SQLite fixtures; database governance/health checks are
             # read-only against the configured server database.
+            TEST_DATABASE_PATH="/tmp/ariaai_deploy_tests_${{ github.run_id }}_${{ github.run_attempt }}.sqlite"
+            export TEST_DATABASE_URL="sqlite:///$TEST_DATABASE_PATH"
+            trap 'rm -f "$TEST_DATABASE_PATH" "$TEST_DATABASE_PATH-shm" "$TEST_DATABASE_PATH-wal"' EXIT
             "$PYTHON" -m pytest -q \
                 tests/test_agent_harness_native.py \
                 tests/test_activity_timeline_persist.py \
@@ -243,7 +246,9 @@ jobs:
                 tests/test_grounded_provider_eval.py \
                 tests/test_instruction_manifest.py \
                 tests/test_knowledge_evidence.py \
+                tests/test_knowledge_job_acl.py \
                 tests/test_knowledge_job_recovery.py \
+                tests/test_knowledge_storage_atomicity.py \
                 tests/test_knowledge_legacy_migration.py \
                 tests/test_layered_memory_routing.py \
                 tests/test_memory_fact_source_trust.py \
@@ -259,7 +264,22 @@ jobs:
                 tests/test_run_rollout.py \
                 tests/test_chat_run_persistence.py \
                 tests/test_chat_run_projection.py \
+                tests/test_client_memory_acl.py \
+                tests/test_client_memory_jobs.py \
+                tests/test_clients_router.py::ClientAuthorizationTestCase::test_single_project_editor_cannot_rename_or_delete_shared_client \
+                tests/test_clients_router.py::ClientAuthorizationTestCase::test_editor_of_every_linked_project_can_rename_and_delete_client \
+                tests/test_clients_router.py::ClientAuthorizationTestCase::test_client_views_do_not_expose_other_linked_projects_or_documents \
+                tests/test_knowledge_write_permissions.py \
                 tests/test_memory_candidates.py \
+                tests/test_project_client_identity.py \
+                tests/test_project_client_identity_migration.py \
+                tests/test_project_memory_acl.py \
+                tests/test_project_stakeholder_acl.py \
+                tests/test_project_subroute_write_acl.py \
+                tests/test_route_registration.py \
+                tests/test_task_orchestrator.py \
+                tests/test_office_documents_tool.py \
+                tests/test_hitas_project_write_final_auth.py \
                 tests/test_skill_root_snapshots.py \
                 tests/test_skill_quality.py \
                 tests/test_structured_patch.py \

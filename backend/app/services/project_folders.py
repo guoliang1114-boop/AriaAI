@@ -11,18 +11,22 @@ from app.services.project_todos import ensure_project_exists
 def list_project_folders(
     session: Session,
     project_id: int,
-    *,
-    init_default_folders,
 ) -> list[ProjectFolder]:
+    """List folders without turning a read request into a persistent write.
+
+    Default folders are created by the project creation transaction.  Legacy
+    projects without folders return an empty list and owners/editors can create
+    folders explicitly instead of allowing a viewer GET to seed database rows.
+    """
+
     ensure_project_exists(session, project_id)
-    folders = session.exec(
-        select(ProjectFolder)
-        .where(ProjectFolder.project_id == project_id)
-        .order_by(ProjectFolder.sort_order)
-    ).all()
-    if not folders:
-        folders = init_default_folders(session, project_id)
-    return folders
+    return list(
+        session.exec(
+            select(ProjectFolder)
+            .where(ProjectFolder.project_id == project_id)
+            .order_by(ProjectFolder.sort_order)
+        ).all()
+    )
 
 
 def create_project_folder(

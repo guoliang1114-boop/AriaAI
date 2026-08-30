@@ -98,7 +98,7 @@ def test_durable_migration_preserves_legacy_rows_and_deduplicates_v1_content() -
             job = knowledge_jobs.enqueue_knowledge_job(
                 session,
                 job_type="migrate_legacy_knowledge",
-                requested_by_user_id=1,
+                trusted_system=True,
                 payload={
                     "migration_version": preview["version"],
                     "plan_hash": preview["plan_hash"],
@@ -153,6 +153,7 @@ def test_changed_document_fails_closed_and_can_be_repreviewed() -> None:
             job = knowledge_jobs.enqueue_knowledge_job(
                 session,
                 job_type="migrate_legacy_knowledge",
+                trusted_system=True,
                 payload={
                     "migration_version": preview["version"],
                     "plan_hash": preview["plan_hash"],

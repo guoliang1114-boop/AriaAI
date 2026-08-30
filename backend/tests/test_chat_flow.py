@@ -23,6 +23,7 @@ from app.models.db import (
     ClientRecord,
     ClientStakeholder,
     ClientStakeholderHistory,
+    ChatTrace,
     Conversation,
     ConversationState,
     DocumentChunk,
@@ -1257,11 +1258,26 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
     def test_auto_summarize_file_persists_generated_summary(self):
         with Session(self.engine) as session:
+            actor = User(
+                email="auto-summary-owner@example.com",
+                password_hash="x",
+            )
             project = Project(name="Upload Project", client="Client")
+            session.add(actor)
             session.add(project)
+            session.flush()
+            session.add(
+                ProjectMember(
+                    project_id=int(project.id),
+                    user_id=int(actor.id),
+                    role="owner",
+                )
+            )
             session.commit()
+            session.refresh(actor)
             session.refresh(project)
             pid = project.id
+            actor_id = int(actor.id)
 
             file_path = Path("projects") / str(project.id) / "brief.md"
             full_path = self.uploads_dir / file_path
@@ -1281,16 +1297,38 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project_file)
             file_id = project_file.id
 
-        async def fake_summarize(file_id, *, file_path, file_type, extract_file_text, complete, session_factory):
+        async def fake_summarize(
+            file_id,
+            *,
+            project_id,
+            file_path,
+            file_type,
+            extract_file_text,
+            complete,
+            session_factory,
+            authorize_write,
+        ):
             with session_factory() as s:
+                authorize_write(s)
                 pf = s.get(ProjectFile, file_id)
                 if pf:
                     pf.summary = "Concise consultant summary"
                     s.add(pf)
                     s.commit()
+                    return True
+            return None
 
         with patch("app.routers.projects_deps.summarize_uploaded_project_file", side_effect=fake_summarize), patch("app.database.engine", self.engine):
-            asyncio.run(projects_router_module._auto_summarize_file(file_id, str(full_path), "md", pid, None))
+            asyncio.run(
+                projects_router_module._auto_summarize_file(
+                    file_id,
+                    str(full_path),
+                    "md",
+                    pid,
+                    None,
+                    actor_id,
+                )
+            )
 
         with Session(self.engine) as session:
             refreshed = session.get(ProjectFile, file_id)
@@ -1955,6 +1993,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 password_hash="hashed",
             )
             session.add(client)
+            session.flush()
+            project.client_id = client.id
             session.add(project)
             session.add(member_user)
             session.commit()
@@ -2719,6 +2759,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             project = Project(
                 name="Meeting Project",
                 client="Acme",
+                client_id=client.id,
                 status="delivering",
                 md_notes="客户上次会议要求补充安全合规结论。",
                 context_memory_json=json.dumps(
@@ -2878,6 +2919,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             project = Project(
                 name="Concurrent Project",
                 client=client.name,
+                client_id=client.id,
                 status="delivering",
                 memory_stale=False,
             )
@@ -2987,7 +3029,11 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.add(client)
             session.commit()
             session.refresh(client)
-            project = Project(name="Stakeholder Capture", client="Acme")
+            project = Project(
+                name="Stakeholder Capture",
+                client="Acme",
+                client_id=client.id,
+            )
             session.add(project)
             session.commit()
             session.refresh(project)
@@ -3148,17 +3194,23 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
     def test_memory_jobs_cancel_removes_rebuild_and_summary_jobs(self):
         removed: list[str] = []
+        with Session(self.engine) as session:
+            project = Project(name="Cancelable memory job", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = int(project.id)
 
         with patch(
             "app.services.scheduler.remove_job",
             side_effect=lambda job_id: removed.append(job_id),
         ):
-            resp = self.client.post("/projects/memory/jobs/42/cancel")
+            resp = self.client.post(f"/projects/memory/jobs/{project_id}/cancel")
 
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("project_memory_rebuild_42", removed)
-        self.assertIn("project_memory_summary_warm_42_zh", removed)
-        self.assertIn("project_memory_summary_warm_42_en", removed)
+        self.assertIn(f"project_memory_rebuild_{project_id}", removed)
+        self.assertIn(f"project_memory_summary_warm_{project_id}_zh", removed)
+        self.assertIn(f"project_memory_summary_warm_{project_id}_en", removed)
 
     def test_memory_jobs_run_now_clears_status_only_queue_when_memory_is_ready(self):
         with Session(self.engine) as session:
@@ -3182,8 +3234,9 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch(
-            "app.routers.projects_deps._warm_project_memory_summary_caches",
+        with patch.object(
+            projects_memory_module,
+            "_warm_project_memory_summary_caches",
             new=AsyncMock(return_value=["overview"]),
         ), patch("app.services.scheduler.remove_job"):
             resp = self.client.post(f"/projects/memory/jobs/{project_id}/run-now")
@@ -3248,6 +3301,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             )
             project = Project(name="Acme Project", client="Acme Corp", description="Before update")
             session.add(client)
+            session.flush()
+            project.client_id = client.id
             session.add(project)
             session.commit()
             session.refresh(project)
@@ -3284,6 +3339,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 memory_stale=False,
             )
             session.add(client)
+            session.flush()
+            project.client_id = client.id
             session.add(project)
             session.commit()
             session.refresh(client)
@@ -3684,6 +3741,18 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(conv)
             return conv.id
+
+    @contextmanager
+    def _materialized_upload(self, relative_path: str, content: bytes = b"test artifact"):
+        """Give mocked generators real bytes for the persistence truth gate."""
+
+        with tempfile.TemporaryDirectory(prefix="aria-chat-artifact-") as tmpdir:
+            uploads_dir = Path(tmpdir)
+            artifact_path = uploads_dir / relative_path
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_bytes(content)
+            with patch("app.services.chat_store.UPLOADS_DIR", uploads_dir):
+                yield artifact_path
 
     def test_digital_strategy_ppt_tool_is_forced_to_skill_template(self):
         runtime = SimpleNamespace(
@@ -4442,7 +4511,11 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(client)
 
-            project = Project(name="Scoped Project", client="Acme")
+            project = Project(
+                name="Scoped Project",
+                client="Acme",
+                client_id=client.id,
+            )
             session.add(project)
             session.commit()
             session.refresh(project)
@@ -4779,6 +4852,8 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 description="Current project description",
             )
             session.add(client)
+            session.flush()
+            project.client_id = client.id
             session.add(project)
             session.commit()
             session.refresh(client)
@@ -4810,6 +4885,8 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             client = ClientRecord(name="Acme", industry="Manufacturing")
             project = Project(name="Memory Project", client="Acme")
             session.add(client)
+            session.flush()
+            project.client_id = client.id
             session.add(project)
             session.commit()
             session.refresh(client)
@@ -4960,10 +5037,14 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             )
             project = Project(
                 name="Client Memory Project",
-                client="Acme Corp",
+                # Stable identity must keep client context available even when
+                # the legacy display-name snapshot is blank or temporarily stale.
+                client="",
                 description="Current project description",
             )
             session.add(client)
+            session.flush()
+            project.client_id = client.id
             session.add(project)
             session.commit()
             session.refresh(project)
@@ -5336,7 +5417,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         )
         req = chat_router_module.SendMessageRequest(content="make doc")
 
-        with patch(
+        with self._materialized_upload("generated/spec.docx"), patch(
             "app.services.chat_streaming.registry.execute",
             new=AsyncMock(
                 return_value={
@@ -5395,7 +5476,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         )
         req = chat_router_module.SendMessageRequest(content="make deck", skill_id=24)
 
-        with patch(
+        with self._materialized_upload("generated/generated_test_deck.pptx"), patch(
             "app.services.chat_streaming.registry.execute",
             new=AsyncMock(
                 return_value={
@@ -5570,16 +5651,24 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
 
     def test_stream_chat_events_persists_friendly_phase_errors(self):
         conv_id = self._create_conversation()
+        llm = FakeStreamingLLM(
+            [
+                Exception("429 engine_overloaded"),
+                Exception("429 engine_overloaded"),
+            ]
+        )
         runtime = ChatRuntime(
             conv_id=conv_id,
             selected_model="claude-sonnet-4-6",
-            llm=FakeStreamingLLM([Exception("429 engine_overloaded")]),
+            llm=llm,
             system="system",
             api_messages=[{"role": "user", "content": "hello"}],
             rag_sources=[],
             tools=None,
             max_tokens=1024,
             temperature=0.7,
+            model_turn_retry_base_delay_ms=0,
+            model_turn_retry_max_delay_ms=0,
         )
         req = chat_router_module.SendMessageRequest(content="hello")
 
@@ -5591,6 +5680,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         )
         self.assertEqual(text_event["type"], "text")
         self.assertIn("AI 服务当前繁忙", text_event["content"])
+        self.assertEqual(llm.calls, 2)
         self.assertTrue(
             any(
                 json.loads(event.replace("data: ", "").strip()).get("type") == "done"
@@ -5827,6 +5917,13 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             metadata = json.loads(assistant_messages[0].metadata_json)
             self.assertNotIn("tool_calls", metadata)
             self.assertNotIn("artifacts", metadata)
+            trace = session.exec(
+                select(ChatTrace).where(ChatTrace.conversation_id == conv_id)
+            ).one()
+            fallback_events = json.loads(trace.fallback_events_json)
+            self.assertTrue(
+                any(event.get("type") == "tool_blocked" for event in fallback_events)
+            )
 
     def test_stream_chat_events_skips_invalid_tool_in_p2_without_breaking_pairing(self):
         """Invalid tool in P2 must still emit a tool_result so tool_use/tool_result pairing is preserved."""
@@ -5875,6 +5972,17 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         self.engine = create_test_engine()
         drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
+        with Session(self.engine) as session:
+            session.add(
+                User(
+                    id=1,
+                    email="admin@example.com",
+                    display_name="Admin",
+                    password_hash="h",
+                    is_admin=True,
+                )
+            )
+            session.commit()
 
         def override_session():
             with Session(self.engine) as session:
@@ -5890,7 +5998,11 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         from app.routers.auth import get_current_user as _gcu, require_admin as _ra
 
         admin_user = User(
-            id=1, email="admin@example.com", display_name="Admin", is_admin=True
+            id=1,
+            email="admin@example.com",
+            display_name="Admin",
+            password_hash="h",
+            is_admin=True,
         )
         app.dependency_overrides[_gcu] = lambda: admin_user
         app.dependency_overrides[_ra] = lambda: admin_user
@@ -6061,6 +6173,8 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                 memory_stale=False,
             )
             session.add(client)
+            session.flush()
+            project.client_id = client.id
             session.add(project)
             session.commit()
             session.refresh(client)
@@ -6116,6 +6230,8 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                 memory_stale=False,
             )
             session.add(client)
+            session.flush()
+            project.client_id = client.id
             session.add(project)
             session.commit()
             session.refresh(client)
@@ -6163,7 +6279,15 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
             )
             session.add(first)
             session.add(second)
-            session.add(Project(name="Alpha Delivery", client="Acme Corp", status="delivering"))
+            session.flush()
+            session.add(
+                Project(
+                    name="Alpha Delivery",
+                    client="Acme Corp",
+                    client_id=first.id,
+                    status="delivering",
+                )
+            )
             session.commit()
             session.refresh(first)
             session.refresh(second)
@@ -6323,6 +6447,9 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
 
     def test_cancel_client_memory_jobs_removes_rebuild_job(self):
         removed: list[str] = []
+        with Session(self.engine) as session:
+            session.add(ClientRecord(id=42, name="Queued client"))
+            session.commit()
 
         with patch.object(
             clients_router_module.scheduler_service,
@@ -6341,7 +6468,15 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         with Session(self.engine) as session:
             client = ClientRecord(name="Acme Corp", notes="Strategic account")
             session.add(client)
-            session.add(Project(name="Alpha Delivery", client="Acme Corp", status="delivering"))
+            session.flush()
+            session.add(
+                Project(
+                    name="Alpha Delivery",
+                    client="Acme Corp",
+                    client_id=client.id,
+                    status="delivering",
+                )
+            )
             session.commit()
             session.refresh(client)
             client_id = client.id
@@ -6687,6 +6822,25 @@ class BuiltinSkillsTestCase(unittest.TestCase):
                             runtime_tool_names,
                             f"Skill '{skill.name}' lost all tools in {'project chat' if project_id else 'chat'}",
                         )
+
+    def test_seeded_skills_publish_only_executable_registered_tools(self):
+        from app.tools import registry
+
+        with Session(self.engine) as session:
+            skills_router_module.ensure_builtin_pro_skills(session)
+            skills = session.exec(select(Skill)).all()
+
+        for skill in skills:
+            tool_defs = json.loads(skill.tools_definition_json or "[]")
+            self.assertTrue(
+                all(tool_def.get("type") != "legacy" for tool_def in tool_defs),
+                f"Skill '{skill.name}' still publishes a legacy tool placeholder",
+            )
+            for tool_name in skill.tools:
+                self.assertIsNotNone(
+                    registry.get(tool_name),
+                    f"Skill '{skill.name}' publishes unregistered tool '{tool_name}'",
+                )
 
     def test_existing_digital_strategy_skill_tools_are_upgraded(self):
         old_skill = Skill(

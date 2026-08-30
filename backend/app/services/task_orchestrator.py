@@ -11,11 +11,14 @@ import json
 import logging
 import re
 import time
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.config import UPLOADS_DIR
@@ -34,10 +37,18 @@ from app.services.consulting_capabilities import (
 )
 from app.services.artifact_intent import ArtifactContract, detect_artifact_intent, primary_user_request_text
 from app.services.deliverable_naming import file_name_for_deliverable, normalize_deliverable_title
-from app.services.project_core import init_default_project_folders
+from app.services.project_contexts import mark_project_memory_stale
+from app.services.project_core import (
+    init_default_project_folders,
+    lock_and_require_project_write,
+    lock_project_for_trusted_system_write,
+)
 from app.services.project_documents import create_project_document_record, ensure_markdown_filename
 from app.services.time_utils import utc_now_naive
-from app.tools.office_documents import write_project_office_document
+from app.tools.office_documents import (
+    persist_prepared_project_office_document,
+    write_project_office_document,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +90,34 @@ class StepSpec:
     title: str
     step_type: str
     retryable: bool = True
+
+
+@dataclass(frozen=True)
+class TaskStepLease:
+    task_id: int
+    step_id: int
+    token: str
+
+
+@dataclass
+class LockedTaskScope:
+    task: TaskRun
+    steps: list[TaskStep]
+    artifacts: list[TaskArtifact]
+    events: list[TaskEvent]
+
+    def step(self, step_id: int) -> TaskStep:
+        for item in self.steps:
+            if int(item.id or 0) == step_id:
+                return item
+        raise TaskExecutionStopped("Task step no longer exists")
+
+
+class TaskExecutionStopped(RuntimeError):
+    """The actor, status, or lease no longer permits a background write."""
+
+
+_TASK_STEP_LEASE_KEY = "_aria_execution_lease"
 
 
 @dataclass(frozen=True)
@@ -787,6 +826,7 @@ def _record_event(
     message: str = "",
     payload: dict | None = None,
     step: TaskStep | None = None,
+    commit: bool = True,
 ) -> TaskEvent:
     event = TaskEvent(
         task_run_id=task.id,
@@ -796,12 +836,17 @@ def _record_event(
         payload_json=_json_dumps(payload or {}),
     )
     session.add(event)
-    session.commit()
-    session.refresh(event)
+    if commit:
+        session.commit()
+        session.refresh(event)
+    else:
+        session.flush()
     return event
 
 
 def _serialize_step(step: TaskStep) -> dict[str, Any]:
+    step_input = _json_loads(step.input_json)
+    step_input.pop(_TASK_STEP_LEASE_KEY, None)
     return {
         "id": step.id,
         "task_run_id": step.task_run_id,
@@ -810,7 +855,7 @@ def _serialize_step(step: TaskStep) -> dict[str, Any]:
         "step_type": step.step_type,
         "status": step.status,
         "sort_order": step.sort_order,
-        "input": _json_loads(step.input_json),
+        "input": step_input,
         "output": _json_loads(step.output_json),
         "error_code": step.error_code,
         "error_message": step.error_message,
@@ -1085,6 +1130,119 @@ def task_step_log_message(event_type: str, step: dict[str, Any] | None = None, o
     return f"{prefix}，状态更新为 {step.get('status')}。"
 
 
+def _lock_task_scope(
+    session: Session,
+    task_id: int,
+    *,
+    trusted_system: bool = False,
+    control_actor_user_id: int | None = None,
+) -> LockedTaskScope:
+    """Lock one task under Aria's actor -> project -> membership -> child order.
+
+    Background execution always uses ``TaskRun.created_by_user_id``.  A
+    different actor is accepted only for an authenticated control operation
+    (cancel/pause/resume) whose router already identifies the caller.  Legacy
+    actor-less rows are executable only when a repository-owned caller passes
+    ``trusted_system=True`` directly; this flag is never part of an API model.
+    """
+
+    locator = session.exec(
+        select(TaskRun)
+        .where(TaskRun.id == task_id)
+        .execution_options(populate_existing=True)
+    ).first()
+    if locator is None:
+        raise TaskExecutionStopped("Task run not found")
+    if locator.project_id is None:
+        raise TaskExecutionStopped("Project id is required")
+
+    expected_project_id = int(locator.project_id)
+    execution_actor_id = locator.created_by_user_id
+    actor_user_id = control_actor_user_id if control_actor_user_id is not None else execution_actor_id
+    if actor_user_id is not None:
+        lock_and_require_project_write(
+            session,
+            expected_project_id,
+            actor_user_id=int(actor_user_id),
+        )
+    elif trusted_system:
+        lock_project_for_trusted_system_write(session, expected_project_id)
+    else:
+        raise TaskExecutionStopped("Actor-less task execution requires trusted_system=True")
+
+    session.expire(locator)
+    task = session.exec(
+        select(TaskRun)
+        .where(TaskRun.id == task_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if task is None:
+        raise TaskExecutionStopped("Task run not found")
+    if task.project_id != expected_project_id:
+        raise TaskExecutionStopped("Task project changed during authorization")
+    if control_actor_user_id is None and task.created_by_user_id != execution_actor_id:
+        raise TaskExecutionStopped("Task actor changed during authorization")
+    if control_actor_user_id is None and execution_actor_id is None and not trusted_system:
+        raise TaskExecutionStopped("Actor-less task execution requires trusted_system=True")
+
+    steps = list(
+        session.exec(
+            select(TaskStep)
+            .where(TaskStep.task_run_id == task_id)
+            .order_by(TaskStep.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+    )
+    artifacts = list(
+        session.exec(
+            select(TaskArtifact)
+            .where(TaskArtifact.task_run_id == task_id)
+            .order_by(TaskArtifact.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+    )
+    events = list(
+        session.exec(
+            select(TaskEvent)
+            .where(TaskEvent.task_run_id == task_id)
+            .order_by(TaskEvent.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+    )
+    return LockedTaskScope(task=task, steps=steps, artifacts=artifacts, events=events)
+
+
+def _set_step_lease(step: TaskStep, token: str) -> None:
+    payload = _json_loads(step.input_json)
+    if token:
+        payload[_TASK_STEP_LEASE_KEY] = token
+    else:
+        payload.pop(_TASK_STEP_LEASE_KEY, None)
+    step.input_json = _json_dumps(payload)
+
+
+def _require_step_lease(
+    scope: LockedTaskScope,
+    lease: TaskStepLease,
+) -> TaskStep:
+    task = scope.task
+    step = scope.step(lease.step_id)
+    current_token = str(_json_loads(step.input_json).get(_TASK_STEP_LEASE_KEY) or "")
+    if (
+        int(task.id or 0) != lease.task_id
+        or task.status != "running"
+        or task.current_step_key != step.key
+        or step.status != "running"
+        or current_token != lease.token
+    ):
+        raise TaskExecutionStopped("Task execution lease is no longer current")
+    return step
+
+
 def create_task_run(
     session: Session,
     *,
@@ -1095,9 +1253,22 @@ def create_task_run(
     plan_steps: list[StepSpec] | tuple[StepSpec, ...] | None = None,
     conversation_id: int | None = None,
     created_by_user_id: int | None = None,
+    trusted_system: bool = False,
 ) -> TaskRun:
     if task_type not in SUPPORTED_TASK_TYPES:
         raise ValueError(f"Unsupported task type: {task_type}")
+    if project_id is None:
+        raise ValueError("Project id is required")
+    if created_by_user_id is not None:
+        lock_and_require_project_write(
+            session,
+            project_id,
+            actor_user_id=created_by_user_id,
+        )
+    elif trusted_system:
+        lock_project_for_trusted_system_write(session, project_id)
+    else:
+        raise ValueError("created_by_user_id is required for user-created tasks")
     now = utc_now_naive()
     task = TaskRun(
         project_id=project_id,
@@ -1111,8 +1282,7 @@ def create_task_run(
         updated_at=now,
     )
     session.add(task)
-    session.commit()
-    session.refresh(task)
+    session.flush()
 
     steps = list(plan_steps or [])
     if not steps:
@@ -1133,14 +1303,16 @@ def create_task_run(
                 retryable=spec.retryable,
             )
         )
-    session.commit()
     _record_event(
         session,
         task,
         event_type="task_created",
         message="任务已创建",
         payload={"task_type": task_type, "planned_steps": [{"key": step.key, "step_type": step.step_type} for step in steps]},
+        commit=False,
     )
+    session.commit()
+    session.refresh(task)
     return task
 
 
@@ -1158,43 +1330,128 @@ def get_task_run_or_none(session: Session, task_id: int) -> TaskRun | None:
     return session.get(TaskRun, task_id)
 
 
-def _start_step(session: Session, task: TaskRun, step: TaskStep) -> None:
+def _start_step_authorized(
+    session: Session,
+    task_id: int,
+    step_id: int,
+    *,
+    trusted_system: bool,
+) -> tuple[TaskStepLease | None, bool, dict[str, Any]]:
+    session.rollback()
+    scope = _lock_task_scope(session, task_id, trusted_system=trusted_system)
+    task = scope.task
+    step = scope.step(step_id)
+    if task.status in TASK_STATUS_TERMINAL or task.status == TASK_STATUS_PAUSED:
+        session.rollback()
+        raise TaskExecutionStopped(f"Task is {task.status}")
+    if step.status in {"completed", "skipped"}:
+        session.rollback()
+        return None, False, {}
+
     now = utc_now_naive()
+    first_start = task.started_at is None
+    lease = TaskStepLease(
+        task_id=int(task.id),
+        step_id=int(step.id),
+        token=uuid.uuid4().hex,
+    )
     task.status = "running"
     task.current_step_key = step.key
     task.updated_at = now
     task.started_at = task.started_at or now
+    task.completed_at = None
     step.status = "running"
-    step.started_at = step.started_at or now
+    step.started_at = now
+    step.completed_at = None
     step.updated_at = now
+    _set_step_lease(step, lease.token)
     session.add(task)
     session.add(step)
+    if first_start:
+        _record_event(
+            session,
+            task,
+            event_type="task_started",
+            message="任务开始执行",
+            commit=False,
+        )
+    _record_event(
+        session,
+        task,
+        step=step,
+        event_type="step_started",
+        message=f"{step.title}开始",
+        commit=False,
+    )
+    progress_payload = _step_progress_payload(task, step)
+    _record_event(
+        session,
+        task,
+        step=step,
+        event_type="step_progress",
+        message=str(progress_payload.get("message") or ""),
+        payload={"message": str(progress_payload.get("message") or ""), **progress_payload},
+        commit=False,
+    )
     session.commit()
-    _record_event(session, task, step=step, event_type="step_started", message=f"{step.title}开始")
+    return lease, first_start, progress_payload
 
 
-def _complete_step(session: Session, task: TaskRun, step: TaskStep, output: dict) -> None:
+def _record_step_failure_authorized(
+    session: Session,
+    lease: TaskStepLease,
+    exc: Exception,
+    *,
+    duration_ms: int | None,
+    trusted_system: bool,
+) -> tuple[str, TaskStepLease | None]:
+    """Persist a retry/failure receipt only while actor + lease remain valid."""
+
+    session.rollback()
+    scope = _lock_task_scope(session, lease.task_id, trusted_system=trusted_system)
+    task = scope.task
+    step = _require_step_lease(scope, lease)
     now = utc_now_naive()
-    step.status = "completed"
-    step.output_json = _json_dumps(output)
-    step.error_code = ""
-    step.error_message = ""
-    step.updated_at = now
-    step.completed_at = now
-    task.updated_at = now
-    session.add(step)
-    session.add(task)
-    session.commit()
-    _record_event(session, task, step=step, event_type="step_completed", message=f"{step.title}完成", payload=output)
+    if step.retryable and step.retry_count < 1:
+        step.retry_count += 1
+        step.error_code = exc.__class__.__name__
+        step.error_message = str(exc)
+        step.updated_at = now
+        task.retry_count += 1
+        task.error_code = ""
+        task.error_message = ""
+        task.updated_at = now
+        next_lease = TaskStepLease(
+            task_id=lease.task_id,
+            step_id=lease.step_id,
+            token=uuid.uuid4().hex,
+        )
+        _set_step_lease(step, next_lease.token)
+        session.add(step)
+        session.add(task)
+        _record_event(
+            session,
+            task,
+            step=step,
+            event_type="step_retry",
+            message=f"{step.title}失败，正在自动重试第 {step.retry_count} 次：{exc}",
+            payload={
+                "error_code": step.error_code,
+                "retryable": step.retryable,
+                "retry_count": step.retry_count,
+                "duration_ms": duration_ms,
+            },
+            commit=False,
+        )
+        session.commit()
+        return "retry", next_lease
 
-
-def _fail_step(session: Session, task: TaskRun, step: TaskStep, exc: Exception, *, duration_ms: int | None = None) -> None:
-    now = utc_now_naive()
     step.status = "failed"
     step.error_code = exc.__class__.__name__
     step.error_message = str(exc)
     step.updated_at = now
     step.completed_at = now
+    _set_step_lease(step, "")
     task.status = "failed"
     task.current_step_key = step.key
     task.error_code = step.error_code
@@ -1203,74 +1460,21 @@ def _fail_step(session: Session, task: TaskRun, step: TaskStep, exc: Exception, 
     task.completed_at = now
     session.add(step)
     session.add(task)
-    session.commit()
     _record_event(
         session,
         task,
         step=step,
         event_type="step_failed",
         message=f"{step.title}失败：{exc}",
-        payload={"error_code": step.error_code, "retryable": step.retryable, "duration_ms": duration_ms},
-    )
-
-
-def _retry_step_after_failure(
-    session: Session,
-    task: TaskRun,
-    step: TaskStep,
-    exc: Exception,
-    *,
-    duration_ms: int | None = None,
-) -> None:
-    now = utc_now_naive()
-    step.retry_count += 1
-    step.error_code = exc.__class__.__name__
-    step.error_message = str(exc)
-    step.updated_at = now
-    task.retry_count += 1
-    task.status = "running"
-    task.error_code = ""
-    task.error_message = ""
-    task.updated_at = now
-    session.add(step)
-    session.add(task)
-    session.commit()
-    _record_event(
-        session,
-        task,
-        step=step,
-        event_type="step_retry",
-        message=f"{step.title}失败，正在自动重试第 {step.retry_count} 次：{exc}",
         payload={
             "error_code": step.error_code,
             "retryable": step.retryable,
-            "retry_count": step.retry_count,
             "duration_ms": duration_ms,
         },
+        commit=False,
     )
-
-
-def _progress_step(session: Session, task: TaskRun, step: TaskStep, message: str, payload: dict | None = None) -> None:
-    _record_event(
-        session,
-        task,
-        step=step,
-        event_type="step_progress",
-        message=message,
-        payload={"message": message, **(payload or {})},
-    )
-
-
-def _skip_step(session: Session, task: TaskRun, step: TaskStep, *, reason: str = "任务已取消") -> None:
-    now = utc_now_naive()
-    step.status = "skipped"
-    step.error_code = "canceled"
-    step.error_message = reason
-    step.updated_at = now
-    step.completed_at = now
-    session.add(step)
     session.commit()
-    _record_event(session, task, step=step, event_type="step_skipped", message=f"{step.title}跳过", payload={"message": reason})
+    return "failed", None
 
 
 def _previous_step_output(session: Session, task_id: int, key: str) -> dict[str, Any]:
@@ -2810,38 +3014,12 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         target_name = str(task_input.get("file_name") or task_input.get("title") or result.get("title") or "项目文本交付").strip()
         if target_name.lower().endswith(".md"):
             target_name = ensure_markdown_filename(target_name)
-        project_file = create_project_document_record(
-            session,
-            task.project_id,
-            name=target_name,
-            content=str(result.get("content") or ""),
-            uploads_dir=UPLOADS_DIR,
-            init_default_folders=init_default_project_folders,
-            folder_id=task_input.get("folder_id"),
-            summary=str(result.get("summary") or "AI generated Markdown deliverable"),
-            auto_assign_folder=True,
-        )
-        result.update(
-            {
-                "id": project_file.id,
-                "project_file_id": project_file.id,
-                "name": project_file.name,
-                "file_name": project_file.name,
-                "file_type": project_file.file_type,
-                "path": project_file.path,
-            }
-        )
-        artifact = TaskArtifact(
-            task_run_id=task.id,
-            step_id=step.id,
-            project_file_id=project_file.id,
-            name=project_file.name,
-            file_type=project_file.file_type,
-            path=project_file.path,
-            metadata_json=_json_dumps(result),
-        )
-        session.add(artifact)
-        session.commit()
+        result["_pending_markdown_project_file"] = {
+            "name": target_name,
+            "content": str(result.get("content") or ""),
+            "folder_id": task_input.get("folder_id"),
+            "summary": str(result.get("summary") or "AI generated Markdown deliverable"),
+        }
         return result
 
     if step.step_type == "write_project_office_document" and task.task_type == "generate_client_ppt":
@@ -2850,26 +3028,20 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         context = _previous_context_output(session, task.id)
         title = str(slide_spec.get("title") or _client_ppt_delivery_title(context, task.goal, str(task_input.get("title") or "")))
         file_name = str(task_input.get("file_name") or _client_ppt_file_name(title))
+        writer_kwargs = {
+            "project_id": task.project_id,
+            "file_type": "pptx",
+            "file_name": file_name,
+            "title": title,
+            "slides": slide_spec.get("slides") or [],
+            "folder_id": task_input.get("folder_id"),
+            "summary": task_input.get("summary") or f"AI generated client introduction PPT for {project.client if project else 'client'}",
+            "persist": False,
+        }
+        session.rollback()
         result = await write_project_office_document(
-            project_id=task.project_id,
-            file_type="pptx",
-            file_name=file_name,
-            title=title,
-            slides=slide_spec.get("slides") or [],
-            folder_id=task_input.get("folder_id"),
-            summary=task_input.get("summary") or f"AI generated client introduction PPT for {project.client if project else 'client'}",
+            **writer_kwargs,
         )
-        artifact = TaskArtifact(
-            task_run_id=task.id,
-            step_id=step.id,
-            project_file_id=result.get("id"),
-            name=result.get("name") or file_name,
-            file_type=result.get("file_type") or "pptx",
-            path=result.get("path") or "",
-            metadata_json=_json_dumps(result),
-        )
-        session.add(artifact)
-        session.commit()
         return result
 
     if step.step_type == "write_project_office_document":
@@ -2883,29 +3055,23 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
             client_name=project.client if project and project.client else "",
         )
         file_name = str(task_input.get("file_name") or file_name_for_deliverable(title, file_type))
+        writer_kwargs = {
+            "project_id": task.project_id,
+            "file_type": file_type,
+            "file_name": file_name,
+            "title": title,
+            "content": str(document_spec.get("content") or ""),
+            "sections": document_spec.get("sections"),
+            "sheets": document_spec.get("sheets"),
+            "slides": document_spec.get("slides"),
+            "folder_id": task_input.get("folder_id"),
+            "summary": task_input.get("summary") or f"AI generated {file_type.upper()} document for {project.client if project else 'project'}",
+            "persist": False,
+        }
+        session.rollback()
         result = await write_project_office_document(
-            project_id=task.project_id,
-            file_type=file_type,
-            file_name=file_name,
-            title=title,
-            content=str(document_spec.get("content") or ""),
-            sections=document_spec.get("sections"),
-            sheets=document_spec.get("sheets"),
-            slides=document_spec.get("slides"),
-            folder_id=task_input.get("folder_id"),
-            summary=task_input.get("summary") or f"AI generated {file_type.upper()} document for {project.client if project else 'project'}",
+            **writer_kwargs,
         )
-        artifact = TaskArtifact(
-            task_run_id=task.id,
-            step_id=step.id,
-            project_file_id=result.get("id"),
-            name=result.get("name") or file_name,
-            file_type=result.get("file_type") or file_type,
-            path=result.get("path") or "",
-            metadata_json=_json_dumps(result),
-        )
-        session.add(artifact)
-        session.commit()
         return result
 
     if step.step_type == "summarize_result":
@@ -2922,117 +3088,176 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
     raise ValueError(f"Unsupported step: {step.step_type or step.key}")
 
 
-async def execute_task_run_in_session(session: Session, task_id: int) -> None:
-    async for _ in stream_execute_task_run_in_session(session, task_id):
-        pass
+def _prepared_source_path(output: dict[str, Any] | None) -> Path | None:
+    prepared = (output or {}).get("_prepared_project_file")
+    if not isinstance(prepared, dict):
+        return None
+    value = str(prepared.get("source_path") or "")
+    return Path(value) if value else None
 
 
-async def stream_execute_task_run_in_session(session: Session, task_id: int) -> AsyncIterator[dict[str, Any]]:
-    task = session.get(TaskRun, task_id)
-    if task is None or task.status in TASK_STATUS_TERMINAL or task.status == TASK_STATUS_PAUSED:
+def _remove_file_quietly(path: Path | None) -> None:
+    if path is None:
         return
-    _record_event(session, task, event_type="task_started", message="任务开始执行")
-    yield {
-        "event_type": "task_started",
-        "message": task_step_log_message("task_started"),
-        "task": serialize_task_run(session, task, include_events=True),
-    }
-    steps = session.exec(
-        select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)
-    ).all()
-    for step in steps:
-        session.refresh(task)
-        if task.status == "canceled":
-            yield {
-                "event_type": "task_canceled",
-                "message": task_step_log_message("task_canceled"),
-                "task": serialize_task_run(session, task, include_events=True),
-            }
-            return
-        if task.status == TASK_STATUS_PAUSED:
-            yield {
-                "event_type": "task_paused",
-                "message": task_step_log_message("task_paused"),
-                "task": serialize_task_run(session, task, include_events=True),
-            }
-            return
-        if step.status == "completed":
-            continue
-        _start_step(session, task, step)
-        yield {
-            "event_type": "step_started",
-            "step": _serialize_step(step),
-            "message": task_step_log_message("step_started", _serialize_step(step)),
-            "task": serialize_task_run(session, task, include_events=True),
-        }
-        progress_payload = _step_progress_payload(task, step)
-        _progress_step(session, task, step, str(progress_payload.get("message") or ""), progress_payload)
-        yield {
-            "event_type": "step_progress",
-            "step": _serialize_step(step),
-            "message": task_step_log_message("step_progress", _serialize_step(step), progress_payload),
-            "task": serialize_task_run(session, task, include_events=True),
-            "payload": progress_payload,
-        }
-        while True:
-            step_started_at = time.perf_counter()
-            try:
-                output = await _execute_step(session, task, step)
-                break
-            except Exception as exc:
-                duration_ms = round((time.perf_counter() - step_started_at) * 1000)
-                session.rollback()
-                refreshed_task = session.get(TaskRun, task.id)
-                refreshed_step = session.get(TaskStep, step.id)
-                if refreshed_task is not None:
-                    task = refreshed_task
-                if refreshed_step is not None:
-                    step = refreshed_step
-                if step.retryable and step.retry_count < 1:
-                    _retry_step_after_failure(session, task, step, exc, duration_ms=duration_ms)
-                    yield {
-                        "event_type": "step_retry",
-                        "step": _serialize_step(step),
-                        "message": task_step_log_message("step_retry", _serialize_step(step)),
-                        "task": serialize_task_run(session, task, include_events=True),
-                        "duration_ms": duration_ms,
-                    }
-                    continue
-                _fail_step(session, task, step, exc, duration_ms=duration_ms)
-                yield {
-                    "event_type": "step_failed",
-                    "step": _serialize_step(step),
-                    "message": task_step_log_message("step_failed", _serialize_step(step)),
-                    "task": serialize_task_run(session, task, include_events=True),
-                    "duration_ms": duration_ms,
-                }
-                return
-        session.refresh(task)
-        if task.status == "canceled":
-            _skip_step(session, task, step, reason=task.error_message or "用户取消任务")
-            yield {
-                "event_type": "task_canceled",
-                "step": _serialize_step(step),
-                "message": task_step_log_message("task_canceled"),
-                "task": serialize_task_run(session, task, include_events=True),
-            }
-            return
-        duration_ms = round((time.perf_counter() - step_started_at) * 1000)
-        if isinstance(output, dict):
-            output = {**output, "duration_ms": duration_ms}
-        _complete_step(session, task, step, output)
-        yield {
-            "event_type": "step_completed",
-            "step": _serialize_step(step),
-            "message": task_step_log_message("step_completed", _serialize_step(step), output),
-            "task": serialize_task_run(session, task, include_events=True),
-            "duration_ms": duration_ms,
-        }
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError:
+        logger.warning("[task] unable to remove abandoned generated file: %s", path)
 
-    now = utc_now_naive()
-    final_output = _previous_step_output(session, task.id, "summarize_result") or _previous_step_output_by_type(
-        session, task.id, "summarize_result"
+
+def _materialize_step_output(
+    session: Session,
+    task: TaskRun,
+    step: TaskStep,
+    output: dict[str, Any],
+) -> tuple[dict[str, Any], Path | None]:
+    """Create artifact rows only inside the final authorized lease transaction."""
+
+    public_output = {
+        key: value
+        for key, value in output.items()
+        if not str(key).startswith("_pending_") and key != "_prepared_project_file"
+    }
+    created_project_path: Path | None = None
+    project_file = None
+    pending_markdown = output.get("_pending_markdown_project_file")
+    prepared_office = output.get("_prepared_project_file")
+    try:
+        if isinstance(pending_markdown, dict):
+            project_file = create_project_document_record(
+                session,
+                int(task.project_id),
+                name=str(pending_markdown.get("name") or "项目文本交付.md"),
+                content=str(pending_markdown.get("content") or ""),
+                uploads_dir=UPLOADS_DIR,
+                init_default_folders=lambda target_session, target_project_id: init_default_project_folders(
+                    target_session,
+                    target_project_id,
+                    commit=False,
+                ),
+                folder_id=pending_markdown.get("folder_id"),
+                summary=str(pending_markdown.get("summary") or "AI generated Markdown deliverable"),
+                auto_assign_folder=True,
+                commit=False,
+            )
+        elif isinstance(prepared_office, dict):
+            project_file = persist_prepared_project_office_document(
+                session,
+                project_id=int(task.project_id),
+                prepared=prepared_office,
+            )
+
+        if project_file is not None:
+            created_project_path = UPLOADS_DIR / Path(project_file.path)
+            public_output.update(
+                {
+                    "ok": True,
+                    "id": project_file.id,
+                    "project_file_id": project_file.id,
+                    "name": project_file.name,
+                    "file_name": project_file.name,
+                    "file_type": project_file.file_type,
+                    "folder_id": project_file.folder_id,
+                    "size_bytes": project_file.size_bytes,
+                    "path": project_file.path,
+                }
+            )
+            mark_project_memory_stale(
+                session,
+                int(task.project_id),
+                trigger=f"task_{project_file.file_type}_create",
+                commit=False,
+            )
+
+        if step.step_type in {"draft_text_artifact", "write_project_office_document"}:
+            artifact = TaskArtifact(
+                task_run_id=int(task.id),
+                step_id=int(step.id),
+                project_file_id=(project_file.id if project_file is not None else public_output.get("id")),
+                name=str(public_output.get("name") or public_output.get("file_name") or "交付物"),
+                file_type=str(public_output.get("file_type") or "text"),
+                path=str(public_output.get("path") or ""),
+                metadata_json=_json_dumps(public_output),
+            )
+            session.add(artifact)
+            session.flush()
+        return public_output, created_project_path
+    except Exception:
+        # The database transaction is still open here, but the Markdown writer
+        # or Office materializer may already have created a project-space file.
+        # Compensate failures after that point (memory invalidation, artifact
+        # flush, etc.) before the caller rolls the transaction back.
+        _remove_file_quietly(created_project_path)
+        raise
+
+
+def _complete_step_authorized(
+    session: Session,
+    lease: TaskStepLease,
+    output: dict[str, Any],
+    *,
+    trusted_system: bool,
+) -> dict[str, Any]:
+    session.rollback()
+    scope = _lock_task_scope(session, lease.task_id, trusted_system=trusted_system)
+    task = scope.task
+    step = _require_step_lease(scope, lease)
+    created_project_path: Path | None = None
+    try:
+        public_output, created_project_path = _materialize_step_output(
+            session,
+            task,
+            step,
+            output,
+        )
+        now = utc_now_naive()
+        step.status = "completed"
+        step.output_json = _json_dumps(public_output)
+        step.error_code = ""
+        step.error_message = ""
+        step.updated_at = now
+        step.completed_at = now
+        _set_step_lease(step, "")
+        task.updated_at = now
+        session.add(step)
+        session.add(task)
+        _record_event(
+            session,
+            task,
+            step=step,
+            event_type="step_completed",
+            message=f"{step.title}完成",
+            payload=public_output,
+            commit=False,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        _remove_file_quietly(created_project_path)
+        raise
+    _remove_file_quietly(_prepared_source_path(output))
+    return public_output
+
+
+def _complete_task_authorized(
+    session: Session,
+    task_id: int,
+    *,
+    trusted_system: bool,
+) -> dict[str, Any]:
+    session.rollback()
+    scope = _lock_task_scope(session, task_id, trusted_system=trusted_system)
+    task = scope.task
+    if task.status != "running" or any(step.status != "completed" for step in scope.steps):
+        session.rollback()
+        raise TaskExecutionStopped("Task is no longer ready to complete")
+    final_output = _previous_step_output(session, task_id, "summarize_result") or _previous_step_output_by_type(
+        session,
+        task_id,
+        "summarize_result",
     )
+    now = utc_now_naive()
     task.status = "completed"
     task.current_step_key = ""
     task.output_json = _json_dumps(final_output)
@@ -3041,8 +3266,208 @@ async def stream_execute_task_run_in_session(session: Session, task_id: int) -> 
     task.updated_at = now
     task.completed_at = now
     session.add(task)
+    _record_event(
+        session,
+        task,
+        event_type="task_completed",
+        message="任务已完成",
+        payload=final_output,
+        commit=False,
+    )
     session.commit()
-    _record_event(session, task, event_type="task_completed", message="任务已完成", payload=final_output)
+    return final_output
+
+
+async def execute_task_run_in_session(
+    session: Session,
+    task_id: int,
+    *,
+    trusted_system: bool = False,
+) -> None:
+    async for _ in stream_execute_task_run_in_session(
+        session,
+        task_id,
+        trusted_system=trusted_system,
+    ):
+        pass
+
+
+async def stream_execute_task_run_in_session(
+    session: Session,
+    task_id: int,
+    *,
+    trusted_system: bool = False,
+) -> AsyncIterator[dict[str, Any]]:
+    session.rollback()
+    locator = session.get(TaskRun, task_id)
+    if locator is None or locator.status in TASK_STATUS_TERMINAL or locator.status == TASK_STATUS_PAUSED:
+        session.rollback()
+        return
+    step_ids = list(
+        session.exec(
+            select(TaskStep.id)
+            .where(TaskStep.task_run_id == task_id)
+            .order_by(TaskStep.sort_order)
+        ).all()
+    )
+    session.rollback()
+    for step_id in step_ids:
+        try:
+            lease, first_start, progress_payload = _start_step_authorized(
+                session,
+                task_id,
+                int(step_id),
+                trusted_system=trusted_system,
+            )
+        except (HTTPException, TaskExecutionStopped):
+            session.rollback()
+            return
+        if lease is None:
+            continue
+
+        task = session.get(TaskRun, task_id)
+        step = session.get(TaskStep, int(step_id))
+        if task is None or step is None:
+            session.rollback()
+            return
+        if first_start:
+            yield {
+                "event_type": "task_started",
+                "message": task_step_log_message("task_started"),
+                "task": serialize_task_run(session, task, include_events=True),
+            }
+        step_payload = _serialize_step(step)
+        yield {
+            "event_type": "step_started",
+            "step": step_payload,
+            "message": task_step_log_message("step_started", step_payload),
+            "task": serialize_task_run(session, task, include_events=True),
+        }
+        yield {
+            "event_type": "step_progress",
+            "step": step_payload,
+            "message": task_step_log_message("step_progress", step_payload, progress_payload),
+            "task": serialize_task_run(session, task, include_events=True),
+            "payload": progress_payload,
+        }
+        while True:
+            step_started_at = time.perf_counter()
+            output: dict[str, Any] | None = None
+            try:
+                output = await _execute_step(session, task, step)
+            except Exception as exc:
+                duration_ms = round((time.perf_counter() - step_started_at) * 1000)
+                try:
+                    receipt, next_lease = _record_step_failure_authorized(
+                        session,
+                        lease,
+                        exc,
+                        duration_ms=duration_ms,
+                        trusted_system=trusted_system,
+                    )
+                except (HTTPException, TaskExecutionStopped):
+                    session.rollback()
+                    _remove_file_quietly(_prepared_source_path(output))
+                    return
+                task = session.get(TaskRun, task_id)
+                step = session.get(TaskStep, int(step_id))
+                if task is None or step is None:
+                    session.rollback()
+                    return
+                if receipt == "retry" and next_lease is not None:
+                    lease = next_lease
+                    yield {
+                        "event_type": "step_retry",
+                        "step": _serialize_step(step),
+                        "message": task_step_log_message("step_retry", _serialize_step(step)),
+                        "task": serialize_task_run(session, task, include_events=True),
+                        "duration_ms": duration_ms,
+                    }
+                    continue
+                yield {
+                    "event_type": "step_failed",
+                    "step": _serialize_step(step),
+                    "message": task_step_log_message("step_failed", _serialize_step(step)),
+                    "task": serialize_task_run(session, task, include_events=True),
+                    "duration_ms": duration_ms,
+                }
+                return
+            duration_ms = round((time.perf_counter() - step_started_at) * 1000)
+            output = {**(output or {}), "duration_ms": duration_ms}
+            try:
+                public_output = _complete_step_authorized(
+                    session,
+                    lease,
+                    output,
+                    trusted_system=trusted_system,
+                )
+            except (HTTPException, TaskExecutionStopped):
+                session.rollback()
+                _remove_file_quietly(_prepared_source_path(output))
+                return
+            except Exception as exc:
+                session.rollback()
+                _remove_file_quietly(_prepared_source_path(output))
+                try:
+                    receipt, next_lease = _record_step_failure_authorized(
+                        session,
+                        lease,
+                        exc,
+                        duration_ms=duration_ms,
+                        trusted_system=trusted_system,
+                    )
+                except (HTTPException, TaskExecutionStopped):
+                    session.rollback()
+                    return
+                task = session.get(TaskRun, task_id)
+                step = session.get(TaskStep, int(step_id))
+                if task is None or step is None:
+                    session.rollback()
+                    return
+                if receipt == "retry" and next_lease is not None:
+                    lease = next_lease
+                    yield {
+                        "event_type": "step_retry",
+                        "step": _serialize_step(step),
+                        "message": task_step_log_message("step_retry", _serialize_step(step)),
+                        "task": serialize_task_run(session, task, include_events=True),
+                        "duration_ms": duration_ms,
+                    }
+                    continue
+                yield {
+                    "event_type": "step_failed",
+                    "step": _serialize_step(step),
+                    "message": task_step_log_message("step_failed", _serialize_step(step)),
+                    "task": serialize_task_run(session, task, include_events=True),
+                    "duration_ms": duration_ms,
+                }
+                return
+            task = session.get(TaskRun, task_id)
+            step = session.get(TaskStep, int(step_id))
+            if task is None or step is None:
+                session.rollback()
+                return
+            break
+        yield {
+            "event_type": "step_completed",
+            "step": _serialize_step(step),
+            "message": task_step_log_message("step_completed", _serialize_step(step), public_output),
+            "task": serialize_task_run(session, task, include_events=True),
+            "duration_ms": duration_ms,
+        }
+
+    try:
+        _complete_task_authorized(
+            session,
+            task_id,
+            trusted_system=trusted_system,
+        )
+    except (HTTPException, TaskExecutionStopped):
+        session.rollback()
+        return
+    task = session.get(TaskRun, task_id)
+    if task is None:
+        return
     yield {
         "event_type": "task_completed",
         "message": task_step_log_message("task_completed"),
@@ -3050,22 +3475,33 @@ async def stream_execute_task_run_in_session(session: Session, task_id: int) -> 
     }
 
 
-async def execute_task_run(task_id: int) -> None:
+async def execute_task_run(task_id: int, *, trusted_system: bool = False) -> None:
     with Session(engine) as session:
-        await execute_task_run_in_session(session, task_id)
+        await execute_task_run_in_session(
+            session,
+            task_id,
+            trusted_system=trusted_system,
+        )
 
 
-async def retry_task_run(task_id: int) -> None:
+async def retry_task_run(task_id: int, *, trusted_system: bool = False) -> None:
     with Session(engine) as session:
-        task = session.get(TaskRun, task_id)
-        if task is None:
+        try:
+            scope = _lock_task_scope(
+                session,
+                task_id,
+                trusted_system=trusted_system,
+            )
+        except (HTTPException, TaskExecutionStopped):
+            session.rollback()
             return
-        failed_step = session.exec(
-            select(TaskStep)
-            .where(TaskStep.task_run_id == task.id, TaskStep.status == "failed")
-            .order_by(TaskStep.sort_order)
-        ).first()
+        task = scope.task
+        failed_step = next(
+            (step for step in sorted(scope.steps, key=lambda item: item.sort_order) if step.status == "failed"),
+            None,
+        )
         if failed_step is None:
+            session.rollback()
             return
         now = utc_now_naive()
         task.status = "pending"
@@ -3080,19 +3516,49 @@ async def retry_task_run(task_id: int) -> None:
         failed_step.updated_at = now
         failed_step.started_at = None
         failed_step.completed_at = None
+        _set_step_lease(failed_step, "")
         session.add(task)
         session.add(failed_step)
+        _record_event(
+            session,
+            task,
+            step=failed_step,
+            event_type="task_retry",
+            message="任务从失败步骤重试",
+            commit=False,
+        )
         session.commit()
-        _record_event(session, task, step=failed_step, event_type="task_retry", message="任务从失败步骤重试")
-    await execute_task_run(task_id)
+    await execute_task_run(task_id, trusted_system=trusted_system)
 
 
-def cancel_task_run_in_session(session: Session, task_id: int, *, reason: str = "用户取消任务") -> dict[str, Any] | None:
-    task = session.get(TaskRun, task_id)
+def cancel_task_run_in_session(
+    session: Session,
+    task_id: int,
+    *,
+    reason: str = "用户取消任务",
+    actor_user_id: int | None = None,
+    trusted_system: bool = False,
+) -> dict[str, Any] | None:
+    session.rollback()
+    try:
+        scope = _lock_task_scope(
+            session,
+            task_id,
+            trusted_system=trusted_system,
+            control_actor_user_id=actor_user_id,
+        )
+    except TaskExecutionStopped as exc:
+        session.rollback()
+        if str(exc) == "Task run not found":
+            return None
+        raise
+    task = scope.task
     if task is None:
         return None
     if task.status in {"completed", "canceled"}:
-        return serialize_task_run(session, task, include_events=True)
+        payload = serialize_task_run(session, task, include_events=True)
+        session.rollback()
+        return payload
 
     now = utc_now_naive()
     task.status = "canceled"
@@ -3101,59 +3567,124 @@ def cancel_task_run_in_session(session: Session, task_id: int, *, reason: str = 
     task.error_message = reason
     task.updated_at = now
     task.completed_at = now
-    pending_steps = session.exec(
-        select(TaskStep)
-        .where(TaskStep.task_run_id == task.id, TaskStep.status == "pending")
-        .order_by(TaskStep.sort_order)
-    ).all()
-    for step in pending_steps:
+    for step in scope.steps:
+        if step.status not in {"pending", "running"}:
+            continue
         step.status = "skipped"
         step.error_code = "canceled"
         step.error_message = reason
         step.updated_at = now
         step.completed_at = now
+        _set_step_lease(step, "")
         session.add(step)
     session.add(task)
+    _record_event(
+        session,
+        task,
+        event_type="task_canceled",
+        message=reason,
+        commit=False,
+    )
     session.commit()
-    _record_event(session, task, event_type="task_canceled", message=reason)
     return serialize_task_run(session, task, include_events=True)
 
 
-def pause_task_run_in_session(session: Session, task_id: int, *, reason: str = "用户暂停任务") -> dict[str, Any] | None:
-    task = session.get(TaskRun, task_id)
-    if task is None:
-        return None
+def pause_task_run_in_session(
+    session: Session,
+    task_id: int,
+    *,
+    reason: str = "用户暂停任务",
+    actor_user_id: int | None = None,
+    trusted_system: bool = False,
+) -> dict[str, Any] | None:
+    session.rollback()
+    try:
+        scope = _lock_task_scope(
+            session,
+            task_id,
+            trusted_system=trusted_system,
+            control_actor_user_id=actor_user_id,
+        )
+    except TaskExecutionStopped as exc:
+        session.rollback()
+        if str(exc) == "Task run not found":
+            return None
+        raise
+    task = scope.task
     if task.status in TASK_STATUS_TERMINAL:
-        return serialize_task_run(session, task, include_events=True)
+        payload = serialize_task_run(session, task, include_events=True)
+        session.rollback()
+        return payload
     now = utc_now_naive()
     task.status = TASK_STATUS_PAUSED
+    task.current_step_key = ""
     task.updated_at = now
+    for step in scope.steps:
+        if step.status != "running":
+            continue
+        step.status = "pending"
+        step.updated_at = now
+        step.started_at = None
+        _set_step_lease(step, "")
+        session.add(step)
     session.add(task)
+    _record_event(
+        session,
+        task,
+        event_type="task_paused",
+        message=reason,
+        commit=False,
+    )
     session.commit()
-    _record_event(session, task, event_type="task_paused", message=reason)
     return serialize_task_run(session, task, include_events=True)
 
 
-def resume_task_run_in_session(session: Session, task_id: int, *, reason: str = "任务恢复执行") -> dict[str, Any] | None:
-    task = session.get(TaskRun, task_id)
-    if task is None:
-        return None
+def resume_task_run_in_session(
+    session: Session,
+    task_id: int,
+    *,
+    reason: str = "任务恢复执行",
+    actor_user_id: int | None = None,
+    trusted_system: bool = False,
+) -> dict[str, Any] | None:
+    session.rollback()
+    try:
+        scope = _lock_task_scope(
+            session,
+            task_id,
+            trusted_system=trusted_system,
+            control_actor_user_id=actor_user_id,
+        )
+    except TaskExecutionStopped as exc:
+        session.rollback()
+        if str(exc) == "Task run not found":
+            return None
+        raise
+    task = scope.task
     if task.status != TASK_STATUS_PAUSED:
-        return serialize_task_run(session, task, include_events=True)
+        payload = serialize_task_run(session, task, include_events=True)
+        session.rollback()
+        return payload
     now = utc_now_naive()
     task.status = "pending"
     task.error_code = ""
     task.error_message = ""
     task.updated_at = now
     session.add(task)
+    _record_event(
+        session,
+        task,
+        event_type="task_resumed",
+        message=reason,
+        commit=False,
+    )
     session.commit()
-    _record_event(session, task, event_type="task_resumed", message=reason)
     return serialize_task_run(session, task, include_events=True)
 
 
-async def resume_task_run(task_id: int) -> None:
+async def resume_task_run(task_id: int, *, trusted_system: bool = False) -> None:
     with Session(engine) as session:
-        payload = resume_task_run_in_session(session, task_id)
-        if payload is None or payload.get("status") != "pending":
+        task = session.get(TaskRun, task_id)
+        if task is None or task.status != "pending":
             return
-    await execute_task_run(task_id)
+    await execute_task_run(task_id, trusted_system=trusted_system)

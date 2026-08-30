@@ -15,7 +15,9 @@ from app.models.db import (
     ProjectPayment,
     ProjectProgressUpdate,
     ProjectTodo,
+    User,
 )
+from app.services.project_contexts import build_project_memory_data
 from app.services.memory_slots import (
     build_client_slot_evidence_refs,
     build_project_slot_evidence_refs,
@@ -261,6 +263,72 @@ def test_project_child_source_digests_cover_prompt_visible_business_fields():
                 "project_payment",
                 int(payment.id or 0),
             )["source_sha256"] != source_refs["payment"]["source_sha256"]
+    finally:
+        engine.dispose()
+
+
+def test_progress_prompt_and_evidence_ignore_mutable_author_display_name():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            author = User(
+                email="progress-author@example.com",
+                password_hash="x",
+                display_name="Original Name",
+            )
+            project = Project(name="Pilot", client="Acme")
+            session.add_all([author, project])
+            session.flush()
+            progress = ProjectProgressUpdate(
+                project_id=int(project.id or 0),
+                content="Discovery complete",
+                created_by_user_id=int(author.id or 0),
+            )
+            session.add(progress)
+            session.commit()
+            session.refresh(project)
+            session.refresh(progress)
+            author_id = int(author.id or 0)
+            project_id = int(project.id or 0)
+            progress_id = int(progress.id or 0)
+
+            before_evidence = build_project_slot_evidence_refs(session, project)
+            before_ref = _ref(
+                before_evidence,
+                "recent_progress",
+                "project_progress",
+                progress_id,
+            )
+            _, before_prompt, _ = build_project_memory_data(
+                session,
+                project_id,
+                ("recent_progress",),
+            )
+
+            author.display_name = "Renamed Concurrently"
+            session.add(author)
+            session.commit()
+            session.expire_all()
+            project = session.get(Project, project_id)
+            assert project is not None
+
+            after_ref = _ref(
+                build_project_slot_evidence_refs(session, project),
+                "recent_progress",
+                "project_progress",
+                progress_id,
+            )
+            _, after_prompt, _ = build_project_memory_data(
+                session,
+                project_id,
+                ("recent_progress",),
+            )
+
+            assert after_ref["source_sha256"] == before_ref["source_sha256"]
+            assert after_prompt == before_prompt
+            assert "Original Name" not in before_prompt
+            assert "Renamed Concurrently" not in after_prompt
+            assert f"user #{author_id}" in after_prompt
     finally:
         engine.dispose()
 
@@ -595,8 +663,13 @@ def test_stakeholder_evidence_pool_matches_prompt_limit_and_order():
     try:
         with Session(engine) as session:
             client = ClientRecord(name="Acme")
-            project = Project(name="Pilot", client="Acme")
             session.add(client)
+            session.flush()
+            project = Project(
+                name="Pilot",
+                client="Acme",
+                client_id=int(client.id),
+            )
             session.add(project)
             session.commit()
             session.refresh(client)

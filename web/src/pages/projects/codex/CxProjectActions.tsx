@@ -1,10 +1,15 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react'
+import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../../api/client'
 import { CxDialog, CxConfirmDialog } from '../../../components/codex'
 import { useToast } from '../../../contexts/ToastContext'
 import type { Project } from '../../../types/api'
 import type { ProjectStatus } from '../../../types/enums'
+import {
+  ProjectClientPicker,
+  type ProjectClientOption,
+} from './ProjectClientPicker'
+import { useClientsList } from './useProjectsApi'
 
 /** Project-level mutation modals — edit basics / archive / delete.
  *
@@ -47,17 +52,54 @@ interface EditDialogProps {
   onSaved: () => void | Promise<void>
 }
 
-export function CxEditProjectDialog({ open, project, onClose, onSaved }: EditDialogProps) {
+export function CxEditProjectDialog(props: EditDialogProps) {
+  if (!props.open) return null
+  const { project } = props
+  return (
+    <CxEditProjectDialogContent
+      key={`${project.id}:${project.updated_at}:${project.client_id ?? 'unlinked'}`}
+      {...props}
+    />
+  )
+}
+
+function CxEditProjectDialogContent({ open, project, onClose, onSaved }: EditDialogProps) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  const [clientTouched, setClientTouched] = useState(false)
   const [form, setForm] = useState({
     name: project.name,
     client: project.client,
+    client_id: project.client_id ?? null,
     status: project.status,
     description: project.description ?? '',
     contract_amount: project.contract_amount ?? 0,
     notes: project.notes ?? '',
   })
+  const { data: clients } = useClientsList()
+  const normalizedClientName = form.client.trim().toLowerCase()
+  const exactClientMatches = useMemo(
+    () =>
+      normalizedClientName
+        ? clients.filter((client) => client.name.trim().toLowerCase() === normalizedClientName)
+        : [],
+    [clients, normalizedClientName],
+  )
+  const matchedClient = useMemo<ProjectClientOption | null>(() => {
+    if (form.client_id == null) return null
+    return (
+      clients.find((client) => client.id === form.client_id) ?? {
+        id: form.client_id,
+        name: form.client,
+      }
+    )
+  }, [clients, form.client, form.client_id])
+  const clientSuggestions = useMemo(() => {
+    if (!normalizedClientName || matchedClient) return []
+    return clients
+      .filter((client) => client.name.toLowerCase().includes(normalizedClientName))
+      .slice(0, 8)
+  }, [clients, matchedClient, normalizedClientName])
 
   const update =
     (k: keyof typeof form) =>
@@ -74,15 +116,29 @@ export function CxEditProjectDialog({ open, project, onClose, onSaved }: EditDia
       toast.warning({ title: '项目名称不能为空' })
       return
     }
+    if (clientTouched && form.client_id == null && exactClientMatches.length > 1) {
+      toast.warning({
+        title: '存在多个同名客户',
+        description: '请从客户候选项中明确选择一条客户档案。',
+      })
+      return
+    }
+    const resolvedClientId = form.client_id ??
+      (exactClientMatches.length === 1 ? exactClientMatches[0].id : null)
     setBusy(true)
     try {
       await api.patch<Project>(`/projects/${project.id}`, {
         name: form.name.trim(),
-        client: form.client.trim(),
         status: form.status,
         description: form.description,
         contract_amount: form.contract_amount,
         notes: form.notes,
+        ...(clientTouched
+          ? {
+              client: form.client.trim(),
+              client_id: resolvedClientId,
+            }
+          : {}),
       })
       toast.success({ title: '已保存' })
       onClose()
@@ -159,12 +215,22 @@ export function CxEditProjectDialog({ open, project, onClose, onSaved }: EditDia
           </div>
           <div>
             <label style={LABEL_STYLE}>客户</label>
-            <input
-              type="text"
+            <ProjectClientPicker
               value={form.client}
-              onChange={update('client')}
-              className="codex-input"
-              style={INPUT_STYLE}
+              matched={matchedClient}
+              suggestions={clientSuggestions}
+              onChange={(client) => {
+                setClientTouched(true)
+                setForm((current) => ({ ...current, client, client_id: null }))
+              }}
+              onPick={(client) => {
+                setClientTouched(true)
+                setForm((current) => ({
+                  ...current,
+                  client: client.name,
+                  client_id: client.id,
+                }))
+              }}
             />
           </div>
           <div>

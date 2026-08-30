@@ -23,7 +23,7 @@ from app.config import (
     MODEL_TURN_RETRY_MAX_DELAY_MS,
     TOOL_PARALLEL_MAX_CONCURRENCY,
 )
-from app.models.db import Conversation, Message, ProjectMember, Skill
+from app.models.db import Conversation, Message, ProjectMember, Skill, User
 from app.models.db import Setting as _Setting
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.agent_harness.context_budget import (
@@ -778,6 +778,20 @@ def _accessible_project_ids(session: Session, owner_user_id: int | None) -> list
     )
 
 
+def _accessible_client_ids(session: Session, owner_user_id: int | None) -> list[int] | None:
+    """Stable client ids readable by the acting user for RAG filtering."""
+
+    if owner_user_id is None:
+        return None
+    owner = session.get(User, owner_user_id)
+    if owner is None:
+        return []
+    from app.services.client_permissions import accessible_client_ids
+
+    allowed = accessible_client_ids(session, owner)
+    return None if allowed is None else sorted(allowed)
+
+
 def _resolve_requested_model(session: Session, req: SendMessageRequest) -> str:
     selected_model = get_selected_model(session)
     user_model = (req.model or "").strip()
@@ -1012,6 +1026,7 @@ def prepare_chat_runtime(
         mention_context=req.mention_context.model_dump() if req.mention_context else None,
         context_mode=context_mode,
         accessible_project_ids=_accessible_project_ids(session, owner_user_id),
+        accessible_client_ids=_accessible_client_ids(session, owner_user_id),
         skill_override=effective_skill,
     )
     prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
@@ -1372,6 +1387,7 @@ def prepare_chat_runtime(
 
     return ChatRuntime(
         conv_id=conv_id,
+        actor_user_id=owner_user_id,
         project_id=req.project_id,
         selected_model=runtime_model,
         llm=llm,

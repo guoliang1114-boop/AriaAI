@@ -26,7 +26,7 @@ from app.config import (
     UPLOADS_DIR,
 )
 from app.database import engine, get_session
-from app.models.db import ClientStakeholder, Conversation, Message, Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, ProjectMember, ProjectMemorySnapshot, ProjectMemorySummary, User, ClientRecord
+from app.models.db import ClientStakeholder, Conversation, MemoryCandidate, Message, Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectProgressUpdate, ProjectTodo, ProjectMember, ProjectMemorySnapshot, ProjectMemorySummary, User, ClientRecord
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.services import scheduler as scheduler_service
 from app.models.db import Setting as _Setting
@@ -34,10 +34,11 @@ from app.services.cache import clients_cache, projects_cache
 from app.services.client_contexts import (
     build_client_memory_promote_prompt,
     get_client_memory_payload,
-    mark_client_memory_stale_by_name,
+    mark_client_memory_stale,
     parse_client_memory_patch,
     save_client_memory,
 )
+from app.services.client_permissions import lock_and_require_client_access
 from app.services.memory_facts import capture_client_memory_source_snapshots
 from app.services.chat_exports import build_markdown_export_content
 from app.services.document_text import extract_text_from_file
@@ -46,13 +47,18 @@ from app.services.project_ai import (
     parse_project_ai_suggestions,
     summarize_uploaded_project_file,
 )
+from app.services.agent_harness.structured_patch import locked_text_path
 from app.services.project_core import (
     create_project_record,
     get_project_or_404,
     init_default_project_folders,
     list_projects_basic,
+    lock_and_require_project_memory_write,
+    lock_and_require_project_write,
+    lock_project_for_trusted_system_write,
     update_project_record,
 )
+from app.services.project_clients import find_client_for_project
 from app.services.project_contexts import (
     EDITABLE_MEMORY_SLOTS,
     PROJECT_MEMORY_SUMMARY_TYPES,
@@ -150,7 +156,9 @@ from app.services.project_todos import (
     serialize_todo,
     update_project_todo,
 )
-from app.services.stakeholder_contexts import list_client_stakeholder_dicts_by_name
+from app.services.stakeholder_contexts import (
+    list_client_stakeholder_dicts,
+)
 from app.services.time_utils import utc_now_naive
 from app.routers.auth import get_current_user
 
@@ -198,6 +206,7 @@ _STAKEHOLDER_NAME_STOPWORDS = {"提醒", "表示", "认为", "需要", "关注",
 class ProjectCreate(BaseModel):
     name: str
     client: str
+    client_id: Optional[int] = None
     description: str = ""
     status: str = "lead"
     contract_amount: float = 0.0
@@ -208,6 +217,7 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     client: Optional[str] = None
+    client_id: Optional[int] = None
     description: Optional[str] = None
     status: Optional[str] = None
     context_freshness: Optional[float] = None
@@ -442,23 +452,11 @@ def _normalize_name(value: str | None) -> str:
     return (value or "").strip().lower()
 
 
-def _find_client_record_by_name(session: Session, client_name: str | None) -> ClientRecord | None:
-    normalized = _normalize_name(client_name)
-    if not normalized:
-        return None
-
-    exact = session.exec(select(ClientRecord).where(ClientRecord.name == client_name)).first()
-    if exact is not None:
-        return exact
-
-    return next(
-        (
-            client
-            for client in session.exec(select(ClientRecord)).all()
-            if _normalize_name(client.name) == normalized
-        ),
-        None,
-    )
+def _find_client_record_for_project(
+    session: Session,
+    project: Project,
+) -> ClientRecord | None:
+    return find_client_for_project(session, project)
 
 
 def _serialize_client_stakeholder_dict(stakeholder: ClientStakeholder) -> dict:
@@ -500,13 +498,14 @@ async def _auto_promote_archived_project_to_client_memory(
     session: Session,
     project_id: int,
     *,
+    actor: User,
     previous_status: str | None,
 ) -> bool:
     project = session.get(Project, project_id)
     if not project or previous_status == "archived" or project.status != "archived":
         return False
 
-    client = _find_client_record_by_name(session, project.client)
+    client = _find_client_record_for_project(session, project)
     if client is None:
         return False
 
@@ -517,6 +516,7 @@ async def _auto_promote_archived_project_to_client_memory(
             project_id,
             project,
             trigger="archive_promotion_prepare",
+            actor_user_id=int(actor.id),
         )
         project = session.get(Project, project_id) or project
 
@@ -527,7 +527,7 @@ async def _auto_promote_archived_project_to_client_memory(
     project = session.get(Project, project_id)
     if not project or project.status != "archived":
         return False
-    client = _find_client_record_by_name(session, project.client)
+    client = _find_client_record_for_project(session, project)
     if client is None:
         return False
     project_memory = get_project_memory_payload(project)
@@ -574,30 +574,59 @@ async def _auto_promote_archived_project_to_client_memory(
         max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
     )
     session.expire_all()
-    # Project ownership and project-memory content authorize this promotion.
-    # Hold the source row through the client write and promotion-marker commit
-    # so reassignment, mutation, and deletion cannot pass validation then race
-    # the atomic save.
-    project = session.exec(
-        select(Project)
-        .where(Project.id == project_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
-    client = session.exec(
-        select(ClientRecord)
-        .where(ClientRecord.id == promotion_client_id)
-        .execution_options(populate_existing=True)
-        .with_for_update()
-    ).first()
-    if project is None or client is None:
-        raise MemoryRebuildConflict(
-            "memory promotion conflict: project or client was removed during generation"
+    # Re-establish business authorization after the untrusted provider wait.
+    # The shared helper holds identity -> User -> all linked Projects (ID order)
+    # -> ClientRecord -> memberships (ID order) through the atomic memory and
+    # promotion-receipt commit below.
+    try:
+        client, _locked_actor, locked_projects = lock_and_require_client_access(
+            session,
+            promotion_client_id,
+            actor,
+            require_write=True,
         )
-    if _normalize_name(project.client) != _normalize_name(client.name):
+    except HTTPException as exc:
+        if exc.status_code in {404, 409}:
+            raise MemoryRebuildConflict(
+                "memory promotion conflict: client was removed or changed during generation"
+            ) from exc
+        raise
+    project = next(
+        (
+            locked_project
+            for locked_project in locked_projects
+            if int(locked_project.id) == project_id
+        ),
+        None,
+    )
+    if project is None or project.client_id != client.id:
         raise MemoryRebuildConflict(
             "memory promotion conflict: project client ownership changed during generation"
         )
+    if project.status != "archived":
+        raise MemoryRebuildConflict(
+            "memory promotion conflict: project archive status changed during generation"
+        )
+    # Client-level write access may come from a different linked project. The
+    # archive transition itself is source-project work, so revoking that exact
+    # owner/editor membership during generation must still stop promotion.
+    source_memberships = list(
+        session.exec(
+            select(ProjectMember)
+            .where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.user_id == int(_locked_actor.id),
+            )
+            .order_by(ProjectMember.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+    )
+    if not _locked_actor.is_admin and not any(
+        str(member.role or "").strip().lower() in {"owner", "editor"}
+        for member in source_memberships
+    ):
+        raise HTTPException(403, "Source project write permission required")
     refreshed_client_memory = get_client_memory_payload(client)
     current_source_snapshots = capture_client_memory_source_snapshots(
         session,
@@ -750,6 +779,178 @@ def _get_raw_project_memory(project: Project) -> dict:
     return _get_existing_raw_memory(project)
 
 
+def _require_project_memory_write_context(
+    *,
+    actor_user_id: int | None,
+    trusted_system: bool,
+) -> None:
+    """Require an explicit user actor or an explicit internal-job context."""
+
+    if actor_user_id is None and not trusted_system:
+        raise ValueError(
+            "Project memory writes require actor_user_id or trusted_system=True"
+        )
+    if actor_user_id is not None and trusted_system:
+        raise ValueError(
+            "Project memory writes cannot mix actor_user_id and trusted_system=True"
+        )
+
+
+def _lock_project_memory_writer(
+    session: Session,
+    project_id: int,
+    *,
+    actor_user_id: int | None,
+    trusted_system: bool,
+) -> Project:
+    """Final-lock a Project under the declared authorization context."""
+
+    _require_project_memory_write_context(
+        actor_user_id=actor_user_id,
+        trusted_system=trusted_system,
+    )
+    if actor_user_id is not None:
+        project, _ = lock_and_require_project_write(
+            session,
+            project_id,
+            actor_user_id=actor_user_id,
+        )
+        return project
+    return lock_project_for_trusted_system_write(session, project_id)
+
+
+def _lock_project_memory_prompt_sources(
+    session: Session,
+    project: Project,
+    *,
+    client: ClientRecord | None,
+) -> None:
+    """Freeze every row family read by ``build_project_memory_data``.
+
+    The Project parent is already locked by ``_lock_project_memory_writer``.
+    On PostgreSQL that parent lock also conflicts with the FK key-share lock
+    needed by a new child insert. Existing rows are locked in one fixed family
+    and ascending-ID order. A linked Client parent is locked before its
+    stakeholder children for the same reason.
+    """
+
+    project_id = int(project.id or 0)
+    if project.client_id is not None and (
+        client is None or int(project.client_id) != int(client.id or 0)
+    ):
+        raise MemoryRebuildConflict(
+            "project memory conflict: linked client changed during generation"
+        )
+    client_id = int(client.id) if client is not None and client.id is not None else None
+
+    session.exec(
+        select(ProjectProgressUpdate)
+        .where(ProjectProgressUpdate.project_id == project_id)
+        .order_by(ProjectProgressUpdate.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    session.exec(
+        select(Milestone)
+        .where(Milestone.project_id == project_id)
+        .order_by(Milestone.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    session.exec(
+        select(ProjectTodo)
+        .where(ProjectTodo.project_id == project_id)
+        .order_by(ProjectTodo.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    session.exec(
+        select(ProjectFile)
+        .where(ProjectFile.project_id == project_id)
+        .order_by(ProjectFile.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    session.exec(
+        select(ProjectPayment)
+        .where(ProjectPayment.project_id == project_id)
+        .order_by(ProjectPayment.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    session.exec(
+        select(MemoryCandidate)
+        .where(MemoryCandidate.project_id == project_id)
+        .order_by(MemoryCandidate.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    if client_id is not None:
+        session.exec(
+            select(ClientStakeholder)
+            .where(ClientStakeholder.client_id == client_id)
+            .order_by(ClientStakeholder.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+
+
+def _lock_project_memory_rebuild_writer(
+    session: Session,
+    project_id: int,
+    *,
+    actor_user_id: int | None,
+    trusted_system: bool,
+) -> tuple[Project, ClientRecord | None]:
+    """Final-lock rebuild authorization plus its Client-owned source parent."""
+
+    _require_project_memory_write_context(
+        actor_user_id=actor_user_id,
+        trusted_system=trusted_system,
+    )
+    if actor_user_id is not None:
+        project, _, client = lock_and_require_project_memory_write(
+            session,
+            project_id,
+            actor_user_id=actor_user_id,
+        )
+        return project, client
+
+    project = lock_project_for_trusted_system_write(session, project_id)
+    client: ClientRecord | None = None
+    if project.client_id is not None:
+        client = session.exec(
+            select(ClientRecord)
+            .where(ClientRecord.id == int(project.client_id))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if client is None:
+            raise MemoryRebuildConflict(
+                "project memory conflict: linked client changed during generation"
+            )
+    return project, client
+
+
+def _require_current_project_memory_generation(
+    session: Session,
+    project: Project,
+    *,
+    expected_rebuild_status: str,
+    expected_project_updated_at: datetime,
+) -> None:
+    """Reject a provider result cancelled or superseded while it was running."""
+
+    if (
+        project.memory_rebuild_status != expected_rebuild_status
+        or project.updated_at != expected_project_updated_at
+    ):
+        session.rollback()
+        raise MemoryRebuildConflict(
+            "project memory rebuild was cancelled or superseded during generation"
+        )
+
+
 def _set_project_memory_failure(
     session: Session,
     project: Project | int,
@@ -759,8 +960,15 @@ def _set_project_memory_failure(
     retry_count: int = 0,
     expected_memory_version: int | None = None,
     expected_rebuild_status: str | None = None,
+    expected_project_updated_at: datetime | None = None,
     mark_rebuild_failed: bool = False,
+    actor_user_id: int | None = None,
+    trusted_system: bool = False,
 ) -> bool:
+    _require_project_memory_write_context(
+        actor_user_id=actor_user_id,
+        trusted_system=trusted_system,
+    )
     project_id = project if isinstance(project, int) else project.id
     if project_id is None:
         return False
@@ -769,15 +977,23 @@ def _set_project_memory_failure(
             expected_memory_version = project.memory_version
         if expected_rebuild_status is None:
             expected_rebuild_status = project.memory_rebuild_status
+        if expected_project_updated_at is None:
+            expected_project_updated_at = project.updated_at
 
     # The caller may have retained this Session across an async provider wait.
     # End that transaction and rebuild the failure receipt from a locked, fresh
     # owner so stale JSON can never replace a concurrent successful rebuild.
     session.rollback()
-    current = session.exec(
-        select(Project).where(Project.id == project_id).with_for_update()
-    ).first()
-    if current is None:
+    try:
+        current = _lock_project_memory_writer(
+            session,
+            int(project_id),
+            actor_user_id=actor_user_id,
+            trusted_system=trusted_system,
+        )
+    except HTTPException as exc:
+        if exc.status_code not in {401, 403, 404, 409}:
+            raise
         session.rollback()
         return False
     if (
@@ -786,6 +1002,9 @@ def _set_project_memory_failure(
     ) or (
         expected_rebuild_status in {"queued", "rebuilding"}
         and current.memory_rebuild_status == "idle"
+    ) or (
+        expected_project_updated_at is not None
+        and current.updated_at != expected_project_updated_at
     ):
         session.rollback()
         return False
@@ -971,9 +1190,13 @@ def _list_project_communication_sources(session: Session, project: Project, limi
 def _build_project_briefing(session: Session, project_id: int) -> dict:
     project = get_project_or_404(session, project_id)
     memory = get_project_memory_payload(project)
-    client = _find_client_record_by_name(session, project.client)
+    client = _find_client_record_for_project(session, project)
     client_memory = get_client_memory_payload(client) if client else {}
-    stakeholders = list_client_stakeholder_dicts_by_name(session, project.client, limit=8)
+    stakeholders = (
+        list_client_stakeholder_dicts(session, int(client.id), limit=8)
+        if client is not None and client.id is not None
+        else []
+    )
 
     milestones = list_project_milestones(session, project_id)
     todos = list_project_todos(session, project_id)
@@ -1185,22 +1408,28 @@ def _record_project_memory_failure_by_id(
     stage: str,
     message: str,
     retry_count: int = 0,
+    actor_user_id: int | None = None,
+    trusted_system: bool = False,
 ) -> None:
     """Record ad-hoc LLM failures so operations pages can surface them."""
+    _require_project_memory_write_context(
+        actor_user_id=actor_user_id,
+        trusted_system=trusted_system,
+    )
     from app.database import engine as _engine
     from sqlmodel import Session as _S
 
     try:
         with _S(_engine) as write_session:
-            project = write_session.get(Project, project_id)
-            if project:
-                _set_project_memory_failure(
-                    write_session,
-                    project,
-                    stage=stage,
-                    message=message,
-                    retry_count=retry_count,
-                )
+            _set_project_memory_failure(
+                write_session,
+                project_id,
+                stage=stage,
+                message=message,
+                retry_count=retry_count,
+                actor_user_id=actor_user_id,
+                trusted_system=trusted_system,
+            )
     except Exception:
         logger.exception("Failed to record project memory failure for project_id=%s", project_id)
 
@@ -1232,7 +1461,14 @@ async def _generate_memory_summary_cache(
     memory_payload: dict,
     summary_type: str,
     language: str | None = None,
+    *,
+    actor_user_id: int | None = None,
+    trusted_system: bool = False,
 ) -> None:
+    _require_project_memory_write_context(
+        actor_user_id=actor_user_id,
+        trusted_system=trusted_system,
+    )
     project_id = int(project.id or 0)
     memory_version = int(memory_payload.get("memory_version", 0) or 0)
     prompt = build_project_memory_view_prompt(
@@ -1247,12 +1483,12 @@ async def _generate_memory_summary_cache(
         max_tokens=1400,
     )
     session.expire_all()
-    current_project = session.get(Project, project_id)
-    if current_project is None:
-        session.rollback()
-        raise MemoryRebuildConflict(
-            "project summary conflict: project was removed during generation"
-        )
+    current_project = _lock_project_memory_writer(
+        session,
+        project_id,
+        actor_user_id=actor_user_id,
+        trusted_system=trusted_system,
+    )
     current_prompt = build_project_memory_view_prompt(
         get_project_memory_payload(current_project),
         current_project.name,
@@ -1281,7 +1517,14 @@ async def _warm_project_memory_summary_caches(
     summary_types: list[str] | None = None,
     language: str | None = None,
     force_refresh: bool = False,
+    *,
+    actor_user_id: int | None = None,
+    trusted_system: bool = False,
 ) -> list[str]:
+    _require_project_memory_write_context(
+        actor_user_id=actor_user_id,
+        trusted_system=trusted_system,
+    )
     requested_types = summary_types or ["overview", "risk", "stakeholder"]
     normalized_language = normalize_summary_language(language)
     memory_version = int(memory_payload.get("memory_version", 0) or 0)
@@ -1317,6 +1560,8 @@ async def _warm_project_memory_summary_caches(
             memory_payload,
             summary_type,
             language=normalized_language,
+            actor_user_id=actor_user_id,
+            trusted_system=trusted_system,
         )
         warmed.append(summary_type)
 
@@ -1346,6 +1591,7 @@ async def _run_project_memory_summary_warm_job(
                     summary_types=summary_types,
                     language=language,
                     force_refresh=force_refresh,
+                    trusted_system=True,
                 )
                 return
             except MemoryRebuildConflict:
@@ -1360,6 +1606,7 @@ async def _run_project_memory_summary_warm_job(
                         stage="summary_warm",
                         message=str(exc),
                         retry_count=attempt,
+                        trusted_system=True,
                     )
                     raise
                 wait_seconds = MEMORY_SUMMARY_WARM_INTERVAL_SECONDS * (2 ** attempt)
@@ -1396,12 +1643,20 @@ def _schedule_project_memory_summary_warm(
 
 async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debounced") -> None:
     with Session(engine) as session:
-        project = get_project_or_404(session, project_id)
+        project = lock_project_for_trusted_system_write(session, project_id)
+        # A source change can schedule a replacement while an older provider
+        # call is still marked ``rebuilding``. ``idle`` is the committed cancel
+        # state and is the only state an already-submitted job must not reclaim.
+        if project.memory_rebuild_status not in {"queued", "rebuilding"}:
+            session.rollback()
+            return
         project.memory_rebuild_status = "rebuilding"
         project.memory_rebuild_failed_at = None
+        expected_memory_version = int(project.memory_version or 0)
+        expected_rebuild_status = "rebuilding"
+        expected_project_updated_at = project.updated_at
         session.add(project)
         session.commit()
-        expected_memory_version = int(project.memory_version or 0)
 
         try:
             memory_payload = await _rebuild_project_memory(
@@ -1409,6 +1664,9 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
                 project_id=project_id,
                 project=project,
                 trigger=trigger,
+                trusted_system=True,
+                start_rebuild_status=expected_rebuild_status,
+                start_project_updated_at=expected_project_updated_at,
             )
             _schedule_project_memory_summary_warm(
                 project_id=project_id,
@@ -1426,6 +1684,7 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
             if (
                 int(project.memory_version or 0) > expected_memory_version
                 or project.memory_rebuild_status == "idle"
+                or project.updated_at != expected_project_updated_at
             ):
                 session.rollback()
                 return
@@ -1467,7 +1726,9 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
                 retry_count=retry_count,
                 expected_memory_version=expected_memory_version,
                 expected_rebuild_status="rebuilding",
+                expected_project_updated_at=expected_project_updated_at,
                 mark_rebuild_failed=True,
+                trusted_system=True,
             )
             raise
 
@@ -1493,12 +1754,21 @@ def _mark_project_memory_stale(session: Session, project_id: int, trigger: str =
     mark_project_memory_stale(session, project_id, trigger=trigger)
     project = session.get(Project, project_id)
     if project:
-        mark_client_memory_stale_by_name(session, project.client, trigger="project_changed")
-    _schedule_project_memory_rebuild(project_id, trigger=trigger)
+        if project.client_id is not None:
+            mark_client_memory_stale(
+                session,
+                int(project.client_id),
+                trigger="project_changed",
+            )
     if project and project.memory_rebuild_status != "rebuilding":
         project.memory_rebuild_status = "queued" if scheduler_service.is_running() else "idle"
         session.add(project)
         session.commit()
+    # Persist the claimable state before publishing the external scheduler
+    # entry. A concurrent cancel can then leave ``idle`` as the winning state;
+    # even if this add happens afterwards, the worker's compare-and-claim gate
+    # discards that stale submission before any provider call.
+    _schedule_project_memory_rebuild(project_id, trigger=trigger)
 
 
 def _refresh_instance(session: Session, instance):
@@ -1512,7 +1782,20 @@ async def _rebuild_project_memory(
     project_id: int,
     project: Optional[Project] = None,
     trigger: str = "manual",
+    *,
+    actor_user_id: int | None = None,
+    trusted_system: bool = False,
+    start_rebuild_status: str | None = None,
+    start_project_updated_at: datetime | None = None,
 ) -> dict:
+    _require_project_memory_write_context(
+        actor_user_id=actor_user_id,
+        trusted_system=trusted_system,
+    )
+    if (start_rebuild_status is None) != (start_project_updated_at is None):
+        raise ValueError(
+            "Project memory rebuild start status and generation must be supplied together"
+        )
     begin_memory_prompt_snapshot(session)
     project = get_project_or_404(session, project_id)
     plan = plan_project_memory_rebuild(
@@ -1522,7 +1805,22 @@ async def _rebuild_project_memory(
         slot_states=get_project_memory_slot_states(session, project_id),
     )
     expected_memory_version = int(project.memory_version or 0)
-    expected_rebuild_status = project.memory_rebuild_status
+    expected_rebuild_status = (
+        str(start_rebuild_status)
+        if start_rebuild_status is not None
+        else project.memory_rebuild_status
+    )
+    expected_project_updated_at = (
+        start_project_updated_at
+        if start_project_updated_at is not None
+        else project.updated_at
+    )
+    _require_current_project_memory_generation(
+        session,
+        project,
+        expected_rebuild_status=expected_rebuild_status,
+        expected_project_updated_at=expected_project_updated_at,
+    )
     try:
         _, project_memory_data, coverage = build_project_memory_data(
             session,
@@ -1543,7 +1841,23 @@ async def _rebuild_project_memory(
             max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
         )
         session.expire_all()
-        project = get_project_or_404(session, project_id)
+        project, source_client = _lock_project_memory_rebuild_writer(
+            session,
+            project_id,
+            actor_user_id=actor_user_id,
+            trusted_system=trusted_system,
+        )
+        _require_current_project_memory_generation(
+            session,
+            project,
+            expected_rebuild_status=expected_rebuild_status,
+            expected_project_updated_at=expected_project_updated_at,
+        )
+        _lock_project_memory_prompt_sources(
+            session,
+            project,
+            client=source_client,
+        )
         _, _, current_coverage = build_project_memory_data(
             session,
             project_id,
@@ -1578,7 +1892,23 @@ async def _rebuild_project_memory(
                     max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
                 )
                 session.expire_all()
-                project = get_project_or_404(session, project_id)
+                project, source_client = _lock_project_memory_rebuild_writer(
+                    session,
+                    project_id,
+                    actor_user_id=actor_user_id,
+                    trusted_system=trusted_system,
+                )
+                _require_current_project_memory_generation(
+                    session,
+                    project,
+                    expected_rebuild_status=expected_rebuild_status,
+                    expected_project_updated_at=expected_project_updated_at,
+                )
+                _lock_project_memory_prompt_sources(
+                    session,
+                    project,
+                    client=source_client,
+                )
                 _, _, current_full_coverage = build_project_memory_data(
                     session,
                     project_id,
@@ -1629,6 +1959,9 @@ async def _rebuild_project_memory(
             message=str(e),
             expected_memory_version=expected_memory_version,
             expected_rebuild_status=expected_rebuild_status,
+            expected_project_updated_at=expected_project_updated_at,
+            actor_user_id=actor_user_id,
+            trusted_system=trusted_system,
         )
         raise
 
@@ -1637,7 +1970,14 @@ async def _ensure_project_memory(
     session: Session,
     project_id: int,
     project: Optional[Project] = None,
+    *,
+    actor_user_id: int | None = None,
+    trusted_system: bool = False,
 ) -> tuple[Project, dict]:
+    _require_project_memory_write_context(
+        actor_user_id=actor_user_id,
+        trusted_system=trusted_system,
+    )
     project = project or get_project_or_404(session, project_id)
     memory_payload = get_project_memory_payload(project)
     if project.memory_stale or project.memory_version == 0:
@@ -1645,7 +1985,14 @@ async def _ensure_project_memory(
             project = get_project_or_404(session, project_id)
             memory_payload = get_project_memory_payload(project)
             if project.memory_stale or project.memory_version == 0:
-                memory_payload = await _rebuild_project_memory(session, project_id, project, trigger="on_demand")
+                memory_payload = await _rebuild_project_memory(
+                    session,
+                    project_id,
+                    project,
+                    trigger="on_demand",
+                    actor_user_id=actor_user_id,
+                    trusted_system=trusted_system,
+                )
         project = get_project_or_404(session, project_id)
     return project, memory_payload
 
@@ -1655,29 +2002,68 @@ def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str
 
 
 async def _auto_summarize_file(
-    file_id: int, file_path: str, file_type: str, project_id: int, folder_id: int | None
+    file_id: int,
+    file_path: str,
+    file_type: str,
+    project_id: int,
+    folder_id: int | None,
+    actor_user_id: int,
 ) -> None:
     """Generate a 2-3 sentence summary for an uploaded file, then create a companion .md."""
     from app.database import engine
     from sqlmodel import Session as _Session
 
-    await summarize_uploaded_project_file(
+    source_snapshot = await summarize_uploaded_project_file(
         file_id,
+        project_id=project_id,
         file_path=file_path,
         file_type=file_type,
         extract_file_text=_extract_file_text,
         complete=lambda messages, max_tokens: complete_with_selected_model(messages, max_tokens=max_tokens),
         session_factory=lambda: _Session(engine),
+        authorize_write=lambda write_session: lock_and_require_project_write(
+            write_session,
+            project_id,
+            actor_user_id=actor_user_id,
+        ),
     )
+    if source_snapshot is None:
+        return
 
     # Create companion markdown for non-markdown files
     if file_type.lower() not in ("md",):
         try:
-            text = _extract_file_text(Path(file_path), file_type, 8000)
-            if text and not text.startswith("[") and len(text.strip()) > 50:
-                source_name = Path(file_path).stem
-                md_content = f"# {source_name}\n\n> Auto-extracted from `{Path(file_path).name}`\n\n{text}"
-                with _Session(engine) as md_session:
+            with _Session(engine) as md_session:
+                lock_and_require_project_write(
+                    md_session,
+                    project_id,
+                    actor_user_id=actor_user_id,
+                )
+                source_file = md_session.exec(
+                    select(ProjectFile)
+                    .where(ProjectFile.id == file_id)
+                    .with_for_update()
+                ).first()
+                if (
+                    source_file is None
+                    or not source_snapshot.matches_record(source_file)
+                ):
+                    md_session.rollback()
+                    return
+                source_path = Path(file_path)
+                with locked_text_path(source_path):
+                    if not source_snapshot.matches_file(source_path):
+                        md_session.rollback()
+                        return
+                    text = _extract_file_text(source_path, file_type, 8000)
+                    if not text or text.startswith("[") or len(text.strip()) <= 50:
+                        md_session.rollback()
+                        return
+                    source_name = source_path.stem
+                    md_content = f"# {source_name}\n\n> Auto-extracted from `{source_path.name}`\n\n{text}"
+                    # Hold the source path lock through both the derivative
+                    # commit and stale marker so its content remains the exact
+                    # snapshot that was authorized and summarized.
                     create_markdown_project_file(
                         md_session,
                         project_id,
@@ -1685,9 +2071,14 @@ async def _auto_summarize_file(
                         content=md_content,
                         uploads_dir=UPLOADS_DIR,
                         folder_id=folder_id,
-                        summary=f"Auto-extracted content from {Path(file_path).name}",
+                        summary=f"Auto-extracted content from {source_path.name}",
                         source_file_id=file_id,
                         origin="markdown_derivative",
+                    )
+                    _mark_project_memory_stale(
+                        md_session,
+                        project_id,
+                        trigger="project_file_changed",
                     )
         except Exception:
             pass

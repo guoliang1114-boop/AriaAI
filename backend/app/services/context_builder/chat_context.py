@@ -18,6 +18,7 @@ from app.services.memory_slots import (
     load_project_memory_slot_view,
 )
 from app.services.project_contexts import get_project_memory_payload
+from app.services.project_clients import find_client_for_project
 from app.services.context_builder.assembly import ContextSourceInput
 from app.services.context_builder.memory_formatters import build_client_memory_prompt_bundle
 from app.services.context_builder.project_context import build_project_context
@@ -73,14 +74,15 @@ def build_chat_context(
     mention_context: Optional[dict] = None,
     context_mode: str = "",
     accessible_project_ids: Optional[list[int]] = None,
+    accessible_client_ids: Optional[list[int]] = None,
     skill_override: Optional[Skill] = None,
 ) -> ChatContext:
     """Build complete chat context including skill, project, and RAG.
 
-    ``accessible_project_ids`` scopes the workspace/portfolio/inventory memory
-    builders to projects the user is a member of. ``None`` means no restriction
-    (internal/system callers); a list (possibly empty) prevents cross-project
-    memory leaks in standalone / portfolio / inventory chat modes.
+    ``accessible_project_ids`` scopes workspace/portfolio memory and project
+    knowledge. ``accessible_client_ids`` additionally grants client knowledge
+    owned directly by a client creator even when that client has no project.
+    ``None`` for both is reserved for trusted internal/system callers.
     """
     # Merge mention_context file_ids into file_ids so @-mentioned files get injected
     _mention = mention_context or {}
@@ -99,10 +101,10 @@ def build_chat_context(
     
     project = session.get(Project, project_id) if project_id else None
     client = None
-    if project is not None and project.client.strip():
-        client = session.exec(
-            select(ClientRecord).where(ClientRecord.name.ilike(project.client.strip()))
-        ).first()
+    if project is not None and (
+        project.client_id is not None or project.client.strip()
+    ):
+        client = find_client_for_project(session, project)
     normalized_scope = (knowledge_scope or "project").strip().lower()
     normalized_context_mode = (context_mode or "").strip().lower()
     explicit_context_mode = bool(normalized_context_mode)
@@ -116,6 +118,7 @@ def build_chat_context(
             session,
             content,
             fallback_client_name=project.client if project and project.client and (force_portfolio or normalized_scope == "client") else "",
+            fallback_client_id=project.client_id if project and (force_portfolio or normalized_scope == "client") else None,
             force=force_portfolio,
             accessible_project_ids=accessible_project_ids,
         )
@@ -233,6 +236,7 @@ def build_chat_context(
         knowledge_scope=knowledge_scope,
         auto_trigger=True,
         accessible_project_ids=accessible_project_ids,
+        accessible_client_ids=accessible_client_ids,
     )
 
     if portfolio_context:

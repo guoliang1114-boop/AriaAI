@@ -1,9 +1,15 @@
 """Workspace-level context builders."""
+from __future__ import annotations
+
 from typing import Optional
 
 from sqlmodel import Session, select
 
-from app.models.db import Milestone, Project, ProjectPayment
+from app.models.db import ClientRecord, Milestone, Project, ProjectPayment
+from app.services.project_clients import (
+    clients_matching_name,
+    list_projects_for_client,
+)
 from app.services.project_contexts import get_project_memory_payload
 from app.services.time_utils import utc_now_naive
 from app.services.context_builder.memory_formatters import (
@@ -152,6 +158,7 @@ def build_client_project_portfolio_context(
     session: Session,
     content: str,
     fallback_client_name: str = "",
+    fallback_client_id: int | None = None,
     *,
     force: bool = False,
     accessible_project_ids: Optional[list[int]] = None,
@@ -163,12 +170,30 @@ def build_client_project_portfolio_context(
     if not client_name:
         return ""
 
-    normalized_client = _normalize_client_match_text(client_name)
-    projects = [
-        project
-        for project in session.exec(select(Project).order_by(Project.updated_at.desc())).all()
-        if _normalize_client_match_text(project.client) == normalized_client
-    ]
+    client = (
+        session.get(ClientRecord, fallback_client_id)
+        if fallback_client_id is not None
+        else None
+    )
+    if client is None:
+        matches = clients_matching_name(session, client_name)
+        if len(matches) > 1:
+            return ""
+        client = matches[0] if matches else None
+    if client is not None:
+        projects = list_projects_for_client(session, client)
+        client_name = client.name
+    else:
+        normalized_client = _normalize_client_match_text(client_name)
+        projects = [
+            project
+            for project in session.exec(
+                select(Project).where(Project.client_id.is_(None)).order_by(
+                    Project.updated_at.desc()
+                )
+            ).all()
+            if _normalize_client_match_text(project.client) == normalized_client
+        ]
     projects = _restrict_to_accessible(projects, accessible_project_ids)
     if not projects:
         return ""

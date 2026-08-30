@@ -27,14 +27,19 @@ from app.models.db import (
     ClientStakeholder,
     ClientStakeholderHistory,
     KnowledgeDocument,
-    Project,
+    User,
 )
+from app.services.client_permissions import (
+    accessible_client_ids,
+    require_client_access,
+)
+from app.services.knowledge_permissions import accessible_project_ids
+from app.services.project_clients import list_projects_for_client
 from app.services.time_utils import utc_now_naive
 from app.routers.clients_deps import (
     ClientOut,
     ClientStakeholderOut,
     _build_client_out,
-    _normalized_name,
     _serialize_client_stakeholder,
 )
 
@@ -86,23 +91,54 @@ class ContactListResponse(BaseModel):
     partial_failures: int = 0
 
 
-def _build_client_directory_rows(session: Session) -> list[ClientOut]:
-    clients = session.exec(select(ClientRecord).order_by(ClientRecord.name)).all()
-    all_docs = session.exec(select(KnowledgeDocument)).all()
-    all_projects = session.exec(select(Project)).all()
+def _build_client_directory_rows(
+    session: Session,
+    *,
+    current_user: User,
+    allowed_client_ids: set[int] | None = None,
+) -> list[ClientOut]:
+    client_statement = select(ClientRecord).order_by(ClientRecord.name)
+    if allowed_client_ids is not None:
+        if not allowed_client_ids:
+            return []
+        client_statement = client_statement.where(
+            ClientRecord.id.in_(sorted(allowed_client_ids))
+        )
+    clients = session.exec(client_statement).all()
 
+    document_statement = select(KnowledgeDocument)
+    if allowed_client_ids is not None:
+        document_statement = document_statement.where(
+            KnowledgeDocument.client_id.in_(sorted(allowed_client_ids))
+        )
+    all_docs = session.exec(document_statement).all()
+
+    visible_project_ids = set(accessible_project_ids(current_user, session))
     docs_by_client: dict[int, list] = {}
     for document in all_docs:
-        if document.client_id is not None:
+        if (
+            document.client_id is not None
+            and (
+                document.project_id is None
+                or int(document.project_id) in visible_project_ids
+            )
+        ):
             docs_by_client.setdefault(document.client_id, []).append(document)
 
-    projects_by_name: dict[str, list[str]] = {}
-    for project in all_projects:
-        key = _normalized_name(project.client)
-        if key:
-            projects_by_name.setdefault(key, []).append(project.name)
+    projects_by_client_id = {
+        int(client.id): [
+            project.name
+            for project in list_projects_for_client(session, client)
+            if project.id is not None and int(project.id) in visible_project_ids
+        ]
+        for client in clients
+        if client.id is not None
+    }
 
-    return [_build_client_out(client, docs_by_client, projects_by_name) for client in clients]
+    return [
+        _build_client_out(client, docs_by_client, projects_by_client_id)
+        for client in clients
+    ]
 
 
 def _contact_level(stakeholder: ClientStakeholder | ClientStakeholderOut) -> str:
@@ -189,21 +225,38 @@ def list_contacts(
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> ContactListResponse:
-    clients = _build_client_directory_rows(session)
+    clients = _build_client_directory_rows(
+        session,
+        current_user=current_user,
+        allowed_client_ids=accessible_client_ids(session, current_user),
+    )
     clients_by_id = {client.id: client for client in clients}
-    stakeholders = session.exec(
-        select(ClientStakeholder).order_by(ClientStakeholder.updated_at.desc(), ClientStakeholder.id.desc())
-    ).all()
+    if clients_by_id:
+        stakeholders = session.exec(
+            select(ClientStakeholder)
+            .where(ClientStakeholder.client_id.in_(sorted(clients_by_id)))
+            .order_by(
+                ClientStakeholder.updated_at.desc(),
+                ClientStakeholder.id.desc(),
+            )
+        ).all()
+    else:
+        stakeholders = []
     records = [
-        ContactRecordOut(client=clients_by_id[stakeholder.client_id], stakeholder=_serialize_client_stakeholder(stakeholder))
+        ContactRecordOut(
+            client=clients_by_id[stakeholder.client_id],
+            stakeholder=_serialize_client_stakeholder(stakeholder),
+        )
         for stakeholder in stakeholders
         if stakeholder.client_id in clients_by_id
     ]
     filtered = [
         record
         for record in records
-        if _contact_matches_search(record, search) and _contact_matches_filter(record, filter)
+        if _contact_matches_search(record, search)
+        and _contact_matches_filter(record, filter)
     ]
     filtered.sort(key=_contact_sort_key)
     return ContactListResponse(
@@ -217,15 +270,19 @@ def list_contacts(
 
 
 @router.get("/{stakeholder_id}", response_model=ContactDetailOut)
-def get_contact(stakeholder_id: int, session: Session = Depends(get_session)) -> ContactDetailOut:
+def get_contact(
+    stakeholder_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ContactDetailOut:
     stakeholder = session.get(ClientStakeholder, stakeholder_id)
     if not stakeholder:
         raise HTTPException(status_code=404, detail="Contact not found")
-    client = session.get(ClientRecord, stakeholder.client_id)
-    if not client:
-        # Orphaned stakeholder — shouldn't happen because of the FK, but
-        # better to 404 explicitly than blow up in the serializer.
-        raise HTTPException(status_code=404, detail="Contact's client is missing")
+    client = require_client_access(
+        session,
+        stakeholder.client_id,
+        current_user,
+    )
 
     # Sibling stakeholders for the side rail. Same ordering as
     # ``list_client_stakeholders`` so the column matches what the
@@ -236,19 +293,26 @@ def get_contact(stakeholder_id: int, session: Session = Depends(get_session)) ->
         .order_by(ClientStakeholder.updated_at.desc(), ClientStakeholder.id.desc())
     ).all()
 
-    # Project list — mirrors ``/clients/{id}/projects``: normalized
-    # client-name match because Project.client is a free-text column,
-    # not an FK.
-    client_key = _normalized_name(client.name)
-    all_projects = session.exec(select(Project)).all()
-    matching_projects = [p for p in all_projects if _normalized_name(p.client) == client_key]
+    visible_project_ids = set(accessible_project_ids(current_user, session))
+    matching_projects = [
+        project
+        for project in list_projects_for_client(session, client)
+        if project.id is not None and int(project.id) in visible_project_ids
+    ]
 
     # Documents for the client-out shape (same as the /clients list).
     docs = session.exec(
         select(KnowledgeDocument).where(KnowledgeDocument.client_id == client.id)
     ).all()
-    docs_by_client = {client.id: list(docs)}
-    projects_by_name = {client_key: [p.name for p in matching_projects]}
+    docs_by_client = {
+        client.id: [
+            document
+            for document in docs
+            if document.project_id is None
+            or int(document.project_id) in visible_project_ids
+        ]
+    }
+    projects_by_client_id = {int(client.id): [p.name for p in matching_projects]}
 
     # Recent history for this stakeholder — same shape + cap as
     # ``get_stakeholder_history``.
@@ -260,7 +324,7 @@ def get_contact(stakeholder_id: int, session: Session = Depends(get_session)) ->
     ).all()
 
     return ContactDetailOut(
-        client=_build_client_out(client, docs_by_client, projects_by_name),
+        client=_build_client_out(client, docs_by_client, projects_by_client_id),
         stakeholder=_serialize_client_stakeholder(stakeholder),
         sibling_stakeholders=[_serialize_client_stakeholder(s) for s in siblings],
         projects=[

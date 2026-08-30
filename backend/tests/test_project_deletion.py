@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import unittest
 
+from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, select
 
 from app.models.db import (
@@ -23,6 +24,7 @@ from app.models.db import (
     Project,
     ProjectFile,
     ProjectFileVersion,
+    ProjectMember,
     ProjectTodo,
     TaskRun,
     User,
@@ -44,10 +46,18 @@ class DeleteProjectCascadeTest(unittest.TestCase):
     def test_deletes_project_with_run_trace_state_and_file_versions(self):
         """A project carrying lifecycle rows must delete without FK failures."""
         with Session(self.engine) as session:
+            actor = User(
+                email="delete-lifecycle-admin@example.com",
+                password_hash="x",
+                is_admin=True,
+            )
             project = Project(name="GTM Project", client="Client")
+            session.add(actor)
             session.add(project)
             session.commit()
+            session.refresh(actor)
             session.refresh(project)
+            actor_id = int(actor.id)
             project_id = project.id
 
             conversation = Conversation(title="Chat", project_id=project_id)
@@ -116,7 +126,11 @@ class DeleteProjectCascadeTest(unittest.TestCase):
 
         # Should not raise (previously raised IntegrityError → 500).
         with Session(self.engine) as session:
-            delete_project_cascade(session, project_id)
+            delete_project_cascade(
+                session,
+                project_id,
+                actor_user_id=actor_id,
+            )
 
         with Session(self.engine) as session:
             self.assertIsNone(session.get(Project, project_id))
@@ -152,6 +166,14 @@ class DeleteProjectCascadeTest(unittest.TestCase):
             project = Project(name="Weekly source", client="Focus client")
             session.add(owner)
             session.add(project)
+            session.flush()
+            session.add(
+                ProjectMember(
+                    project_id=int(project.id),
+                    user_id=int(owner.id),
+                    role="owner",
+                )
+            )
             session.commit()
             session.refresh(owner)
             session.refresh(project)
@@ -171,11 +193,16 @@ class DeleteProjectCascadeTest(unittest.TestCase):
             session.commit()
             session.refresh(focus)
             project_id = int(project.id)
+            owner_id = int(owner.id)
             todo_id = int(todo.id)
             focus_id = int(focus.id)
 
         with Session(self.engine) as session:
-            client_name = delete_project_cascade(session, project_id)
+            _client_id, client_name = delete_project_cascade(
+                session,
+                project_id,
+                actor_user_id=owner_id,
+            )
 
         self.assertEqual(client_name, "Focus client")
         with Session(self.engine) as session:
@@ -188,10 +215,18 @@ class DeleteProjectCascadeTest(unittest.TestCase):
 
     def test_returns_fresh_client_name_when_cached_project_was_reassigned(self):
         with Session(self.engine) as setup:
+            actor = User(
+                email="delete-reassigned-admin@example.com",
+                password_hash="x",
+                is_admin=True,
+            )
             project = Project(name="Reassigned deletion", client="Old client")
+            setup.add(actor)
             setup.add(project)
             setup.commit()
+            setup.refresh(actor)
             setup.refresh(project)
+            actor_id = int(actor.id)
             project_id = int(project.id)
 
         with Session(self.engine) as deletion_session:
@@ -203,9 +238,83 @@ class DeleteProjectCascadeTest(unittest.TestCase):
                 concurrent.add(current)
                 concurrent.commit()
 
-            client_name = delete_project_cascade(deletion_session, project_id)
+            _client_id, client_name = delete_project_cascade(
+                deletion_session,
+                project_id,
+                actor_user_id=actor_id,
+            )
 
         self.assertEqual(client_name, "New client")
+        with Session(self.engine) as verify:
+            self.assertIsNone(verify.get(Project, project_id))
+
+    def test_rechecks_active_write_membership_before_deleting(self):
+        with Session(self.engine) as setup:
+            actor = User(
+                email="delete-final-auth@example.com",
+                password_hash="x",
+            )
+            project = Project(name="Final delete auth", client="Guarded client")
+            setup.add(actor)
+            setup.add(project)
+            setup.flush()
+            membership = ProjectMember(
+                project_id=int(project.id),
+                user_id=int(actor.id),
+                role="viewer",
+            )
+            setup.add(membership)
+            setup.commit()
+            setup.refresh(actor)
+            setup.refresh(project)
+            setup.refresh(membership)
+            actor_id = int(actor.id)
+            project_id = int(project.id)
+            membership_id = int(membership.id)
+
+        with Session(self.engine) as denied:
+            with self.assertRaises(HTTPException) as raised:
+                delete_project_cascade(
+                    denied,
+                    project_id,
+                    actor_user_id=actor_id,
+                )
+            self.assertEqual(raised.exception.status_code, 403)
+            denied.rollback()
+
+        with Session(self.engine) as deactivate:
+            actor = deactivate.get(User, actor_id)
+            membership = deactivate.get(ProjectMember, membership_id)
+            actor.is_active = False
+            membership.role = "editor"
+            deactivate.add(actor)
+            deactivate.add(membership)
+            deactivate.commit()
+
+        with Session(self.engine) as inactive:
+            with self.assertRaises(HTTPException) as raised:
+                delete_project_cascade(
+                    inactive,
+                    project_id,
+                    actor_user_id=actor_id,
+                )
+            self.assertEqual(raised.exception.status_code, 403)
+            self.assertIn("inactive", str(raised.exception.detail).lower())
+            inactive.rollback()
+
+        with Session(self.engine) as activate:
+            actor = activate.get(User, actor_id)
+            actor.is_active = True
+            activate.add(actor)
+            activate.commit()
+
+        with Session(self.engine) as allowed:
+            delete_project_cascade(
+                allowed,
+                project_id,
+                actor_user_id=actor_id,
+            )
+
         with Session(self.engine) as verify:
             self.assertIsNone(verify.get(Project, project_id))
 

@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.models.db import (
     ClientRecord,
+    Conversation,
     MemoryCandidate,
     Message,
     Project,
@@ -26,6 +27,7 @@ from app.services.client_contexts import get_client_memory_payload, save_client_
 from app.services.client_identity import (
     client_identity_expression,
     lock_client_identity_namespaces,
+    resolve_client_identity,
 )
 from app.services.project_contexts import (
     _default_project_memory,
@@ -62,6 +64,14 @@ DEFAULT_TARGET_SLOT = {
     "consulting_lesson": "lessons_learned",
 }
 ACCEPTED_MEMORY_CANDIDATES_KEY = "_accepted_memory_candidates"
+SOURCE_CONVERSATION_REF_TYPE = "aria_source_conversation"
+SOURCE_PROJECT_REF_TYPE = "aria_source_project"
+SOURCE_OWNER_REF_TYPE = "aria_source_owner"
+RESERVED_SOURCE_REF_TYPES = {
+    SOURCE_CONVERSATION_REF_TYPE,
+    SOURCE_PROJECT_REF_TYPE,
+    SOURCE_OWNER_REF_TYPE,
+}
 
 
 def _member_can_write(member: ProjectMember) -> bool:
@@ -79,6 +89,22 @@ def _parse_json(value: str | None, fallback: Any) -> Any:
         return json.loads(value or "")
     except (json.JSONDecodeError, TypeError):
         return fallback
+
+
+def _candidate_source_ref(candidate: MemoryCandidate, source_type: str) -> str | None:
+    refs = _parse_json(candidate.source_refs_json, [])
+    if not isinstance(refs, list):
+        return None
+    matches = [
+        str(item.get("source_id") or "").strip()
+        for item in refs
+        if isinstance(item, dict)
+        and str(item.get("source_type") or "").strip().lower() == source_type
+    ]
+    matches = [value for value in matches if value]
+    if len(set(matches)) > 1:
+        raise HTTPException(409, "Memory candidate source identity is inconsistent")
+    return matches[0] if matches else None
 
 
 def _bounded_source_refs(refs: list[dict[str, Any]] | None) -> list[dict[str, str]]:
@@ -425,13 +451,12 @@ def _lock_candidate_owner_then_candidate(
     User | None,
     UserMemory | None,
 ]:
-    """Lock actor, authorization rows, target owner, then candidate.
+    """Freeze target and chat-source authorization through the final commit.
 
-    The router performs an early access check for a fast failure, but that
-    check is not authoritative: project membership, client linkage, or the
-    actor account may change before the decision is committed.  This helper
-    therefore owns the final authorization check while holding every row that
-    can revoke it through the candidate write.
+    Lock order is client namespace -> actor -> all target/source Projects by ID
+    -> target Client -> memberships -> UserMemory -> Conversation -> Message ->
+    candidate.  The router's earlier checks are only fast failures; this helper
+    is authoritative for both the formal-memory write and source-message sync.
     """
 
     candidate_id = candidate.id
@@ -439,16 +464,59 @@ def _lock_candidate_owner_then_candidate(
     scope = candidate.scope
     project_id = candidate.project_id
     client_id = candidate.client_id
+    source_type = str(candidate.source_type or "").strip().lower()
+    source_id = str(candidate.source_id or "").strip()
+    source_refs_json = candidate.source_refs_json
     if int(actor_user_id) != int(owner_user_id):
-        # Candidate decisions are private to their owner.  Keep the same
-        # anti-enumeration behavior as the router's owned-candidate lookup.
         raise HTTPException(404, "Memory candidate not found")
 
-    # Client authorization is currently derived from the mutable project
-    # client-name link. Resolve the locator with the exact same SQL expression
-    # used by the locked queries; Python strip/lower and PostgreSQL trim/lower
-    # disagree for characters such as TAB and NBSP. Then lock matching projects
-    # *before* ClientRecord to preserve Aria's shared cross-owner lock order.
+    source_snapshot: tuple[int, int, int | None, int | None] | None = None
+    source_project_id: int | None = None
+    if source_type == "chat_message":
+        if not source_id.isdigit():
+            raise HTTPException(409, "Memory candidate source message is invalid")
+        source_message = session.get(Message, int(source_id))
+        if source_message is None:
+            raise HTTPException(409, "Memory candidate source message no longer exists")
+        source_conversation = session.get(Conversation, source_message.conversation_id)
+        if source_conversation is None:
+            raise HTTPException(409, "Memory candidate source conversation no longer exists")
+        source_project_id = source_conversation.project_id
+        source_snapshot = (
+            int(source_message.id),
+            int(source_conversation.id),
+            int(source_project_id) if source_project_id is not None else None,
+            int(source_conversation.owner_user_id)
+            if source_conversation.owner_user_id is not None
+            else None,
+        )
+        expected_conversation = _candidate_source_ref(
+            candidate,
+            SOURCE_CONVERSATION_REF_TYPE,
+        )
+        expected_project = _candidate_source_ref(candidate, SOURCE_PROJECT_REF_TYPE)
+        expected_owner = _candidate_source_ref(candidate, SOURCE_OWNER_REF_TYPE)
+        if expected_conversation is not None and expected_conversation != str(
+            source_snapshot[1]
+        ):
+            raise HTTPException(409, "Memory candidate source conversation changed")
+        current_project_ref = (
+            str(source_snapshot[2]) if source_snapshot[2] is not None else "none"
+        )
+        if expected_project is not None and expected_project != current_project_ref:
+            raise HTTPException(409, "Memory candidate source project changed")
+        current_owner_ref = (
+            str(source_snapshot[3]) if source_snapshot[3] is not None else "none"
+        )
+        if (
+            expected_owner is not None
+            and expected_owner != "none"
+            and expected_owner != current_owner_ref
+        ):
+            raise HTTPException(409, "Memory candidate source owner changed")
+        if scope == "project" and source_project_id != project_id:
+            raise HTTPException(409, "Memory candidate source project changed")
+
     client_name_identity = ""
     if scope == "client" and client_id is not None:
         resolved_identity = session.exec(
@@ -458,6 +526,16 @@ def _lock_candidate_owner_then_candidate(
         ).first()
         client_name_identity = str(resolved_identity or "")
         lock_client_identity_namespaces(session, (client_name_identity,))
+    source_client_project_ids: list[int] | None = None
+    if scope == "client" and source_project_id is not None:
+        source_client_project_ids = [
+            int(value)
+            for value in session.exec(
+                select(Project.id)
+                .where(Project.client_id == client_id)
+                .order_by(Project.id)
+            ).all()
+        ]
     identity = (
         owner_user_id,
         scope,
@@ -465,11 +543,11 @@ def _lock_candidate_owner_then_candidate(
         client_id,
         candidate.base_memory_version,
         candidate.content_sha256,
+        source_type,
+        source_id,
+        source_refs_json,
     )
-    # The router has already loaded both candidate and scope owner for access
-    # checks. SELECT ... FOR UPDATE does not refresh those cached identities,
-    # so expire them before acquiring the authoritative owner -> candidate
-    # locks and also force locked queries to populate existing instances.
+
     session.expire_all()
     actor = session.exec(
         select(User)
@@ -485,93 +563,182 @@ def _lock_candidate_owner_then_candidate(
     project: Project | None = None
     client: ClientRecord | None = None
     user_memory: UserMemory | None = None
+    matching_projects: list[Project] = []
+    locked_projects: dict[int, Project] = {}
     if scope == "project":
-        project = session.exec(
+        project_ids = {
+            value
+            for value in (project_id, source_project_id)
+            if value is not None
+        }
+        rows = session.exec(
             select(Project)
-            .where(Project.id == project_id)
+            .where(Project.id.in_(sorted(project_ids)))
+            .order_by(Project.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).all()
+        locked_projects = {int(item.id): item for item in rows if item.id is not None}
+        project = locked_projects.get(int(project_id or 0))
+        if project is None:
+            raise HTTPException(404, "Project not found")
+    elif scope == "client":
+        if source_client_project_ids is None:
+            matching_projects = session.exec(
+                select(Project)
+                .where(Project.client_id == client_id)
+                .order_by(Project.id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            ).all()
+        else:
+            project_ids = sorted(
+                {*source_client_project_ids, int(source_project_id)}
+            )
+            project_rows = session.exec(
+                select(Project)
+                .where(Project.id.in_(project_ids))
+                .order_by(Project.id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            ).all()
+            matching_projects = [
+                item for item in project_rows if item.client_id == client_id
+            ]
+            locked_projects = {
+                int(item.id): item for item in project_rows if item.id is not None
+            }
+        locked_projects = {
+            **locked_projects,
+            **{
+                int(item.id): item
+                for item in matching_projects
+                if item.id is not None
+            },
+        }
+        client = session.exec(
+            select(ClientRecord)
+            .where(ClientRecord.id == client_id)
             .execution_options(populate_existing=True)
             .with_for_update()
         ).first()
-        if project is None:
-            raise HTTPException(404, "Project not found")
+        if client is None:
+            raise HTTPException(404, "Client not found")
+        if resolve_client_identity(session, client.name) != client_name_identity:
+            raise HTTPException(409, "Client changed during decision; reload and retry")
+    elif scope == "user":
+        if source_project_id is not None:
+            source_project = session.exec(
+                select(Project)
+                .where(Project.id == source_project_id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            ).first()
+            if source_project is not None:
+                locked_projects[source_project_id] = source_project
+    else:
+        raise HTTPException(400, "Unsupported memory candidate scope")
+
+    target_project_ids = (
+        [int(project.id)]
+        if scope == "project" and project is not None
+        else [int(item.id) for item in matching_projects if item.id is not None]
+    )
+    authorization_project_ids = sorted(
+        {
+            *target_project_ids,
+            *([source_project_id] if source_project_id is not None else []),
+        }
+    )
+    memberships = []
+    if authorization_project_ids:
         memberships = session.exec(
             select(ProjectMember)
             .where(
-                ProjectMember.project_id == project_id,
+                ProjectMember.project_id.in_(authorization_project_ids),
                 ProjectMember.user_id == actor_user_id,
             )
             .order_by(ProjectMember.id)
             .execution_options(populate_existing=True)
             .with_for_update()
         ).all()
-        if not actor.is_admin:
-            if not memberships:
-                raise HTTPException(403, "Project membership required")
-            if not any(_member_can_write(member) for member in memberships):
-                raise HTTPException(403, "Project write permission required")
-    elif scope == "client":
-        if not client_name_identity:
-            raise HTTPException(
-                409,
-                "Client-project relationship is empty or ambiguous; reload and retry",
-            )
-        matching_projects = session.exec(
-            select(Project)
-            .where(
-                client_identity_expression(Project.client) == client_name_identity
-            )
-            .order_by(Project.id)
-            .execution_options(populate_existing=True)
-            .with_for_update()
-        ).all()
-        matching_clients = session.exec(
-            select(ClientRecord)
-            .where(
-                client_identity_expression(ClientRecord.name)
-                == client_name_identity
-            )
-            .order_by(ClientRecord.id)
-            .execution_options(populate_existing=True)
-            .with_for_update()
-        ).all()
-        if (
-            len(matching_clients) != 1
-            or matching_clients[0].id != client_id
-        ):
-            raise HTTPException(
-                409,
-                "Client-project relationship is ambiguous; reload and retry",
-            )
-        client = matching_clients[0]
-        matching_project_ids = [
-            int(item.id) for item in matching_projects if item.id is not None
+    memberships_by_project: dict[int, list[ProjectMember]] = {}
+    for membership in memberships:
+        memberships_by_project.setdefault(int(membership.project_id), []).append(membership)
+
+    if not actor.is_admin and scope == "project":
+        target_memberships = memberships_by_project.get(int(project_id or 0), [])
+        if not target_memberships:
+            raise HTTPException(403, "Project membership required")
+        if not any(_member_can_write(member) for member in target_memberships):
+            raise HTTPException(403, "Project write permission required")
+    if (
+        not actor.is_admin
+        and scope == "client"
+        and client is not None
+        and client.created_by_user_id != actor.id
+    ):
+        target_memberships = [
+            membership
+            for project_key in target_project_ids
+            for membership in memberships_by_project.get(project_key, [])
         ]
-        memberships = []
-        if matching_project_ids:
-            memberships = session.exec(
-                select(ProjectMember)
-                .where(
-                    ProjectMember.project_id.in_(matching_project_ids),
-                    ProjectMember.user_id == actor_user_id,
-                )
-                .order_by(ProjectMember.id)
-                .execution_options(populate_existing=True)
-                .with_for_update()
-            ).all()
-        if not actor.is_admin:
-            if not memberships:
-                raise HTTPException(403, "Client project membership required")
-            if not any(_member_can_write(member) for member in memberships):
-                raise HTTPException(403, "Client memory write permission required")
-    elif scope == "user":
+        if not target_memberships:
+            raise HTTPException(403, "Client project membership required")
+        if not any(_member_can_write(member) for member in target_memberships):
+            raise HTTPException(403, "Client memory write permission required")
+
+    if scope == "user":
         user_memory = session.exec(
             select(UserMemory)
             .where(UserMemory.user_id == owner_user_id)
             .execution_options(populate_existing=True)
             .with_for_update()
         ).first()
-    else:
-        raise HTTPException(400, "Unsupported memory candidate scope")
+
+    if source_snapshot is not None:
+        source_conversation = session.exec(
+            select(Conversation)
+            .where(Conversation.id == source_snapshot[1])
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        source_message = session.exec(
+            select(Message)
+            .where(Message.id == source_snapshot[0])
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        ).first()
+        if source_conversation is None or source_message is None:
+            raise HTTPException(409, "Memory candidate source changed")
+        locked_source_snapshot = (
+            int(source_message.id),
+            int(source_conversation.id),
+            int(source_conversation.project_id)
+            if source_conversation.project_id is not None
+            else None,
+            int(source_conversation.owner_user_id)
+            if source_conversation.owner_user_id is not None
+            else None,
+        )
+        if (
+            source_message.conversation_id != source_conversation.id
+            or locked_source_snapshot != source_snapshot
+        ):
+            raise HTTPException(409, "Memory candidate source changed")
+        if source_project_id is None:
+            if source_conversation.owner_user_id != actor.id:
+                raise HTTPException(403, "Source conversation owner required")
+        elif not actor.is_admin:
+            if source_project_id not in locked_projects:
+                raise HTTPException(409, "Memory candidate source project changed")
+            source_memberships = memberships_by_project.get(source_project_id, [])
+            if not source_memberships:
+                raise HTTPException(403, "Source project membership required")
+            if not any(_member_can_write(member) for member in source_memberships):
+                raise HTTPException(403, "Source project write permission required")
+        if scope == "client" and source_project_id not in target_project_ids:
+            raise HTTPException(409, "Source project/client link changed")
 
     locked = session.exec(
         select(MemoryCandidate)
@@ -591,6 +758,9 @@ def _lock_candidate_owner_then_candidate(
         locked.client_id,
         locked.base_memory_version,
         locked.content_sha256,
+        str(locked.source_type or "").strip().lower(),
+        str(locked.source_id or "").strip(),
+        locked.source_refs_json,
     )
     if locked_identity != identity:
         raise HTTPException(409, "Memory candidate changed during decision; reload and retry")

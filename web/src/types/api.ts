@@ -40,6 +40,8 @@ export interface Project {
   id: number
   name: string
   client: string
+  /** Stable client identity. Absent only while talking to a pre-migration API. */
+  client_id?: number | null
   description: string
   status: ProjectStatus
   created_at: string

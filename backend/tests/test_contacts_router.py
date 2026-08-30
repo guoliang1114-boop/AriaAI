@@ -4,6 +4,8 @@ Covers the optimisation that replaced the ContactDetail page's
 N+1 stakeholder fan-out (one ``/clients/{id}/stakeholders`` call per
 client) with a single ``/contacts/{id}`` round-trip.
 """
+from __future__ import annotations
+
 import unittest
 
 from fastapi import FastAPI
@@ -24,7 +26,7 @@ from app.routers.contacts import router as contacts_router
 from tests.test_database import create_test_engine, drop_all_tables
 
 
-def _make_app(engine):
+def _make_app(engine, current_user: User | None = None):
     app = FastAPI()
     app.include_router(contacts_router, prefix="/contacts")
 
@@ -34,9 +36,14 @@ def _make_app(engine):
 
     app.dependency_overrides[contacts_module.get_session] = override_session
     # R74 router-level auth floor
-    app.dependency_overrides[get_current_user] = lambda: User(
-        id=1, email="test@example.com", display_name="Test", is_admin=True
+    resolved_user = current_user or User(
+        id=1,
+        email="test@example.com",
+        password_hash="",
+        display_name="Test",
+        is_admin=True,
     )
+    app.dependency_overrides[get_current_user] = lambda: resolved_user
     return app
 
 
@@ -47,10 +54,37 @@ class ContactsRouterTestCase(unittest.TestCase):
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:
+            owner_a = User(
+                email="acme-owner@example.com",
+                password_hash="h",
+                display_name="Acme owner",
+            )
+            owner_b = User(
+                email="other-owner@example.com",
+                password_hash="h",
+                display_name="Other owner",
+            )
+            session.add(owner_a)
+            session.add(owner_b)
+            session.flush()
+            self.owner_a_id = int(owner_a.id)
+            self.owner_b_id = int(owner_b.id)
             # Two clients so we can verify that GETting a contact bundles
             # only its own client's siblings, projects, and docs.
-            client_a = ClientRecord(name="Acme Corp", industry="Insurance", contact="", notes="")
-            client_b = ClientRecord(name="Other Inc", industry="Retail", contact="", notes="")
+            client_a = ClientRecord(
+                name="Acme Corp",
+                industry="Insurance",
+                contact="",
+                notes="",
+                created_by_user_id=self.owner_a_id,
+            )
+            client_b = ClientRecord(
+                name="Other Inc",
+                industry="Retail",
+                contact="",
+                notes="",
+                created_by_user_id=self.owner_b_id,
+            )
             session.add(client_a)
             session.add(client_b)
             session.commit()
@@ -81,10 +115,22 @@ class ContactsRouterTestCase(unittest.TestCase):
             session.add(sibling)
             session.add(unrelated)
 
-            # Project linked by free-text client name (matches the real
-            # join used in clients/projects).
-            session.add(Project(name="Digital Roadmap", client="Acme Corp", status="active"))
-            session.add(Project(name="Wrong Client Project", client="Other Inc", status="active"))
+            session.add(
+                Project(
+                    name="Digital Roadmap",
+                    client="Acme Corp",
+                    client_id=client_a.id,
+                    status="active",
+                )
+            )
+            session.add(
+                Project(
+                    name="Wrong Client Project",
+                    client="Other Inc",
+                    client_id=client_b.id,
+                    status="active",
+                )
+            )
 
             # A doc attached to the client so document_count comes back > 0.
             session.add(
@@ -155,6 +201,49 @@ class ContactsRouterTestCase(unittest.TestCase):
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get("/contacts/999999")
         self.assertEqual(resp.status_code, 404)
+
+    def test_list_contacts_only_returns_accessible_clients(self):
+        app = _make_app(
+            self.engine,
+            User(
+                id=self.owner_a_id,
+                email="acme-owner@example.com",
+                password_hash="",
+                display_name="Acme owner",
+            ),
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.get("/contacts?limit=100")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(
+            {item["stakeholder"]["name"] for item in data["items"]},
+            {"Vivian", "Other Sibling"},
+        )
+        self.assertEqual(
+            [client_row["id"] for client_row in data["clients"]],
+            [self.client_a_id],
+        )
+        detail_response = client.get(f"/contacts/{self.target_id}")
+        self.assertEqual(detail_response.status_code, 200, detail_response.text)
+
+    def test_get_contact_requires_parent_client_read_access(self):
+        app = _make_app(
+            self.engine,
+            User(
+                id=self.owner_b_id,
+                email="other-owner@example.com",
+                password_hash="",
+                display_name="Other owner",
+            ),
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.get(f"/contacts/{self.target_id}")
+
+        self.assertEqual(response.status_code, 403, response.text)
 
 
 if __name__ == "__main__":

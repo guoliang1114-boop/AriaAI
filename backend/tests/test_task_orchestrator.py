@@ -4,9 +4,19 @@ import asyncio
 import json
 import re
 
+import pytest
 from sqlmodel import Session, SQLModel, select
 
-from app.models.db import Project, ProjectFile, TaskArtifact, TaskEvent, TaskRun, TaskStep
+from app.models.db import (
+    Project,
+    ProjectFile,
+    ProjectMember,
+    TaskArtifact,
+    TaskEvent,
+    TaskRun,
+    TaskStep,
+    User,
+)
 from app.services import task_orchestrator
 from app.services.task_orchestrator import (
     cancel_task_run_in_session,
@@ -44,6 +54,7 @@ def test_create_task_run_persists_ordered_steps():
                 project_id=project.id,
                 task_type="generate_client_ppt",
                 goal="给客户准备介绍 PPT",
+                trusted_system=True,
             )
             payload = serialize_task_run(session, task, include_events=True)
 
@@ -541,9 +552,10 @@ def test_execute_task_run_completes_and_records_artifact(monkeypatch):
                 task_type="generate_client_ppt",
                 goal="给客户准备介绍 PPT",
                 input_data={"file_name": "client-intro.pptx"},
+                trusted_system=True,
             )
 
-            asyncio.run(execute_task_run_in_session(session, task.id))
+            asyncio.run(execute_task_run_in_session(session, task.id, trusted_system=True))
             session.refresh(task)
             steps = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).all()
             artifacts = session.exec(select(TaskArtifact).where(TaskArtifact.task_run_id == task.id)).all()
@@ -589,9 +601,10 @@ def test_execute_project_excel_task_uses_durable_document_steps(monkeypatch):
                 task_type="generate_project_excel",
                 goal="我想要准备一个访谈的excel",
                 input_data={"file_name": "interview.xlsx"},
+                trusted_system=True,
             )
 
-            asyncio.run(execute_task_run_in_session(session, task.id))
+            asyncio.run(execute_task_run_in_session(session, task.id, trusted_system=True))
             session.refresh(task)
             steps = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).all()
             artifacts = session.exec(select(TaskArtifact).where(TaskArtifact.task_run_id == task.id)).all()
@@ -645,9 +658,10 @@ def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, t
                 project_id=project.id,
                 task_type="create_text_artifact",
                 goal=goal,
+                trusted_system=True,
             )
 
-            asyncio.run(execute_task_run_in_session(session, task.id))
+            asyncio.run(execute_task_run_in_session(session, task.id, trusted_system=True))
             session.refresh(task)
             steps = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).all()
             artifacts = session.exec(select(TaskArtifact).where(TaskArtifact.task_run_id == task.id)).all()
@@ -742,9 +756,10 @@ def test_create_text_artifact_respects_explicit_markdown_filename_and_deep_backg
                 task_type="create_text_artifact",
                 goal=goal,
                 input_data={"title": "项目背景", "file_name": "项目背景.md"},
+                trusted_system=True,
             )
 
-            asyncio.run(execute_task_run_in_session(session, task.id))
+            asyncio.run(execute_task_run_in_session(session, task.id, trusted_system=True))
             session.refresh(task)
             project_file = session.exec(select(ProjectFile).where(ProjectFile.project_id == project.id)).first()
             artifact = session.exec(select(TaskArtifact).where(TaskArtifact.task_run_id == task.id)).first()
@@ -848,9 +863,10 @@ def test_execute_task_run_fails_only_current_step(monkeypatch):
                 project_id=project.id,
                 task_type="generate_client_ppt",
                 goal="给客户准备介绍 PPT",
+                trusted_system=True,
             )
 
-            asyncio.run(execute_task_run_in_session(session, task.id))
+            asyncio.run(execute_task_run_in_session(session, task.id, trusted_system=True))
             session.refresh(task)
             steps = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).all()
             events = session.exec(select(TaskEvent).where(TaskEvent.task_run_id == task.id)).all()
@@ -893,9 +909,10 @@ def test_execute_task_run_auto_recovers_retryable_step(monkeypatch):
                 project_id=project.id,
                 task_type="generate_project_excel",
                 goal="准备访谈 Excel",
+                trusted_system=True,
             )
 
-            asyncio.run(execute_task_run_in_session(session, task.id))
+            asyncio.run(execute_task_run_in_session(session, task.id, trusted_system=True))
             session.refresh(task)
             steps = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).all()
             events = session.exec(select(TaskEvent).where(TaskEvent.task_run_id == task.id)).all()
@@ -922,9 +939,10 @@ def test_cancel_task_run_marks_pending_steps_skipped():
                 project_id=project.id,
                 task_type="generate_project_excel",
                 goal="准备访谈 Excel",
+                trusted_system=True,
             )
 
-            payload = cancel_task_run_in_session(session, task.id)
+            payload = cancel_task_run_in_session(session, task.id, trusted_system=True)
 
         assert payload is not None
         assert payload["status"] == "canceled"
@@ -935,7 +953,7 @@ def test_cancel_task_run_marks_pending_steps_skipped():
         engine.dispose()
 
 
-def test_cancel_task_run_keeps_running_step_until_executor_stops():
+def test_cancel_task_run_invalidates_running_step_lease_immediately():
     engine = _setup_engine()
     try:
         with Session(engine) as session:
@@ -948,18 +966,18 @@ def test_cancel_task_run_keeps_running_step_until_executor_stops():
                 project_id=project.id,
                 task_type="generate_project_excel",
                 goal="准备访谈 Excel",
+                trusted_system=True,
             )
             step = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).first()
             step.status = "running"
             session.add(step)
             session.commit()
 
-            payload = cancel_task_run_in_session(session, task.id)
+            payload = cancel_task_run_in_session(session, task.id, trusted_system=True)
 
         assert payload is not None
         assert payload["status"] == "canceled"
-        assert payload["steps"][0]["status"] == "running"
-        assert all(step["status"] == "skipped" for step in payload["steps"][1:])
+        assert all(step["status"] == "skipped" for step in payload["steps"])
     finally:
         engine.dispose()
 
@@ -977,9 +995,10 @@ def test_pause_task_run_records_event_without_skipping_steps():
                 project_id=project.id,
                 task_type="generate_project_excel",
                 goal="准备访谈 Excel",
+                trusted_system=True,
             )
 
-            payload = pause_task_run_in_session(session, task.id)
+            payload = pause_task_run_in_session(session, task.id, trusted_system=True)
 
         assert payload is not None
         assert payload["status"] == "paused"
@@ -1002,13 +1021,323 @@ def test_resume_task_run_sets_pending_and_records_event():
                 project_id=project.id,
                 task_type="generate_project_excel",
                 goal="准备访谈 Excel",
+                trusted_system=True,
             )
-            pause_task_run_in_session(session, task.id)
+            pause_task_run_in_session(session, task.id, trusted_system=True)
 
-            payload = resume_task_run_in_session(session, task.id)
+            payload = resume_task_run_in_session(session, task.id, trusted_system=True)
 
         assert payload is not None
         assert payload["status"] == "pending"
         assert any(event["event_type"] == "task_resumed" for event in payload["events"])
+    finally:
+        engine.dispose()
+
+
+def _create_actor_owned_task(engine) -> tuple[int, int, int]:
+    with Session(engine) as session:
+        actor = User(
+            email=f"task-actor-{id(engine)}@example.com",
+            password_hash="x",
+            display_name="Task Actor",
+        )
+        project = Project(name="Actor-aware Task", client="Client", status="active")
+        session.add(actor)
+        session.add(project)
+        session.commit()
+        session.refresh(actor)
+        session.refresh(project)
+        membership = ProjectMember(
+            project_id=int(project.id),
+            user_id=int(actor.id),
+            role="editor",
+        )
+        session.add(membership)
+        session.commit()
+        task = create_task_run(
+            session,
+            project_id=int(project.id),
+            task_type="generate_project_excel",
+            goal="准备访谈 Excel",
+            created_by_user_id=int(actor.id),
+        )
+        return int(task.id), int(project.id), int(actor.id)
+
+
+def _writer_step_state(engine, task_id: int) -> tuple[TaskRun, TaskStep, list[TaskArtifact], list[ProjectFile], list[TaskEvent]]:
+    with Session(engine) as session:
+        task = session.get(TaskRun, task_id)
+        assert task is not None
+        writer_step = session.exec(
+            select(TaskStep).where(
+                TaskStep.task_run_id == task_id,
+                TaskStep.step_type == "write_project_office_document",
+            )
+        ).one()
+        artifacts = list(session.exec(select(TaskArtifact).where(TaskArtifact.task_run_id == task_id)).all())
+        project_files = list(session.exec(select(ProjectFile).where(ProjectFile.project_id == task.project_id)).all())
+        events = list(
+            session.exec(
+                select(TaskEvent).where(
+                    TaskEvent.task_run_id == task_id,
+                    TaskEvent.step_id == writer_step.id,
+                )
+            ).all()
+        )
+        session.expunge(task)
+        session.expunge(writer_step)
+        return task, writer_step, artifacts, project_files, events
+
+
+def test_blocked_writer_drops_outputs_and_failure_receipt_after_actor_acl_change(monkeypatch, tmp_path):
+    for mutation in ("demote", "remove", "deactivate"):
+        engine = _setup_engine()
+        source_path = tmp_path / f"{mutation}.xlsx"
+        source_path.write_bytes(b"generated but not authorized")
+        writer_started: asyncio.Event | None = None
+        release_writer: asyncio.Event | None = None
+
+        async def blocked_writer(**_kwargs):
+            assert writer_started is not None
+            assert release_writer is not None
+            writer_started.set()
+            await release_writer.wait()
+            if mutation == "deactivate":
+                source_path.unlink()
+                raise RuntimeError("writer failed after actor deactivation")
+            return {
+                "ok": True,
+                "name": "interview.xlsx",
+                "file_type": "xlsx",
+                "_prepared_project_file": {
+                    "source_path": str(source_path),
+                    "file_name": "interview.xlsx",
+                    "file_type": "xlsx",
+                    "folder_id": None,
+                    "summary": "blocked writer",
+                    "preview_text": "blocked writer",
+                },
+            }
+
+        monkeypatch.setattr(task_orchestrator, "write_project_office_document", blocked_writer)
+        task_id, project_id, actor_id = _create_actor_owned_task(engine)
+
+        async def run_scenario() -> None:
+            nonlocal writer_started, release_writer
+            writer_started = asyncio.Event()
+            release_writer = asyncio.Event()
+            with Session(engine) as execution_session:
+                execution = asyncio.create_task(execute_task_run_in_session(execution_session, task_id))
+                await writer_started.wait()
+                with Session(engine) as mutation_session:
+                    if mutation == "deactivate":
+                        actor = mutation_session.get(User, actor_id)
+                        assert actor is not None
+                        actor.is_active = False
+                        mutation_session.add(actor)
+                    else:
+                        membership = mutation_session.exec(
+                            select(ProjectMember).where(
+                                ProjectMember.project_id == project_id,
+                                ProjectMember.user_id == actor_id,
+                            )
+                        ).one()
+                        if mutation == "demote":
+                            membership.role = "viewer"
+                            mutation_session.add(membership)
+                        else:
+                            mutation_session.delete(membership)
+                    mutation_session.commit()
+                release_writer.set()
+                await execution
+
+        try:
+            asyncio.run(run_scenario())
+            task, writer_step, artifacts, project_files, events = _writer_step_state(engine, task_id)
+            assert task.status == "running"
+            assert writer_step.status == "running"
+            assert artifacts == []
+            assert project_files == []
+            assert not source_path.exists()
+            assert {event.event_type for event in events}.isdisjoint(
+                {"step_completed", "step_failed", "step_retry"}
+            )
+        finally:
+            engine.dispose()
+
+
+def test_cancel_while_writer_is_blocked_invalidates_lease_and_persists_no_output(monkeypatch, tmp_path):
+    engine = _setup_engine()
+    source_path = tmp_path / "canceled.xlsx"
+    source_path.write_bytes(b"generated but canceled")
+    writer_started: asyncio.Event | None = None
+    release_writer: asyncio.Event | None = None
+
+    async def blocked_writer(**_kwargs):
+        assert writer_started is not None
+        assert release_writer is not None
+        writer_started.set()
+        await release_writer.wait()
+        return {
+            "ok": True,
+            "name": "canceled.xlsx",
+            "file_type": "xlsx",
+            "_prepared_project_file": {
+                "source_path": str(source_path),
+                "file_name": "canceled.xlsx",
+                "file_type": "xlsx",
+                "folder_id": None,
+                "summary": "canceled writer",
+                "preview_text": "canceled writer",
+            },
+        }
+
+    monkeypatch.setattr(task_orchestrator, "write_project_office_document", blocked_writer)
+    task_id, _project_id, actor_id = _create_actor_owned_task(engine)
+
+    async def run_scenario() -> None:
+        nonlocal writer_started, release_writer
+        writer_started = asyncio.Event()
+        release_writer = asyncio.Event()
+        with Session(engine) as execution_session:
+            execution = asyncio.create_task(execute_task_run_in_session(execution_session, task_id))
+            await writer_started.wait()
+            with Session(engine) as control_session:
+                payload = cancel_task_run_in_session(
+                    control_session,
+                    task_id,
+                    actor_user_id=actor_id,
+                )
+                assert payload is not None
+                assert payload["status"] == "canceled"
+            release_writer.set()
+            await execution
+
+    try:
+        asyncio.run(run_scenario())
+        task, writer_step, artifacts, project_files, events = _writer_step_state(engine, task_id)
+        assert task.status == "canceled"
+        assert writer_step.status == "skipped"
+        assert artifacts == []
+        assert project_files == []
+        assert not source_path.exists()
+        assert {event.event_type for event in events}.isdisjoint(
+            {"step_completed", "step_failed", "step_retry"}
+        )
+    finally:
+        engine.dispose()
+
+
+def test_actor_authorized_task_materializes_prepared_office_file_only_at_final_lease(monkeypatch, tmp_path):
+    from app.tools import office_documents
+
+    engine = _setup_engine()
+    generated_dir = tmp_path / "generated"
+    generated_dir.mkdir(parents=True)
+    source_path = generated_dir / "prepared.xlsx"
+    source_path.write_bytes(b"prepared office file")
+    monkeypatch.setattr(task_orchestrator, "UPLOADS_DIR", tmp_path)
+    monkeypatch.setattr(office_documents, "UPLOADS_DIR", tmp_path)
+
+    async def prepared_writer(**_kwargs):
+        return {
+            "ok": True,
+            "name": "prepared.xlsx",
+            "file_type": "xlsx",
+            "_prepared_project_file": {
+                "source_path": str(source_path),
+                "file_name": "prepared.xlsx",
+                "file_type": "xlsx",
+                "folder_id": None,
+                "summary": "prepared writer",
+                "preview_text": "prepared writer",
+            },
+        }
+
+    monkeypatch.setattr(task_orchestrator, "write_project_office_document", prepared_writer)
+    task_id, project_id, _actor_id = _create_actor_owned_task(engine)
+    try:
+        with Session(engine) as session:
+            asyncio.run(execute_task_run_in_session(session, task_id))
+
+        with Session(engine) as session:
+            task = session.get(TaskRun, task_id)
+            project_file = session.exec(
+                select(ProjectFile).where(ProjectFile.project_id == project_id)
+            ).one()
+            artifact = session.exec(
+                select(TaskArtifact).where(TaskArtifact.task_run_id == task_id)
+            ).one()
+            assert task is not None
+            assert task.status == "completed"
+            assert artifact.project_file_id == project_file.id
+            assert (tmp_path / project_file.path).read_bytes() == b"prepared office file"
+            assert not source_path.exists()
+    finally:
+        engine.dispose()
+
+
+def test_materialization_failure_compensates_markdown_and_office_project_files(monkeypatch, tmp_path):
+    from app.tools import office_documents
+
+    engine = _setup_engine()
+    generated_dir = tmp_path / "generated"
+    generated_dir.mkdir(parents=True)
+    source_path = generated_dir / "prepared.xlsx"
+    source_path.write_bytes(b"prepared office file")
+    monkeypatch.setattr(task_orchestrator, "UPLOADS_DIR", tmp_path)
+    monkeypatch.setattr(office_documents, "UPLOADS_DIR", tmp_path)
+
+    def fail_memory_invalidation(*_args, **_kwargs):
+        raise RuntimeError("memory invalidation failed")
+
+    monkeypatch.setattr(task_orchestrator, "mark_project_memory_stale", fail_memory_invalidation)
+    task_id, project_id, _actor_id = _create_actor_owned_task(engine)
+    outputs = [
+        {
+            "_pending_markdown_project_file": {
+                "name": "prepared.md",
+                "content": "# Prepared",
+                "folder_id": None,
+                "summary": "prepared markdown",
+            }
+        },
+        {
+            "_prepared_project_file": {
+                "source_path": str(source_path),
+                "file_name": "prepared.xlsx",
+                "file_type": "xlsx",
+                "folder_id": None,
+                "summary": "prepared office",
+                "preview_text": "prepared office",
+            }
+        },
+    ]
+
+    try:
+        for output in outputs:
+            with Session(engine) as session:
+                task = session.get(TaskRun, task_id)
+                step = session.exec(
+                    select(TaskStep).where(
+                        TaskStep.task_run_id == task_id,
+                        TaskStep.step_type == "write_project_office_document",
+                    )
+                ).one()
+                assert task is not None
+                with pytest.raises(RuntimeError, match="memory invalidation failed"):
+                    task_orchestrator._materialize_step_output(session, task, step, output)
+                session.rollback()
+
+            project_dir = tmp_path / "projects" / str(project_id)
+            assert not [path for path in project_dir.rglob("*") if path.is_file()]
+            with Session(engine) as session:
+                assert session.exec(
+                    select(ProjectFile).where(ProjectFile.project_id == project_id)
+                ).all() == []
+                assert session.exec(
+                    select(TaskArtifact).where(TaskArtifact.task_run_id == task_id)
+                ).all() == []
+        assert source_path.exists()
     finally:
         engine.dispose()

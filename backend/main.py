@@ -13,7 +13,7 @@ from app.config import (
     JWT_EXPIRATION_HOURS, SCHEDULER_ENABLED, SETTINGS_CACHE_TTL, validate_jwt_secret
 )
 from app.database import create_db, get_database_health, get_database_migration_governance, migrate_db, engine
-from app.routers import chat, projects, projects_memory, projects_files, projects_briefing, projects_tasks, knowledge, settings, skills, schedules, templates, clients, clients_memory, clients_stakeholders, contacts, artifacts, messages, memory_candidates, memory_operations, user_memory, weekly
+from app.routers import chat, projects, knowledge, settings, skills, schedules, templates, clients, contacts, artifacts, messages, memory_candidates, memory_operations, user_memory, weekly
 from app.routers import auth as auth_router
 from app.routers.auth import seed_admin_user
 from app.services import scheduler
@@ -264,10 +264,6 @@ async def auth_middleware(request: Request, call_next):
 app.include_router(auth_router.router)
 app.include_router(chat.router)
 app.include_router(projects.router)
-app.include_router(projects_memory.router, prefix="/projects")
-app.include_router(projects_files.router, prefix="/projects")
-app.include_router(projects_briefing.router, prefix="/projects")
-app.include_router(projects_tasks.router, prefix="/projects")
 app.include_router(knowledge.router)
 app.include_router(knowledge.router, prefix="/api/v1")
 app.include_router(settings.router)
@@ -275,8 +271,6 @@ app.include_router(skills.router)
 app.include_router(schedules.router)
 app.include_router(templates.router)
 app.include_router(clients.router)
-app.include_router(clients_memory.router, prefix="/clients")
-app.include_router(clients_stakeholders.router, prefix="/clients")
 app.include_router(contacts.router, prefix="/contacts")
 app.include_router(artifacts.router)
 app.include_router(messages.router)

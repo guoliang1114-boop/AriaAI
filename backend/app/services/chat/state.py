@@ -215,7 +215,13 @@ class ChatSessionState:
         }
         if step_index is not None:
             event["step_index"] = step_index
-        self.record_tool_execution(event)
+        # Only a plan that survives policy validation belongs in the canonical
+        # tool execution ledger.  Blocked/suppressed JSON was never executed;
+        # representing it as ``tool_calls`` would make later conversation
+        # state look as though Aria attempted a real side effect.  The trace
+        # event below remains the durable security/audit record.
+        if status == "planned":
+            self.record_tool_execution(event)
         self.record_trace_event(
             "tool_use_via_text",
             stage=stage,

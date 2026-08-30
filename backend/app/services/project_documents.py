@@ -99,6 +99,7 @@ def create_markdown_project_file(
     summary: str = "",
     source_file_id: int | None = None,
     origin: str = "manual",
+    commit: bool = True,
 ) -> ProjectFile:
     safe_name = ensure_markdown_filename(name)
     dest_dir = project_documents_dir(project_id, uploads_dir)
@@ -116,17 +117,28 @@ def create_markdown_project_file(
         source_file_id=source_file_id,
         origin=origin,
     )
-    session.add(project_file)
-    session.commit()
-    session.refresh(project_file)
-    create_project_file_version_snapshot(
-        session,
-        project_file,
-        content,
-        change_source=f"{origin}_create",
-    )
-    session.commit()
-    return project_file
+    try:
+        session.add(project_file)
+        session.flush()
+        create_project_file_version_snapshot(
+            session,
+            project_file,
+            content,
+            change_source=f"{origin}_create",
+        )
+        if commit:
+            session.commit()
+            session.refresh(project_file)
+        return project_file
+    except Exception:
+        # The database transaction cannot roll a filesystem write back.  A
+        # failed flush/commit must therefore remove the not-yet-published
+        # project artifact instead of leaving an orphan on disk.
+        try:
+            dest_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def get_project_document_file_or_404(session: Session, project_id: int, file_id: int) -> ProjectFile:
@@ -237,6 +249,7 @@ def create_project_document_record(
     folder_id: int | None = None,
     summary: str = "Project note document",
     auto_assign_folder: bool = False,
+    commit: bool = True,
 ) -> ProjectFile:
     project = session.get(Project, project_id)
     if not project:
@@ -265,6 +278,7 @@ def create_project_document_record(
         content=content,
         uploads_dir=uploads_dir,
         summary=summary,
+        commit=commit,
     )
 
 
@@ -300,7 +314,25 @@ def update_project_document_record(
     name: str | None = None,
     folder_id: int | None = None,
 ) -> dict:
-    project_file = get_project_document_file_or_404(session, project_id, file_id)
+    # Every artifact writer uses parent -> child -> filesystem lock order so
+    # background provider finalization cannot deadlock with, or race past, a
+    # manual document update.
+    project = session.exec(
+        select(Project).where(Project.id == project_id).with_for_update()
+    ).first()
+    if project is None:
+        raise HTTPException(404, "Project not found")
+    project_file = session.exec(
+        select(ProjectFile)
+        .where(
+            ProjectFile.id == file_id,
+            ProjectFile.project_id == project_id,
+            ProjectFile.deleted_at.is_(None),
+        )
+        .with_for_update()
+    ).first()
+    if project_file is None:
+        raise HTTPException(404, "File not found")
     if project_file.file_type.lower() != "md":
         raise HTTPException(400, "Only markdown documents are supported")
 
@@ -308,21 +340,11 @@ def update_project_document_record(
     if not full_path.exists():
         raise HTTPException(404, "File not found on disk")
 
-    if content is not None:
-        existing_content = read_project_document_content(project_file, uploads_dir=uploads_dir)
-        ensure_initial_project_file_version(
-            session,
-            project_file,
-            existing_content,
-            change_source="before_document_update",
-        )
-        project_file.size_bytes = write_project_markdown_file(project_file, content, uploads_dir=uploads_dir)
-
+    next_name: str | None = None
     if name is not None:
         next_name = sanitize_markdown_filename(name)
         if not next_name.lower().endswith(".md"):
             next_name = f"{next_name}.md"
-        project_file.name = next_name
 
     if folder_id is not None:
         folder = resolve_project_folder(
@@ -333,19 +355,41 @@ def update_project_document_record(
         )
         project_file.folder_id = folder.id if folder else None
 
-    session.add(project_file)
-    session.commit()
-    session.refresh(project_file)
     if content is not None or name is not None:
-        snapshot_content = read_project_document_content(project_file, uploads_dir=uploads_dir)
-        create_project_file_version_snapshot(
-            session,
-            project_file,
-            snapshot_content,
-            change_source="document_update",
-        )
+        with locked_text_path(full_path):
+            existing_content = full_path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+            if content is not None:
+                ensure_initial_project_file_version(
+                    session,
+                    project_file,
+                    existing_content,
+                    change_source="before_document_update",
+                )
+                project_file.size_bytes = atomic_write_text(full_path, content)
+                # A summary belongs to one exact source version; a subsequent
+                # manual edit must invalidate it even if it starts after the
+                # provider's own final commit.
+                project_file.summary = ""
+                snapshot_content = content
+            else:
+                snapshot_content = existing_content
+            if next_name is not None:
+                project_file.name = next_name
+            session.add(project_file)
+            create_project_file_version_snapshot(
+                session,
+                project_file,
+                snapshot_content,
+                change_source="document_update",
+            )
+            session.commit()
+    else:
+        session.add(project_file)
         session.commit()
-        session.refresh(project_file)
+    session.refresh(project_file)
     return {
         "ok": True,
         "id": project_file.id,
