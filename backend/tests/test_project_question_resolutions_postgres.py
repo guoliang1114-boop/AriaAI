@@ -1,4 +1,4 @@
-"""Database contract for the project question-resolution ledger.
+"""PostgreSQL contracts for project question resolution and accountability.
 
 The production-database E2E workflow runs this file only inside its disposable
 ``ariaai_test_*`` schema after a verified backup. It never touches ``public``.
@@ -14,6 +14,8 @@ from app.models.db import (
     Message,
     Project,
     ProjectMember,
+    ProjectQuestionProfile,
+    ProjectQuestionProfileEvent,
     ProjectQuestionResolution,
     ProjectQuestionResolutionEvent,
     User,
@@ -21,12 +23,14 @@ from app.models.db import (
 from app.services.chat.conversation_continuity import (
     build_conversation_continuity_snapshot,
 )
-from app.services.project_contexts import save_project_memory
 from app.services.chat_store import delete_conversation_with_messages
+from app.services.project_contexts import save_project_memory
 from app.services.project_question_resolutions import (
+    project_question_sha256,
     reopen_project_question,
     resolve_project_question,
 )
+from app.services.project_question_workbench import update_project_question_profile
 from tests.test_database import create_test_engine, drop_all_tables
 
 
@@ -165,4 +169,91 @@ class ProjectQuestionResolutionDatabaseContractTests(unittest.TestCase):
                             select(ProjectQuestionResolutionEvent)
                         ).all()
                     )
+                )
+
+    def test_question_profile_revision_and_foreign_key_cleanup(self) -> None:
+        with Session(self.engine) as session:
+            owner = User(email="question-profile-owner@example.com", password_hash="x")
+            assignee = User(email="question-profile-assignee@example.com", password_hash="x")
+            project = Project(name="Question profile DB", client="Test")
+            session.add(owner)
+            session.add(assignee)
+            session.add(project)
+            session.flush()
+            owner_member = ProjectMember(
+                project_id=int(project.id or 0),
+                user_id=int(owner.id or 0),
+                role="owner",
+            )
+            assignee_member = ProjectMember(
+                project_id=int(project.id or 0),
+                user_id=int(assignee.id or 0),
+                role="viewer",
+            )
+            session.add(owner_member)
+            session.add(assignee_member)
+            session.commit()
+            question = "客户验收代表是谁？"
+            save_project_memory(
+                session,
+                int(project.id or 0),
+                {"open_questions": {"ai": [question], "pinned": []}},
+                trigger="postgres_question_profile_seed",
+            )
+            first = update_project_question_profile(
+                session,
+                project_id=int(project.id or 0),
+                actor_user_id=int(owner.id or 0),
+                question=question,
+                question_sha256=project_question_sha256(question),
+                owner_user_id=int(assignee.id or 0),
+                priority="high",
+                due_date="2026-09-20",
+                expected_revision=0,
+            )
+            second = update_project_question_profile(
+                session,
+                project_id=int(project.id or 0),
+                actor_user_id=int(owner.id or 0),
+                question=question,
+                question_sha256=project_question_sha256(question),
+                owner_user_id=int(owner.id or 0),
+                priority="critical",
+                due_date="",
+                expected_revision=1,
+            )
+            self.assertEqual(first.id, second.id)
+            self.assertEqual(second.revision, 2)
+            self.assertEqual(
+                [
+                    event.revision
+                    for event in session.exec(
+                        select(ProjectQuestionProfileEvent).order_by(
+                            ProjectQuestionProfileEvent.revision
+                        )
+                    ).all()
+                ],
+                [1, 2],
+            )
+
+            session.delete(assignee_member)
+            session.delete(assignee)
+            session.commit()
+            session.expire_all()
+            events = session.exec(
+                select(ProjectQuestionProfileEvent).order_by(
+                    ProjectQuestionProfileEvent.revision
+                )
+            ).all()
+            if self.engine.dialect.name == "postgresql":
+                self.assertIsNone(events[0].owner_user_id)
+                self.assertIsNone(events[1].previous_owner_user_id)
+
+            session.delete(session.exec(select(ProjectQuestionProfile)).one())
+            session.commit()
+            if self.engine.dialect.name == "postgresql":
+                self.assertEqual(session.exec(select(ProjectQuestionProfile)).all(), [])
+                self.assertEqual(
+                    session.exec(select(ProjectQuestionProfileEvent)).all(),
+                    [],
                 )

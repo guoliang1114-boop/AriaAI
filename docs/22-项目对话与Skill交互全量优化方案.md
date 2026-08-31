@@ -465,6 +465,15 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - `POST /chat/conversations/{conversation_id}/continuity/questions/{resolution_id}/reopen` 要求用户填写原因并再次通过项目写权限和乐观版本校验；问题以用户 pinned 锚点回到 `open_questions`，保留原回答绑定和解决审计。viewer 只能查看，不能解决或重开。
 - 幂等迁移 `038_v1_38` 建立解决账本、唯一问题身份、状态/revision CHECK、CASCADE/SET NULL 外键和查询索引，并保持单一 Alembic head。部署门禁与生产数据库 E2E 在备份后的隔离 schema 中覆盖迁移、外键、解决/重开和投影往返；不在 `public` 测试，不引入 Codex 运行时、SDK、协议或通信。
 
+### Phase 3S：项目问题工作台、责任协同与跨对话回答选择（已实施）
+
+- 项目详情新增“问题”标签，把 `open_questions` 与解决账本组合成开放、待复核、已解决三类项目视图；提供计数、搜索和状态筛选，不要求用户先定位某一条对话。
+- `ProjectQuestionProfile` 是负责人、优先级和截止日期的独立覆盖层，不复制开放/解决事实。写入必须提交问题 SHA-256 与 expected revision，在最终项目写锁内重新授权、验证问题属于当前记忆或解决账本，并验证负责人是有效项目成员。`ProjectQuestionProfileEvent` 逐 revision 只追加前后值，重复无变化提交不制造审计噪声。
+- `GET /projects/{project_id}/questions` 返回有界的项目问题、成员和候选回答。候选只在调用者有写权限且确有开放问题时返回，最多 40 条，每条仅包含 Conversation/Message 身份、标题、时间和 280 字预览；不返回完整回答、Prompt、工具输入、工具输出或隐藏推理。
+- 关单允许选择同一项目任一对话中的持久化 Assistant Message。后端不信任客户端候选，再次核对 Message role 和精确 Project/Conversation scope，然后复用 Phase 3R 的记忆版本、槽位版本、最终授权和原子解决事务；跨项目回答、过期版本和只读成员均失败关闭。
+- 项目级重开不依赖原回答对话仍然存在，但仍要求 resolution revision、记忆版本、槽位版本和人工原因；问题回到 pinned 锚点。迁移 `039_v1_39` 幂等创建 profile/current-event 两表并保持单一 head，生产数据库测试继续只在备份后的隔离 schema 运行。
+- 本阶段仍未运行、连接或嵌入 Codex。项目、对话、回答、问题、责任、权限、审批和审计均属于 Aria 原生服务；下一阶段再进入问题级证据召回与回答质量评估。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

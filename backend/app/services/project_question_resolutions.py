@@ -392,17 +392,25 @@ def resolve_project_question(
 def reopen_project_question(
     session: Session,
     *,
-    conversation: Conversation,
     resolution_id: int,
     actor_user_id: int,
     reason: str,
     expected_resolution_revision: int,
     expected_memory_version: int,
     expected_slot_version: int,
+    conversation: Conversation | None = None,
+    project_id: int | None = None,
 ) -> ProjectQuestionResolution:
-    if conversation.project_id is None:
+    resolved_project_id = (
+        int(project_id)
+        if project_id is not None
+        else int(conversation.project_id)
+        if conversation is not None and conversation.project_id is not None
+        else None
+    )
+    if resolved_project_id is None:
         raise HTTPException(status_code=400, detail="A project conversation is required")
-    project_id = int(conversation.project_id)
+    project_id = resolved_project_id
     normalized_reason = " ".join(str(reason or "").strip().split())[:600]
     if not normalized_reason:
         raise HTTPException(status_code=400, detail="A reopen reason is required")

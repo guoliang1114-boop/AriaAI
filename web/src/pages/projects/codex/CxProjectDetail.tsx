@@ -5,6 +5,7 @@ import { CxProjectOverview } from './tabs/Overview'
 import { CxProjectChat } from './tabs/Chat'
 import { CxProjectBriefing } from './tabs/Briefing'
 import { CxProjectMemory } from './tabs/Memory'
+import { CxProjectQuestions } from './tabs/Questions'
 import { CxProjectStakeholders } from './tabs/Stakeholders'
 import { CxProjectMilestones } from './tabs/Milestones'
 import { CxProjectFinance } from './tabs/Finance'
@@ -62,6 +63,7 @@ export function CxProjectDetail() {
         <Route path="chat" element={<CxProjectChat {...tabProps} />} />
         <Route path="briefing" element={<CxProjectBriefing {...tabProps} />} />
         <Route path="memory" element={<CxProjectMemory {...tabProps} />} />
+        <Route path="questions" element={<CxProjectQuestions {...tabProps} />} />
         <Route path="stakeholders" element={<CxProjectStakeholders {...tabProps} />} />
         <Route path="milestones" element={<CxProjectMilestones {...tabProps} />} />
         <Route path="finance" element={<CxProjectFinance {...tabProps} />} />
@@ -108,7 +110,7 @@ function DetailSkeleton() {
           <CxSkeleton w={140} h={9} />
         </div>
         <div style={{ display: 'flex', gap: 18, marginLeft: 28 }}>
-          {Array.from({ length: 8 }).map((_, i) => (
+          {Array.from({ length: 9 }).map((_, i) => (
             <CxSkeleton key={i} w={48} h={11} />
           ))}
         </div>

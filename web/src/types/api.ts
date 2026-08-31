@@ -1048,6 +1048,84 @@ export interface ProjectQuestionResolution {
   resolved_at: string
 }
 
+export type ProjectQuestionPriority = 'low' | 'normal' | 'high' | 'critical'
+export type ProjectQuestionWorkbenchStatus = 'open' | 'resolved' | 'needs_review'
+
+export interface ProjectQuestionProfile {
+  owner_user_id?: number | null
+  priority: ProjectQuestionPriority
+  due_date: string
+  revision: number
+  updated_at: string
+}
+
+export interface ProjectQuestionWorkbenchResolution {
+  id: number
+  resolution_revision: number
+  resolution_summary: string
+  answer_message_id?: number | null
+  answer_conversation_id?: number | null
+  answer_available: boolean
+  resolved_memory_version: number
+  resolved_slot_version: number
+  resolved_at: string
+}
+
+export interface ProjectQuestionWorkbenchItem {
+  question: string
+  question_sha256: string
+  status: ProjectQuestionWorkbenchStatus
+  review_reason:
+    | ''
+    | 'question_reappeared'
+    | 'project_memory_stale'
+    | 'project_memory_changed'
+  profile: ProjectQuestionProfile
+  resolution?: ProjectQuestionWorkbenchResolution | null
+}
+
+export interface ProjectQuestionWorkbenchMember {
+  user_id: number
+  display_name: string
+  role: 'owner' | 'editor' | 'viewer' | string
+}
+
+export interface ProjectQuestionAnswerCandidate {
+  message_id: number
+  conversation_id: number
+  conversation_title: string
+  preview: string
+  created_at: string
+}
+
+export interface ProjectQuestionWorkbench {
+  schema_version: 1
+  project_id: number
+  can_write: boolean
+  memory: {
+    status: 'ready' | 'stale' | 'missing'
+    memory_version: number
+    slot_version: number
+    stale: boolean
+  }
+  counts: Record<ProjectQuestionWorkbenchStatus, number>
+  questions: ProjectQuestionWorkbenchItem[]
+  members: ProjectQuestionWorkbenchMember[]
+  answer_candidates: ProjectQuestionAnswerCandidate[]
+  truncated: {
+    resolutions: boolean
+    profiles: boolean
+    answer_candidates: boolean
+  }
+  privacy: {
+    includes_bounded_answer_previews: boolean
+    includes_full_answer_content: boolean
+    includes_prompt_content: boolean
+    includes_tool_inputs: boolean
+    includes_hidden_reasoning: boolean
+  }
+}
+
 export interface ConversationContinuitySnapshot {
   schema_version: 2
   conversation_id: number

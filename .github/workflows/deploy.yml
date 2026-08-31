@@ -249,6 +249,8 @@ jobs:
                 tests/test_conversation_continuity_postgres.py \
                 tests/test_project_question_resolutions.py \
                 tests/test_project_question_resolution_migration.py \
+                tests/test_project_question_workbench.py \
+                tests/test_project_question_workbench_migration.py \
                 tests/test_project_question_resolutions_postgres.py \
                 tests/test_database_extended.py \
                 tests/test_grounded_provider_eval.py \

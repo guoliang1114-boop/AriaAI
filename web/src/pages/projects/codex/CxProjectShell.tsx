@@ -175,7 +175,9 @@ export function CxProjectShell({ activeTab, projectId, project, children }: CxPr
             marginLeft: 28,
             flex: 1,
             minWidth: 0,
-            overflow: 'hidden',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            scrollbarWidth: 'none',
           }}
         >
           {PROJECT_TAB_ORDER.map((t) => {

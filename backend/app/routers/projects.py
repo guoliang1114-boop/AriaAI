@@ -877,11 +877,13 @@ from app.routers import projects_memory as _projects_memory
 from app.routers import projects_files as _projects_files
 from app.routers import projects_briefing as _projects_briefing
 from app.routers import projects_tasks as _projects_tasks
+from app.routers import projects_questions as _projects_questions
 
 router.include_router(_projects_memory.router)
 router.include_router(_projects_files.router)
 router.include_router(_projects_briefing.router)
 router.include_router(_projects_tasks.router)
+router.include_router(_projects_questions.router)
 
 # ── Re-exports for test compatibility ────────────────────────────────────────
 from app.config import UPLOADS_DIR  # noqa: F401

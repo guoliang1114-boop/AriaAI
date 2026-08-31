@@ -27,6 +27,7 @@ export const PROJECT_TAB_ORDER = [
   { k: 'chat', label: '项目对话' },
   { k: 'briefing', label: '会前简报' },
   { k: 'memory', label: '项目记忆' },
+  { k: 'questions', label: '问题' },
   { k: 'stakeholders', label: '干系人' },
   { k: 'milestones', label: '活动' },
   { k: 'finance', label: '财务' },

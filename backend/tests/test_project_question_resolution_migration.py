@@ -84,7 +84,7 @@ def test_revision_038_creates_idempotent_resolution_contract() -> None:
         engine.dispose()
 
 
-def test_revision_038_is_the_single_alembic_head() -> None:
+def test_revision_038_precedes_the_current_alembic_head() -> None:
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
@@ -92,7 +92,10 @@ def test_revision_038_is_the_single_alembic_head() -> None:
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["038_v1_38"]
+    assert script.get_heads() == ["039_v1_39"]
     revision = script.get_revision("038_v1_38")
     assert revision is not None
     assert revision.down_revision == "037_v1_37"
+    current = script.get_revision("039_v1_39")
+    assert current is not None
+    assert current.down_revision == "038_v1_38"

@@ -348,6 +348,120 @@ class ProjectQuestionResolutionEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now_naive, index=True)
 
 
+class ProjectQuestionProfile(SQLModel, table=True):
+    """Accountability metadata for one project question identity.
+
+    Open-question truth remains in project memory and resolution truth remains
+    in ``ProjectQuestionResolution``.  This table is only the user-managed
+    owner/priority/due-date overlay used by the project question workbench.
+    """
+
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "question_sha256",
+            name="uq_projectquestionprofile_project_question",
+        ),
+        CheckConstraint(
+            "priority IN ('low', 'normal', 'high', 'critical')",
+            name="ck_projectquestionprofile_priority",
+        ),
+        CheckConstraint(
+            "revision >= 1",
+            name="ck_projectquestionprofile_revision",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    question_text: str = Field(sa_column=Column(Text, nullable=False))
+    question_sha256: str = Field(index=True)
+    owner_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    priority: str = Field(default="normal", index=True)
+    due_date: str = Field(default="", index=True)
+    revision: int = Field(default=1)
+    created_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    updated_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
+class ProjectQuestionProfileEvent(SQLModel, table=True):
+    """Append-only audit event for question accountability changes."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "profile_id",
+            "revision",
+            name="uq_projectquestionprofileevent_profile_revision",
+        ),
+        CheckConstraint(
+            "revision >= 1",
+            name="ck_projectquestionprofileevent_revision",
+        ),
+        CheckConstraint(
+            "previous_priority IN ('low', 'normal', 'high', 'critical') "
+            "AND priority IN ('low', 'normal', 'high', 'critical')",
+            name="ck_projectquestionprofileevent_priorities",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    profile_id: int = Field(
+        foreign_key="projectquestionprofile.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    revision: int = Field(index=True)
+    question_text: str = Field(sa_column=Column(Text, nullable=False))
+    previous_owner_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+    )
+    owner_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    previous_priority: str = Field(default="normal")
+    priority: str = Field(default="normal", index=True)
+    previous_due_date: str = ""
+    due_date: str = Field(default="", index=True)
+    actor_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
 class ClientMemorySummary(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clientrecord.id", index=True)
