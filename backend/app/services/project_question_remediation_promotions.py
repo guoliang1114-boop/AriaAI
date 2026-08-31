@@ -31,6 +31,10 @@ from app.services.project_core import lock_and_require_project_write
 from app.services.project_question_remediation import (
     build_project_question_remediation_plan,
 )
+from app.services.project_question_remediation_executions import (
+    ensure_project_question_remediation_execution,
+    remediation_execution_summary_for_target,
+)
 from app.services.project_question_resolutions import (
     normalize_project_question,
     project_question_sha256,
@@ -346,6 +350,12 @@ def serialize_project_question_remediation_promotion(
                 "delivery_mode": request.delivery_mode,
                 "delivered": False,
             }
+    if target is not None:
+        target["execution"] = remediation_execution_summary_for_target(
+            session,
+            target_todo_id=target_todo_id,
+            communication_request_id=communication_request_id,
+        )
     now = utc_now_naive()
     return {
         "schema_version": PROMOTION_SCHEMA_VERSION,
@@ -763,6 +773,13 @@ def confirm_project_question_remediation_promotion(
     row.decision_reason = "deduplicated_exact_effect" if deduplicated else "confirmed_by_user"
     if todo_id is not None:
         row.target_todo_id = todo_id
+    ensure_project_question_remediation_execution(
+        session,
+        promotion=row,
+        actor_user_id=actor_user_id,
+        target_todo_id=todo_id,
+        communication_request_id=communication_id,
+    )
     session.add(row)
     session.add(
         _event(

@@ -73,6 +73,9 @@ from app.services.project_question_remediation import (
 from app.services.project_question_remediation_promotions import (
     build_remediation_promotion_contract,
 )
+from app.services.project_question_remediation_executions import (
+    build_remediation_execution_contract,
+)
 from app.services.skill_router import (
     auto_select_skill,
     decide_conversation_skill_activation,
@@ -1325,6 +1328,33 @@ def _question_remediation_promotion_safety_results() -> tuple[int, int, list[dic
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _question_remediation_execution_safety_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Execution tracking stays manual, evidence-gated, and non-resolving."""
+
+    contract = build_remediation_execution_contract()
+    details = [
+        {
+            "case": "manual_send_is_attestation_without_aria_delivery",
+            "passed": contract["manual_send_is_user_attestation"] is True
+            and contract["delivered_by_aria"] is False
+            and contract["outbound_delivery"] is False,
+        },
+        {
+            "case": "execution_completion_requires_project_scoped_evidence",
+            "passed": contract["completion_requires_evidence"] is True
+            and contract["evidence_is_project_scoped"] is True
+            and contract["evidence_events_are_append_only"] is True,
+        },
+        {
+            "case": "execution_cannot_send_execute_or_resolve_question",
+            "passed": contract["sends_messages"] is False
+            and contract["executes_tools"] is False
+            and contract["automatically_resolves_question"] is False,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1352,6 +1382,9 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "question_remediation_safety_rate": _question_remediation_safety_results(),
         "question_remediation_promotion_safety_rate": (
             _question_remediation_promotion_safety_results()
+        ),
+        "question_remediation_execution_safety_rate": (
+            _question_remediation_execution_safety_results()
         ),
     }
     metrics = {

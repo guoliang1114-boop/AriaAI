@@ -157,7 +157,7 @@ def _question_archetype(question: str) -> dict[str, str]:
 
 def _evidence_identity_fingerprint(question_evidence: dict[str, Any]) -> str:
     identities: set[str] = set()
-    for collection_name in ("memory", "knowledge"):
+    for collection_name in ("memory", "knowledge", "attachments"):
         collection = question_evidence.get(collection_name)
         collection = collection if isinstance(collection, dict) else {}
         for source in list(collection.get("sources") or []):

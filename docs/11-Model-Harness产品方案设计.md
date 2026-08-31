@@ -912,6 +912,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-08-31）：Phase 3V 将“计划建议”和“业务副作用”之间补成持久化两阶段 Harness。准备请求只保存由 action、当前 evidence basis、问题身份和操作者组成的 SHA-256 冻结快照；确认请求不能携带替换参数，必须引用该 snapshot/revision。最终事务重新锁定项目、重新授权、重新计算 basis、校验负责人、检查过期和快照完整性，再以 action hash 去重后创建原生 ProjectTodo 或仅人工发送的 ProjectCommunicationRequest。所有状态跃迁进入独立 append-only event；communication contract 固定 `outbound_delivery=false`、`sends_messages=false`、`executes_tools=false`。这不是 Codex App Server、SDK、协议或子进程，也不把 Aria 项目、权限或审计交给 Provider。`040_v1_40` 管理三张新增表并保持单一迁移 head；发布门禁为 72 个场景、22 项指标。
 
+补充进展（2026-09-01）：Phase 3W 为已确认补证目标增加独立、可审计的执行 Harness。每个原生 ProjectTodo 或 ProjectCommunicationRequest 只对应一个 execution，所有人工已发送证明、附证、完成与取消动作都重新经过项目写授权、项目行锁和 expected revision，并写入按 revision 唯一的 append-only event。完成前从数据库重新统计不可变证据附件，至少一条才允许推进；直接项目文件/知识文档与待复核的消息、外链、人工记录明确区分。人工沟通的“已发送”只是用户证明，Aria 没有 outbound delivery、消息发送或工具执行能力。执行状态也没有问题解决权限，问题仍保持开放，直到用户另行采用持久化回答并通过既有解决账本。`041_v1_41` 管理 execution/evidence/event 三表、状态与引用约束并保持单一迁移 head；发布门禁为 75 个场景、23 项指标。实现仍是 Aria 原生服务，不引入 Codex App Server、SDK、协议、进程或通信。
+
 范围：
 
 - 工具注册表标准化。（首批已完成）

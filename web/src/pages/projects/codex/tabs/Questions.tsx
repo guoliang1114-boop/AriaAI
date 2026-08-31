@@ -7,6 +7,10 @@ import type {
   ProjectQuestionPriority,
   ProjectQuestionReadinessBand,
   ProjectQuestionRemediationAction,
+  ProjectQuestionRemediationEvidenceKind,
+  ProjectQuestionRemediationExecution,
+  ProjectQuestionRemediationExecutionList,
+  ProjectQuestionRemediationExecutionStatus,
   ProjectQuestionRemediationPlan,
   ProjectQuestionRemediationPromotion,
   ProjectQuestionRemediationPromotionTargetKind,
@@ -14,6 +18,7 @@ import type {
   ProjectQuestionWorkbench,
   ProjectQuestionWorkbenchItem,
   ProjectQuestionWorkbenchStatus,
+  ProjectFile,
 } from '../../../../types/api'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
@@ -75,6 +80,17 @@ const REMEDIATION_ACTION_COPY: Record<ProjectQuestionRemediationAction['kind'], 
   human_verification: '最终人工确认',
 }
 
+const EXECUTION_STATUS_COPY: Record<
+  ProjectQuestionRemediationExecutionStatus,
+  { label: string; tone: CxTone }
+> = {
+  active: { label: '待执行', tone: 'warn' },
+  ready_for_manual_send: { label: '待人工发送', tone: 'warn' },
+  sent_manually: { label: '人工已发送', tone: 'accent' },
+  completed: { label: '已完成', tone: 'good' },
+  cancelled: { label: '已取消', tone: 'neutral' },
+}
+
 const EVIDENCE_WARNING_COPY: Record<string, string> = {
   LOW_QUESTION_RELEVANCE: '与当前问题的文本相关性较低',
   NO_PERSISTED_EVIDENCE: '该回答没有可验证的持久化证据',
@@ -134,32 +150,70 @@ export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProp
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
   const [busyQuestion, setBusyQuestion] = useState('')
+  const [executionData, setExecutionData] = useState<ProjectQuestionRemediationExecutionList | null>(null)
+  const [executionLoading, setExecutionLoading] = useState(false)
+  const [executionError, setExecutionError] = useState('')
+
+  const loadExecutions = useCallback(async () => {
+    setExecutionLoading(true)
+    setExecutionError('')
+    try {
+      setExecutionData(await api.get<ProjectQuestionRemediationExecutionList>(
+        `/projects/${projectId}/questions/remediation-executions`,
+      ))
+    } catch (err) {
+      setExecutionError(errorMessage(err))
+    } finally {
+      setExecutionLoading(false)
+    }
+  }, [projectId])
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      setData(await api.get<ProjectQuestionWorkbench>(`/projects/${projectId}/questions`))
+      const next = await api.get<ProjectQuestionWorkbench>(`/projects/${projectId}/questions`)
+      setData(next)
+      if (next.can_write) await loadExecutions()
     } catch (err) {
       setError(errorMessage(err))
     } finally {
       setLoading(false)
     }
-  }, [projectId])
+  }, [loadExecutions, projectId])
 
   useEffect(() => {
     let active = true
-    api
-      .get<ProjectQuestionWorkbench>(`/projects/${projectId}/questions`)
-      .then((next) => {
-        if (active) setData(next)
-      })
-      .catch((err: unknown) => {
+    const loadInitial = async () => {
+      try {
+        const next = await api.get<ProjectQuestionWorkbench>(
+          `/projects/${projectId}/questions`,
+        )
+        if (!active) return
+        setData(next)
+        if (next.can_write) {
+          setExecutionLoading(true)
+          try {
+            const executions = await api.get<ProjectQuestionRemediationExecutionList>(
+              `/projects/${projectId}/questions/remediation-executions`,
+            )
+            if (active) setExecutionData(executions)
+          } catch (err) {
+            if (active) setExecutionError(errorMessage(err))
+          } finally {
+            if (active) setExecutionLoading(false)
+          }
+        } else {
+          setExecutionData(null)
+          setExecutionError('')
+        }
+      } catch (err) {
         if (active) setError(errorMessage(err))
-      })
-      .finally(() => {
+      } finally {
         if (active) setLoading(false)
-      })
+      }
+    }
+    void loadInitial()
     return () => {
       active = false
     }
@@ -327,6 +381,23 @@ export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProp
             >
               项目记忆或开放问题槽位已陈旧。可以整理负责人，但解决/重开前需先刷新项目记忆。
             </div>
+          )}
+
+          {data?.can_write && (
+            <RemediationExecutionCenter
+              projectId={projectId}
+              data={executionData}
+              files={detail.files ?? []}
+              loading={executionLoading}
+              error={executionError}
+              onRefresh={async (memoryChanged = false) => {
+                if (memoryChanged) {
+                  await Promise.all([load(), refetch()])
+                } else {
+                  await loadExecutions()
+                }
+              }}
+            />
           )}
 
           <section
@@ -842,6 +913,375 @@ function defaultRemediationTarget(
     : 'project_todo'
 }
 
+interface ExecutionEvidenceDraft {
+  kind: Extract<
+    ProjectQuestionRemediationEvidenceKind,
+    'project_file' | 'external_reference' | 'manual_note'
+  >
+  title: string
+  note: string
+  locator: string
+  projectFileId: string
+}
+
+function executionEvidenceIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `aria-evidence-${crypto.randomUUID()}`
+  }
+  return `aria-evidence-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function RemediationExecutionCenter({
+  projectId,
+  data,
+  files,
+  loading,
+  error,
+  onRefresh,
+}: {
+  projectId: number
+  data: ProjectQuestionRemediationExecutionList | null
+  files: ProjectFile[]
+  loading: boolean
+  error: string
+  onRefresh: (memoryChanged?: boolean) => Promise<void>
+}) {
+  const toast = useToast()
+  const activeFiles = files.filter((file) => !file.deleted_at)
+  const defaultEvidenceKind: ExecutionEvidenceDraft['kind'] = activeFiles.length
+    ? 'project_file'
+    : 'manual_note'
+  const [busyExecutionId, setBusyExecutionId] = useState<number | null>(null)
+  const [transitionNotes, setTransitionNotes] = useState<Record<number, string>>({})
+  const [evidenceDrafts, setEvidenceDrafts] = useState<Record<number, ExecutionEvidenceDraft>>({})
+
+  const evidenceDraft = (executionId: number): ExecutionEvidenceDraft => (
+    evidenceDrafts[executionId] ?? {
+      kind: defaultEvidenceKind,
+      title: '',
+      note: '',
+      locator: '',
+      projectFileId: '',
+    }
+  )
+  const updateEvidenceDraft = (
+    executionId: number,
+    changes: Partial<ExecutionEvidenceDraft>,
+  ) => {
+    setEvidenceDrafts((current) => ({
+      ...current,
+      [executionId]: { ...evidenceDraft(executionId), ...changes },
+    }))
+  }
+  const transition = async (
+    execution: ProjectQuestionRemediationExecution,
+    action: 'mark_sent' | 'complete' | 'cancel',
+  ) => {
+    const note = (transitionNotes[execution.id] ?? '').trim()
+    if (!note || busyExecutionId !== null) return
+    setBusyExecutionId(execution.id)
+    try {
+      await api.post<ProjectQuestionRemediationExecution>(
+        `/projects/${projectId}/questions/remediation-executions/${execution.id}/transition`,
+        {
+          action,
+          expected_revision: execution.revision,
+          note,
+        },
+      )
+      setTransitionNotes((current) => ({ ...current, [execution.id]: '' }))
+      toast.success({
+        title: action === 'mark_sent'
+          ? '已记录人工发送声明'
+          : action === 'complete'
+            ? '整改执行已完成'
+            : '人工沟通请求已取消',
+      })
+      await onRefresh(action === 'complete' && execution.target_kind === 'project_todo')
+    } catch (err) {
+      toast.error({ title: '执行状态更新失败', description: errorMessage(err) })
+    } finally {
+      setBusyExecutionId(null)
+    }
+  }
+  const attachEvidence = async (execution: ProjectQuestionRemediationExecution) => {
+    if (busyExecutionId !== null) return
+    const draft = evidenceDraft(execution.id)
+    const disabled =
+      (draft.kind === 'project_file' && !draft.projectFileId)
+      || (draft.kind === 'external_reference' && (!draft.title.trim() || !draft.locator.trim()))
+      || (draft.kind === 'manual_note' && !draft.note.trim())
+    if (disabled) return
+    setBusyExecutionId(execution.id)
+    try {
+      await api.post<ProjectQuestionRemediationExecution>(
+        `/projects/${projectId}/questions/remediation-executions/${execution.id}/evidence`,
+        {
+          expected_revision: execution.revision,
+          idempotency_key: executionEvidenceIdempotencyKey(),
+          evidence_kind: draft.kind,
+          title: draft.title.trim(),
+          note: draft.note.trim(),
+          reference_locator: draft.kind === 'external_reference' ? draft.locator.trim() : '',
+          project_file_id: draft.kind === 'project_file' ? Number(draft.projectFileId) : null,
+          knowledge_document_id: null,
+          message_id: null,
+        },
+      )
+      setEvidenceDrafts((current) => ({
+        ...current,
+        [execution.id]: {
+          kind: defaultEvidenceKind,
+          title: '',
+          note: '',
+          locator: '',
+          projectFileId: '',
+        },
+      }))
+      toast.success({ title: '证据已回挂到项目问题链' })
+      await onRefresh(false)
+    } catch (err) {
+      toast.error({ title: '证据挂接失败', description: errorMessage(err) })
+    } finally {
+      setBusyExecutionId(null)
+    }
+  }
+
+  return (
+    <CxPanel style={{ marginBottom: 16, padding: '14px 16px' }}>
+      <section aria-label="整改执行中心">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ color: 'var(--ink)', fontSize: 13, fontWeight: 600 }}>整改执行中心</div>
+            <div style={{ marginTop: 3, color: 'var(--ink-mute)', fontSize: 10.5 }}>
+              汇总已确认的待办与人工沟通。发送仅是用户声明；完成前必须挂接证据，且不会自动关单。
+            </div>
+          </div>
+          {data && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <CxStatus tone="warn">
+                待处理 {(data.counts.active ?? 0) + (data.counts.ready_for_manual_send ?? 0)}
+              </CxStatus>
+              <CxStatus tone="accent">人工已发送 {data.counts.sent_manually ?? 0}</CxStatus>
+              <CxStatus tone="good">已完成 {data.counts.completed ?? 0}</CxStatus>
+              <CxStatus tone="neutral">已取消 {data.counts.cancelled ?? 0}</CxStatus>
+            </div>
+          )}
+        </div>
+        {error && (
+          <div role="alert" style={{ marginTop: 9, color: 'var(--bad)', fontSize: 10.5 }}>
+            {error}
+          </div>
+        )}
+        {loading && !data ? (
+          <div style={{ marginTop: 10, color: 'var(--ink-mute)', fontSize: 11 }}>
+            正在加载整改执行账本…
+          </div>
+        ) : (data?.items.length ?? 0) === 0 ? (
+          <div style={{ marginTop: 10, color: 'var(--ink-faint)', fontSize: 10.5 }}>
+            尚无已确认的整改目标。先在问题的补证计划中准备并确认创建。
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: 9, marginTop: 11 }}>
+            {data?.items.map((execution) => {
+              const copy = EXECUTION_STATUS_COPY[execution.status]
+              const draft = evidenceDraft(execution.id)
+              const note = transitionNotes[execution.id] ?? ''
+              const busy = busyExecutionId === execution.id
+              const canAttach = execution.allowed_actions.includes('attach_evidence')
+              const attachDisabled = busy
+                || (draft.kind === 'project_file' && !draft.projectFileId)
+                || (draft.kind === 'external_reference'
+                  && (!draft.title.trim() || !draft.locator.trim()))
+                || (draft.kind === 'manual_note' && !draft.note.trim())
+              return (
+                <article
+                  key={`${execution.id}:${execution.revision}`}
+                  aria-label={`整改执行 ${execution.id}`}
+                  style={{
+                    padding: '10px 11px',
+                    border: '1px solid var(--line)',
+                    borderRadius: 'var(--r-sm)',
+                    background: 'var(--bg)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                    <CxStatus tone={copy.tone}>{copy.label}</CxStatus>
+                    <span style={{ color: 'var(--ink-soft)', fontSize: 11, fontWeight: 600 }}>
+                      {execution.target_kind === 'project_todo'
+                        ? execution.target?.content
+                        : execution.target?.subject}
+                    </span>
+                    <span style={{ marginLeft: 'auto', color: 'var(--ink-faint)', fontSize: 9.5 }}>
+                      执行 #{execution.id} · v{execution.revision} · 证据 {execution.evidence_count}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 5, color: 'var(--ink-mute)', fontSize: 10.5 }}>
+                    对应问题：{execution.question}
+                    {execution.target_kind === 'communication_request'
+                      ? ` · 人工沟通对象 ${execution.target?.recipient_label ?? '—'}`
+                      : ''}
+                  </div>
+                  <div style={{ marginTop: 4, color: 'var(--warn)', fontSize: 9.5 }}>
+                    {execution.question_resolution_status === 'resolved'
+                      ? '项目问题已由独立人工关单流程解决。'
+                      : '项目问题仍未关单；执行状态不会替代人工选择答案与解决摘要。'}
+                  </div>
+                  {execution.evidence.length > 0 && (
+                    <div style={{ display: 'grid', gap: 4, marginTop: 8 }}>
+                      {execution.evidence.map((item) => (
+                        <div
+                          key={item.id}
+                          style={{
+                            padding: '5px 7px',
+                            color: 'var(--ink-mute)',
+                            fontSize: 9.5,
+                            borderLeft: '2px solid var(--good)',
+                            background: 'var(--bg-tint)',
+                          }}
+                        >
+                          {item.title} · {item.support_level === 'direct' ? '项目来源已校验' : '仍需人工复核'}
+                          {item.note ? ` · ${item.note}` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {canAttach && (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '150px minmax(180px, 1fr) minmax(180px, 1fr) auto',
+                        gap: 7,
+                        marginTop: 9,
+                      }}
+                    >
+                      <select
+                        aria-label={`整改执行 ${execution.id} 证据类型`}
+                        value={draft.kind}
+                        disabled={busy}
+                        onChange={(event) => updateEvidenceDraft(execution.id, {
+                          kind: event.target.value as ExecutionEvidenceDraft['kind'],
+                          title: '',
+                          note: '',
+                          locator: '',
+                          projectFileId: '',
+                        })}
+                        style={controlStyle}
+                      >
+                        {activeFiles.length > 0 && <option value="project_file">项目文件</option>}
+                        <option value="external_reference">外部引用</option>
+                        <option value="manual_note">人工记录</option>
+                      </select>
+                      {draft.kind === 'project_file' ? (
+                        <select
+                          aria-label={`整改执行 ${execution.id} 项目文件`}
+                          value={draft.projectFileId}
+                          disabled={busy}
+                          onChange={(event) => updateEvidenceDraft(execution.id, {
+                            projectFileId: event.target.value,
+                          })}
+                          style={controlStyle}
+                        >
+                          <option value="">选择现有项目文件</option>
+                          {activeFiles.map((file) => (
+                            <option key={file.id} value={file.id}>{file.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          aria-label={`整改执行 ${execution.id} 证据标题`}
+                          value={draft.title}
+                          maxLength={160}
+                          disabled={busy}
+                          placeholder={draft.kind === 'external_reference' ? '引用标题' : '记录标题（可选）'}
+                          onChange={(event) => updateEvidenceDraft(execution.id, {
+                            title: event.target.value,
+                          })}
+                          style={controlStyle}
+                        />
+                      )}
+                      <input
+                        aria-label={`整改执行 ${execution.id} 证据内容`}
+                        value={draft.kind === 'external_reference' ? draft.locator : draft.note}
+                        maxLength={draft.kind === 'external_reference' ? 500 : 1200}
+                        disabled={busy}
+                        placeholder={draft.kind === 'external_reference'
+                          ? 'https://…（仅记录，不会自动访问）'
+                          : '记录核验内容或文件说明'}
+                        onChange={(event) => updateEvidenceDraft(execution.id, draft.kind === 'external_reference'
+                          ? { locator: event.target.value }
+                          : { note: event.target.value })}
+                        style={controlStyle}
+                      />
+                      <button
+                        type="button"
+                        disabled={attachDisabled}
+                        onClick={() => void attachEvidence(execution)}
+                        style={secondaryButtonStyle(attachDisabled)}
+                      >
+                        挂接证据
+                      </button>
+                    </div>
+                  )}
+                  {execution.allowed_actions.some((item) => item !== 'attach_evidence') && (
+                    <div style={{ display: 'flex', gap: 7, marginTop: 8, flexWrap: 'wrap' }}>
+                      <input
+                        aria-label={`整改执行 ${execution.id} 状态说明`}
+                        value={note}
+                        maxLength={600}
+                        disabled={busy}
+                        placeholder="填写人工操作依据或结果说明"
+                        onChange={(event) => setTransitionNotes((current) => ({
+                          ...current,
+                          [execution.id]: event.target.value,
+                        }))}
+                        style={{ ...controlStyle, flex: '1 1 320px' }}
+                      />
+                      {execution.allowed_actions.includes('mark_sent') && (
+                        <button
+                          type="button"
+                          disabled={busy || !note.trim()}
+                          onClick={() => void transition(execution, 'mark_sent')}
+                          style={primaryButtonStyle(busy || !note.trim())}
+                        >
+                          人工标记已发送
+                        </button>
+                      )}
+                      {execution.allowed_actions.includes('complete') && (
+                        <button
+                          type="button"
+                          disabled={busy || !note.trim() || execution.evidence_count < 1}
+                          title={execution.evidence_count < 1 ? '请先挂接至少一条证据' : undefined}
+                          onClick={() => void transition(execution, 'complete')}
+                          style={primaryButtonStyle(
+                            busy || !note.trim() || execution.evidence_count < 1,
+                          )}
+                        >
+                          标记整改完成
+                        </button>
+                      )}
+                      {execution.allowed_actions.includes('cancel') && (
+                        <button
+                          type="button"
+                          disabled={busy || !note.trim()}
+                          onClick={() => void transition(execution, 'cancel')}
+                          style={secondaryButtonStyle(busy || !note.trim())}
+                        >
+                          取消人工沟通
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </article>
+              )
+            })}
+          </div>
+        )}
+      </section>
+    </CxPanel>
+  )
+}
+
 function QuestionRemediationPanel({
   plan,
   members,
@@ -1316,6 +1756,7 @@ function QuestionEvidencePanel({
   const sources = [
     ...review.question_evidence.knowledge.sources,
     ...review.question_evidence.memory.sources,
+    ...review.question_evidence.attachments.sources,
   ]
   return (
     <section
@@ -1332,7 +1773,8 @@ function QuestionEvidencePanel({
         <div style={{ color: 'var(--ink-soft)', fontSize: 11.5 }}>
           当前召回 {review.question_evidence.source_count} 条来源：知识文档{' '}
           {review.question_evidence.knowledge.source_count} · 项目记忆{' '}
-          {review.question_evidence.memory.source_count} · 可用于支持{' '}
+          {review.question_evidence.memory.source_count} · 整改附件{' '}
+          {review.question_evidence.attachments.source_count} · 可用于支持{' '}
           {review.question_evidence.supporting_source_count}
         </div>
         <div style={{ color: 'var(--ink-faint)', fontSize: 10.5 }}>

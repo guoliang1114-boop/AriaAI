@@ -504,7 +504,18 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - `ProjectQuestionRemediationPromotionEvent` 按 promotion/revision 只追加 prepared、confirmed、rejected、failed、expired 生命周期，并记录操作者、精确 snapshot 和目标引用。迁移 `040_v1_40` 幂等创建 promotion、communication request、event 三表，使用 CASCADE/SET NULL 外键、状态/哈希 CHECK、唯一 revision 和查询索引，保持 Alembic 单一 head。
 - 前端对每个动作增加目标类型、负责人、截止日和沟通对象；第一次点击只显示服务端返回的冻结预览、快照与到期时间，第二次明确确认才创建目标。冻结后输入不可修改；拒绝没有副作用；确认后同时刷新项目问题/详情。自定义内部核验动作也进入相同 HITAS，不能绕过权限与证据 basis。
 - 发布门禁从 69 个场景/21 项指标扩展为 72 个场景/22 项指标，新增 `question_remediation_promotion_safety_rate`；SQLite 行为/迁移、React 交互和 PostgreSQL 外键/去重合同进入部署与备份后隔离 schema E2E。实现继续完全属于 Aria 原生 Python/FastAPI/React 与数据库，不运行、导入或连接 Codex。
-- 下一阶段 Phase 3W 建议补全协作目标的后续生命周期：集中查看待办/人工沟通请求、人工标记已发送/已取消/已完成，并把新取得的证据显式回挂到问题证据链；状态变化仍不能自动关单或冒充外部送达。
+- Phase 3W 已按下述执行账本与证据回挂合同实现，不再把该项列为待办。
+
+### Phase 3W：补证执行中心、证据回挂与人工生命周期（已实施）
+
+- 每个 Phase 3V 已确认目标原子建立一个 `ProjectQuestionRemediationExecution`，与冻结 promotion 分离保存。项目“问题”页提供集中执行中心，统一展示原生项目待办和人工沟通请求的状态、证据、允许动作与只追加历史；列表只向项目可写成员开放。
+- 人工沟通只支持用户证明“已在 Aria 外部发送”、完成或取消。`manual_send_is_user_attestation=true`、`delivered_by_aria=false`、`outbound_delivery=false`、`sends_messages=false`、`executes_tools=false` 同时进入服务、API、前端和确定性门禁；系统没有外发端点，也不会把保存草稿或点击状态解释为对方已收到。
+- 完成动作必须至少有一条数据库内不可变证据附件。当前项目文件和知识文档为 direct；当前项目消息、去除 fragment 且禁止凭据的 HTTP(S) 外链、人工备注为 `review_required`。引用在项目最终写锁内重新授权和校验，幂等 key 与证据内容身份双重去重，普通 ProjectTodo 更新/删除不能绕过 execution 完成边界。
+- `ProjectQuestionRemediationExecutionEvent` 按 execution/revision 只追加 created、marked_sent、evidence_attached、completed、cancelled；每次写入都提交 expected revision。执行完成只同步目标待办/沟通请求状态，绝不写 `ProjectQuestionResolution`，问题仍由 Phase 3R/3S 的人工采用回答、摘要和版本锁关闭。
+- 当前未取消的附件进入 Phase 3T 当前证据池。直接项目文件/知识文档可增加支持来源；消息、外链和人工备注只提供待复核线索，附件 note 不当作答案事实。完成项目待办会使项目记忆 stale，后续重建重新裁决；人工沟通状态不自动改变记忆事实。
+- 幂等迁移 `041_v1_41` 创建 execution、evidence attachment、execution event 三表，扩展人工沟通状态 CHECK，并为目标唯一性、证据身份、revision、引用完整性、FK 与查询建立约束/索引；历史 confirmed promotion 会回填 created execution event，Alembic 保持单一 head。
+- 发布门禁从 72 个场景/22 项指标扩展为 75 个场景/23 项指标，新增 `question_remediation_execution_safety_rate`；SQLite 行为/迁移、React 生命周期以及 PostgreSQL 唯一约束与完整往返进入部署和备份后隔离 schema E2E。实现完全属于 Aria 原生 Python/FastAPI/React 与数据库，不运行、导入或连接 Codex。
+- 下一阶段 Phase 3X 建议增加“待复核证据裁决”：由项目成员把 message/external/manual 线索显式接受或驳回为有审计的证据判断，再重新计算问题准备度；裁决仍不能自动生成长期事实、自动发送沟通或自动解决问题。
 
 ## 11. 官方资料与许可证
 

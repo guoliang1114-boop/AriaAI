@@ -34,6 +34,11 @@ from app.services.project_question_remediation_promotions import (
     prepare_project_question_remediation_promotion,
     reject_project_question_remediation_promotion,
 )
+from app.services.project_question_remediation_executions import (
+    attach_project_question_remediation_evidence,
+    list_project_question_remediation_executions,
+    transition_project_question_remediation_execution,
+)
 from app.services.project_question_workbench import (
     build_project_question_workbench,
     update_project_question_profile,
@@ -77,6 +82,24 @@ class DecideProjectQuestionRemediationPromotionRequest(BaseModel):
     snapshot_sha256: str = Field(min_length=64, max_length=64)
     expected_revision: int = Field(ge=1)
     reason: str = Field(default="", max_length=600)
+
+
+class TransitionProjectQuestionRemediationExecutionRequest(BaseModel):
+    action: str = Field(min_length=1, max_length=40)
+    expected_revision: int = Field(ge=1)
+    note: str = Field(min_length=1, max_length=600)
+
+
+class AttachProjectQuestionRemediationEvidenceRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=16, max_length=128)
+    evidence_kind: str = Field(min_length=1, max_length=40)
+    title: str = Field(default="", max_length=160)
+    note: str = Field(default="", max_length=1200)
+    reference_locator: str = Field(default="", max_length=500)
+    project_file_id: Optional[int] = Field(default=None, gt=0)
+    knowledge_document_id: Optional[int] = Field(default=None, gt=0)
+    message_id: Optional[int] = Field(default=None, gt=0)
 
 
 def _project(session: Session, project_id: int) -> Project:
@@ -284,6 +307,97 @@ def get_project_question_remediation_promotions(
         question_sha256=question_sha256,
         actor_user_id=int(current_user.id),
         limit=limit,
+    )
+
+
+@router.get("/remediation-executions")
+def get_project_question_remediation_executions(
+    project_id: int,
+    status: str = "",
+    limit: int = 100,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the project-wide, write-member-only remediation execution center."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return list_project_question_remediation_executions(
+        session,
+        project_id=project_id,
+        actor_user_id=int(current_user.id),
+        status=status,
+        limit=limit,
+    )
+
+
+@router.post("/remediation-executions/{execution_id}/transition")
+def transition_project_question_remediation(
+    project_id: int,
+    execution_id: int,
+    body: TransitionProjectQuestionRemediationExecutionRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Record one manual lifecycle transition without external delivery."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return transition_project_question_remediation_execution(
+        session,
+        project_id=project_id,
+        execution_id=execution_id,
+        actor_user_id=int(current_user.id),
+        action=body.action,
+        expected_revision=body.expected_revision,
+        note=body.note,
+    )
+
+
+@router.post("/remediation-executions/{execution_id}/evidence")
+def attach_project_question_remediation_execution_evidence(
+    project_id: int,
+    execution_id: int,
+    body: AttachProjectQuestionRemediationEvidenceRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Attach immutable, project-scoped evidence to one remediation target."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return attach_project_question_remediation_evidence(
+        session,
+        project_id=project_id,
+        execution_id=execution_id,
+        actor_user_id=int(current_user.id),
+        expected_revision=body.expected_revision,
+        idempotency_key=body.idempotency_key,
+        evidence_kind=body.evidence_kind,
+        title=body.title,
+        note=body.note,
+        reference_locator=body.reference_locator,
+        project_file_id=body.project_file_id,
+        knowledge_document_id=body.knowledge_document_id,
+        message_id=body.message_id,
     )
 
 

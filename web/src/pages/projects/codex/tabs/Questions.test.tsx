@@ -10,6 +10,7 @@ import type {
   ProjectDetail,
   ProjectQuestionEvidenceReview,
   ProjectQuestionRemediationPlan,
+  ProjectQuestionRemediationExecutionList,
   ProjectQuestionRemediationPromotion,
   ProjectQuestionWorkbench,
 } from '../../../../types/api'
@@ -35,6 +36,15 @@ const detail = {
     created_at: '2026-08-01T00:00:00',
     updated_at: '2026-08-31T08:00:00',
   },
+  files: [{
+    id: 31,
+    project_id: 9,
+    name: '客户签字确认.pdf',
+    file_type: 'pdf',
+    path: 'project/confirmation.pdf',
+    size: 1024,
+    uploaded_at: '2026-08-31T08:00:00',
+  }],
 } as unknown as ProjectDetail
 
 const workbench: ProjectQuestionWorkbench = {
@@ -125,6 +135,12 @@ const evidenceReview: ProjectQuestionEvidenceReview = {
         retrieval_score: 0.91,
       }],
     },
+    attachments: {
+      status: 'not_available',
+      source_count: 0,
+      supporting_source_count: 0,
+      sources: [],
+    },
   },
   summary: {
     evaluated_candidate_count: 1,
@@ -173,6 +189,7 @@ const evidenceReview: ProjectQuestionEvidenceReview = {
     includes_bounded_answer_previews: true,
     includes_full_answer_content: false,
     includes_retrieved_chunk_content: false,
+    includes_bounded_attachment_notes: false,
     includes_prompt_content: false,
     includes_tool_inputs: false,
     includes_tool_outputs: false,
@@ -324,6 +341,82 @@ const confirmedPromotion: ProjectQuestionRemediationPromotion = {
   },
 }
 
+const emptyExecutions: ProjectQuestionRemediationExecutionList = {
+  schema_version: 1,
+  project_id: 9,
+  items: [],
+  count: 0,
+  counts: {
+    active: 0,
+    ready_for_manual_send: 0,
+    sent_manually: 0,
+    completed: 0,
+    cancelled: 0,
+  },
+  contract: {
+    name: 'project_question_remediation_execution',
+    manual_send_is_user_attestation: true,
+    delivered_by_aria: false,
+    outbound_delivery: false,
+    sends_messages: false,
+    executes_tools: false,
+    completion_requires_evidence: true,
+    evidence_is_project_scoped: true,
+    evidence_events_are_append_only: true,
+    automatically_resolves_question: false,
+  },
+}
+
+const readyExecution: ProjectQuestionRemediationExecutionList = {
+  ...emptyExecutions,
+  count: 1,
+  counts: { ...emptyExecutions.counts, ready_for_manual_send: 1 },
+  items: [{
+    schema_version: 1,
+    id: 101,
+    project_id: 9,
+    source_promotion_id: 81,
+    question: '客户是否确认了最终验收范围？',
+    question_sha256: 'a'.repeat(64),
+    target_kind: 'communication_request',
+    status: 'ready_for_manual_send',
+    revision: 1,
+    evidence_count: 0,
+    last_transition_note: 'confirmed_target_created',
+    created_by_user_id: 2,
+    last_transition_by_user_id: 2,
+    last_transition_at: '2026-09-01T08:00:00',
+    created_at: '2026-09-01T08:00:00',
+    updated_at: '2026-09-01T08:00:00',
+    target: {
+      kind: 'communication_request',
+      id: 91,
+      subject: '请求书面确认证据',
+      body: '请提供客户签字确认。',
+      recipient_label: '客户项目经理',
+      status: 'ready_for_manual_send',
+      delivery_mode: 'manual_only',
+      delivered_by_aria: false,
+      manual_delivery_attested: false,
+    },
+    evidence: [],
+    events: [{
+      id: 1,
+      revision: 1,
+      action: 'created',
+      status: 'ready_for_manual_send',
+      actor_user_id: 2,
+      evidence_attachment_id: null,
+      note: 'confirmed_target_created',
+      created_at: '2026-09-01T08:00:00',
+    }],
+    truncated: { evidence: false, events: false },
+    allowed_actions: ['attach_evidence', 'mark_sent', 'cancel'],
+    question_resolution_status: 'open',
+    contract: emptyExecutions.contract,
+  }],
+}
+
 function renderQuestions(refetch = vi.fn().mockResolvedValue(undefined)) {
   return {
     refetch,
@@ -342,7 +435,9 @@ describe('project question workbench', () => {
     vi.mocked(api.get).mockReset()
     vi.mocked(api.patch).mockReset()
     vi.mocked(api.post).mockReset()
-    vi.mocked(api.get).mockResolvedValue(workbench)
+    vi.mocked(api.get).mockImplementation(async (path: string) => (
+      path.endsWith('/questions/remediation-executions') ? emptyExecutions : workbench
+    ))
   })
 
   it('shows the project-level question, accountability controls, and answer candidates', async () => {
@@ -563,6 +658,148 @@ describe('project question workbench', () => {
     expect(refetch).toHaveBeenCalledTimes(1)
     expect(api.post).toHaveBeenCalledTimes(4)
     expect(api.post).not.toHaveBeenCalledWith('/projects/9/todos', expect.anything())
+  })
+
+  it('governs manual send, evidence attachment, and completion without auto-closing', async () => {
+    const sentExecution: ProjectQuestionRemediationExecutionList = {
+      ...readyExecution,
+      counts: { ...readyExecution.counts, ready_for_manual_send: 0, sent_manually: 1 },
+      items: [{
+        ...readyExecution.items[0],
+        status: 'sent_manually',
+        revision: 2,
+        target: {
+          ...readyExecution.items[0].target,
+          status: 'sent_manually',
+          manual_delivery_attested: true,
+          delivered_by_aria: false,
+        },
+        allowed_actions: ['attach_evidence', 'complete', 'cancel'],
+      }],
+    }
+    const evidencedExecution: ProjectQuestionRemediationExecutionList = {
+      ...sentExecution,
+      items: [{
+        ...sentExecution.items[0],
+        revision: 3,
+        evidence_count: 1,
+        evidence: [{
+          id: 201,
+          execution_id: 101,
+          project_id: 9,
+          question_sha256: 'a'.repeat(64),
+          execution_revision: 3,
+          evidence_sha256: 'e'.repeat(64),
+          evidence_kind: 'manual_note',
+          support_level: 'review_required',
+          title: '客户回复记录',
+          note: '项目负责人已人工核对客户回复。',
+          reference_locator: '',
+          project_file_id: null,
+          knowledge_document_id: null,
+          message_id: null,
+          attached_by_user_id: 2,
+          attached_at: '2026-09-01T08:10:00',
+        }],
+      }],
+    }
+    const completedExecution: ProjectQuestionRemediationExecutionList = {
+      ...evidencedExecution,
+      counts: { ...evidencedExecution.counts, sent_manually: 0, completed: 1 },
+      items: [{
+        ...evidencedExecution.items[0],
+        status: 'completed',
+        revision: 4,
+        target: {
+          ...evidencedExecution.items[0].target,
+          status: 'completed',
+          manual_delivery_attested: true,
+          delivered_by_aria: false,
+        },
+        allowed_actions: ['attach_evidence'],
+        question_resolution_status: 'open',
+      }],
+    }
+    let current = readyExecution
+    vi.mocked(api.get).mockImplementation(async (path: string) => (
+      path.endsWith('/questions/remediation-executions') ? current : workbench
+    ))
+    vi.mocked(api.post).mockImplementation(async (path: string) => {
+      if (path.endsWith('/transition') && current === readyExecution) {
+        current = sentExecution
+      } else if (path.endsWith('/evidence')) {
+        current = evidencedExecution
+      } else if (path.endsWith('/transition')) {
+        current = completedExecution
+      }
+      return current.items[0]
+    })
+    renderQuestions()
+
+    expect(await screen.findByRole('region', { name: '整改执行中心' })).toBeInTheDocument()
+    expect(await screen.findByText('待人工发送')).toBeInTheDocument()
+    expect(screen.getByText(/项目问题仍未关单/)).toBeInTheDocument()
+    await userEvent.type(
+      screen.getByLabelText('整改执行 101 状态说明'),
+      '已通过企业邮箱人工发送。',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '人工标记已发送' }))
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      '/projects/9/questions/remediation-executions/101/transition',
+      {
+        action: 'mark_sent',
+        expected_revision: 1,
+        note: '已通过企业邮箱人工发送。',
+      },
+    ))
+    expect(await screen.findByText('人工已发送')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '标记整改完成' })).toBeDisabled()
+
+    await userEvent.selectOptions(
+      screen.getByLabelText('整改执行 101 证据类型'),
+      'manual_note',
+    )
+    await userEvent.type(
+      screen.getByLabelText('整改执行 101 证据标题'),
+      '客户回复记录',
+    )
+    await userEvent.type(
+      screen.getByLabelText('整改执行 101 证据内容'),
+      '项目负责人已人工核对客户回复。',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '挂接证据' }))
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      '/projects/9/questions/remediation-executions/101/evidence',
+      {
+        expected_revision: 2,
+        idempotency_key: expect.any(String),
+        evidence_kind: 'manual_note',
+        title: '客户回复记录',
+        note: '项目负责人已人工核对客户回复。',
+        reference_locator: '',
+        project_file_id: null,
+        knowledge_document_id: null,
+        message_id: null,
+      },
+    ))
+    expect(await screen.findByText(/客户回复记录 · 仍需人工复核/)).toBeInTheDocument()
+    const complete = screen.getByRole('button', { name: '标记整改完成' })
+    expect(complete).toBeDisabled()
+    await userEvent.type(
+      screen.getByLabelText('整改执行 101 状态说明'),
+      '客户回复与范围记录已人工核验。',
+    )
+    expect(complete).toBeEnabled()
+    await userEvent.click(complete)
+
+    expect(await screen.findByText('已完成')).toBeInTheDocument()
+    expect(screen.getByText(/项目问题仍未关单/)).toBeInTheDocument()
+    expect(api.post).not.toHaveBeenCalledWith(
+      '/projects/9/questions/resolve',
+      expect.anything(),
+    )
   })
 
   it('does not expose answer evidence analysis to read-only project members', async () => {

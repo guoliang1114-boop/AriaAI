@@ -1101,7 +1101,7 @@ export interface ProjectQuestionAnswerCandidate {
 export type ProjectQuestionReadinessBand = 'strong' | 'review' | 'weak' | 'unrated'
 
 export interface ProjectQuestionEvidenceSource {
-  source_type: 'knowledge_document' | 'project_memory'
+  source_type: 'knowledge_document' | 'project_memory' | 'remediation_attachment'
   evidence_id: string
   citation_key: string
   title: string
@@ -1112,6 +1112,16 @@ export interface ProjectQuestionEvidenceSource {
   memory_version?: number
   provenance_status?: string
   fact_evidence_count?: number
+  attachment_id?: number
+  execution_id?: number
+  evidence_kind?: ProjectQuestionRemediationEvidenceKind
+  support_level?: ProjectQuestionRemediationEvidenceSupportLevel
+  note?: string
+  reference_locator?: string
+  project_file_id?: number | null
+  knowledge_document_id?: number | null
+  message_id?: number | null
+  attached_at?: string
 }
 
 export interface ProjectQuestionAnswerAssessment {
@@ -1182,6 +1192,12 @@ export interface ProjectQuestionEvidenceReview {
       supporting_source_count: number
       sources: ProjectQuestionEvidenceSource[]
     }
+    attachments: {
+      status: 'available' | 'not_available'
+      source_count: number
+      supporting_source_count: number
+      sources: ProjectQuestionEvidenceSource[]
+    }
   }
   summary: {
     evaluated_candidate_count: number
@@ -1201,6 +1217,7 @@ export interface ProjectQuestionEvidenceReview {
     includes_bounded_answer_previews: boolean
     includes_full_answer_content: false
     includes_retrieved_chunk_content: false
+    includes_bounded_attachment_notes: boolean
     includes_prompt_content: false
     includes_tool_inputs: false
     includes_tool_outputs: false
@@ -1311,9 +1328,17 @@ export interface ProjectQuestionRemediationPromotionTarget {
   recipient_label?: string
   owner_user_id?: number | null
   due_date?: string | null
-  status?: 'ready_for_manual_send' | 'cancelled'
+  status?: 'ready_for_manual_send' | 'sent_manually' | 'completed' | 'cancelled'
   delivery_mode?: 'manual_only'
   delivered?: false
+  execution?: {
+    id: number
+    status: ProjectQuestionRemediationExecutionStatus
+    revision: number
+    evidence_count: number
+    allowed_actions: ProjectQuestionRemediationExecutionAction[]
+    delivered_by_aria: false
+  } | null
 }
 
 export interface ProjectQuestionRemediationPromotion {
@@ -1360,6 +1385,111 @@ export interface ProjectQuestionRemediationPromotion {
     outbound_delivery: false
     delivery_mode: 'manual_only' | 'not_applicable'
   }
+}
+
+export type ProjectQuestionRemediationExecutionStatus =
+  | 'active'
+  | 'ready_for_manual_send'
+  | 'sent_manually'
+  | 'completed'
+  | 'cancelled'
+
+export type ProjectQuestionRemediationExecutionAction =
+  | 'attach_evidence'
+  | 'mark_sent'
+  | 'complete'
+  | 'cancel'
+
+export type ProjectQuestionRemediationEvidenceKind =
+  | 'project_file'
+  | 'knowledge_document'
+  | 'message'
+  | 'external_reference'
+  | 'manual_note'
+
+export type ProjectQuestionRemediationEvidenceSupportLevel =
+  | 'direct'
+  | 'review_required'
+
+export interface ProjectQuestionRemediationEvidenceAttachment {
+  id: number
+  execution_id: number
+  project_id: number
+  question_sha256: string
+  execution_revision: number
+  evidence_sha256: string
+  evidence_kind: ProjectQuestionRemediationEvidenceKind
+  support_level: ProjectQuestionRemediationEvidenceSupportLevel
+  title: string
+  note: string
+  reference_locator: string
+  project_file_id?: number | null
+  knowledge_document_id?: number | null
+  message_id?: number | null
+  attached_by_user_id?: number | null
+  attached_at: string
+}
+
+export interface ProjectQuestionRemediationExecutionEvent {
+  id: number
+  revision: number
+  action: 'created' | 'marked_sent' | 'completed' | 'cancelled' | 'evidence_attached'
+  status: ProjectQuestionRemediationExecutionStatus
+  actor_user_id?: number | null
+  evidence_attachment_id?: number | null
+  note: string
+  created_at: string
+}
+
+export interface ProjectQuestionRemediationExecution {
+  schema_version: 1
+  id: number
+  project_id: number
+  source_promotion_id: number
+  question: string
+  question_sha256: string
+  target_kind: ProjectQuestionRemediationPromotionTargetKind
+  status: ProjectQuestionRemediationExecutionStatus
+  revision: number
+  evidence_count: number
+  last_transition_note: string
+  created_by_user_id?: number | null
+  last_transition_by_user_id?: number | null
+  last_transition_at: string
+  created_at: string
+  updated_at: string
+  target?: (ProjectQuestionRemediationPromotionTarget & {
+    delivered_by_aria?: false
+    manual_delivery_attested?: boolean
+  }) | null
+  evidence: ProjectQuestionRemediationEvidenceAttachment[]
+  events: ProjectQuestionRemediationExecutionEvent[]
+  truncated: { evidence: boolean; events: boolean }
+  allowed_actions: ProjectQuestionRemediationExecutionAction[]
+  question_resolution_status: 'open' | 'resolved'
+  contract: ProjectQuestionRemediationExecutionContract
+}
+
+export interface ProjectQuestionRemediationExecutionContract {
+  name: 'project_question_remediation_execution'
+  manual_send_is_user_attestation: true
+  delivered_by_aria: false
+  outbound_delivery: false
+  sends_messages: false
+  executes_tools: false
+  completion_requires_evidence: true
+  evidence_is_project_scoped: true
+  evidence_events_are_append_only: true
+  automatically_resolves_question: false
+}
+
+export interface ProjectQuestionRemediationExecutionList {
+  schema_version: 1
+  project_id: number
+  items: ProjectQuestionRemediationExecution[]
+  count: number
+  counts: Record<ProjectQuestionRemediationExecutionStatus, number>
+  contract: ProjectQuestionRemediationExecutionContract
 }
 
 export interface ProjectQuestionWorkbench {

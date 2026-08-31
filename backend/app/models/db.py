@@ -561,7 +561,8 @@ class ProjectCommunicationRequest(SQLModel, table=True):
             name="uq_projectcommunicationrequest_source_promotion",
         ),
         CheckConstraint(
-            "status IN ('ready_for_manual_send', 'cancelled')",
+            "status IN ('ready_for_manual_send', 'sent_manually', "
+            "'completed', 'cancelled')",
             name="ck_projectcommunicationrequest_status",
         ),
         CheckConstraint(
@@ -665,6 +666,257 @@ class ProjectQuestionRemediationPromotionEvent(SQLModel, table=True):
     )
     note: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
     created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
+class ProjectQuestionRemediationExecution(SQLModel, table=True):
+    """Governed lifecycle for a confirmed remediation target."""
+
+    __table_args__ = (
+        Index("ix_pq_rexec_project", "project_id"),
+        Index("ix_pq_rexec_question", "question_sha256"),
+        Index("ix_pq_rexec_status", "status"),
+        Index("ix_pq_rexec_todo", "target_todo_id"),
+        Index("ix_pq_rexec_communication", "communication_request_id"),
+        Index("ix_pq_rexec_updated", "updated_at"),
+        UniqueConstraint(
+            "source_promotion_id",
+            name="uq_pq_rexec_source_promotion",
+        ),
+        UniqueConstraint(
+            "target_todo_id",
+            name="uq_pq_rexec_target_todo",
+        ),
+        UniqueConstraint(
+            "communication_request_id",
+            name="uq_pq_rexec_communication",
+        ),
+        CheckConstraint(
+            "target_kind IN ('project_todo', 'communication_request')",
+            name="ck_pq_rexec_target_kind",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'ready_for_manual_send', 'sent_manually', "
+            "'completed', 'cancelled')",
+            name="ck_pq_rexec_status",
+        ),
+        CheckConstraint(
+            "revision >= 1 AND evidence_count >= 0 "
+            "AND length(question_sha256) = 64",
+            name="ck_pq_rexec_revision_identity",
+        ),
+        CheckConstraint(
+            "(target_kind = 'project_todo' AND target_todo_id IS NOT NULL "
+            "AND communication_request_id IS NULL) OR "
+            "(target_kind = 'communication_request' AND target_todo_id IS NULL "
+            "AND communication_request_id IS NOT NULL)",
+            name="ck_pq_rexec_target_reference",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+    )
+    source_promotion_id: int = Field(
+        foreign_key="projectquestionremediationpromotion.id",
+        ondelete="CASCADE",
+    )
+    question_text: str = Field(sa_column=Column(Text, nullable=False))
+    question_sha256: str
+    target_kind: str
+    target_todo_id: Optional[int] = Field(
+        default=None,
+        foreign_key="projecttodo.id",
+        ondelete="SET NULL",
+    )
+    communication_request_id: Optional[int] = Field(
+        default=None,
+        foreign_key="projectcommunicationrequest.id",
+        ondelete="SET NULL",
+    )
+    status: str
+    revision: int = Field(default=1)
+    evidence_count: int = Field(default=0)
+    last_transition_note: str = Field(
+        default="",
+        sa_column=Column(Text, nullable=False, default=""),
+    )
+    created_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+    )
+    last_transition_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+    )
+    last_transition_at: datetime = Field(default_factory=utc_now_naive)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
+
+
+class ProjectQuestionRemediationEvidenceAttachment(SQLModel, table=True):
+    """Immutable, project-scoped evidence attached to one execution."""
+
+    __table_args__ = (
+        Index("ix_pq_revidence_execution", "execution_id"),
+        Index("ix_pq_revidence_project", "project_id"),
+        Index("ix_pq_revidence_question", "question_sha256"),
+        Index("ix_pq_revidence_kind", "evidence_kind"),
+        Index("ix_pq_revidence_attached", "attached_at"),
+        UniqueConstraint(
+            "execution_id",
+            "idempotency_key_sha256",
+            name="uq_pq_revidence_idempotency",
+        ),
+        UniqueConstraint(
+            "execution_id",
+            "evidence_sha256",
+            name="uq_pq_revidence_identity",
+        ),
+        CheckConstraint(
+            "evidence_kind IN ('project_file', 'knowledge_document', 'message', "
+            "'external_reference', 'manual_note')",
+            name="ck_pq_revidence_kind",
+        ),
+        CheckConstraint(
+            "support_level IN ('direct', 'review_required')",
+            name="ck_pq_revidence_support",
+        ),
+        CheckConstraint(
+            "execution_revision >= 2 AND length(question_sha256) = 64 "
+            "AND length(idempotency_key_sha256) = 64 "
+            "AND length(evidence_sha256) = 64",
+            name="ck_pq_revidence_hashes",
+        ),
+        CheckConstraint(
+            "(evidence_kind = 'project_file' AND project_file_id IS NOT NULL "
+            "AND knowledge_document_id IS NULL AND message_id IS NULL "
+            "AND reference_locator = '') OR "
+            "(evidence_kind = 'knowledge_document' AND project_file_id IS NULL "
+            "AND knowledge_document_id IS NOT NULL AND message_id IS NULL "
+            "AND reference_locator = '') OR "
+            "(evidence_kind = 'message' AND project_file_id IS NULL "
+            "AND knowledge_document_id IS NULL AND message_id IS NOT NULL "
+            "AND reference_locator = '') OR "
+            "(evidence_kind = 'external_reference' AND project_file_id IS NULL "
+            "AND knowledge_document_id IS NULL AND message_id IS NULL "
+            "AND length(reference_locator) > 0) OR "
+            "(evidence_kind = 'manual_note' AND project_file_id IS NULL "
+            "AND knowledge_document_id IS NULL AND message_id IS NULL "
+            "AND reference_locator = '' AND length(note) > 0)",
+            name="ck_pq_revidence_reference",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    execution_id: int = Field(
+        foreign_key="projectquestionremediationexecution.id",
+        ondelete="CASCADE",
+    )
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+    )
+    question_sha256: str
+    execution_revision: int
+    idempotency_key_sha256: str
+    evidence_sha256: str
+    evidence_kind: str
+    support_level: str
+    title: str = Field(sa_column=Column(Text, nullable=False))
+    note: str = Field(
+        default="",
+        sa_column=Column(Text, nullable=False, default=""),
+    )
+    reference_locator: str = Field(
+        default="",
+        sa_column=Column(Text, nullable=False, default=""),
+    )
+    project_file_id: Optional[int] = Field(
+        default=None,
+        foreign_key="projectfile.id",
+        ondelete="RESTRICT",
+    )
+    knowledge_document_id: Optional[int] = Field(
+        default=None,
+        foreign_key="knowledgedocument.id",
+        ondelete="RESTRICT",
+    )
+    message_id: Optional[int] = Field(
+        default=None,
+        foreign_key="message.id",
+        ondelete="RESTRICT",
+    )
+    attached_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+    )
+    attached_at: datetime = Field(default_factory=utc_now_naive)
+
+
+class ProjectQuestionRemediationExecutionEvent(SQLModel, table=True):
+    """Append-only execution transition and evidence audit."""
+
+    __table_args__ = (
+        Index("ix_pq_rexec_event_execution", "execution_id"),
+        Index("ix_pq_rexec_event_project", "project_id"),
+        Index("ix_pq_rexec_event_action", "action"),
+        Index("ix_pq_rexec_event_status", "status"),
+        Index("ix_pq_rexec_event_actor", "actor_user_id"),
+        Index("ix_pq_rexec_event_evidence", "evidence_attachment_id"),
+        Index("ix_pq_rexec_event_created", "created_at"),
+        UniqueConstraint(
+            "execution_id",
+            "revision",
+            name="uq_pq_rexec_event_revision",
+        ),
+        CheckConstraint(
+            "action IN ('created', 'marked_sent', 'completed', 'cancelled', "
+            "'evidence_attached')",
+            name="ck_pq_rexec_event_action",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'ready_for_manual_send', 'sent_manually', "
+            "'completed', 'cancelled')",
+            name="ck_pq_rexec_event_status",
+        ),
+        CheckConstraint(
+            "revision >= 1",
+            name="ck_pq_rexec_event_revision",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    execution_id: int = Field(
+        foreign_key="projectquestionremediationexecution.id",
+        ondelete="CASCADE",
+    )
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+    )
+    revision: int
+    action: str
+    status: str
+    actor_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+    )
+    evidence_attachment_id: Optional[int] = Field(
+        default=None,
+        foreign_key="projectquestionremediationevidenceattachment.id",
+        ondelete="SET NULL",
+    )
+    note: str = Field(
+        default="",
+        sa_column=Column(Text, nullable=False, default=""),
+    )
+    created_at: datetime = Field(default_factory=utc_now_naive)
 
 
 class ClientMemorySummary(SQLModel, table=True):

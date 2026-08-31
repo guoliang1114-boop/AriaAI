@@ -265,6 +265,8 @@ jobs:
                 tests/test_project_question_remediation.py \
                 tests/test_project_question_remediation_promotions.py \
                 tests/test_project_question_remediation_promotion_migration.py \
+                tests/test_project_question_remediation_executions.py \
+                tests/test_project_question_remediation_execution_migration.py \
                 tests/test_project_question_workbench_migration.py \
                 tests/test_project_question_resolutions_postgres.py \
                 tests/test_database_extended.py \

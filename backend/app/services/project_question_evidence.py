@@ -17,7 +17,14 @@ from typing import Any
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from app.models.db import Conversation, Message, Project, ProjectQuestionResolution
+from app.models.db import (
+    Conversation,
+    Message,
+    Project,
+    ProjectQuestionRemediationEvidenceAttachment,
+    ProjectQuestionRemediationExecution,
+    ProjectQuestionResolution,
+)
 from app.services.agent_harness.knowledge_evidence import (
     validate_knowledge_evidence_manifest,
 )
@@ -526,6 +533,69 @@ def _current_knowledge_question_evidence(
         }, {}
 
 
+def _current_attached_question_evidence(
+    session: Session,
+    *,
+    project_id: int,
+    question_sha256: str,
+) -> tuple[dict[str, Any], dict[tuple[Any, ...], dict[str, Any]]]:
+    """Return immutable Phase 3W attachments without treating notes as truth."""
+
+    rows = session.exec(
+        select(
+            ProjectQuestionRemediationEvidenceAttachment,
+            ProjectQuestionRemediationExecution,
+        )
+        .join(
+            ProjectQuestionRemediationExecution,
+            ProjectQuestionRemediationExecution.id
+            == ProjectQuestionRemediationEvidenceAttachment.execution_id,
+        )
+        .where(
+            ProjectQuestionRemediationEvidenceAttachment.project_id == project_id,
+            ProjectQuestionRemediationEvidenceAttachment.question_sha256
+            == question_sha256,
+            ProjectQuestionRemediationExecution.status != "cancelled",
+        )
+        .order_by(
+            ProjectQuestionRemediationEvidenceAttachment.attached_at.desc(),
+            ProjectQuestionRemediationEvidenceAttachment.id.desc(),
+        )
+        .limit(50)
+    ).all()
+    sources: list[dict[str, Any]] = []
+    source_map: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for attachment, execution in rows:
+        source = {
+            "source_type": "remediation_attachment",
+            "evidence_id": f"remediation_attachment_{attachment.evidence_sha256}",
+            "citation_key": "",
+            "title": str(attachment.title or "")[:240],
+            "attachment_id": int(attachment.id or 0),
+            "execution_id": int(execution.id or 0),
+            "evidence_kind": attachment.evidence_kind,
+            "support_level": attachment.support_level,
+            "note": str(attachment.note or "")[:MAX_PREVIEW_CHARS],
+            "reference_locator": str(attachment.reference_locator or "")[:500],
+            "project_file_id": attachment.project_file_id,
+            "knowledge_document_id": attachment.knowledge_document_id,
+            "message_id": attachment.message_id,
+            "attached_at": (
+                attachment.attached_at.isoformat() if attachment.attached_at else ""
+            ),
+        }
+        source_map[("remediation_attachment", attachment.evidence_sha256)] = source
+        sources.append(source)
+    return {
+        "status": "available" if sources else "not_available",
+        "source_count": len(sources),
+        "supporting_source_count": sum(
+            item["support_level"] == "direct" for item in sources
+        ),
+        "sources": sources,
+    }, source_map
+
+
 def _question_exists(
     session: Session,
     *,
@@ -591,7 +661,16 @@ def build_project_question_evidence_review(
         project_id=project_id,
         question=normalized_question,
     )
-    question_source_map = {**memory_source_map, **knowledge_source_map}
+    attached_evidence, attached_source_map = _current_attached_question_evidence(
+        session,
+        project_id=project_id,
+        question_sha256=identity,
+    )
+    question_source_map = {
+        **memory_source_map,
+        **knowledge_source_map,
+        **attached_source_map,
+    }
 
     rows = session.exec(
         select(Message, Conversation)
@@ -667,7 +746,7 @@ def build_project_question_evidence_review(
     question_source_count = len(question_source_map)
     supporting_source_count = int(memory_evidence["supporting_source_count"]) + int(
         knowledge_evidence["supporting_source_count"]
-    )
+    ) + int(attached_evidence["supporting_source_count"])
     return {
         "schema_version": QUESTION_EVIDENCE_SCHEMA_VERSION,
         "project_id": project_id,
@@ -687,6 +766,7 @@ def build_project_question_evidence_review(
             "supporting_source_count": supporting_source_count,
             "memory": memory_evidence,
             "knowledge": knowledge_evidence,
+            "attachments": attached_evidence,
         },
         "summary": {
             "evaluated_candidate_count": len(candidates),
@@ -711,6 +791,9 @@ def build_project_question_evidence_review(
             "includes_bounded_answer_previews": bool(returned),
             "includes_full_answer_content": False,
             "includes_retrieved_chunk_content": False,
+            "includes_bounded_attachment_notes": bool(
+                attached_evidence["source_count"]
+            ),
             "includes_prompt_content": False,
             "includes_tool_inputs": False,
             "includes_tool_outputs": False,

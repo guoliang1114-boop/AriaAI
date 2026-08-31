@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from app.models.db import Project, ProjectTodo
+from app.models.db import Project, ProjectQuestionRemediationExecution, ProjectTodo
 from app.services.time_utils import utc_now_naive
 
 
@@ -84,6 +84,24 @@ def update_project_todo(
     changes: dict,
 ) -> ProjectTodo:
     todo = get_project_todo_or_404(session, project_id, todo_id)
+    execution = session.exec(
+        select(ProjectQuestionRemediationExecution).where(
+            ProjectQuestionRemediationExecution.project_id == project_id,
+            ProjectQuestionRemediationExecution.target_todo_id == todo_id,
+        )
+    ).first()
+    if (
+        execution is not None
+        and "is_done" in changes
+        and bool(changes["is_done"]) != bool(todo.is_done)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This remediation todo must be completed through its evidence-governed "
+                "execution lifecycle."
+            ),
+        )
     for key, value in changes.items():
         setattr(todo, key, value)
     todo.updated_at = utc_now_naive()
@@ -95,6 +113,17 @@ def update_project_todo(
 
 def delete_project_todo(session: Session, project_id: int, todo_id: int) -> None:
     todo = get_project_todo_or_404(session, project_id, todo_id)
+    execution = session.exec(
+        select(ProjectQuestionRemediationExecution).where(
+            ProjectQuestionRemediationExecution.project_id == project_id,
+            ProjectQuestionRemediationExecution.target_todo_id == todo_id,
+        )
+    ).first()
+    if execution is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A remediation todo with an audit ledger cannot be deleted.",
+        )
     session.delete(todo)
     session.commit()
 
