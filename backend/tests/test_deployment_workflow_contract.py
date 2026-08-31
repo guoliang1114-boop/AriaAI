@@ -36,3 +36,10 @@ def test_remote_release_runs_this_contract_test() -> None:
     workflow = _workflow_text()
 
     assert "tests/test_deployment_workflow_contract.py" in workflow
+
+
+if __name__ == "__main__":
+    test_remote_release_command_has_headroom_for_the_release_gate()
+    test_remote_release_keeps_backup_before_migration_and_restart()
+    test_remote_release_runs_this_contract_test()
+    print("deployment workflow contract passed")

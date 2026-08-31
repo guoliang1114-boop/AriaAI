@@ -75,6 +75,13 @@ jobs:
           python -m py_compile app/config.py
           python -m py_compile app/models/db.py
 
+      # This contract inspects the workflow file itself, so it must run in the
+      # clean GitHub checkout rather than on the application-only server copy.
+      - name: Deployment Workflow Contract
+        run: |
+          cd backend
+          python tests/test_deployment_workflow_contract.py
+
       - name: Skill Quality Gate
         run: |
           cd backend
@@ -255,7 +262,6 @@ jobs:
                 tests/test_project_question_resolution_migration.py \
                 tests/test_project_question_workbench.py \
                 tests/test_project_question_evidence.py \
-                tests/test_deployment_workflow_contract.py \
                 tests/test_project_question_workbench_migration.py \
                 tests/test_project_question_resolutions_postgres.py \
                 tests/test_database_extended.py \
