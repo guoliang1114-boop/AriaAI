@@ -206,6 +206,148 @@ class ProjectMemoryFact(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
 
 
+class ProjectQuestionResolution(SQLModel, table=True):
+    """User-confirmed lifecycle record for one project open question."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "question_sha256",
+            name="uq_projectquestionresolution_project_question",
+        ),
+        CheckConstraint(
+            "status IN ('resolved', 'open')",
+            name="ck_projectquestionresolution_status",
+        ),
+        CheckConstraint(
+            "resolution_revision >= 1",
+            name="ck_projectquestionresolution_revision",
+        ),
+        CheckConstraint(
+            "source_memory_version >= 1 AND resolved_memory_version >= 1",
+            name="ck_projectquestionresolution_memory_versions",
+        ),
+        CheckConstraint(
+            "source_slot_version >= 1 AND resolved_slot_version >= 1",
+            name="ck_projectquestionresolution_slot_versions",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    question_text: str = Field(
+        sa_column=Column(Text, nullable=False),
+    )
+    question_sha256: str = Field(index=True)
+    question_fact_key: str = Field(default="", index=True)
+    status: str = Field(default="resolved", index=True)
+    resolution_revision: int = Field(default=1)
+    resolution_summary: str = Field(
+        default="",
+        sa_column=Column(Text, nullable=False, default=""),
+    )
+    answer_message_id: Optional[int] = Field(
+        default=None,
+        foreign_key="message.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    answer_conversation_id: Optional[int] = Field(
+        default=None,
+        foreign_key="conversation.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    resolved_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    reopened_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    source_memory_version: int = Field(index=True)
+    source_slot_version: int = Field(index=True)
+    resolved_memory_version: int = Field(index=True)
+    resolved_slot_version: int = Field(index=True)
+    reopened_memory_version: Optional[int] = Field(default=None)
+    reopened_slot_version: Optional[int] = Field(default=None)
+    reopen_reason: str = Field(
+        default="",
+        sa_column=Column(Text, nullable=False, default=""),
+    )
+    resolved_at: datetime = Field(default_factory=utc_now_naive, index=True)
+    reopened_at: Optional[datetime] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
+class ProjectQuestionResolutionEvent(SQLModel, table=True):
+    """Append-only audit event for a question resolution lifecycle."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "resolution_id",
+            "resolution_revision",
+            name="uq_projectquestionresolutionevent_resolution_revision",
+        ),
+        CheckConstraint(
+            "action IN ('resolved', 'reopened')",
+            name="ck_projectquestionresolutionevent_action",
+        ),
+        CheckConstraint(
+            "resolution_revision >= 1 AND memory_version >= 1 AND slot_version >= 1",
+            name="ck_projectquestionresolutionevent_versions",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    resolution_id: int = Field(
+        foreign_key="projectquestionresolution.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    action: str = Field(index=True)
+    resolution_revision: int = Field(index=True)
+    question_text: str = Field(sa_column=Column(Text, nullable=False))
+    question_fact_key: str = Field(default="", index=True)
+    note: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    answer_message_id: Optional[int] = Field(
+        default=None,
+        foreign_key="message.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    answer_conversation_id: Optional[int] = Field(
+        default=None,
+        foreign_key="conversation.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    actor_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    memory_version: int = Field(index=True)
+    slot_version: int = Field(index=True)
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
 class ClientMemorySummary(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clientrecord.id", index=True)

@@ -111,6 +111,21 @@ class PendingChatActionOut(BaseModel):
     call: dict
 
 
+class ResolveProjectQuestionRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=360)
+    answer_message_id: int = Field(gt=0)
+    resolution_summary: str = Field(min_length=1, max_length=600)
+    expected_memory_version: int = Field(ge=1)
+    expected_slot_version: int = Field(ge=1)
+
+
+class ReopenProjectQuestionRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=600)
+    expected_resolution_revision: int = Field(ge=1)
+    expected_memory_version: int = Field(ge=1)
+    expected_slot_version: int = Field(ge=1)
+
+
 class CreateConversationRequest(BaseModel):
     project_id: Optional[int] = None
     skill_id: Optional[int] = None

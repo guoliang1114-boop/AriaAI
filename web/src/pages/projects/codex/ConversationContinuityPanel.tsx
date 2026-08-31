@@ -2,9 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   ConversationContinuitySnapshot,
   ConversationContinuityState,
+  Message,
+  ProjectQuestionResolution,
 } from '../../../types/api'
 import { api } from '../../../api/client'
 import { CxIcon } from './CxIcons'
+import { useToast } from '../../../contexts/ToastContext'
 
 const MODE_LABELS: Record<ConversationContinuityState['turn_mode'], string> = {
   answer_only: '仅回答',
@@ -17,6 +20,7 @@ interface ConversationContinuityPanelProps {
   conversationId: number
   refreshKey: number
   disabled?: boolean
+  latestAssistantMessage: Pick<Message, 'id' | 'content'> | null
   onPrepare: (content: string) => void
   onLocateMessage: (messageId: number) => void
 }
@@ -57,13 +61,20 @@ export function ConversationContinuityPanel({
   conversationId,
   refreshKey,
   disabled = false,
+  latestAssistantMessage,
   onPrepare,
   onLocateMessage,
 }: ConversationContinuityPanelProps) {
+  const toast = useToast()
   const [open, setOpen] = useState(false)
   const [snapshot, setSnapshot] = useState<ConversationContinuitySnapshot | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [resolveTarget, setResolveTarget] = useState<string | null>(null)
+  const [resolutionSummary, setResolutionSummary] = useState('')
+  const [reopenTarget, setReopenTarget] = useState<ProjectQuestionResolution | null>(null)
+  const [reopenReason, setReopenReason] = useState('')
+  const [mutationBusy, setMutationBusy] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const requestRef = useRef(0)
 
@@ -120,7 +131,9 @@ export function ConversationContinuityPanel({
   const visibleSnapshot = snapshot?.conversation_id === conversationId ? snapshot : null
   const state = visibleSnapshot?.status === 'ready' ? visibleSnapshot.state : null
   const questions = visibleSnapshot?.project_questions.items ?? []
-  const attentionCount = (state?.blockers.length ?? 0) + questions.length
+  const resolutions = visibleSnapshot?.project_questions.resolved ?? []
+  const reviewCount = resolutions.filter((item) => item.status === 'needs_review').length
+  const attentionCount = (state?.blockers.length ?? 0) + questions.length + reviewCount
   const activeContext = state
     ? [
         state.active_artifact?.name
@@ -133,6 +146,74 @@ export function ConversationContinuityPanel({
             : '',
       ].filter(Boolean)
     : []
+
+  const beginResolve = (question: string) => {
+    setReopenTarget(null)
+    setReopenReason('')
+    setResolveTarget(question)
+    setResolutionSummary('')
+  }
+
+  const submitResolution = async () => {
+    if (
+      mutationBusy
+      || !visibleSnapshot
+      || !resolveTarget
+      || !latestAssistantMessage
+      || !resolutionSummary.trim()
+    ) return
+    setMutationBusy(true)
+    try {
+      const result = await api.post<ConversationContinuitySnapshot>(
+        `/chat/conversations/${conversationId}/continuity/questions/resolve`,
+        {
+          question: resolveTarget,
+          answer_message_id: latestAssistantMessage.id,
+          resolution_summary: resolutionSummary.trim(),
+          expected_memory_version: visibleSnapshot.project_questions.memory_version,
+          expected_slot_version: visibleSnapshot.project_questions.slot_version,
+        },
+      )
+      setSnapshot(result)
+      setResolveTarget(null)
+      setResolutionSummary('')
+      toast.success({ title: '项目问题已解决', description: '已绑定当前回答并写入项目问题账本' })
+    } catch (err) {
+      toast.error({
+        title: '无法标记为已解决',
+        description: err instanceof Error ? err.message : '请刷新后重试',
+      })
+    } finally {
+      setMutationBusy(false)
+    }
+  }
+
+  const submitReopen = async () => {
+    if (mutationBusy || !visibleSnapshot || !reopenTarget || !reopenReason.trim()) return
+    setMutationBusy(true)
+    try {
+      const result = await api.post<ConversationContinuitySnapshot>(
+        `/chat/conversations/${conversationId}/continuity/questions/${reopenTarget.id}/reopen`,
+        {
+          reason: reopenReason.trim(),
+          expected_resolution_revision: reopenTarget.resolution_revision,
+          expected_memory_version: visibleSnapshot.project_questions.memory_version,
+          expected_slot_version: visibleSnapshot.project_questions.slot_version,
+        },
+      )
+      setSnapshot(result)
+      setReopenTarget(null)
+      setReopenReason('')
+      toast.success({ title: '问题已重新打开', description: '已作为用户锚点放回项目待确认问题' })
+    } catch (err) {
+      toast.error({
+        title: '无法重新打开问题',
+        description: err instanceof Error ? err.message : '请刷新后重试',
+      })
+    } finally {
+      setMutationBusy(false)
+    }
+  }
 
   return (
     <div ref={rootRef} style={{ position: 'relative', flexShrink: 0 }}>
@@ -319,18 +400,121 @@ export function ConversationContinuityPanel({
                   {questions.map((question) => (
                     <div key={question} style={{ padding: '9px 10px', background: 'var(--bg-tint)', borderRadius: 'var(--r-sm)' }}>
                       <div style={{ fontSize: 11, color: 'var(--ink-soft)', lineHeight: 1.5 }}>{question}</div>
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => prepare(`请基于当前项目事实回答并推进这个待确认问题：${question}`)}
-                        style={{ ...actionButtonStyle, marginTop: 7, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.55 : 1 }}
-                      >
-                        加入输入框
-                      </button>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 7 }}>
+                        <button
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => prepare(`请基于当前项目事实回答并推进这个待确认问题：${question}`)}
+                          style={{ ...actionButtonStyle, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.55 : 1 }}
+                        >
+                          加入输入框
+                        </button>
+                        <button
+                          type="button"
+                          disabled={disabled || visibleSnapshot.project_questions.stale || visibleSnapshot.project_questions.slot_version < 1 || !latestAssistantMessage || mutationBusy}
+                          onClick={() => beginResolve(question)}
+                          title={
+                            visibleSnapshot.project_questions.stale
+                              ? '项目问题记忆待刷新，暂不能关闭'
+                              : latestAssistantMessage
+                                ? '绑定最近一条已保存的 AI 回答，并由你确认解决摘要'
+                                : '当前对话还没有可绑定的 AI 回答'
+                          }
+                          style={{
+                            ...actionButtonStyle,
+                            cursor: disabled || visibleSnapshot.project_questions.stale || visibleSnapshot.project_questions.slot_version < 1 || !latestAssistantMessage || mutationBusy ? 'not-allowed' : 'pointer',
+                            opacity: disabled || visibleSnapshot.project_questions.stale || visibleSnapshot.project_questions.slot_version < 1 || !latestAssistantMessage ? 0.5 : 1,
+                          }}
+                        >
+                          标记已解决
+                        </button>
+                      </div>
+                      {resolveTarget === question && latestAssistantMessage && (
+                        <div style={{ marginTop: 9, paddingTop: 9, borderTop: '1px solid var(--line-soft)' }}>
+                          <div style={{ fontSize: 10, color: 'var(--ink-faint)', lineHeight: 1.5 }}>
+                            将绑定最近回答 #{latestAssistantMessage.id}：{latestAssistantMessage.content.trim().slice(0, 120) || '（回答正文为空）'}
+                          </div>
+                          <textarea
+                            aria-label="解决摘要"
+                            value={resolutionSummary}
+                            onChange={(event) => setResolutionSummary(event.target.value)}
+                            maxLength={600}
+                            placeholder="简要说明为什么这条回答已经解决问题"
+                            style={{ width: '100%', minHeight: 58, marginTop: 7, padding: '7px 8px', resize: 'vertical', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', background: 'var(--bg)', color: 'var(--ink)', fontSize: 11, lineHeight: 1.5 }}
+                          />
+                          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                            <button type="button" disabled={mutationBusy || !resolutionSummary.trim()} onClick={() => void submitResolution()} style={{ ...actionButtonStyle, cursor: mutationBusy ? 'wait' : 'pointer', opacity: resolutionSummary.trim() ? 1 : 0.5 }}>
+                              {mutationBusy ? '保存中…' : '确认解决'}
+                            </button>
+                            <button type="button" disabled={mutationBusy} onClick={() => setResolveTarget(null)} style={{ ...actionButtonStyle, color: 'var(--ink-mute)', cursor: 'pointer' }}>取消</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {visibleSnapshot && resolutions.length > 0 && (
+            <div style={{ marginTop: 14, borderTop: '1px solid var(--line-soft)', paddingTop: 11 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--ink-mute)' }}>最近已解决问题</div>
+              <div style={{ marginTop: 7, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {resolutions.map((resolution) => (
+                  <div key={resolution.id} style={{ padding: '9px 10px', border: '1px solid var(--line-soft)', borderRadius: 'var(--r-sm)', background: resolution.status === 'needs_review' ? 'color-mix(in oklch, var(--warn) 8%, var(--bg-elev))' : 'var(--bg-tint)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <span style={{ fontSize: 9.5, color: resolution.status === 'needs_review' ? 'var(--warn)' : 'var(--good)' }}>
+                        {resolution.status === 'needs_review' ? '待复核' : '已解决'}
+                      </span>
+                      <span style={{ fontSize: 9, color: 'var(--ink-faint)' }}>记忆 v{resolution.resolved_memory_version}</span>
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-soft)', lineHeight: 1.5 }}>{resolution.question}</div>
+                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--ink-mute)', lineHeight: 1.5 }}>结论：{resolution.resolution_summary}</div>
+                    {resolution.status === 'needs_review' && (
+                      <div style={{ marginTop: 4, fontSize: 10, color: 'var(--warn)' }}>
+                        项目记忆已变化或问题再次出现，请人工复核。
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 7 }}>
+                      {resolution.answer_available && resolution.answer_message_id && resolution.answer_conversation_id === conversationId && (
+                        <button type="button" onClick={() => onLocateMessage(resolution.answer_message_id as number)} style={{ ...actionButtonStyle, color: 'var(--ink-mute)', cursor: 'pointer' }}>查看绑定回答</button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={disabled || visibleSnapshot.project_questions.stale || visibleSnapshot.project_questions.slot_version < 1 || mutationBusy}
+                        onClick={() => {
+                          setResolveTarget(null)
+                          setResolutionSummary('')
+                          setReopenTarget(resolution)
+                          setReopenReason('')
+                        }}
+                        style={{ ...actionButtonStyle, cursor: disabled || visibleSnapshot.project_questions.stale || visibleSnapshot.project_questions.slot_version < 1 || mutationBusy ? 'not-allowed' : 'pointer', opacity: disabled || visibleSnapshot.project_questions.stale || visibleSnapshot.project_questions.slot_version < 1 ? 0.5 : 1 }}
+                      >
+                        重新打开
+                      </button>
+                    </div>
+                    {reopenTarget?.id === resolution.id && (
+                      <div style={{ marginTop: 9, paddingTop: 9, borderTop: '1px solid var(--line-soft)' }}>
+                        <textarea
+                          aria-label="重新打开原因"
+                          value={reopenReason}
+                          onChange={(event) => setReopenReason(event.target.value)}
+                          maxLength={600}
+                          placeholder="说明为什么该结论需要重新确认"
+                          style={{ width: '100%', minHeight: 54, padding: '7px 8px', resize: 'vertical', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', background: 'var(--bg)', color: 'var(--ink)', fontSize: 11, lineHeight: 1.5 }}
+                        />
+                        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                          <button type="button" disabled={mutationBusy || !reopenReason.trim()} onClick={() => void submitReopen()} style={{ ...actionButtonStyle, cursor: mutationBusy ? 'wait' : 'pointer', opacity: reopenReason.trim() ? 1 : 0.5 }}>
+                            {mutationBusy ? '保存中…' : '确认重新打开'}
+                          </button>
+                          <button type="button" disabled={mutationBusy} onClick={() => setReopenTarget(null)} style={{ ...actionButtonStyle, color: 'var(--ink-mute)', cursor: 'pointer' }}>取消</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -341,7 +525,7 @@ export function ConversationContinuityPanel({
           )}
           {visibleSnapshot && (
             <div style={{ marginTop: 13, padding: '8px 10px', background: 'var(--bg-tint)', borderRadius: 'var(--r-sm)', fontSize: 10.5, color: 'var(--ink-faint)', lineHeight: 1.5 }}>
-              边界：这里只展示有范围限制且通过校验的协作状态；不包含提示词、工具输入或隐藏推理。所有下一步只会加入输入框，由你核对后发送。
+              边界：这里只展示有范围限制且通过校验的协作状态；不包含回答正文、提示词、工具输入或隐藏推理。解决/重开都需要你明确确认，并经过项目写权限校验。
             </div>
           )}
           {error && visibleSnapshot && (

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from app.database import get_session
@@ -12,6 +12,8 @@ from app.routers.chat_schemas import (
     CreateConversationRequest,
     MessageOut,
     PendingChatActionOut,
+    ReopenProjectQuestionRequest,
+    ResolveProjectQuestionRequest,
     UpdateConversationRequest,
 )
 from app.models.db import User
@@ -34,6 +36,10 @@ from app.services.chat.conversation_continuity import (
     build_conversation_continuity_snapshot,
 )
 from app.services.chat.pending_actions import build_project_file_cleanup_pending_action, user_requested_project_file_cleanup
+from app.services.project_question_resolutions import (
+    reopen_project_question,
+    resolve_project_question,
+)
 
 router = APIRouter()
 
@@ -175,6 +181,73 @@ def get_conversation_continuity(
     """Return validated current-goal, blocker, and project-question state."""
 
     conversation = require_conversation_access(session, conv_id, current_user)
+    return build_conversation_continuity_snapshot(
+        session,
+        conversation=conversation,
+    )
+
+
+@router.post("/conversations/{conv_id}/continuity/questions/resolve")
+def resolve_conversation_project_question(
+    conv_id: int,
+    body: ResolveProjectQuestionRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Explicitly bind one current project question to an Assistant answer."""
+
+    conversation = require_conversation_access(
+        session,
+        conv_id,
+        current_user,
+        require_write=True,
+    )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    resolve_project_question(
+        session,
+        conversation=conversation,
+        actor_user_id=int(current_user.id),
+        question=body.question,
+        answer_message_id=body.answer_message_id,
+        resolution_summary=body.resolution_summary,
+        expected_memory_version=body.expected_memory_version,
+        expected_slot_version=body.expected_slot_version,
+    )
+    return build_conversation_continuity_snapshot(
+        session,
+        conversation=conversation,
+    )
+
+
+@router.post("/conversations/{conv_id}/continuity/questions/{resolution_id}/reopen")
+def reopen_conversation_project_question(
+    conv_id: int,
+    resolution_id: int,
+    body: ReopenProjectQuestionRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Return a user-confirmed resolved question to the pinned open list."""
+
+    conversation = require_conversation_access(
+        session,
+        conv_id,
+        current_user,
+        require_write=True,
+    )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    reopen_project_question(
+        session,
+        conversation=conversation,
+        resolution_id=resolution_id,
+        actor_user_id=int(current_user.id),
+        reason=body.reason,
+        expected_resolution_revision=body.expected_resolution_revision,
+        expected_memory_version=body.expected_memory_version,
+        expected_slot_version=body.expected_slot_version,
+    )
     return build_conversation_continuity_snapshot(
         session,
         conversation=conversation,

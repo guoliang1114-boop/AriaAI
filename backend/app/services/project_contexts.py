@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Collection, Mapping
 import json
 
 from fastapi import HTTPException
@@ -1168,6 +1168,7 @@ def save_project_memory(
     rebuild_mode: str | None = None,
     fallback_reason: str = "",
     rebuild_plan: MemoryRebuildPlan | None = None,
+    removed_accepted_anchors: Mapping[str, Collection[str]] | None = None,
     commit: bool = True,
 ) -> dict[str, Any]:
     if rebuild_plan is not None:
@@ -1200,6 +1201,25 @@ def save_project_memory(
         dict(memory),
         existing_raw_memory,
     )
+    for slot_name, removed_values in (removed_accepted_anchors or {}).items():
+        if slot_name not in EDITABLE_MEMORY_SLOTS:
+            continue
+        removed = {str(item).strip() for item in removed_values if str(item).strip()}
+        if not removed:
+            continue
+        accepted = memory.get(ACCEPTED_MEMORY_CANDIDATES_KEY)
+        if not isinstance(accepted, dict):
+            continue
+        current = accepted.get(slot_name)
+        if isinstance(current, list):
+            accepted[slot_name] = [
+                str(item).strip()
+                for item in current
+                if str(item).strip() and str(item).strip() not in removed
+            ]
+        slot = _normalize_editable_slot(memory.get(slot_name))
+        slot["pinned"] = [item for item in slot["pinned"] if item not in removed]
+        memory[slot_name] = slot
     if isinstance(existing_raw_memory.get("_client_promotion"), dict):
         memory["_client_promotion"] = dict(existing_raw_memory["_client_promotion"])
     source_attributions = normalize_model_source_attributions(

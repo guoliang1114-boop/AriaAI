@@ -5,10 +5,10 @@ import { api } from '../../../api/client'
 import type { ConversationContinuitySnapshot } from '../../../types/api'
 import { ConversationContinuityPanel } from './ConversationContinuityPanel'
 
-vi.mock('../../../api/client', () => ({ api: { get: vi.fn() } }))
+vi.mock('../../../api/client', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 
 const readySnapshot: ConversationContinuitySnapshot = {
-  schema_version: 1,
+  schema_version: 2,
   conversation_id: 12,
   project_id: 9,
   status: 'ready',
@@ -30,11 +30,14 @@ const readySnapshot: ConversationContinuitySnapshot = {
   project_questions: {
     status: 'stale',
     memory_version: 3,
+    slot_version: 2,
     stale: true,
     items: ['客户是否确认范围？'],
+    resolved: [],
   },
   privacy: {
     includes_bounded_conversation_state: true,
+    includes_bound_answer_message_content: false,
     includes_prompt_content: false,
     includes_tool_inputs: false,
     includes_hidden_reasoning: false,
@@ -42,7 +45,10 @@ const readySnapshot: ConversationContinuitySnapshot = {
 }
 
 describe('ConversationContinuityPanel', () => {
-  beforeEach(() => vi.mocked(api.get).mockReset())
+  beforeEach(() => {
+    vi.mocked(api.get).mockReset()
+    vi.mocked(api.post).mockReset()
+  })
 
   it('shows validated state and only prepares user-reviewed next-turn drafts', async () => {
     vi.mocked(api.get).mockResolvedValue(readySnapshot)
@@ -52,6 +58,7 @@ describe('ConversationContinuityPanel', () => {
       <ConversationContinuityPanel
         conversationId={12}
         refreshKey={4}
+        latestAssistantMessage={{ id: 42, content: '已经确认交付范围。' }}
         onPrepare={onPrepare}
         onLocateMessage={onLocateMessage}
       />,
@@ -67,7 +74,7 @@ describe('ConversationContinuityPanel', () => {
     expect(screen.getByText('风险文件暂不可读')).toBeInTheDocument()
     expect(screen.getByText('客户是否确认范围？')).toBeInTheDocument()
     expect(screen.getByText('记忆 v3 待刷新')).toBeInTheDocument()
-    expect(screen.getByText(/不包含提示词、工具输入或隐藏推理/)).toBeInTheDocument()
+    expect(screen.getByText(/不包含回答正文、提示词、工具输入或隐藏推理/)).toBeInTheDocument()
     expect(screen.queryByText('must-not-leak')).not.toBeInTheDocument()
 
     const blocker = screen.getByText('风险文件暂不可读').parentElement
@@ -85,6 +92,7 @@ describe('ConversationContinuityPanel', () => {
       <ConversationContinuityPanel
         conversationId={12}
         refreshKey={4}
+        latestAssistantMessage={{ id: 42, content: '已经确认交付范围。' }}
         onPrepare={onPrepare}
         onLocateMessage={onLocateMessage}
       />,
@@ -115,6 +123,7 @@ describe('ConversationContinuityPanel', () => {
       <ConversationContinuityPanel
         conversationId={12}
         refreshKey={4}
+        latestAssistantMessage={{ id: 42, content: '已经确认交付范围。' }}
         onPrepare={vi.fn()}
         onLocateMessage={vi.fn()}
       />,
@@ -134,6 +143,7 @@ describe('ConversationContinuityPanel', () => {
         conversationId={12}
         refreshKey={4}
         disabled
+        latestAssistantMessage={{ id: 42, content: '已经确认交付范围。' }}
         onPrepare={vi.fn()}
         onLocateMessage={vi.fn()}
       />,
@@ -145,5 +155,104 @@ describe('ConversationContinuityPanel', () => {
     expect(draftButtons.length).toBeGreaterThan(0)
     draftButtons.forEach((button) => expect(button).toBeDisabled())
     expect(screen.getByText(/当前轮次结束后可将下一步加入输入框/)).toBeInTheDocument()
+  })
+
+  it('requires explicit confirmation to resolve and reopen a project question', async () => {
+    const writableSnapshot: ConversationContinuitySnapshot = {
+      ...readySnapshot,
+      project_questions: {
+        ...readySnapshot.project_questions,
+        status: 'ready',
+        stale: false,
+      },
+    }
+    const resolvedSnapshot: ConversationContinuitySnapshot = {
+      ...writableSnapshot,
+      project_questions: {
+        ...writableSnapshot.project_questions,
+        memory_version: 4,
+        slot_version: 3,
+        items: [],
+        resolved: [{
+          id: 71,
+          question: '客户是否确认范围？',
+          status: 'resolved',
+          review_reason: '',
+          resolution_summary: '客户已书面确认范围。',
+          answer_message_id: 42,
+          answer_conversation_id: 12,
+          answer_available: true,
+          resolution_revision: 1,
+          resolved_memory_version: 4,
+          resolved_slot_version: 3,
+          resolved_at: '2026-08-31T09:00:00',
+        }],
+      },
+    }
+    const reopenedSnapshot: ConversationContinuitySnapshot = {
+      ...resolvedSnapshot,
+      project_questions: {
+        ...resolvedSnapshot.project_questions,
+        memory_version: 5,
+        slot_version: 4,
+        items: ['客户是否确认范围？'],
+        resolved: [],
+      },
+    }
+    vi.mocked(api.get).mockResolvedValue(writableSnapshot)
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(resolvedSnapshot)
+      .mockResolvedValueOnce(reopenedSnapshot)
+    render(
+      <ConversationContinuityPanel
+        conversationId={12}
+        refreshKey={4}
+        latestAssistantMessage={{ id: 42, content: '客户已书面确认范围。' }}
+        onPrepare={vi.fn()}
+        onLocateMessage={vi.fn()}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: '查看当前协作状态' }))
+    await screen.findByText('客户是否确认范围？')
+
+    await userEvent.click(screen.getByRole('button', { name: '标记已解决' }))
+    expect(screen.getByText(/将绑定最近回答 #42/)).toBeInTheDocument()
+    const confirmResolution = screen.getByRole('button', { name: '确认解决' })
+    expect(confirmResolution).toBeDisabled()
+    await userEvent.type(screen.getByRole('textbox', { name: '解决摘要' }), '客户已书面确认范围。')
+    await userEvent.click(confirmResolution)
+
+    await waitFor(() => expect(api.post).toHaveBeenNthCalledWith(
+      1,
+      '/chat/conversations/12/continuity/questions/resolve',
+      {
+        question: '客户是否确认范围？',
+        answer_message_id: 42,
+        resolution_summary: '客户已书面确认范围。',
+        expected_memory_version: 3,
+        expected_slot_version: 2,
+      },
+    ))
+    expect(await screen.findByText('最近已解决问题')).toBeInTheDocument()
+    expect(screen.getByText('结论：客户已书面确认范围。')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '重新打开' }))
+    const confirmReopen = screen.getByRole('button', { name: '确认重新打开' })
+    expect(confirmReopen).toBeDisabled()
+    await userEvent.type(screen.getByRole('textbox', { name: '重新打开原因' }), '客户新增范围例外。')
+    await userEvent.click(confirmReopen)
+
+    await waitFor(() => expect(api.post).toHaveBeenNthCalledWith(
+      2,
+      '/chat/conversations/12/continuity/questions/71/reopen',
+      {
+        reason: '客户新增范围例外。',
+        expected_resolution_revision: 1,
+        expected_memory_version: 4,
+        expected_slot_version: 3,
+      },
+    ))
+    expect(screen.queryByText('最近已解决问题')).not.toBeInTheDocument()
+    expect(screen.getByText('客户是否确认范围？')).toBeInTheDocument()
   })
 })

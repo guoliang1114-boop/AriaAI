@@ -902,6 +902,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-08-31）：Phase 3Q 将已经持久化的 `Conversation Capsule v1` 变为用户可核对的连续性投影。投影复用 Aria 对话 ACL，并在读取时再次验证精确 schema、SHA-256、Conversation/Project scope 和来源 Message scope；失败时不修复、不猜测、不展示可疑状态。前端把有效目标、约束、决策摘要、阻塞与独立的项目记忆待确认问题组合为“进展”面板，只生成可编辑草稿，不自动发起 Turn 或执行动作。Prompt、工具输入/输出、隐藏推理和 Assistant 内部摘要不进入响应。本阶段复用现有消息 metadata 和项目记忆槽位，不新增迁移，也不引入 Codex 运行时、SDK、协议或通信。
 
+补充进展（2026-08-31）：Phase 3R 为项目待确认问题增加 Aria 原生人工解决账本。关单不是模型裁决：项目可写成员必须绑定当前对话的一条持久化 Assistant Message、填写解决摘要，并提交当前聚合记忆/开放问题槽位版本。服务在项目写锁内再次授权和核对范围，以一个事务完成开放问题/accepted anchor 移除、槽位与事实账本更新、当前解决状态写入和 append-only lifecycle event；冲突或跨对话回答失败关闭，再次解决不会覆盖旧回答与说明。Continuity Snapshot v2 只返回回答身份而非正文，记忆变化会把旧结论标为待复核。人工重开保留审计并把问题恢复为 pinned 锚点。幂等迁移 `038_v1_38` 保持单一 head；不引入 Codex 运行时、SDK、协议或通信。
+
 范围：
 
 - 工具注册表标准化。（首批已完成）

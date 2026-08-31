@@ -888,6 +888,10 @@ function ThreadView({
     () => selectedProjectMentionsToContext(selectedMentions),
     [selectedMentions],
   )
+  const latestAssistantMessage = useMemo(
+    () => [...messages].reverse().find((message) => message.role === 'assistant') ?? null,
+    [messages],
+  )
   const turnRevision = useMemo<TurnRevisionInput | null>(() => (
     turnRevisionSource
       ? buildProjectTurnRevisionInput(turnRevisionSource, {
@@ -1191,6 +1195,7 @@ function ThreadView({
           conversationId={conversationId}
           refreshKey={messages.length}
           disabled={busy}
+          latestAssistantMessage={latestAssistantMessage}
           onPrepare={prepareContinuityDraft}
           onLocateMessage={locateContinuityMessage}
         />

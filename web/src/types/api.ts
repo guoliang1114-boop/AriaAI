@@ -1033,8 +1033,23 @@ export interface ConversationContinuityState {
   capsule_sha256: string
 }
 
+export interface ProjectQuestionResolution {
+  id: number
+  question: string
+  status: 'resolved' | 'needs_review'
+  review_reason: '' | 'question_reappeared' | 'project_memory_stale' | 'project_memory_changed'
+  resolution_summary: string
+  answer_message_id?: number | null
+  answer_conversation_id?: number | null
+  answer_available: boolean
+  resolution_revision: number
+  resolved_memory_version: number
+  resolved_slot_version: number
+  resolved_at: string
+}
+
 export interface ConversationContinuitySnapshot {
-  schema_version: 1
+  schema_version: 2
   conversation_id: number
   project_id?: number | null
   status: ConversationContinuityStatus
@@ -1043,11 +1058,14 @@ export interface ConversationContinuitySnapshot {
   project_questions: {
     status: 'ready' | 'stale' | 'missing' | 'not_applicable'
     memory_version: number
+    slot_version: number
     stale: boolean
     items: string[]
+    resolved: ProjectQuestionResolution[]
   }
   privacy: {
     includes_bounded_conversation_state: boolean
+    includes_bound_answer_message_content: boolean
     includes_prompt_content: boolean
     includes_tool_inputs: boolean
     includes_hidden_reasoning: boolean

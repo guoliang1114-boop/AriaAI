@@ -104,7 +104,7 @@ def _project_links(connection) -> dict[int, int | None]:
     }
 
 
-def test_revision_037_is_the_single_alembic_head() -> None:
+def test_current_revision_is_the_single_alembic_head() -> None:
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
@@ -112,10 +112,10 @@ def test_revision_037_is_the_single_alembic_head() -> None:
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["037_v1_37"]
-    revision = script.get_revision("037_v1_37")
+    assert script.get_heads() == ["038_v1_38"]
+    revision = script.get_revision("038_v1_38")
     assert revision is not None
-    assert revision.down_revision == "036_v1_36"
+    assert revision.down_revision == "037_v1_37"
 
 
 def test_revision_035_backfills_only_unique_normalized_names_and_is_idempotent() -> None:

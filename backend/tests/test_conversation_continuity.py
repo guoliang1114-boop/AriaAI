@@ -141,8 +141,10 @@ def test_snapshot_projects_only_validated_bounded_continuity_state() -> None:
     assert snapshot["project_questions"] == {
         "status": "ready",
         "memory_version": 3,
+        "slot_version": 0,
         "stale": False,
         "items": ["客户是否确认范围？", "预算上限是多少？"],
+        "resolved": [],
     }
     rendered = json.dumps(snapshot, ensure_ascii=False)
     assert "must-not-leak" not in rendered
@@ -150,6 +152,7 @@ def test_snapshot_projects_only_validated_bounded_continuity_state() -> None:
     assert "last_assistant_summary" not in snapshot["state"]
     assert snapshot["privacy"] == {
         "includes_bounded_conversation_state": True,
+        "includes_bound_answer_message_content": False,
         "includes_prompt_content": False,
         "includes_tool_inputs": False,
         "includes_hidden_reasoning": False,

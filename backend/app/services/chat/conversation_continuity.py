@@ -17,9 +17,12 @@ from app.services.agent_harness.conversation_capsule import (
 )
 from app.services.memory_slots import load_project_memory_slot_view
 from app.services.project_contexts import get_project_memory_payload
+from app.services.project_question_resolutions import (
+    list_project_question_resolutions,
+)
 
 
-CONTINUITY_SNAPSHOT_SCHEMA_VERSION = 1
+CONTINUITY_SNAPSHOT_SCHEMA_VERSION = 2
 _MESSAGE_SCAN_LIMIT = 100
 
 
@@ -28,16 +31,20 @@ def _project_questions(session: Session, project_id: int | None) -> dict[str, An
         return {
             "status": "not_applicable",
             "memory_version": 0,
+            "slot_version": 0,
             "stale": False,
             "items": [],
+            "resolved": [],
         }
     project = session.get(Project, project_id)
     if project is None or int(project.memory_version or 0) <= 0:
         return {
             "status": "missing",
             "memory_version": int(project.memory_version or 0) if project else 0,
+            "slot_version": 0,
             "stale": bool(project.memory_stale) if project else True,
             "items": [],
+            "resolved": [],
         }
     aggregate = get_project_memory_payload(project)
     memory, slot_states = load_project_memory_slot_view(session, project, aggregate)
@@ -55,8 +62,16 @@ def _project_questions(session: Session, project_id: int | None) -> dict[str, An
     return {
         "status": "stale" if stale else "ready",
         "memory_version": int(project.memory_version or 0),
+        "slot_version": int(slot_state.get("slot_version") or 0),
         "stale": stale,
         "items": questions,
+        "resolved": list_project_question_resolutions(
+            session,
+            project_id=project_id,
+            current_memory_version=int(project.memory_version or 0),
+            project_memory_stale=stale,
+            current_questions=questions,
+        ),
     }
 
 
@@ -95,6 +110,7 @@ def _invalid_payload(
 def _privacy_payload() -> dict[str, bool]:
     return {
         "includes_bounded_conversation_state": True,
+        "includes_bound_answer_message_content": False,
         "includes_prompt_content": False,
         "includes_tool_inputs": False,
         "includes_hidden_reasoning": False,

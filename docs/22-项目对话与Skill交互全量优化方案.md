@@ -456,6 +456,15 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - “继续当前目标”“处理阻塞”“推进待确认问题”都只把明确文本追加到输入框，保留用户已有草稿，由用户修改并发送；当前轮次执行中全部禁用。面板不自动创建 Message/Run、调用模型或工具，也不产生业务写入。
 - 服务测试覆盖正常投影、隐私边界、Fingerprint 篡改、跨对话来源和 ACL；前端测试覆盖草稿准备、消息定位、非法状态失败关闭、陈旧记忆和运行中禁用。本阶段复用现有 Message metadata 与项目记忆账本，不新增数据库迁移，不运行或连接 Codex。
 
+### Phase 3R：项目问题解决账本与人工复核（已实施）
+
+- “进展”面板中的项目待确认问题现在可以由项目 owner/editor 明确标记为已解决。用户必须选择当前对话中已经持久化的 Assistant Message，并填写有界解决摘要；AI 回答、Conversation Capsule、普通聊天文本或记忆重建都不能自动关单。
+- `POST /chat/conversations/{conversation_id}/continuity/questions/resolve` 同时核对对话写权限、最终项目写权限、Assistant Message 的精确 Conversation scope、项目记忆版本和 `open_questions` 槽位版本。任一范围或版本变化均以 `409` 失败关闭，不接受客户端提交的任意“问题”作为项目事实。
+- 关单在一个事务中完成：从 AI/pinned 开放问题及对应 accepted anchor 中移除问题、更新聚合记忆与独立槽位版本、退休事实账本条目，并写入 `ProjectQuestionResolution` 当前状态和只追加的 `ProjectQuestionResolutionEvent`。每次解决/重开都永久记录问题事实身份、回答 Message/Conversation、操作者、说明、结果版本与独立 revision，再次解决不会覆盖旧历史。
+- 最近解决项回到 Continuity Snapshot v2，但不返回绑定回答正文。后续项目记忆版本变化、记忆陈旧或同一问题再次出现时，只把旧结论标为 `needs_review`；系统不会自行推断结论仍有效，也不会自动重开。
+- `POST /chat/conversations/{conversation_id}/continuity/questions/{resolution_id}/reopen` 要求用户填写原因并再次通过项目写权限和乐观版本校验；问题以用户 pinned 锚点回到 `open_questions`，保留原回答绑定和解决审计。viewer 只能查看，不能解决或重开。
+- 幂等迁移 `038_v1_38` 建立解决账本、唯一问题身份、状态/revision CHECK、CASCADE/SET NULL 外键和查询索引，并保持单一 Alembic head。部署门禁与生产数据库 E2E 在备份后的隔离 schema 中覆盖迁移、外键、解决/重开和投影往返；不在 `public` 测试，不引入 Codex 运行时、SDK、协议或通信。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>
