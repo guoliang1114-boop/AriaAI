@@ -67,6 +67,9 @@ from app.services.memory_facts import (
 )
 from app.services.project_contexts import save_project_memory
 from app.services.project_question_evidence import assess_project_question_answer
+from app.services.project_question_remediation import (
+    build_question_evidence_remediation_plan,
+)
 from app.services.skill_router import (
     auto_select_skill,
     decide_conversation_skill_activation,
@@ -1216,6 +1219,81 @@ def _question_answer_readiness_results() -> tuple[int, int, list[dict[str, Any]]
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _question_remediation_safety_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Evidence gaps become drafts, never automatic side effects or truth claims."""
+
+    base = {
+        "schema_version": 1,
+        "project_id": 26,
+        "question": "客户是否确认了最终验收范围？",
+        "question_sha256": "a" * 64,
+        "question_evidence": {
+            "status": "context_only",
+            "source_count": 1,
+            "supporting_source_count": 0,
+            "memory": {"memory_version": 5, "memory_stale": False},
+        },
+        "summary": {
+            "evaluated_candidate_count": 0,
+            "recommended_message_id": None,
+            "bands": {"strong": 0, "review": 0, "weak": 0, "unrated": 0},
+        },
+        "candidates": [],
+    }
+    collection = build_question_evidence_remediation_plan(base)
+    strong_review = {
+        **base,
+        "question_evidence": {
+            **base["question_evidence"],
+            "status": "available",
+            "source_count": 2,
+            "supporting_source_count": 2,
+        },
+        "summary": {
+            "evaluated_candidate_count": 1,
+            "recommended_message_id": 42,
+            "bands": {"strong": 1, "review": 0, "weak": 0, "unrated": 0},
+        },
+        "candidates": [
+            {
+                "message_id": 42,
+                "preview": "PRIVATE-ANSWER",
+                "assessment": {"warnings": [], "readiness_band": "strong"},
+            }
+        ],
+    }
+    ready = build_question_evidence_remediation_plan(strong_review)
+    serialized = json.dumps([collection, ready], ensure_ascii=False)
+    details = [
+        {
+            "case": "context_only_evidence_creates_collection_and_clarification_drafts",
+            "passed": collection["status"] == "evidence_collection_required"
+            and {action["kind"] for action in collection["actions"]}
+            >= {"evidence_request", "clarification_question"},
+        },
+        {
+            "case": "remediation_contract_cannot_send_persist_or_execute",
+            "passed": collection["plan_contract"]["sends_messages"] is False
+            and collection["plan_contract"]["persists_changes"] is False
+            and collection["plan_contract"]["executes_tools"] is False
+            and all(
+                action["execution_mode"] == "manual_only"
+                for action in collection["actions"]
+            ),
+        },
+        {
+            "case": "strong_evidence_still_requires_human_confirmation_without_answer_leakage",
+            "passed": ready["status"] == "verification_ready"
+            and ready["gaps"] == []
+            and [action["kind"] for action in ready["actions"]]
+            == ["human_verification"]
+            and ready["plan_contract"]["requires_human_confirmation"] is True
+            and "PRIVATE-ANSWER" not in serialized,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1240,6 +1318,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
         "question_answer_readiness_accuracy": _question_answer_readiness_results(),
+        "question_remediation_safety_rate": _question_remediation_safety_results(),
     }
     metrics = {
         name: {

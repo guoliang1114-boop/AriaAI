@@ -25,6 +25,9 @@ from app.services.project_question_resolutions import (
 from app.services.project_question_evidence import (
     build_project_question_evidence_review,
 )
+from app.services.project_question_remediation import (
+    build_project_question_remediation_plan,
+)
 from app.services.project_question_workbench import (
     build_project_question_workbench,
     update_project_question_profile,
@@ -102,6 +105,30 @@ def analyze_project_question_evidence(
         require_write=True,
     )
     return build_project_question_evidence_review(
+        session,
+        project=_project(session, project_id),
+        question=body.question,
+        question_sha256=question_sha256,
+    )
+
+
+@router.post("/{question_sha256}/remediation")
+def plan_project_question_remediation(
+    project_id: int,
+    question_sha256: str,
+    body: AnalyzeProjectQuestionEvidenceRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Return editable evidence-gap drafts without saving or executing them."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    return build_project_question_remediation_plan(
         session,
         project=_project(session, project_id),
         question=body.question,

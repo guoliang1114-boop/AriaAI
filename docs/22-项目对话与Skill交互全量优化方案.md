@@ -483,7 +483,17 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 隐私契约明确禁止完整回答、检索 chunk、Prompt、工具输入/输出和隐藏推理进入响应；项目记忆来源也不返回事实正文或 content SHA。知识检索异常会局部降级，保留项目记忆与候选相关性分析，不让整个工作台不可用。
 - 确定性发布门禁由 63 个场景/19 项指标扩展为 66 个场景/20 项指标，新增 `question_answer_readiness_accuracy`，固定“相关且当前对齐可升为强候选、无关答案不能靠引用获救、准备度永不成为自动正确性裁决”三条不变量。本阶段复用现有 Message metadata、RAG、记忆事实/槽位和 Run Evaluation，不新增迁移。
 - 机制复用此前基于 Codex `protocol/src/models.rs`、`protocol/src/items.rs`（commit `83d1fe0e67b1323f71febc2925817732b449f1d9`）以及 `core/src/context/guardian_review_evidence.rs`（commit `99660ab3c7b861c916e467581fa9b8723504d66b`）吸收的稳定证据身份与有界裁决原则（Apache License 2.0），并改写为 Aria 原生 Python/FastAPI/React、项目 ACL 和多 Provider 实现；不运行、导入或连接 Codex。
-- 下一阶段进入 Phase 3U：把证据缺口转为用户可编辑的补证计划、追问草稿和责任动作，仍不允许模型自动外发、自动写业务状态或绕过 HITAS。
+
+### Phase 3U：证据缺口补证计划与本地协作草稿（已实施）
+
+- 新增 `POST /projects/{project_id}/questions/{question_sha256}/remediation`。它先执行与 Phase 3T 相同的项目写授权、问题文本/SHA-256 一致性和当前问题范围校验，再重新召回当前证据，不信任浏览器先前展示的分析结果。
+- 规划器不调用模型，使用确定性规则将问题分为确认、时间、数值、责任和一般五类，并将陈旧记忆、无当前支持来源、无强候选、无效引用、当前证据不对齐、弱 provenance、失败 Run Evaluation 和负向反馈投影为最多 8 个证据缺口。
+- 最多返回 6 个补证动作，覆盖干系人追问、原始资料请求、内部核验、候选回答复核和最终人工确认。每个动作带有界草稿、理由、完成标准和建议责任角色，执行模式固定为 `manual_only`；即使已有强证据，也必须保留最终人工确认。
+- `plan_contract` 明确声明 `persists_changes=false`、`sends_messages=false`、`executes_tools=false` 和 `requires_human_confirmation=true`。前端允许本地编辑标题/草稿、选择责任人、移除或增加自定义动作，但没有保存、发送或执行入口，重新生成才会用新的 evidence basis 重置草稿。
+- 隐私投影只保留问题正文、证据计数、缺口代码、动作草稿和 hash-only fingerprint；候选回答预览、来源标题/正文、Prompt、工具输入/输出和隐藏推理均不进入响应。viewer 不能生成计划，规划结果也不能自动选择回答、重建记忆、解决或重开问题。
+- 确定性发布门禁由 66 个场景/20 项指标扩展为 69 个场景/21 项指标，新增 `question_remediation_safety_rate`，固定“缺证据时生成追问/资料草稿、任何计划都不能产生副作用、强证据仍需人工确认且不泄露回答”三条不变量。本阶段复用已有 Message metadata 和 Phase 3T 证据视图，不新增数据库迁移。
+- 该阶段沿用 Codex 不可变证据与结构化裁决中“证据事实、审阅判断、后续动作分离”的原则，来源 commit、路径和 Apache-2.0 归因与 Phase 3T 相同；实现已重写为 Aria 原生 Python/FastAPI/React 与项目 ACL，不运行、导入或连接 Codex。
+- 下一阶段进入 Phase 3V：把用户明确确认后的补证草稿提升为 Aria 原生任务或受控沟通请求；必须新增幂等身份、最终授权、HITAS、审计和失败关闭，仍不得自动外发。
 
 ## 11. 官方资料与许可证
 

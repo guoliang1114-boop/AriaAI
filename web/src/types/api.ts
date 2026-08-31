@@ -1208,6 +1208,88 @@ export interface ProjectQuestionEvidenceReview {
   }
 }
 
+export type ProjectQuestionRemediationStatus =
+  | 'evidence_collection_required'
+  | 'targeted_review_required'
+  | 'verification_ready'
+
+export type ProjectQuestionRemediationActionKind =
+  | 'clarification_question'
+  | 'evidence_request'
+  | 'internal_check'
+  | 'candidate_review'
+  | 'human_verification'
+
+export interface ProjectQuestionRemediationGap {
+  code: string
+  severity: 'blocking' | 'warning'
+  title: string
+  detail: string
+}
+
+export interface ProjectQuestionRemediationAction {
+  action_id: string
+  kind: ProjectQuestionRemediationActionKind
+  title: string
+  draft: string
+  rationale: string
+  suggested_owner_role: string
+  suggested_channel: 'manual'
+  blocking: boolean
+  acceptance_criteria: string
+  editable_fields: ['title', 'draft', 'owner_user_id']
+  execution_mode: 'manual_only'
+}
+
+export interface ProjectQuestionRemediationPlan {
+  schema_version: 1
+  project_id: number
+  question: string
+  question_sha256: string
+  status: ProjectQuestionRemediationStatus
+  question_archetype: 'confirmation' | 'timing' | 'quantitative' | 'ownership' | 'general'
+  evidence_target:
+    | 'written_confirmation'
+    | 'dated_record'
+    | 'source_system_record'
+    | 'ownership_record'
+    | 'primary_source'
+  basis: {
+    question_sha256: string
+    evidence_status: 'available' | 'context_only' | 'not_available' | 'unavailable'
+    source_count: number
+    supporting_source_count: number
+    memory_version: number
+    memory_stale: boolean
+    evaluated_candidate_count: number
+    strong_candidate_count: number
+    recommended_message_id?: number | null
+    gap_codes: string[]
+    evidence_identity_fingerprint: string
+    fingerprint: string
+  }
+  gaps: ProjectQuestionRemediationGap[]
+  actions: ProjectQuestionRemediationAction[]
+  plan_contract: {
+    name: 'deterministic_evidence_gap_remediation'
+    generation_method: 'rules_only'
+    persists_changes: false
+    sends_messages: false
+    executes_tools: false
+    requires_human_confirmation: true
+  }
+  privacy: {
+    includes_question_text: true
+    includes_answer_previews: false
+    includes_source_titles: false
+    includes_retrieved_chunk_content: false
+    includes_prompt_content: false
+    includes_tool_inputs: false
+    includes_tool_outputs: false
+    includes_hidden_reasoning: false
+  }
+}
+
 export interface ProjectQuestionWorkbench {
   schema_version: 1
   project_id: number

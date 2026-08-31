@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ProjectDetail as ProjectDetailType,
   ProjectQuestionAnswerCandidate,
@@ -6,6 +6,9 @@ import type {
   ProjectQuestionEvidenceReview,
   ProjectQuestionPriority,
   ProjectQuestionReadinessBand,
+  ProjectQuestionRemediationAction,
+  ProjectQuestionRemediationPlan,
+  ProjectQuestionRemediationStatus,
   ProjectQuestionWorkbench,
   ProjectQuestionWorkbenchItem,
   ProjectQuestionWorkbenchStatus,
@@ -24,6 +27,8 @@ interface QuestionsProps {
 }
 
 type Filter = 'all' | ProjectQuestionWorkbenchStatus
+
+const MAX_EDITABLE_REMEDIATION_ACTIONS = 8
 
 const STATUS_COPY: Record<ProjectQuestionWorkbenchStatus, { label: string; tone: CxTone }> = {
   open: { label: '待确认', tone: 'warn' },
@@ -49,6 +54,23 @@ const READINESS_COPY: Record<ProjectQuestionReadinessBand, { label: string; tone
   review: { label: '建议复核', tone: 'warn' },
   weak: { label: '证据较弱', tone: 'bad' },
   unrated: { label: '无法评分', tone: 'neutral' },
+}
+
+const REMEDIATION_STATUS_COPY: Record<
+  ProjectQuestionRemediationStatus,
+  { label: string; tone: CxTone }
+> = {
+  evidence_collection_required: { label: '待补证', tone: 'bad' },
+  targeted_review_required: { label: '待定向复核', tone: 'warn' },
+  verification_ready: { label: '可进入人工确认', tone: 'good' },
+}
+
+const REMEDIATION_ACTION_COPY: Record<ProjectQuestionRemediationAction['kind'], string> = {
+  clarification_question: '干系人追问',
+  evidence_request: '资料请求',
+  internal_check: '内部核验',
+  candidate_review: '候选回答复核',
+  human_verification: '最终人工确认',
 }
 
 const EVIDENCE_WARNING_COPY: Record<string, string> = {
@@ -464,6 +486,9 @@ function QuestionCard({
   const [evidenceReview, setEvidenceReview] = useState<ProjectQuestionEvidenceReview | null>(null)
   const [evidenceLoading, setEvidenceLoading] = useState(false)
   const [evidenceError, setEvidenceError] = useState('')
+  const [remediationPlan, setRemediationPlan] = useState<ProjectQuestionRemediationPlan | null>(null)
+  const [remediationLoading, setRemediationLoading] = useState(false)
+  const [remediationError, setRemediationError] = useState('')
 
   const loadEvidence = useCallback(async () => {
     if (evidenceLoading) return
@@ -476,12 +501,32 @@ function QuestionCard({
         { timeout: 60_000 },
       )
       setEvidenceReview(review)
+      setRemediationPlan(null)
+      setRemediationError('')
     } catch (error) {
       setEvidenceError(errorMessage(error))
     } finally {
       setEvidenceLoading(false)
     }
   }, [evidenceLoading, projectId, question.question, question.question_sha256])
+
+  const loadRemediation = useCallback(async () => {
+    if (remediationLoading) return
+    setRemediationLoading(true)
+    setRemediationError('')
+    try {
+      const plan = await api.post<ProjectQuestionRemediationPlan>(
+        `/projects/${projectId}/questions/${question.question_sha256}/remediation`,
+        { question: question.question },
+        { timeout: 60_000 },
+      )
+      setRemediationPlan(plan)
+    } catch (error) {
+      setRemediationError(errorMessage(error))
+    } finally {
+      setRemediationLoading(false)
+    }
+  }, [projectId, question.question, question.question_sha256, remediationLoading])
 
   const answerCandidates = evidenceReview?.candidates ?? data.answer_candidates
 
@@ -639,11 +684,43 @@ function QuestionCard({
             </div>
           )}
           {evidenceReview && (
-            <QuestionEvidencePanel
-              review={evidenceReview}
-              canSelect={question.status === 'open'}
-              onSelect={(messageId) => setAnswerId(String(messageId))}
-            />
+            <>
+              <QuestionEvidencePanel
+                review={evidenceReview}
+                canSelect={question.status === 'open'}
+                onSelect={(messageId) => setAnswerId(String(messageId))}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 9 }}>
+                <button
+                  type="button"
+                  disabled={remediationLoading || busy}
+                  onClick={() => void loadRemediation()}
+                  style={secondaryButtonStyle(remediationLoading || busy)}
+                >
+                  <CxIcon name="sparkle" size={12} />{' '}
+                  {remediationLoading
+                    ? '正在重新核验证据…'
+                    : remediationPlan
+                      ? '重新生成补证计划'
+                      : '生成补证计划'}
+                </button>
+                <span style={{ color: 'var(--ink-faint)', fontSize: 10.5 }}>
+                  生成时会重新核验当前证据，但不会保存或执行。
+                </span>
+              </div>
+              {remediationError && (
+                <div role="alert" style={{ marginTop: 7, color: 'var(--bad)', fontSize: 11.5 }}>
+                  {remediationError}
+                </div>
+              )}
+              {remediationPlan && (
+                <QuestionRemediationPanel
+                  key={remediationPlan.basis.fingerprint}
+                  plan={remediationPlan}
+                  members={data.members}
+                />
+              )}
+            </>
           )}
         </div>
       )}
@@ -725,6 +802,210 @@ function QuestionCard({
         </div>
       )}
     </CxPanel>
+  )
+}
+
+
+interface EditableRemediationAction extends ProjectQuestionRemediationAction {
+  ownerUserId: string
+}
+
+function QuestionRemediationPanel({
+  plan,
+  members,
+}: {
+  plan: ProjectQuestionRemediationPlan
+  members: ProjectQuestionWorkbench['members']
+}) {
+  const [actions, setActions] = useState<EditableRemediationAction[]>(
+    () => plan.actions.map((action) => ({ ...action, ownerUserId: '' })),
+  )
+  const customActionSequence = useRef(0)
+
+  const updateAction = (
+    actionId: string,
+    field: 'title' | 'draft' | 'ownerUserId',
+    value: string,
+  ) => {
+    setActions((current) => current.map((action) => (
+      action.action_id === actionId ? { ...action, [field]: value } : action
+    )))
+  }
+  const addAction = () => {
+    customActionSequence.current += 1
+    const sequence = customActionSequence.current
+    setActions((current) => [
+      ...current,
+      {
+        action_id: `custom_${sequence}_${plan.basis.fingerprint.slice(0, 6)}`,
+        kind: 'internal_check',
+        title: '自定义补证动作',
+        draft: '',
+        rationale: '用户在当前页面手工补充。',
+        suggested_owner_role: 'project_member',
+        suggested_channel: 'manual',
+        blocking: false,
+        acceptance_criteria: '由项目负责人确认。',
+        editable_fields: ['title', 'draft', 'owner_user_id'],
+        execution_mode: 'manual_only',
+        ownerUserId: '',
+      },
+    ])
+  }
+  const readiness = REMEDIATION_STATUS_COPY[plan.status]
+
+  return (
+    <section
+      aria-label="证据缺口补证计划"
+      style={{
+        marginTop: 10,
+        padding: '12px',
+        border: '1px solid color-mix(in srgb, var(--warn) 28%, var(--line))',
+        borderRadius: 'var(--r-sm)',
+        background: 'var(--bg-elev)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <CxStatus tone={readiness.tone}>{readiness.label}</CxStatus>
+          <span style={{ color: 'var(--ink-soft)', fontSize: 11.5 }}>
+            {plan.gaps.length} 个证据缺口 · {actions.length} 个草稿动作
+          </span>
+        </div>
+        <span style={{ color: 'var(--ink-faint)', fontSize: 10 }}>
+          基准 {plan.basis.fingerprint.slice(0, 10)} · 记忆 v{plan.basis.memory_version}
+        </span>
+      </div>
+      <div
+        role="note"
+        style={{
+          marginTop: 8,
+          padding: '8px 10px',
+          color: 'var(--warn)',
+          fontSize: 10.5,
+          borderLeft: '2px solid var(--warn)',
+          background: 'color-mix(in srgb, var(--warn) 7%, var(--bg))',
+        }}
+      >
+        仅当前页面草稿：不会自动保存、向外部发送、调用工具或标记问题已解决。
+      </div>
+      {plan.gaps.length > 0 && (
+        <div style={{ display: 'grid', gap: 6, marginTop: 9 }}>
+          {plan.gaps.map((gap) => (
+            <div
+              key={gap.code}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'auto minmax(0, 1fr)',
+                gap: 8,
+                padding: '7px 8px',
+                border: '1px solid var(--line-soft)',
+                borderRadius: 'var(--r-sm)',
+                background: 'var(--bg-tint)',
+              }}
+            >
+              <CxStatus tone={gap.severity === 'blocking' ? 'bad' : 'warn'}>
+                {gap.severity === 'blocking' ? '阻断项' : '复核项'}
+              </CxStatus>
+              <div>
+                <div style={{ color: 'var(--ink-soft)', fontSize: 11, fontWeight: 600 }}>
+                  {gap.title}
+                </div>
+                <div style={{ marginTop: 2, color: 'var(--ink-mute)', fontSize: 10 }}>
+                  {gap.detail}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+        {actions.map((action, index) => (
+          <div
+            key={action.action_id}
+            style={{
+              padding: '9px',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--r-sm)',
+              background: 'var(--bg)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+              <CxStatus tone={action.blocking ? 'bad' : 'neutral'}>
+                {REMEDIATION_ACTION_COPY[action.kind]}
+              </CxStatus>
+              <span style={{ color: 'var(--ink-faint)', fontSize: 9.5 }}>
+                {action.blocking ? '关单前完成' : '建议动作'} · 仅手动执行
+              </span>
+              <button
+                type="button"
+                aria-label={`移除补证动作 ${index + 1}`}
+                onClick={() => setActions((current) => (
+                  current.filter((item) => item.action_id !== action.action_id)
+                ))}
+                style={{ ...secondaryButtonStyle(false), marginLeft: 'auto', padding: '4px 7px' }}
+              >
+                移除
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 180px', gap: 7 }}>
+              <input
+                aria-label={`补证动作标题 ${index + 1}`}
+                value={action.title}
+                maxLength={120}
+                onChange={(event) => updateAction(action.action_id, 'title', event.target.value)}
+                style={controlStyle}
+              />
+              <select
+                aria-label={`补证动作责任人 ${index + 1}`}
+                value={action.ownerUserId}
+                onChange={(event) => updateAction(action.action_id, 'ownerUserId', event.target.value)}
+                style={controlStyle}
+              >
+                <option value="">草稿责任人未选择</option>
+                {members.map((member) => (
+                  <option key={member.user_id} value={member.user_id}>
+                    {member.display_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <textarea
+              aria-label={`补证动作草稿 ${index + 1}`}
+              value={action.draft}
+              maxLength={600}
+              rows={2}
+              onChange={(event) => updateAction(action.action_id, 'draft', event.target.value)}
+              style={{
+                ...controlStyle,
+                width: '100%',
+                height: 'auto',
+                minHeight: 56,
+                marginTop: 7,
+                padding: '7px 9px',
+                resize: 'vertical',
+              }}
+            />
+            <div style={{ marginTop: 5, color: 'var(--ink-faint)', fontSize: 9.5 }}>
+              完成标准：{action.acceptance_criteria}
+            </div>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        disabled={actions.length >= MAX_EDITABLE_REMEDIATION_ACTIONS}
+        onClick={addAction}
+        style={{
+          ...secondaryButtonStyle(actions.length >= MAX_EDITABLE_REMEDIATION_ACTIONS),
+          marginTop: 9,
+        }}
+      >
+        {actions.length >= MAX_EDITABLE_REMEDIATION_ACTIONS
+          ? '已达到 8 个草稿动作上限'
+          : '+ 添加自定义补证动作'}
+      </button>
+    </section>
   )
 }
 

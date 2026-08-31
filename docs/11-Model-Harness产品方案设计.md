@@ -908,6 +908,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-08-31）：Phase 3T 把已有 Knowledge Evidence、Project Memory Evidence、Run Evaluation 和 Interaction Feedback 组合为问题级答案选择视图。显式读取接口先按当前项目权限重新召回证据，再用稳定 evidence ID 或 `slot + content_sha256` 与候选回答当时实际引用的证据对齐；未通过 manifest 完整性、项目 scope 或引用生命周期校验的内容不参与评分。选择准备度采用确定性规则，50% 为问题文本召回、35% 为有效引用与当前证据对齐、15% 为原 Run 裁决，并仅对已验证人工反馈作有界调整；引用数量本身不能刷高分，一条完全对齐的引用可以成立，多条无关引用不会。接口最多评估最近 40 条项目回答并返回最高 12 条，来源只返回当前重新召回且可访问的元数据。前端必须由用户点击“分析问题证据”，分析后也不预选、不自动关单，仍要求人工采用回答并填写摘要。该机制复用此前从 Codex `protocol/src/models.rs` / `items.rs`（`83d1fe0…`）与 `core/src/context/guardian_review_evidence.rs`（`99660ab…`）吸收的不可变证据/结构化裁决原则，已改写为 Aria Python/FastAPI/React、项目 ACL 和多 Provider 架构；Apache-2.0 归因沿用现有实现，不运行或连接 Codex。
 
+补充进展（2026-08-31）：Phase 3U 在问题证据视图上增加无模型、无副作用的缺口补证规划器。新的显式 POST 接口先复用 Phase 3T 重新召回与身份校验，再按问题类型、证据状态、候选准备度和已验证 warning 生成最多 8 个缺口、6 个可编辑动作及稳定 basis fingerprint。动作只允许 `manual_only`，计划契约固定声明不持久化、不发消息、不执行工具并要求人工确认；前端所有编辑和负责人选择也只保留在组件状态中，没有保存或执行入口。输出隐私排除回答预览、来源标题与正文、Prompt、工具输入/输出和隐藏推理。确定性门禁扩展为 69 个场景、21 项指标，新增 `question_remediation_safety_rate`；本阶段复用 Phase 3T 的证据投影，不新增表或迁移，也不运行或连接 Codex。
+
 范围：
 
 - 工具注册表标准化。（首批已完成）

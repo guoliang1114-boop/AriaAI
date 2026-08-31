@@ -20,3 +20,9 @@ def test_http_route_signatures_are_registered_once() -> None:
         if count > 1
     }
     assert duplicates == {}
+    assert signatures[
+        (
+            ("POST",),
+            "/projects/{project_id}/questions/{question_sha256}/remediation",
+        )
+    ] == 1

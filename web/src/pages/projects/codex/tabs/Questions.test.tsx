@@ -9,6 +9,7 @@ import { ToastProvider } from '../../../../contexts/ToastContext'
 import type {
   ProjectDetail,
   ProjectQuestionEvidenceReview,
+  ProjectQuestionRemediationPlan,
   ProjectQuestionWorkbench,
 } from '../../../../types/api'
 import { CxProjectQuestions } from './Questions'
@@ -178,6 +179,82 @@ const evidenceReview: ProjectQuestionEvidenceReview = {
   },
 }
 
+const remediationPlan: ProjectQuestionRemediationPlan = {
+  schema_version: 1,
+  project_id: 9,
+  question: '客户是否确认了最终验收范围？',
+  question_sha256: 'a'.repeat(64),
+  status: 'evidence_collection_required',
+  question_archetype: 'confirmation',
+  evidence_target: 'written_confirmation',
+  basis: {
+    question_sha256: 'a'.repeat(64),
+    evidence_status: 'context_only',
+    source_count: 1,
+    supporting_source_count: 0,
+    memory_version: 5,
+    memory_stale: false,
+    evaluated_candidate_count: 1,
+    strong_candidate_count: 0,
+    recommended_message_id: 42,
+    gap_codes: ['CONTEXT_ONLY_EVIDENCE', 'NO_STRONG_ANSWER_CANDIDATE'],
+    evidence_identity_fingerprint: 'c'.repeat(64),
+    fingerprint: 'b'.repeat(64),
+  },
+  gaps: [{
+    code: 'CONTEXT_ONLY_EVIDENCE',
+    severity: 'blocking',
+    title: '当前只有问题上下文',
+    detail: '开放问题不能证明候选答案为真。',
+  }],
+  actions: [
+    {
+      action_id: 'remediation_01',
+      kind: 'evidence_request',
+      title: '请求书面确认证据',
+      draft: '请提供客户对最终验收范围的书面确认记录。',
+      rationale: '当前只有问题上下文。',
+      suggested_owner_role: 'evidence_owner',
+      suggested_channel: 'manual',
+      blocking: true,
+      acceptance_criteria: '包含确认人、时间和范围。',
+      editable_fields: ['title', 'draft', 'owner_user_id'],
+      execution_mode: 'manual_only',
+    },
+    {
+      action_id: 'remediation_02',
+      kind: 'human_verification',
+      title: '项目负责人最终确认',
+      draft: '补证后再决定是否关单。',
+      rationale: '准备度不是正确性裁决。',
+      suggested_owner_role: 'project_owner',
+      suggested_channel: 'manual',
+      blocking: true,
+      acceptance_criteria: '人工确认结论和来源。',
+      editable_fields: ['title', 'draft', 'owner_user_id'],
+      execution_mode: 'manual_only',
+    },
+  ],
+  plan_contract: {
+    name: 'deterministic_evidence_gap_remediation',
+    generation_method: 'rules_only',
+    persists_changes: false,
+    sends_messages: false,
+    executes_tools: false,
+    requires_human_confirmation: true,
+  },
+  privacy: {
+    includes_question_text: true,
+    includes_answer_previews: false,
+    includes_source_titles: false,
+    includes_retrieved_chunk_content: false,
+    includes_prompt_content: false,
+    includes_tool_inputs: false,
+    includes_tool_outputs: false,
+    includes_hidden_reasoning: false,
+  },
+}
+
 function renderQuestions(refetch = vi.fn().mockResolvedValue(undefined)) {
   return {
     refetch,
@@ -320,6 +397,47 @@ describe('project question workbench', () => {
     expect(screen.getByRole('combobox', { name: '选择解决问题的回答' })).toHaveValue('42')
   })
 
+  it('turns evidence gaps into editable local drafts without side effects', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce(workbench)
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(evidenceReview)
+      .mockResolvedValueOnce(remediationPlan)
+    renderQuestions()
+    await screen.findByText('客户是否确认了最终验收范围？')
+
+    await userEvent.click(screen.getByRole('button', { name: '分析问题证据' }))
+    await screen.findByRole('region', { name: '问题证据分析' })
+    await userEvent.click(screen.getByRole('button', { name: '生成补证计划' }))
+
+    expect(await screen.findByRole('region', { name: '证据缺口补证计划' })).toBeInTheDocument()
+    expect(screen.getByText('当前只有问题上下文')).toBeInTheDocument()
+    expect(screen.getByText(/仅当前页面草稿：不会自动保存、向外部发送/)).toBeInTheDocument()
+    expect(api.post).toHaveBeenNthCalledWith(
+      2,
+      `/projects/9/questions/${'a'.repeat(64)}/remediation`,
+      { question: '客户是否确认了最终验收范围？' },
+      { timeout: 60_000 },
+    )
+
+    const title = screen.getByLabelText('补证动作标题 1')
+    await userEvent.clear(title)
+    await userEvent.type(title, '向客户项目经理请求签字版确认')
+    expect(title).toHaveValue('向客户项目经理请求签字版确认')
+    await userEvent.selectOptions(screen.getByLabelText('补证动作责任人 1'), '3')
+    expect(screen.getByLabelText('补证动作责任人 1')).toHaveValue('3')
+    await userEvent.click(screen.getByRole('button', { name: '移除补证动作 2' }))
+    expect(screen.queryByText('项目负责人最终确认')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '+ 添加自定义补证动作' }))
+    expect(screen.getByDisplayValue('自定义补证动作')).toBeInTheDocument()
+    for (let index = 0; index < 6; index += 1) {
+      await userEvent.click(screen.getByRole('button', { name: '+ 添加自定义补证动作' }))
+    }
+    expect(screen.getByRole('button', { name: '已达到 8 个草稿动作上限' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '发送补证请求' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '保存补证计划' })).not.toBeInTheDocument()
+    expect(api.post).toHaveBeenCalledTimes(2)
+  })
+
   it('does not expose answer evidence analysis to read-only project members', async () => {
     vi.mocked(api.get).mockResolvedValue({
       ...workbench,
@@ -334,6 +452,7 @@ describe('project question workbench', () => {
     await screen.findByText('客户是否确认了最终验收范围？')
 
     expect(screen.queryByRole('button', { name: '分析问题证据' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '生成补证计划' })).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: '选择解决问题的回答' })).toBeDisabled()
   })
 })

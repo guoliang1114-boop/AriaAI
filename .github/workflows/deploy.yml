@@ -262,6 +262,7 @@ jobs:
                 tests/test_project_question_resolution_migration.py \
                 tests/test_project_question_workbench.py \
                 tests/test_project_question_evidence.py \
+                tests/test_project_question_remediation.py \
                 tests/test_project_question_workbench_migration.py \
                 tests/test_project_question_resolutions_postgres.py \
                 tests/test_database_extended.py \
