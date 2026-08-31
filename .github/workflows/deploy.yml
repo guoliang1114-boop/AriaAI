@@ -245,6 +245,8 @@ jobs:
                 tests/test_context_assembly_manifest.py \
                 tests/test_context_receipt.py \
                 tests/test_conversation_capsule.py \
+                tests/test_conversation_continuity.py \
+                tests/test_conversation_continuity_postgres.py \
                 tests/test_database_extended.py \
                 tests/test_grounded_provider_eval.py \
                 tests/test_instruction_manifest.py \

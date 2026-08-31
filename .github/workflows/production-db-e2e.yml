@@ -357,6 +357,8 @@ jobs:
                         "tests/test_agent_loop_durable_boundaries.py",
                         "tests/test_chat_end_to_end.py",
                         "tests/test_chat_streaming.py",
+                        "tests/test_conversation_continuity.py",
+                        "tests/test_conversation_continuity_postgres.py",
                         "tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_prepare_chat_runtime_builds_capsule_and_instruction_manifest",
                         "tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_build_chat_context_client_scope_injects_client_memory_when_available",
                         "tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_build_chat_context_client_scope_without_matching_client_record_falls_back_to_project_scope",

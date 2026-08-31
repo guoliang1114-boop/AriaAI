@@ -447,6 +447,15 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - `continued` 显示已存在的后续 Run 并定位结果；`projection_missing` 明确提示从 fresh Turn 重新说明未完成部分。恢复中心不接管 worker、不恢复 Provider transcript、不自动重试模型/工具/业务写，也不创建第二套恢复协议。
 - 运行结束后恢复索引自动刷新；窗口有界并明确标记截断。新增服务级权限/隐私/状态测试与前端交互测试。本阶段不新增数据库迁移，不运行或连接 Codex。
 
+### Phase 3Q：项目对话连续性与问题闭环（已实施）
+
+- 项目对话标题栏增加“进展”入口，将当前目标、Turn 模式、已确认约束、既有决策、未解决阻塞和项目待确认问题集中为可核对协作状态，不再要求用户从长对话中人工重建“做到哪、还差什么”。
+- `GET /chat/conversations/{conversation_id}/continuity` 只读投影最近的 `Conversation Capsule v1`。接口复用对话 ACL，并再次校验精确字段、版本、SHA-256、Conversation/Project scope 以及全部来源 Message 都属于当前对话；最新 Capsule 非法时失败关闭并返回 `state=null`，不会向前回退到较旧状态掩盖异常。
+- 对用户只返回有界的目标、下一步、约束、决策摘要、阻塞和安全 Artifact/Task 字段；不返回 Prompt、工具输入/输出、隐藏推理或 Assistant 内部摘要。来源消息可定位，Fingerprint 短摘要可供核对。
+- 项目待确认问题独立读取当前 `open_questions` 记忆槽位，最多返回 8 个去重条目，并明确区分 ready/stale/missing；Capsule 校验失败不影响独立项目问题，陈旧记忆也不会被展示为新鲜事实。
+- “继续当前目标”“处理阻塞”“推进待确认问题”都只把明确文本追加到输入框，保留用户已有草稿，由用户修改并发送；当前轮次执行中全部禁用。面板不自动创建 Message/Run、调用模型或工具，也不产生业务写入。
+- 服务测试覆盖正常投影、隐私边界、Fingerprint 篡改、跨对话来源和 ACL；前端测试覆盖草稿准备、消息定位、非法状态失败关闭、陈旧记忆和运行中禁用。本阶段复用现有 Message metadata 与项目记忆账本，不新增数据库迁移，不运行或连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

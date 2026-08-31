@@ -30,6 +30,9 @@ from app.services.chat_store import (
     update_conversation_title,
 )
 from app.services.chat.mode_registry import ActionPolicy
+from app.services.chat.conversation_continuity import (
+    build_conversation_continuity_snapshot,
+)
 from app.services.chat.pending_actions import build_project_file_cleanup_pending_action, user_requested_project_file_cleanup
 
 router = APIRouter()
@@ -161,6 +164,21 @@ def get_conversation(
     current_user: User = Depends(get_current_user),
 ):
     return require_conversation_access(session, conv_id, current_user)
+
+
+@router.get("/conversations/{conv_id}/continuity")
+def get_conversation_continuity(
+    conv_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Return validated current-goal, blocker, and project-question state."""
+
+    conversation = require_conversation_access(session, conv_id, current_user)
+    return build_conversation_continuity_snapshot(
+        session,
+        conversation=conversation,
+    )
 
 
 @router.post("/conversations", response_model=ConversationOut)

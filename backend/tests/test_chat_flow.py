@@ -394,7 +394,8 @@ class ChatRouterTestCase(unittest.TestCase):
             yield 'data: {"type":"conversation_id","id":99}\n\n'
             yield 'data: {"type":"done"}\n\n'
 
-        with patch.object(chat_router_module, "prepare_chat_runtime", return_value="runtime"), patch.object(
+        runtime = SimpleNamespace(prepare_metrics={})
+        with patch.object(chat_router_module, "prepare_chat_runtime", return_value=runtime), patch.object(
             chat_router_module,
             "stream_chat_events",
             side_effect=lambda runtime, req, bind: fake_stream(),
@@ -6781,6 +6782,8 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertEqual(tool_def_names, {"generate_ppt_from_skill"})
 
     def test_all_seeded_skills_can_prepare_for_chat_and_project_chat(self):
+        from app.tools.capabilities import tool_is_project_scoped
+
         with Session(self.engine) as session:
             skills_router_module.ensure_builtin_pro_skills(session)
             project = Project(
@@ -6815,10 +6818,19 @@ class BuiltinSkillsTestCase(unittest.TestCase):
                     self.assertNotEqual(str(getattr(runtime.tool_access_policy, "value", runtime.tool_access_policy)), "none")
                     if skill.tools:
                         runtime_tool_names = {tool.get("name") for tool in (runtime.tools or []) if isinstance(tool, dict)}
-                        self.assertTrue(
-                            runtime_tool_names,
-                            f"Skill '{skill.name}' lost all tools in {'project chat' if project_id else 'chat'}",
-                        )
+                        if project_id is None and all(
+                            tool_is_project_scoped(tool_name)
+                            for tool_name in skill.tools
+                        ):
+                            self.assertFalse(
+                                runtime_tool_names,
+                                f"Project-only Skill '{skill.name}' leaked tools into standalone chat",
+                            )
+                        else:
+                            self.assertTrue(
+                                runtime_tool_names,
+                                f"Skill '{skill.name}' lost all tools in {'project chat' if project_id else 'chat'}",
+                            )
 
     def test_seeded_skills_publish_only_executable_registered_tools(self):
         from app.tools import registry

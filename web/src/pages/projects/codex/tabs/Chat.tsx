@@ -41,6 +41,7 @@ import {
   type ProjectSkillSelection,
 } from '../ProjectSkillControl'
 import { ProjectTurnBriefControl } from '../ProjectTurnBriefControl'
+import { ConversationContinuityPanel } from '../ConversationContinuityPanel'
 import { ProjectInteractionMetricsPanel } from '../ProjectInteractionMetrics'
 import { ProjectRecoveryCenter } from '../ProjectRecoveryCenter'
 import {
@@ -1087,6 +1088,21 @@ function ThreadView({
 
   const busy = streamStatus === 'sending' || streamStatus === 'streaming'
 
+  const prepareContinuityDraft = (content: string) => {
+    const current = composerText.trim()
+    changeComposerText(current ? `${current}\n${content}` : content)
+    window.requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  const locateContinuityMessage = (messageId: number) => {
+    const target = document.getElementById(`project-chat-message-${messageId}`)
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } else {
+      toast.warning({ title: '来源消息已不在当前加载范围内' })
+    }
+  }
+
   const continueInterruptedTurn = async (preview: TurnRecoveryPreview) => {
     if (busy) {
       toast.warning({
@@ -1170,6 +1186,14 @@ function ThreadView({
         >
           {conversation?.title || t('chat.newConversation', 'New Conversation')}
         </h2>
+        <ConversationContinuityPanel
+          key={conversationId}
+          conversationId={conversationId}
+          refreshKey={messages.length}
+          disabled={busy}
+          onPrepare={prepareContinuityDraft}
+          onLocateMessage={locateContinuityMessage}
+        />
         <ProjectInteractionMetricsPanel projectId={projectId} />
         <ConversationMenu
           onRename={() => setRenaming(true)}

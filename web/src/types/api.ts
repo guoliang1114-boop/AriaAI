@@ -1010,6 +1010,50 @@ export interface Conversation {
   updated_at: string
 }
 
+export type ConversationContinuityStatus = 'ready' | 'unavailable' | 'invalid'
+
+export interface ConversationContinuityBlocker {
+  kind: 'tool_failure' | 'waiting_confirmation' | string
+  tool_name: string
+  summary: string
+}
+
+export interface ConversationContinuityState {
+  capsule_message_id: number
+  updated_at: string
+  active_goal: string
+  next_goal: string
+  turn_mode: 'answer_only' | 'plan_only' | 'execute_now' | 'plan_then_execute'
+  confirmed_constraints: string[]
+  decisions: string[]
+  blockers: ConversationContinuityBlocker[]
+  active_artifact?: Record<string, string | number | boolean> | null
+  active_task?: Record<string, string | number | boolean> | null
+  source_message_ids: number[]
+  capsule_sha256: string
+}
+
+export interface ConversationContinuitySnapshot {
+  schema_version: 1
+  conversation_id: number
+  project_id?: number | null
+  status: ConversationContinuityStatus
+  reason_code: string
+  state?: ConversationContinuityState | null
+  project_questions: {
+    status: 'ready' | 'stale' | 'missing' | 'not_applicable'
+    memory_version: number
+    stale: boolean
+    items: string[]
+  }
+  privacy: {
+    includes_bounded_conversation_state: boolean
+    includes_prompt_content: boolean
+    includes_tool_inputs: boolean
+    includes_hidden_reasoning: boolean
+  }
+}
+
 export interface Message {
   id: number
   conversation_id: number
