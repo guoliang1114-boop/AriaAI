@@ -1290,6 +1290,78 @@ export interface ProjectQuestionRemediationPlan {
   }
 }
 
+export type ProjectQuestionRemediationPromotionTargetKind =
+  | 'project_todo'
+  | 'communication_request'
+
+export type ProjectQuestionRemediationPromotionStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'rejected'
+  | 'failed'
+  | 'expired'
+
+export interface ProjectQuestionRemediationPromotionTarget {
+  kind: ProjectQuestionRemediationPromotionTargetKind
+  id: number
+  content?: string
+  is_done?: boolean
+  subject?: string
+  body?: string
+  recipient_label?: string
+  owner_user_id?: number | null
+  due_date?: string | null
+  status?: 'ready_for_manual_send' | 'cancelled'
+  delivery_mode?: 'manual_only'
+  delivered?: false
+}
+
+export interface ProjectQuestionRemediationPromotion {
+  schema_version: 1
+  id: number
+  project_id: number
+  question: string
+  question_sha256: string
+  status: ProjectQuestionRemediationPromotionStatus
+  revision: number
+  snapshot_sha256: string
+  evidence_basis_fingerprint: string
+  preview: {
+    project_id: number
+    question_sha256: string
+    target_kind: ProjectQuestionRemediationPromotionTargetKind
+    action_kind: ProjectQuestionRemediationActionKind
+    source_action_id: string
+    title: string
+    draft: string
+    owner_user_id?: number | null
+    due_date: string
+    recipient_label: string
+  }
+  created_by_user_id?: number | null
+  decided_by_user_id?: number | null
+  failure_code: string
+  decision_reason: string
+  expires_at: string
+  expired: boolean
+  decided_at?: string | null
+  created_at: string
+  updated_at: string
+  target?: ProjectQuestionRemediationPromotionTarget | null
+  contract: {
+    name: 'project_question_remediation_promotion'
+    persists_frozen_preview: true
+    requires_explicit_confirmation: true
+    reauthorizes_on_confirmation: true
+    rechecks_current_evidence_basis: true
+    creates_target_before_confirmation: false
+    sends_messages: false
+    executes_tools: false
+    outbound_delivery: false
+    delivery_mode: 'manual_only' | 'not_applicable'
+  }
+}
+
 export interface ProjectQuestionWorkbench {
   schema_version: 1
   project_id: number

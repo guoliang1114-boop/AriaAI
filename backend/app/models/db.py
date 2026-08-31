@@ -462,6 +462,211 @@ class ProjectQuestionProfileEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now_naive, index=True)
 
 
+class ProjectQuestionRemediationPromotion(SQLModel, table=True):
+    """Frozen project-level HITAS preview for one remediation draft."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "idempotency_key_sha256",
+            name="uq_pq_remediation_promotion_idempotency",
+        ),
+        CheckConstraint(
+            "target_kind IN ('project_todo', 'communication_request')",
+            name="ck_pq_remediation_promotion_target",
+        ),
+        CheckConstraint(
+            "action_kind IN ('clarification_question', 'evidence_request', "
+            "'internal_check', 'candidate_review', 'human_verification')",
+            name="ck_pq_remediation_promotion_action",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'confirmed', 'rejected', 'failed', 'expired')",
+            name="ck_pq_remediation_promotion_status",
+        ),
+        CheckConstraint(
+            "revision >= 1",
+            name="ck_pq_remediation_promotion_revision",
+        ),
+        CheckConstraint(
+            "length(idempotency_key_sha256) = 64 AND length(action_sha256) = 64 "
+            "AND length(snapshot_sha256) = 64 "
+            "AND length(evidence_basis_sha256) = 64",
+            name="ck_pq_remediation_promotion_hashes",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    question_text: str = Field(sa_column=Column(Text, nullable=False))
+    question_sha256: str = Field(index=True)
+    idempotency_key_sha256: str = Field(index=True)
+    action_sha256: str = Field(index=True)
+    snapshot_sha256: str = Field(index=True)
+    evidence_basis_sha256: str = Field(index=True)
+    target_kind: str = Field(index=True)
+    action_kind: str = Field(index=True)
+    source_action_id: str
+    title: str = Field(sa_column=Column(Text, nullable=False))
+    draft: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    owner_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    due_date: str = Field(default="", index=True)
+    recipient_label: str = ""
+    status: str = Field(default="pending", index=True)
+    revision: int = Field(default=1)
+    target_todo_id: Optional[int] = Field(
+        default=None,
+        foreign_key="projecttodo.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    created_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    decided_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    failure_code: str = Field(default="", index=True)
+    decision_reason: str = Field(
+        default="",
+        sa_column=Column(Text, nullable=False, default=""),
+    )
+    expires_at: datetime = Field(index=True)
+    decided_at: Optional[datetime] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
+class ProjectCommunicationRequest(SQLModel, table=True):
+    """Approved communication draft with no automatic delivery capability."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source_promotion_id",
+            name="uq_projectcommunicationrequest_source_promotion",
+        ),
+        CheckConstraint(
+            "status IN ('ready_for_manual_send', 'cancelled')",
+            name="ck_projectcommunicationrequest_status",
+        ),
+        CheckConstraint(
+            "delivery_mode = 'manual_only'",
+            name="ck_projectcommunicationrequest_delivery",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    source_promotion_id: int = Field(
+        foreign_key="projectquestionremediationpromotion.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    question_sha256: str = Field(index=True)
+    subject: str = Field(sa_column=Column(Text, nullable=False))
+    body: str = Field(sa_column=Column(Text, nullable=False))
+    recipient_label: str = Field(index=True)
+    owner_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    due_date: str = Field(default="", index=True)
+    status: str = Field(default="ready_for_manual_send", index=True)
+    delivery_mode: str = Field(default="manual_only", index=True)
+    created_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
+class ProjectQuestionRemediationPromotionEvent(SQLModel, table=True):
+    """Append-only lifecycle audit for project remediation HITAS previews."""
+
+    __table_args__ = (
+        Index(
+            "ix_pq_remediation_event_communication_id",
+            "communication_request_id",
+        ),
+        UniqueConstraint(
+            "promotion_id",
+            "revision",
+            name="uq_pq_remediation_promotion_event_revision",
+        ),
+        CheckConstraint(
+            "action IN ('prepared', 'confirmed', 'rejected', 'failed', 'expired')",
+            name="ck_pq_remediation_promotion_event_action",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'confirmed', 'rejected', 'failed', 'expired')",
+            name="ck_pq_remediation_promotion_event_status",
+        ),
+        CheckConstraint(
+            "revision >= 1 AND length(snapshot_sha256) = 64",
+            name="ck_pq_remediation_promotion_event_identity",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    promotion_id: int = Field(
+        foreign_key="projectquestionremediationpromotion.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    revision: int = Field(index=True)
+    action: str = Field(index=True)
+    status: str = Field(index=True)
+    snapshot_sha256: str = Field(index=True)
+    actor_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    target_todo_id: Optional[int] = Field(
+        default=None,
+        foreign_key="projecttodo.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    communication_request_id: Optional[int] = Field(
+        default=None,
+        foreign_key="projectcommunicationrequest.id",
+        ondelete="SET NULL",
+    )
+    note: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
 class ClientMemorySummary(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clientrecord.id", index=True)

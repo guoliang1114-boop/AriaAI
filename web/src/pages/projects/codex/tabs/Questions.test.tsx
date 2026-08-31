@@ -10,6 +10,7 @@ import type {
   ProjectDetail,
   ProjectQuestionEvidenceReview,
   ProjectQuestionRemediationPlan,
+  ProjectQuestionRemediationPromotion,
   ProjectQuestionWorkbench,
 } from '../../../../types/api'
 import { CxProjectQuestions } from './Questions'
@@ -255,6 +256,74 @@ const remediationPlan: ProjectQuestionRemediationPlan = {
   },
 }
 
+const pendingPromotion: ProjectQuestionRemediationPromotion = {
+  schema_version: 1,
+  id: 81,
+  project_id: 9,
+  question: '客户是否确认了最终验收范围？',
+  question_sha256: 'a'.repeat(64),
+  status: 'pending',
+  revision: 1,
+  snapshot_sha256: 'd'.repeat(64),
+  evidence_basis_fingerprint: 'b'.repeat(64),
+  preview: {
+    project_id: 9,
+    question_sha256: 'a'.repeat(64),
+    target_kind: 'communication_request',
+    action_kind: 'evidence_request',
+    source_action_id: 'remediation_01',
+    title: '请求书面确认证据',
+    draft: '请提供客户对最终验收范围的书面确认记录。',
+    owner_user_id: 3,
+    due_date: '2026-09-15',
+    recipient_label: '客户项目经理',
+  },
+  created_by_user_id: 2,
+  decided_by_user_id: null,
+  failure_code: '',
+  decision_reason: '',
+  expires_at: '2026-09-01T09:00:00',
+  expired: false,
+  decided_at: null,
+  created_at: '2026-08-31T09:00:00',
+  updated_at: '2026-08-31T09:00:00',
+  target: null,
+  contract: {
+    name: 'project_question_remediation_promotion',
+    persists_frozen_preview: true,
+    requires_explicit_confirmation: true,
+    reauthorizes_on_confirmation: true,
+    rechecks_current_evidence_basis: true,
+    creates_target_before_confirmation: false,
+    sends_messages: false,
+    executes_tools: false,
+    outbound_delivery: false,
+    delivery_mode: 'manual_only',
+  },
+}
+
+const confirmedPromotion: ProjectQuestionRemediationPromotion = {
+  ...pendingPromotion,
+  status: 'confirmed',
+  revision: 2,
+  decided_by_user_id: 2,
+  decision_reason: 'confirmed_by_user',
+  decided_at: '2026-08-31T09:02:00',
+  updated_at: '2026-08-31T09:02:00',
+  target: {
+    kind: 'communication_request',
+    id: 91,
+    subject: '请求书面确认证据',
+    body: '请提供客户对最终验收范围的书面确认记录。',
+    recipient_label: '客户项目经理',
+    owner_user_id: 3,
+    due_date: '2026-09-15',
+    status: 'ready_for_manual_send',
+    delivery_mode: 'manual_only',
+    delivered: false,
+  },
+}
+
 function renderQuestions(refetch = vi.fn().mockResolvedValue(undefined)) {
   return {
     refetch,
@@ -411,7 +480,7 @@ describe('project question workbench', () => {
 
     expect(await screen.findByRole('region', { name: '证据缺口补证计划' })).toBeInTheDocument()
     expect(screen.getByText('当前只有问题上下文')).toBeInTheDocument()
-    expect(screen.getByText(/仅当前页面草稿：不会自动保存、向外部发送/)).toBeInTheDocument()
+    expect(screen.getByText(/编辑内容仍只在当前页面；点击“准备创建”后仅保存冻结预览/)).toBeInTheDocument()
     expect(api.post).toHaveBeenNthCalledWith(
       2,
       `/projects/9/questions/${'a'.repeat(64)}/remediation`,
@@ -436,6 +505,64 @@ describe('project question workbench', () => {
     expect(screen.queryByRole('button', { name: '发送补证请求' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '保存补证计划' })).not.toBeInTheDocument()
     expect(api.post).toHaveBeenCalledTimes(2)
+  })
+
+  it('persists a frozen preview and requires a second confirmation for manual communication', async () => {
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(evidenceReview)
+      .mockResolvedValueOnce(remediationPlan)
+      .mockResolvedValueOnce(pendingPromotion)
+      .mockResolvedValueOnce(confirmedPromotion)
+    const { refetch } = renderQuestions()
+    await screen.findByText('客户是否确认了最终验收范围？')
+
+    await userEvent.click(screen.getByRole('button', { name: '分析问题证据' }))
+    await screen.findByRole('region', { name: '问题证据分析' })
+    await userEvent.click(screen.getByRole('button', { name: '生成补证计划' }))
+    await screen.findByRole('region', { name: '证据缺口补证计划' })
+
+    expect(screen.getByLabelText('补证动作目标 1')).toHaveValue('communication_request')
+    await userEvent.selectOptions(screen.getByLabelText('补证动作责任人 1'), '3')
+    await userEvent.type(screen.getByLabelText('补证动作截止日期 1'), '2026-09-15')
+    await userEvent.type(screen.getByLabelText('补证动作沟通对象 1'), '客户项目经理')
+    await userEvent.click(screen.getByRole('button', { name: '准备创建人工沟通请求' }))
+
+    await waitFor(() => expect(api.post).toHaveBeenNthCalledWith(
+      3,
+      `/projects/9/questions/${'a'.repeat(64)}/promotions/prepare`,
+      {
+        question: '客户是否确认了最终验收范围？',
+        evidence_basis_fingerprint: 'b'.repeat(64),
+        idempotency_key: expect.any(String),
+        target_kind: 'communication_request',
+        action_kind: 'evidence_request',
+        source_action_id: 'remediation_01',
+        title: '请求书面确认证据',
+        draft: '请提供客户对最终验收范围的书面确认记录。',
+        owner_user_id: 3,
+        due_date: '2026-09-15',
+        recipient_label: '客户项目经理',
+      },
+    ))
+    expect(await screen.findByText('等待明确确认')).toBeInTheDocument()
+    expect(screen.getByText(/Aria 不会替你发送/)).toBeInTheDocument()
+    expect(screen.queryByText(/人工沟通请求 #91 已就绪/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '确认创建人工沟通请求' }))
+
+    await waitFor(() => expect(api.post).toHaveBeenNthCalledWith(
+      4,
+      `/projects/9/questions/${'a'.repeat(64)}/promotions/81/confirm`,
+      {
+        snapshot_sha256: 'd'.repeat(64),
+        expected_revision: 1,
+        reason: '',
+      },
+    ))
+    expect(await screen.findByText('人工沟通请求 #91 已就绪，尚未发送。')).toBeInTheDocument()
+    expect(refetch).toHaveBeenCalledTimes(1)
+    expect(api.post).toHaveBeenCalledTimes(4)
+    expect(api.post).not.toHaveBeenCalledWith('/projects/9/todos', expect.anything())
   })
 
   it('does not expose answer evidence analysis to read-only project members', async () => {

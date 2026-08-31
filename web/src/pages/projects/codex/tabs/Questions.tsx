@@ -8,6 +8,8 @@ import type {
   ProjectQuestionReadinessBand,
   ProjectQuestionRemediationAction,
   ProjectQuestionRemediationPlan,
+  ProjectQuestionRemediationPromotion,
+  ProjectQuestionRemediationPromotionTargetKind,
   ProjectQuestionRemediationStatus,
   ProjectQuestionWorkbench,
   ProjectQuestionWorkbenchItem,
@@ -440,6 +442,9 @@ export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProp
                   onSaveProfile={saveProfile}
                   onResolve={resolveQuestion}
                   onReopen={reopenQuestion}
+                  onRefresh={async () => {
+                    await Promise.all([load(), refetch()])
+                  }}
                 />
               ))}
             </div>
@@ -466,6 +471,7 @@ interface QuestionCardProps {
     summary: string,
   ) => Promise<void>
   onReopen: (question: ProjectQuestionWorkbenchItem, reason: string) => Promise<void>
+  onRefresh: () => Promise<void>
 }
 
 function QuestionCard({
@@ -476,6 +482,7 @@ function QuestionCard({
   onSaveProfile,
   onResolve,
   onReopen,
+  onRefresh,
 }: QuestionCardProps) {
   const [ownerId, setOwnerId] = useState(question.profile.owner_user_id?.toString() ?? '')
   const [priority, setPriority] = useState<ProjectQuestionPriority>(question.profile.priority)
@@ -718,6 +725,9 @@ function QuestionCard({
                   key={remediationPlan.basis.fingerprint}
                   plan={remediationPlan}
                   members={data.members}
+                  projectId={projectId}
+                  question={question}
+                  onTargetConfirmed={onRefresh}
                 />
               )}
             </>
@@ -808,28 +818,117 @@ function QuestionCard({
 
 interface EditableRemediationAction extends ProjectQuestionRemediationAction {
   ownerUserId: string
+  targetKind: ProjectQuestionRemediationPromotionTargetKind
+  dueDate: string
+  recipientLabel: string
+  idempotencyKey: string
+  promotion: ProjectQuestionRemediationPromotion | null
+  promotionBusy: boolean
+  promotionError: string
+}
+
+function remediationIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `aria-${crypto.randomUUID()}`
+  }
+  return `aria-${Date.now()}-${Math.random().toString(36).slice(2)}-promotion`
+}
+
+function defaultRemediationTarget(
+  action: ProjectQuestionRemediationAction,
+): ProjectQuestionRemediationPromotionTargetKind {
+  return action.kind === 'evidence_request' || action.kind === 'clarification_question'
+    ? 'communication_request'
+    : 'project_todo'
 }
 
 function QuestionRemediationPanel({
   plan,
   members,
+  projectId,
+  question,
+  onTargetConfirmed,
 }: {
   plan: ProjectQuestionRemediationPlan
   members: ProjectQuestionWorkbench['members']
+  projectId: number
+  question: ProjectQuestionWorkbenchItem
+  onTargetConfirmed: () => Promise<void>
 }) {
   const [actions, setActions] = useState<EditableRemediationAction[]>(
-    () => plan.actions.map((action) => ({ ...action, ownerUserId: '' })),
+    () => plan.actions.map((action) => ({
+      ...action,
+      ownerUserId: '',
+      targetKind: defaultRemediationTarget(action),
+      dueDate: '',
+      recipientLabel: '',
+      idempotencyKey: remediationIdempotencyKey(),
+      promotion: null,
+      promotionBusy: false,
+      promotionError: '',
+    })),
   )
   const customActionSequence = useRef(0)
 
   const updateAction = (
     actionId: string,
-    field: 'title' | 'draft' | 'ownerUserId',
-    value: string,
+    changes: Partial<EditableRemediationAction>,
   ) => {
     setActions((current) => current.map((action) => (
-      action.action_id === actionId ? { ...action, [field]: value } : action
+      action.action_id === actionId ? { ...action, ...changes } : action
     )))
+  }
+  const prepareAction = async (action: EditableRemediationAction) => {
+    if (action.promotionBusy || action.promotion) return
+    updateAction(action.action_id, { promotionBusy: true, promotionError: '' })
+    try {
+      const promotion = await api.post<ProjectQuestionRemediationPromotion>(
+        `/projects/${projectId}/questions/${question.question_sha256}/promotions/prepare`,
+        {
+          question: question.question,
+          evidence_basis_fingerprint: plan.basis.fingerprint,
+          idempotency_key: action.idempotencyKey,
+          target_kind: action.targetKind,
+          action_kind: action.kind,
+          source_action_id: action.action_id,
+          title: action.title.trim(),
+          draft: action.draft.trim(),
+          owner_user_id: action.ownerUserId ? Number(action.ownerUserId) : null,
+          due_date: action.dueDate || null,
+          recipient_label: action.recipientLabel.trim(),
+        },
+      )
+      updateAction(action.action_id, { promotion, promotionBusy: false })
+    } catch (error) {
+      updateAction(action.action_id, {
+        promotionBusy: false,
+        promotionError: errorMessage(error),
+      })
+    }
+  }
+  const decideAction = async (
+    action: EditableRemediationAction,
+    decision: 'confirm' | 'reject',
+  ) => {
+    if (action.promotionBusy || !action.promotion || action.promotion.status !== 'pending') return
+    updateAction(action.action_id, { promotionBusy: true, promotionError: '' })
+    try {
+      const promotion = await api.post<ProjectQuestionRemediationPromotion>(
+        `/projects/${projectId}/questions/${question.question_sha256}/promotions/${action.promotion.id}/${decision}`,
+        {
+          snapshot_sha256: action.promotion.snapshot_sha256,
+          expected_revision: action.promotion.revision,
+          reason: decision === 'reject' ? '用户在项目问题工作台拒绝此预览' : '',
+        },
+      )
+      updateAction(action.action_id, { promotion, promotionBusy: false })
+      if (promotion.status === 'confirmed') await onTargetConfirmed()
+    } catch (error) {
+      updateAction(action.action_id, {
+        promotionBusy: false,
+        promotionError: errorMessage(error),
+      })
+    }
   }
   const addAction = () => {
     customActionSequence.current += 1
@@ -849,6 +948,13 @@ function QuestionRemediationPanel({
         editable_fields: ['title', 'draft', 'owner_user_id'],
         execution_mode: 'manual_only',
         ownerUserId: '',
+        targetKind: 'project_todo',
+        dueDate: '',
+        recipientLabel: '',
+        idempotencyKey: remediationIdempotencyKey(),
+        promotion: null,
+        promotionBusy: false,
+        promotionError: '',
       },
     ])
   }
@@ -887,7 +993,7 @@ function QuestionRemediationPanel({
           background: 'color-mix(in srgb, var(--warn) 7%, var(--bg))',
         }}
       >
-        仅当前页面草稿：不会自动保存、向外部发送、调用工具或标记问题已解决。
+        编辑内容仍只在当前页面；点击“准备创建”后仅保存冻结预览，必须再次明确确认才会创建目标。沟通请求始终仅供人工发送，不会调用工具或自动关单。
       </div>
       {plan.gaps.length > 0 && (
         <div style={{ display: 'grid', gap: 6, marginTop: 9 }}>
@@ -940,10 +1046,15 @@ function QuestionRemediationPanel({
               <button
                 type="button"
                 aria-label={`移除补证动作 ${index + 1}`}
+                disabled={action.promotion?.status === 'pending'}
                 onClick={() => setActions((current) => (
                   current.filter((item) => item.action_id !== action.action_id)
                 ))}
-                style={{ ...secondaryButtonStyle(false), marginLeft: 'auto', padding: '4px 7px' }}
+                style={{
+                  ...secondaryButtonStyle(action.promotion?.status === 'pending'),
+                  marginLeft: 'auto',
+                  padding: '4px 7px',
+                }}
               >
                 移除
               </button>
@@ -953,13 +1064,15 @@ function QuestionRemediationPanel({
                 aria-label={`补证动作标题 ${index + 1}`}
                 value={action.title}
                 maxLength={120}
-                onChange={(event) => updateAction(action.action_id, 'title', event.target.value)}
+                disabled={!!action.promotion}
+                onChange={(event) => updateAction(action.action_id, { title: event.target.value })}
                 style={controlStyle}
               />
               <select
                 aria-label={`补证动作责任人 ${index + 1}`}
                 value={action.ownerUserId}
-                onChange={(event) => updateAction(action.action_id, 'ownerUserId', event.target.value)}
+                disabled={!!action.promotion}
+                onChange={(event) => updateAction(action.action_id, { ownerUserId: event.target.value })}
                 style={controlStyle}
               >
                 <option value="">草稿责任人未选择</option>
@@ -975,7 +1088,8 @@ function QuestionRemediationPanel({
               value={action.draft}
               maxLength={600}
               rows={2}
-              onChange={(event) => updateAction(action.action_id, 'draft', event.target.value)}
+              disabled={!!action.promotion}
+              onChange={(event) => updateAction(action.action_id, { draft: event.target.value })}
               style={{
                 ...controlStyle,
                 width: '100%',
@@ -989,6 +1103,186 @@ function QuestionRemediationPanel({
             <div style={{ marginTop: 5, color: 'var(--ink-faint)', fontSize: 9.5 }}>
               完成标准：{action.acceptance_criteria}
             </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(180px, 1fr) 150px minmax(180px, 1fr)',
+                gap: 7,
+                marginTop: 8,
+              }}
+            >
+              <select
+                aria-label={`补证动作目标 ${index + 1}`}
+                value={action.targetKind}
+                disabled={!!action.promotion}
+                onChange={(event) => updateAction(action.action_id, {
+                  targetKind: event.target.value as ProjectQuestionRemediationPromotionTargetKind,
+                  recipientLabel: event.target.value === 'project_todo' ? '' : action.recipientLabel,
+                })}
+                style={controlStyle}
+              >
+                <option value="project_todo">创建项目待办</option>
+                <option value="communication_request">创建人工沟通请求</option>
+              </select>
+              <input
+                aria-label={`补证动作截止日期 ${index + 1}`}
+                type="date"
+                value={action.dueDate}
+                disabled={!!action.promotion}
+                onChange={(event) => updateAction(action.action_id, { dueDate: event.target.value })}
+                style={controlStyle}
+              />
+              {action.targetKind === 'communication_request' ? (
+                <input
+                  aria-label={`补证动作沟通对象 ${index + 1}`}
+                  value={action.recipientLabel}
+                  maxLength={160}
+                  disabled={!!action.promotion}
+                  placeholder="填写人工沟通对象"
+                  onChange={(event) => updateAction(action.action_id, {
+                    recipientLabel: event.target.value,
+                  })}
+                  style={controlStyle}
+                />
+              ) : (
+                <div style={{ alignSelf: 'center', color: 'var(--ink-faint)', fontSize: 10 }}>
+                  确认后写入项目待办
+                </div>
+              )}
+            </div>
+            {!action.promotion && (
+              <button
+                type="button"
+                disabled={
+                  action.promotionBusy
+                  || !action.title.trim()
+                  || (action.targetKind === 'communication_request'
+                    && (!action.draft.trim() || !action.recipientLabel.trim()))
+                }
+                onClick={() => void prepareAction(action)}
+                style={{
+                  ...secondaryButtonStyle(
+                    action.promotionBusy
+                    || !action.title.trim()
+                    || (action.targetKind === 'communication_request'
+                      && (!action.draft.trim() || !action.recipientLabel.trim())),
+                  ),
+                  marginTop: 8,
+                }}
+              >
+                {action.promotionBusy
+                  ? '正在核验并保存预览…'
+                  : action.targetKind === 'project_todo'
+                    ? '准备创建项目待办'
+                    : '准备创建人工沟通请求'}
+              </button>
+            )}
+            {action.promotion && (
+              <div
+                role="region"
+                aria-label={`补证动作确认 ${index + 1}`}
+                style={{
+                  marginTop: 9,
+                  padding: '9px 10px',
+                  border: '1px solid color-mix(in srgb, var(--accent) 30%, var(--line))',
+                  borderRadius: 'var(--r-sm)',
+                  background: 'color-mix(in srgb, var(--accent) 5%, var(--bg-elev))',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                  <CxStatus
+                    tone={
+                      action.promotion.status === 'confirmed'
+                        ? 'good'
+                        : action.promotion.status === 'pending'
+                          ? 'warn'
+                          : action.promotion.status === 'rejected'
+                            ? 'neutral'
+                            : 'bad'
+                    }
+                  >
+                    {action.promotion.status === 'pending'
+                      ? '等待明确确认'
+                      : action.promotion.status === 'confirmed'
+                        ? '已确认创建'
+                        : action.promotion.status === 'rejected'
+                          ? '已拒绝'
+                          : '预览已失效'}
+                  </CxStatus>
+                  <span style={{ color: 'var(--ink-faint)', fontSize: 9.5 }}>
+                    冻结快照 {action.promotion.snapshot_sha256.slice(0, 10)} · 到期{' '}
+                    {formatDateTime(action.promotion.expires_at)}
+                  </span>
+                </div>
+                <div style={{ marginTop: 7, color: 'var(--ink-soft)', fontSize: 10.5 }}>
+                  将{action.promotion.preview.target_kind === 'project_todo'
+                    ? '创建项目待办'
+                    : `创建发给“${action.promotion.preview.recipient_label}”的人工沟通请求`}
+                  ：{action.promotion.preview.title}
+                  {action.promotion.preview.due_date
+                    ? ` · 截止 ${action.promotion.preview.due_date}`
+                    : ''}
+                </div>
+                {action.promotion.preview.draft && (
+                  <div
+                    style={{
+                      marginTop: 5,
+                      padding: '6px 8px',
+                      color: 'var(--ink-mute)',
+                      fontSize: 10,
+                      whiteSpace: 'pre-wrap',
+                      background: 'var(--bg)',
+                      border: '1px solid var(--line-soft)',
+                    }}
+                  >
+                    {action.promotion.preview.draft}
+                  </div>
+                )}
+                {action.promotion.status === 'pending' && (
+                  <>
+                    <div style={{ marginTop: 6, color: 'var(--warn)', fontSize: 10 }}>
+                      {action.promotion.preview.target_kind === 'communication_request'
+                        ? '确认只会形成“待人工发送”记录；Aria 不会替你发送。'
+                        : '确认会立即创建该项目待办，并把项目记忆标记为待刷新。'}
+                    </div>
+                    <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
+                      <button
+                        type="button"
+                        disabled={action.promotionBusy}
+                        onClick={() => void decideAction(action, 'confirm')}
+                        style={primaryButtonStyle(action.promotionBusy)}
+                      >
+                        {action.promotionBusy
+                          ? '正在最终核验…'
+                          : action.promotion.preview.target_kind === 'project_todo'
+                            ? '确认创建项目待办'
+                            : '确认创建人工沟通请求'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={action.promotionBusy}
+                        onClick={() => void decideAction(action, 'reject')}
+                        style={secondaryButtonStyle(action.promotionBusy)}
+                      >
+                        拒绝此预览
+                      </button>
+                    </div>
+                  </>
+                )}
+                {action.promotion.status === 'confirmed' && action.promotion.target && (
+                  <div style={{ marginTop: 7, color: 'var(--good)', fontSize: 10.5 }}>
+                    {action.promotion.target.kind === 'project_todo'
+                      ? `项目待办 #${action.promotion.target.id} 已创建。`
+                      : `人工沟通请求 #${action.promotion.target.id} 已就绪，尚未发送。`}
+                  </div>
+                )}
+              </div>
+            )}
+            {action.promotionError && (
+              <div role="alert" style={{ marginTop: 7, color: 'var(--bad)', fontSize: 10.5 }}>
+                {action.promotionError}
+              </div>
+            )}
           </div>
         ))}
       </div>

@@ -28,6 +28,12 @@ from app.services.project_question_evidence import (
 from app.services.project_question_remediation import (
     build_project_question_remediation_plan,
 )
+from app.services.project_question_remediation_promotions import (
+    confirm_project_question_remediation_promotion,
+    list_project_question_remediation_promotions,
+    prepare_project_question_remediation_promotion,
+    reject_project_question_remediation_promotion,
+)
 from app.services.project_question_workbench import (
     build_project_question_workbench,
     update_project_question_profile,
@@ -51,6 +57,26 @@ class UpdateProjectQuestionProfileRequest(BaseModel):
 
 class AnalyzeProjectQuestionEvidenceRequest(BaseModel):
     question: str = Field(min_length=1, max_length=360)
+
+
+class PrepareProjectQuestionRemediationPromotionRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=360)
+    evidence_basis_fingerprint: str = Field(min_length=64, max_length=64)
+    idempotency_key: str = Field(min_length=16, max_length=128)
+    target_kind: str = Field(min_length=1, max_length=40)
+    action_kind: str = Field(min_length=1, max_length=40)
+    source_action_id: str = Field(min_length=1, max_length=40)
+    title: str = Field(min_length=1, max_length=120)
+    draft: str = Field(default="", max_length=600)
+    owner_user_id: Optional[int] = Field(default=None, gt=0)
+    due_date: Optional[str] = Field(default=None, max_length=10)
+    recipient_label: str = Field(default="", max_length=160)
+
+
+class DecideProjectQuestionRemediationPromotionRequest(BaseModel):
+    snapshot_sha256: str = Field(min_length=64, max_length=64)
+    expected_revision: int = Field(ge=1)
+    reason: str = Field(default="", max_length=600)
 
 
 def _project(session: Session, project_id: int) -> Project:
@@ -133,6 +159,131 @@ def plan_project_question_remediation(
         project=_project(session, project_id),
         question=body.question,
         question_sha256=question_sha256,
+    )
+
+
+@router.post("/{question_sha256}/promotions/prepare")
+def prepare_project_question_remediation(
+    project_id: int,
+    question_sha256: str,
+    body: PrepareProjectQuestionRemediationPromotionRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Persist a frozen HITAS preview without creating its target."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return prepare_project_question_remediation_promotion(
+        session,
+        project_id=project_id,
+        actor_user_id=int(current_user.id),
+        question=body.question,
+        question_sha256=question_sha256,
+        evidence_basis_fingerprint=body.evidence_basis_fingerprint,
+        idempotency_key=body.idempotency_key,
+        target_kind=body.target_kind,
+        action_kind=body.action_kind,
+        source_action_id=body.source_action_id,
+        title=body.title,
+        draft=body.draft,
+        owner_user_id=body.owner_user_id,
+        due_date=body.due_date,
+        recipient_label=body.recipient_label,
+    )
+
+
+@router.post("/{question_sha256}/promotions/{promotion_id}/confirm")
+def confirm_project_question_remediation(
+    project_id: int,
+    question_sha256: str,
+    promotion_id: int,
+    body: DecideProjectQuestionRemediationPromotionRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Confirm one exact preview after final authorization and basis checks."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return confirm_project_question_remediation_promotion(
+        session,
+        project_id=project_id,
+        question_sha256=question_sha256,
+        promotion_id=promotion_id,
+        actor_user_id=int(current_user.id),
+        snapshot_sha256=body.snapshot_sha256,
+        expected_revision=body.expected_revision,
+    )
+
+
+@router.post("/{question_sha256}/promotions/{promotion_id}/reject")
+def reject_project_question_remediation(
+    project_id: int,
+    question_sha256: str,
+    promotion_id: int,
+    body: DecideProjectQuestionRemediationPromotionRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Reject one exact preview without creating project state."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return reject_project_question_remediation_promotion(
+        session,
+        project_id=project_id,
+        question_sha256=question_sha256,
+        promotion_id=promotion_id,
+        actor_user_id=int(current_user.id),
+        snapshot_sha256=body.snapshot_sha256,
+        expected_revision=body.expected_revision,
+        reason=body.reason,
+    )
+
+
+@router.get("/{question_sha256}/promotions")
+def get_project_question_remediation_promotions(
+    project_id: int,
+    question_sha256: str,
+    limit: int = 20,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Return bounded write-member-only remediation promotion history."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return list_project_question_remediation_promotions(
+        session,
+        project_id=project_id,
+        question_sha256=question_sha256,
+        actor_user_id=int(current_user.id),
+        limit=limit,
     )
 
 

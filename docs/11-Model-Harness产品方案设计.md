@@ -910,6 +910,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-08-31）：Phase 3U 在问题证据视图上增加无模型、无副作用的缺口补证规划器。新的显式 POST 接口先复用 Phase 3T 重新召回与身份校验，再按问题类型、证据状态、候选准备度和已验证 warning 生成最多 8 个缺口、6 个可编辑动作及稳定 basis fingerprint。动作只允许 `manual_only`，计划契约固定声明不持久化、不发消息、不执行工具并要求人工确认；前端所有编辑和负责人选择也只保留在组件状态中，没有保存或执行入口。输出隐私排除回答预览、来源标题与正文、Prompt、工具输入/输出和隐藏推理。确定性门禁扩展为 69 个场景、21 项指标，新增 `question_remediation_safety_rate`；本阶段复用 Phase 3T 的证据投影，不新增表或迁移，也不运行或连接 Codex。
 
+补充进展（2026-08-31）：Phase 3V 将“计划建议”和“业务副作用”之间补成持久化两阶段 Harness。准备请求只保存由 action、当前 evidence basis、问题身份和操作者组成的 SHA-256 冻结快照；确认请求不能携带替换参数，必须引用该 snapshot/revision。最终事务重新锁定项目、重新授权、重新计算 basis、校验负责人、检查过期和快照完整性，再以 action hash 去重后创建原生 ProjectTodo 或仅人工发送的 ProjectCommunicationRequest。所有状态跃迁进入独立 append-only event；communication contract 固定 `outbound_delivery=false`、`sends_messages=false`、`executes_tools=false`。这不是 Codex App Server、SDK、协议或子进程，也不把 Aria 项目、权限或审计交给 Provider。`040_v1_40` 管理三张新增表并保持单一迁移 head；发布门禁为 72 个场景、22 项指标。
+
 范围：
 
 - 工具注册表标准化。（首批已完成）

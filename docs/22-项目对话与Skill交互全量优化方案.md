@@ -493,7 +493,18 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 隐私投影只保留问题正文、证据计数、缺口代码、动作草稿和 hash-only fingerprint；候选回答预览、来源标题/正文、Prompt、工具输入/输出和隐藏推理均不进入响应。viewer 不能生成计划，规划结果也不能自动选择回答、重建记忆、解决或重开问题。
 - 确定性发布门禁由 66 个场景/20 项指标扩展为 69 个场景/21 项指标，新增 `question_remediation_safety_rate`，固定“缺证据时生成追问/资料草稿、任何计划都不能产生副作用、强证据仍需人工确认且不泄露回答”三条不变量。本阶段复用已有 Message metadata 和 Phase 3T 证据视图，不新增数据库迁移。
 - 该阶段沿用 Codex 不可变证据与结构化裁决中“证据事实、审阅判断、后续动作分离”的原则，来源 commit、路径和 Apache-2.0 归因与 Phase 3T 相同；实现已重写为 Aria 原生 Python/FastAPI/React 与项目 ACL，不运行、导入或连接 Codex。
-- 下一阶段进入 Phase 3V：把用户明确确认后的补证草稿提升为 Aria 原生任务或受控沟通请求；必须新增幂等身份、最终授权、HITAS、审计和失败关闭，仍不得自动外发。
+- Phase 3V 已按下述领域 HITAS 合同实现，不再把该项列为待办。
+
+### Phase 3V：补证动作领域 HITAS 与原生协作目标（已实施）
+
+- 新增 `prepare / confirm / reject / history` 四类项目问题 promotion 接口。准备阶段在项目最终写锁内重新授权、重新计算当前 Phase 3U basis、核对来源动作和有效负责人，只保存 24 小时有效的冻结预览与 prepared 事件；不会创建 ProjectTodo、沟通请求、Message、Run 或工具调用。
+- 确认阶段只能提交已持久化 preview 的 snapshot SHA-256 和 expected revision，不能替换标题、草稿、负责人、截止日期、对象或目标类型。服务再次获取项目写锁、重新授权、校验快照完整性/过期状态，并在锁内重新计算当前证据 basis；证据、来源动作、权限或负责人发生变化时写 failed/expired 事件并以 `409/403` 失败关闭。
+- `project_todo` 在确认事务中创建 Aria 原生 `ProjectTodo`，并按现有记忆治理把项目相关槽位/事实标为 stale；相同 action hash 在项目锁下复用已存在目标，网络重试和不同 idempotency key 都不会产生重复待办。原始 idempotency key 不入库，只保存带命名空间的 SHA-256。
+- `communication_request` 创建 Aria 原生 `ProjectCommunicationRequest`，状态固定为 `ready_for_manual_send`，数据库 CHECK 强制 `delivery_mode=manual_only`。产品 API、前端和领域服务均不提供发送步骤，响应明确 `delivered=false`、`outbound_delivery=false`；确认只是批准并保存人工沟通稿，不代表对方已经收到。
+- `ProjectQuestionRemediationPromotionEvent` 按 promotion/revision 只追加 prepared、confirmed、rejected、failed、expired 生命周期，并记录操作者、精确 snapshot 和目标引用。迁移 `040_v1_40` 幂等创建 promotion、communication request、event 三表，使用 CASCADE/SET NULL 外键、状态/哈希 CHECK、唯一 revision 和查询索引，保持 Alembic 单一 head。
+- 前端对每个动作增加目标类型、负责人、截止日和沟通对象；第一次点击只显示服务端返回的冻结预览、快照与到期时间，第二次明确确认才创建目标。冻结后输入不可修改；拒绝没有副作用；确认后同时刷新项目问题/详情。自定义内部核验动作也进入相同 HITAS，不能绕过权限与证据 basis。
+- 发布门禁从 69 个场景/21 项指标扩展为 72 个场景/22 项指标，新增 `question_remediation_promotion_safety_rate`；SQLite 行为/迁移、React 交互和 PostgreSQL 外键/去重合同进入部署与备份后隔离 schema E2E。实现继续完全属于 Aria 原生 Python/FastAPI/React 与数据库，不运行、导入或连接 Codex。
+- 下一阶段 Phase 3W 建议补全协作目标的后续生命周期：集中查看待办/人工沟通请求、人工标记已发送/已取消/已完成，并把新取得的证据显式回挂到问题证据链；状态变化仍不能自动关单或冒充外部送达。
 
 ## 11. 官方资料与许可证
 

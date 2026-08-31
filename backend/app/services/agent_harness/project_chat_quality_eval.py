@@ -70,6 +70,9 @@ from app.services.project_question_evidence import assess_project_question_answe
 from app.services.project_question_remediation import (
     build_question_evidence_remediation_plan,
 )
+from app.services.project_question_remediation_promotions import (
+    build_remediation_promotion_contract,
+)
 from app.services.skill_router import (
     auto_select_skill,
     decide_conversation_skill_activation,
@@ -1294,6 +1297,34 @@ def _question_remediation_safety_results() -> tuple[int, int, list[dict[str, Any
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _question_remediation_promotion_safety_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Consequential remediation targets require a durable two-step boundary."""
+
+    todo = build_remediation_promotion_contract("project_todo")
+    communication = build_remediation_promotion_contract("communication_request")
+    details = [
+        {
+            "case": "promotion_persists_preview_before_creating_any_target",
+            "passed": todo["persists_frozen_preview"] is True
+            and todo["creates_target_before_confirmation"] is False
+            and todo["requires_explicit_confirmation"] is True,
+        },
+        {
+            "case": "confirmation_reauthorizes_and_rechecks_current_evidence",
+            "passed": todo["reauthorizes_on_confirmation"] is True
+            and todo["rechecks_current_evidence_basis"] is True,
+        },
+        {
+            "case": "communication_promotion_has_no_delivery_or_tool_capability",
+            "passed": communication["delivery_mode"] == "manual_only"
+            and communication["outbound_delivery"] is False
+            and communication["sends_messages"] is False
+            and communication["executes_tools"] is False,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1319,6 +1350,9 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "memory_direct_source_accuracy": _memory_direct_source_results(),
         "question_answer_readiness_accuracy": _question_answer_readiness_results(),
         "question_remediation_safety_rate": _question_remediation_safety_results(),
+        "question_remediation_promotion_safety_rate": (
+            _question_remediation_promotion_safety_results()
+        ),
     }
     metrics = {
         name: {

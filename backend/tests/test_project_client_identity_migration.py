@@ -112,10 +112,10 @@ def test_current_revision_is_the_single_alembic_head() -> None:
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["039_v1_39"]
-    revision = script.get_revision("039_v1_39")
+    assert script.get_heads() == ["040_v1_40"]
+    revision = script.get_revision("040_v1_40")
     assert revision is not None
-    assert revision.down_revision == "038_v1_38"
+    assert revision.down_revision == "039_v1_39"
 
 
 def test_revision_035_backfills_only_unique_normalized_names_and_is_idempotent() -> None:
