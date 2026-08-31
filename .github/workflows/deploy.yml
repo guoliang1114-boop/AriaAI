@@ -120,6 +120,10 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
           port: ${{ secrets.SERVER_PORT || '22' }}
+          # The focused server release suite currently takes about ten minutes.
+          # Keep enough headroom for dependency downloads, the quality gate,
+          # verified backup, migration governance, and the health check.
+          command_timeout: 25m
           script: |
             set -e
             PROJECT_DIR="/www/wwwroot/AriaAI"
@@ -251,6 +255,7 @@ jobs:
                 tests/test_project_question_resolution_migration.py \
                 tests/test_project_question_workbench.py \
                 tests/test_project_question_evidence.py \
+                tests/test_deployment_workflow_contract.py \
                 tests/test_project_question_workbench_migration.py \
                 tests/test_project_question_resolutions_postgres.py \
                 tests/test_database_extended.py \
