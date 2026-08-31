@@ -22,6 +22,9 @@ from app.services.project_question_resolutions import (
     reopen_project_question,
     resolve_project_question,
 )
+from app.services.project_question_evidence import (
+    build_project_question_evidence_review,
+)
 from app.services.project_question_workbench import (
     build_project_question_workbench,
     update_project_question_profile,
@@ -41,6 +44,10 @@ class UpdateProjectQuestionProfileRequest(BaseModel):
     priority: str = Field(default="normal", min_length=1, max_length=16)
     due_date: Optional[str] = Field(default=None, max_length=10)
     expected_revision: int = Field(ge=0)
+
+
+class AnalyzeProjectQuestionEvidenceRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=360)
 
 
 def _project(session: Session, project_id: int) -> Project:
@@ -75,6 +82,30 @@ def get_project_question_workbench(
         session,
         project_id=project_id,
         current_user=current_user,
+    )
+
+
+@router.post("/{question_sha256}/evidence")
+def analyze_project_question_evidence(
+    project_id: int,
+    question_sha256: str,
+    body: AnalyzeProjectQuestionEvidenceRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Recall current evidence and rank bounded project answer candidates."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    return build_project_question_evidence_review(
+        session,
+        project=_project(session, project_id),
+        question=body.question,
+        question_sha256=question_sha256,
     )
 
 

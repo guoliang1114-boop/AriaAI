@@ -1098,6 +1098,116 @@ export interface ProjectQuestionAnswerCandidate {
   created_at: string
 }
 
+export type ProjectQuestionReadinessBand = 'strong' | 'review' | 'weak' | 'unrated'
+
+export interface ProjectQuestionEvidenceSource {
+  source_type: 'knowledge_document' | 'project_memory'
+  evidence_id: string
+  citation_key: string
+  title: string
+  document_id?: number
+  chunk_index?: number
+  retrieval_score?: number
+  memory_slot?: string
+  memory_version?: number
+  provenance_status?: string
+  fact_evidence_count?: number
+}
+
+export interface ProjectQuestionAnswerAssessment {
+  contract: 'deterministic_selection_readiness'
+  readiness_score: number
+  readiness_band: ProjectQuestionReadinessBand
+  relevance: {
+    score: number
+    matched_question_terms: string[]
+  }
+  evidence: {
+    status: 'cited' | 'uncited' | 'invalid' | 'not_available'
+    score: number
+    available_count: number
+    cited_count: number
+    knowledge_cited_count: number
+    memory_cited_count: number
+    invalid_citation_count: number
+    current_question_source_count: number
+    question_aligned_count: number
+    verified_aligned_count: number
+    alignment_rate?: number | null
+    support_rate?: number | null
+    sources: ProjectQuestionEvidenceSource[]
+  }
+  run_evaluation: {
+    status: 'available' | 'not_available' | 'invalid'
+    verdict: string
+    score?: number | null
+  }
+  feedback: {
+    status: 'available' | 'not_available' | 'invalid'
+    rating: '' | 'helpful' | 'unhelpful'
+    reasons: string[]
+  }
+  warnings: string[]
+  requires_human_confirmation: true
+  is_correctness_verdict: false
+}
+
+export interface ProjectQuestionEvidenceCandidate extends ProjectQuestionAnswerCandidate {
+  is_selected_resolution: boolean
+  assessment: ProjectQuestionAnswerAssessment
+}
+
+export interface ProjectQuestionEvidenceReview {
+  schema_version: 1
+  project_id: number
+  question: string
+  question_sha256: string
+  question_evidence: {
+    status: 'available' | 'context_only' | 'not_available' | 'unavailable'
+    source_count: number
+    supporting_source_count: number
+    memory: {
+      status: 'available' | 'stale' | 'not_available' | 'unavailable'
+      memory_version: number
+      memory_stale: boolean
+      retrieval_mode: string
+      selected_slots: string[]
+      source_count: number
+      supporting_source_count: number
+      sources: ProjectQuestionEvidenceSource[]
+    }
+    knowledge: {
+      status: 'available' | 'not_available' | 'unavailable'
+      source_count: number
+      supporting_source_count: number
+      sources: ProjectQuestionEvidenceSource[]
+    }
+  }
+  summary: {
+    evaluated_candidate_count: number
+    returned_candidate_count: number
+    recommended_message_id?: number | null
+    bands: Record<ProjectQuestionReadinessBand, number>
+    truncated: boolean
+  }
+  candidates: ProjectQuestionEvidenceCandidate[]
+  assessment_contract: {
+    name: 'deterministic_selection_readiness'
+    dimensions: string[]
+    requires_human_confirmation: true
+    is_correctness_verdict: false
+  }
+  privacy: {
+    includes_bounded_answer_previews: boolean
+    includes_full_answer_content: false
+    includes_retrieved_chunk_content: false
+    includes_prompt_content: false
+    includes_tool_inputs: false
+    includes_tool_outputs: false
+    includes_hidden_reasoning: false
+  }
+}
+
 export interface ProjectQuestionWorkbench {
   schema_version: 1
   project_id: number

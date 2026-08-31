@@ -906,6 +906,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-08-31）：Phase 3S 将问题闭环从单个对话面板提升为 Aria 原生项目工作台。项目页统一投影开放、待复核和已解决问题，并为每个问题增加负责人、优先级、截止日期和独立 CAS revision；任何变更都经过最终项目写授权并追加责任审计。用户可以显式选择同一项目中其他对话的持久化 Assistant Message 作为回答证据，但服务端重新核对 Project/Conversation/Message scope，仍由用户填写解决摘要，模型不能自动关单。回答候选只向可写成员按需返回有界预览；完整回答、Prompt、工具输入和隐藏推理不进入工作台投影。`039_v1_39` 新增责任当前态和只追加事件表，不替代记忆事实、解决账本、HITAS 或 Aria 权限，也不引入 Codex 运行时或通信。
 
+补充进展（2026-08-31）：Phase 3T 把已有 Knowledge Evidence、Project Memory Evidence、Run Evaluation 和 Interaction Feedback 组合为问题级答案选择视图。显式读取接口先按当前项目权限重新召回证据，再用稳定 evidence ID 或 `slot + content_sha256` 与候选回答当时实际引用的证据对齐；未通过 manifest 完整性、项目 scope 或引用生命周期校验的内容不参与评分。选择准备度采用确定性规则，50% 为问题文本召回、35% 为有效引用与当前证据对齐、15% 为原 Run 裁决，并仅对已验证人工反馈作有界调整；引用数量本身不能刷高分，一条完全对齐的引用可以成立，多条无关引用不会。接口最多评估最近 40 条项目回答并返回最高 12 条，来源只返回当前重新召回且可访问的元数据。前端必须由用户点击“分析问题证据”，分析后也不预选、不自动关单，仍要求人工采用回答并填写摘要。该机制复用此前从 Codex `protocol/src/models.rs` / `items.rs`（`83d1fe0…`）与 `core/src/context/guardian_review_evidence.rs`（`99660ab…`）吸收的不可变证据/结构化裁决原则，已改写为 Aria Python/FastAPI/React、项目 ACL 和多 Provider 架构；Apache-2.0 归因沿用现有实现，不运行或连接 Codex。
+
 范围：
 
 - 工具注册表标准化。（首批已完成）

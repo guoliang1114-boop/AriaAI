@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
   ProjectDetail as ProjectDetailType,
+  ProjectQuestionAnswerCandidate,
+  ProjectQuestionEvidenceCandidate,
+  ProjectQuestionEvidenceReview,
   ProjectQuestionPriority,
+  ProjectQuestionReadinessBand,
   ProjectQuestionWorkbench,
   ProjectQuestionWorkbenchItem,
   ProjectQuestionWorkbenchStatus,
@@ -40,6 +44,25 @@ const REVIEW_COPY: Record<string, string> = {
   project_memory_changed: '解决后项目记忆发生过变化，请确认结论仍然有效。',
 }
 
+const READINESS_COPY: Record<ProjectQuestionReadinessBand, { label: string; tone: CxTone }> = {
+  strong: { label: '证据较强', tone: 'good' },
+  review: { label: '建议复核', tone: 'warn' },
+  weak: { label: '证据较弱', tone: 'bad' },
+  unrated: { label: '无法评分', tone: 'neutral' },
+}
+
+const EVIDENCE_WARNING_COPY: Record<string, string> = {
+  LOW_QUESTION_RELEVANCE: '与当前问题的文本相关性较低',
+  NO_PERSISTED_EVIDENCE: '该回答没有可验证的持久化证据',
+  AVAILABLE_EVIDENCE_NOT_CITED: '回答生成时有证据，但正文没有有效引用',
+  INVALID_CITATIONS: '回答包含无效引用',
+  EVIDENCE_NOT_ALIGNED_WITH_CURRENT_QUESTION: '历史引用未命中当前重新召回的证据',
+  CURRENT_QUESTION_EVIDENCE_UNAVAILABLE: '当前问题证据池不可用，不能确认历史引用仍然适用',
+  WEAK_CURRENT_PROVENANCE: '当前对齐来源缺少直接或确定性溯源',
+  RUN_EVALUATION_NOT_COMPLETED: '原始 Run 未通过完成裁决',
+  ANSWER_MARKED_UNHELPFUL: '该回答曾被人工标记为无帮助',
+}
+
 function errorMessage(error: unknown): string {
   if (error && typeof error === 'object') {
     const response = (error as { response?: { data?: { detail?: unknown } } }).response
@@ -71,6 +94,12 @@ function dueTone(value: string): string {
   if (remaining < 0) return 'var(--bad)'
   if (remaining < 3 * 86400000) return 'var(--warn)'
   return 'var(--ink-soft)'
+}
+
+function isEvidenceCandidate(
+  candidate: ProjectQuestionAnswerCandidate | ProjectQuestionEvidenceCandidate,
+): candidate is ProjectQuestionEvidenceCandidate {
+  return 'assessment' in candidate && typeof candidate.assessment === 'object'
 }
 
 export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProps) {
@@ -381,7 +410,8 @@ export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProp
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {filtered.map((question) => (
                 <QuestionCard
-                  key={`${question.question_sha256}:${question.profile.revision}:${question.profile.owner_user_id ?? ''}:${question.profile.priority}:${question.profile.due_date}`}
+                  key={`${question.question_sha256}:${question.profile.revision}:${question.profile.owner_user_id ?? ''}:${question.profile.priority}:${question.profile.due_date}:${data?.memory.memory_version ?? 0}:${question.status}:${question.resolution?.resolution_revision ?? 0}`}
+                  projectId={projectId}
                   question={question}
                   data={data as ProjectQuestionWorkbench}
                   busy={busyQuestion === question.question_sha256}
@@ -400,6 +430,7 @@ export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProp
 
 
 interface QuestionCardProps {
+  projectId: number
   question: ProjectQuestionWorkbenchItem
   data: ProjectQuestionWorkbench
   busy: boolean
@@ -416,6 +447,7 @@ interface QuestionCardProps {
 }
 
 function QuestionCard({
+  projectId,
   question,
   data,
   busy,
@@ -429,6 +461,29 @@ function QuestionCard({
   const [answerId, setAnswerId] = useState('')
   const [summary, setSummary] = useState('')
   const [reopenReason, setReopenReason] = useState('')
+  const [evidenceReview, setEvidenceReview] = useState<ProjectQuestionEvidenceReview | null>(null)
+  const [evidenceLoading, setEvidenceLoading] = useState(false)
+  const [evidenceError, setEvidenceError] = useState('')
+
+  const loadEvidence = useCallback(async () => {
+    if (evidenceLoading) return
+    setEvidenceLoading(true)
+    setEvidenceError('')
+    try {
+      const review = await api.post<ProjectQuestionEvidenceReview>(
+        `/projects/${projectId}/questions/${question.question_sha256}/evidence`,
+        { question: question.question },
+        { timeout: 60_000 },
+      )
+      setEvidenceReview(review)
+    } catch (error) {
+      setEvidenceError(errorMessage(error))
+    } finally {
+      setEvidenceLoading(false)
+    }
+  }, [evidenceLoading, projectId, question.question, question.question_sha256])
+
+  const answerCandidates = evidenceReview?.candidates ?? data.answer_candidates
 
   const profileChanged =
     ownerId !== (question.profile.owner_user_id?.toString() ?? '')
@@ -556,6 +611,43 @@ function QuestionCard({
         </div>
       </div>
 
+      {data.can_write && (
+        <div
+          style={{
+            marginTop: 13,
+            paddingTop: 12,
+            borderTop: '1px solid var(--line-soft)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              disabled={evidenceLoading || busy}
+              onClick={() => void loadEvidence()}
+              style={secondaryButtonStyle(evidenceLoading || busy)}
+            >
+              <CxIcon name="search" size={12} />{' '}
+              {evidenceLoading ? '正在召回答案证据…' : evidenceReview ? '重新分析证据' : '分析问题证据'}
+            </button>
+            <span style={{ color: 'var(--ink-faint)', fontSize: 10.5 }}>
+              确定性排序仅辅助人工选择，不代表答案正确。
+            </span>
+          </div>
+          {evidenceError && (
+            <div role="alert" style={{ marginTop: 7, color: 'var(--bad)', fontSize: 11.5 }}>
+              {evidenceError}
+            </div>
+          )}
+          {evidenceReview && (
+            <QuestionEvidencePanel
+              review={evidenceReview}
+              canSelect={question.status === 'open'}
+              onSelect={(messageId) => setAnswerId(String(messageId))}
+            />
+          )}
+        </div>
+      )}
+
       {question.status === 'open' && (
         <div
           style={{
@@ -575,9 +667,11 @@ function QuestionCard({
             style={controlStyle}
           >
             <option value="">选择项目内的 Assistant 回答…</option>
-            {data.answer_candidates.map((answer) => (
+            {answerCandidates.map((answer) => (
               <option key={answer.message_id} value={answer.message_id}>
-                [{answer.conversation_title}] {answer.preview}
+                {isEvidenceCandidate(answer)
+                  ? `[${answer.assessment.readiness_score}分 · ${answer.conversation_title}] ${answer.preview}`
+                  : `[${answer.conversation_title}] ${answer.preview}`}
               </option>
             ))}
           </select>
@@ -631,6 +725,147 @@ function QuestionCard({
         </div>
       )}
     </CxPanel>
+  )
+}
+
+
+function QuestionEvidencePanel({
+  review,
+  canSelect,
+  onSelect,
+}: {
+  review: ProjectQuestionEvidenceReview
+  canSelect: boolean
+  onSelect: (messageId: number) => void
+}) {
+  const sources = [
+    ...review.question_evidence.knowledge.sources,
+    ...review.question_evidence.memory.sources,
+  ]
+  return (
+    <section
+      aria-label="问题证据分析"
+      style={{
+        marginTop: 10,
+        padding: '11px 12px',
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-sm)',
+        background: 'var(--bg-tint)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ color: 'var(--ink-soft)', fontSize: 11.5 }}>
+          当前召回 {review.question_evidence.source_count} 条来源：知识文档{' '}
+          {review.question_evidence.knowledge.source_count} · 项目记忆{' '}
+          {review.question_evidence.memory.source_count} · 可用于支持{' '}
+          {review.question_evidence.supporting_source_count}
+        </div>
+        <div style={{ color: 'var(--ink-faint)', fontSize: 10.5 }}>
+          已评估 {review.summary.evaluated_candidate_count} 条回答
+          {review.summary.truncated ? ' · 仅展示最高排序结果' : ''}
+        </div>
+      </div>
+      {sources.length > 0 && (
+        <div style={{ marginTop: 7, color: 'var(--ink-mute)', fontSize: 10.5 }}>
+          来源：{sources.slice(0, 4).map((source) => source.title).join(' · ')}
+          {sources.length > 4 ? ` · 另 ${sources.length - 4} 条` : ''}
+        </div>
+      )}
+      {review.question_evidence.memory.memory_stale && (
+        <div style={{ marginTop: 6, color: 'var(--warn)', fontSize: 10.5 }}>
+          当前项目记忆含陈旧槽位，证据对齐结果需要额外复核。
+        </div>
+      )}
+      <div style={{ display: 'grid', gap: 7, marginTop: 10 }}>
+        {review.candidates.slice(0, 5).map((candidate) => (
+          <EvidenceCandidateRow
+            key={candidate.message_id}
+            candidate={candidate}
+            canSelect={canSelect}
+            onSelect={onSelect}
+          />
+        ))}
+        {review.candidates.length === 0 && (
+          <div style={{ color: 'var(--ink-mute)', fontSize: 11.5 }}>
+            项目中还没有可评估的 Assistant 回答。
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+
+function EvidenceCandidateRow({
+  candidate,
+  canSelect,
+  onSelect,
+}: {
+  candidate: ProjectQuestionEvidenceCandidate
+  canSelect: boolean
+  onSelect: (messageId: number) => void
+}) {
+  const readiness = READINESS_COPY[candidate.assessment.readiness_band]
+  const warning = candidate.assessment.warnings[0]
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'auto minmax(0, 1fr) auto',
+        alignItems: 'center',
+        gap: 9,
+        padding: '8px 9px',
+        border: '1px solid var(--line-soft)',
+        borderRadius: 'var(--r-sm)',
+        background: 'var(--bg-elev)',
+      }}
+    >
+      <div style={{ textAlign: 'center', minWidth: 42 }}>
+        <div style={{ color: 'var(--ink)', fontSize: 15, fontWeight: 650 }}>
+          {candidate.assessment.readiness_score}
+        </div>
+        <div style={{ color: 'var(--ink-faint)', fontSize: 9.5 }}>准备度</div>
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <CxStatus tone={readiness.tone}>{readiness.label}</CxStatus>
+          <span style={{ color: 'var(--ink-faint)', fontSize: 10 }}>
+            {candidate.conversation_title} · 相关性 {candidate.assessment.relevance.score} · 引用{' '}
+            {candidate.assessment.evidence.cited_count} · 当前对齐{' '}
+            {candidate.assessment.evidence.question_aligned_count} · 强溯源{' '}
+            {candidate.assessment.evidence.verified_aligned_count}
+          </span>
+        </div>
+        <div
+          title={candidate.preview}
+          style={{
+            marginTop: 4,
+            color: 'var(--ink-soft)',
+            fontSize: 11,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {candidate.preview}
+        </div>
+        {warning && (
+          <div style={{ marginTop: 3, color: 'var(--warn)', fontSize: 9.5 }}>
+            {EVIDENCE_WARNING_COPY[warning] ?? warning}
+          </div>
+        )}
+      </div>
+      {canSelect && (
+        <button
+          type="button"
+          aria-label={`采用回答 ${candidate.message_id}`}
+          onClick={() => onSelect(candidate.message_id)}
+          style={secondaryButtonStyle(false)}
+        >
+          采用
+        </button>
+      )}
+    </div>
   )
 }
 

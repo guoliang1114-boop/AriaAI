@@ -474,6 +474,17 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 项目级重开不依赖原回答对话仍然存在，但仍要求 resolution revision、记忆版本、槽位版本和人工原因；问题回到 pinned 锚点。迁移 `039_v1_39` 幂等创建 profile/current-event 两表并保持单一 head，生产数据库测试继续只在备份后的隔离 schema 运行。
 - 本阶段仍未运行、连接或嵌入 Codex。项目、对话、回答、问题、责任、权限、审批和审计均属于 Aria 原生服务；下一阶段再进入问题级证据召回与回答质量评估。
 
+### Phase 3T：问题级证据召回与回答选择准备度（已实施）
+
+- 新增无副作用的 `POST /projects/{project_id}/questions/{question_sha256}/evidence`。问题正文使用 JSON body，避免进入 URL 访问日志；接口只向项目 owner/editor/admin 开放，先验证问题文本 SHA-256 以及问题仍存在于开放记忆或解决账本，再执行任何检索；viewer、跨项目问题、伪造 identity 均失败关闭。
+- 用户显式点击分析后，Aria 在当前权限下重新召回项目知识和 query-aware 项目记忆。知识证据沿用稳定 Evidence ID，记忆证据使用 `slot + content_sha256` 跨版本对齐；只把当前重新召回且范围有效的来源元数据展示给用户，历史候选中未对齐、无效或跨项目的 manifest 不会泄露来源标题，也不能获得证据分。`open_questions` 中的问题本身只作为 context-only 来源，支持权重为零，防止用“存在这个问题”循环证明答案。
+- 最多评估最近 40 条项目 Assistant Message，返回准备度最高的 12 条和每条最多 280 字预览。确定性评分组合问题相关性、有效引用/当前证据对齐、原始 Run Evaluation 和已有人工反馈；同一引用重复出现不能刷分，引用无关答案仍为弱候选。`strong/review/weak/unrated` 只是选择准备度，不是模型真伪判断或概率置信度。
+- 前端展示当前召回的知识/记忆来源数、回答准备度、相关性、引用数、当前对齐数和首要风险。系统不会因为推荐结果自动预选答案；用户仍需点击“采用”、填写解决摘要并通过 Phase 3R/3S 的版本与最终写锁后才能关单。陈旧记忆继续阻止解决，分析结果只提供复核线索。
+- 隐私契约明确禁止完整回答、检索 chunk、Prompt、工具输入/输出和隐藏推理进入响应；项目记忆来源也不返回事实正文或 content SHA。知识检索异常会局部降级，保留项目记忆与候选相关性分析，不让整个工作台不可用。
+- 确定性发布门禁由 63 个场景/19 项指标扩展为 66 个场景/20 项指标，新增 `question_answer_readiness_accuracy`，固定“相关且当前对齐可升为强候选、无关答案不能靠引用获救、准备度永不成为自动正确性裁决”三条不变量。本阶段复用现有 Message metadata、RAG、记忆事实/槽位和 Run Evaluation，不新增迁移。
+- 机制复用此前基于 Codex `protocol/src/models.rs`、`protocol/src/items.rs`（commit `83d1fe0e67b1323f71febc2925817732b449f1d9`）以及 `core/src/context/guardian_review_evidence.rs`（commit `99660ab3c7b861c916e467581fa9b8723504d66b`）吸收的稳定证据身份与有界裁决原则（Apache License 2.0），并改写为 Aria 原生 Python/FastAPI/React、项目 ACL 和多 Provider 实现；不运行、导入或连接 Codex。
+- 下一阶段进入 Phase 3U：把证据缺口转为用户可编辑的补证计划、追问草稿和责任动作，仍不允许模型自动外发、自动写业务状态或绕过 HITAS。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

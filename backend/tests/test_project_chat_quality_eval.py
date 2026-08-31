@@ -11,6 +11,7 @@ def test_project_chat_quality_release_gate_passes():
     assert report["metrics"]["layered_memory_routing_accuracy"]["score"] == 1.0
     assert report["metrics"]["memory_rebuild_planning_accuracy"]["score"] == 1.0
     assert report["metrics"]["memory_direct_source_accuracy"]["score"] == 1.0
+    assert report["metrics"]["question_answer_readiness_accuracy"]["score"] == 1.0
     assert all(
         metric["score"] == 1.0
         for metric in report["metrics"].values()

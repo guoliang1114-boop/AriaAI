@@ -26,6 +26,10 @@ from app.services.agent_harness.project_memory_evidence import (
     build_project_memory_evidence,
     select_project_memory_slots,
 )
+from app.services.agent_harness.knowledge_evidence import (
+    build_knowledge_evidence_manifest,
+    resolve_knowledge_citations,
+)
 from app.services.agent_harness.skill_releases import (
     skill_release_sha256,
     skill_rollout_bucket,
@@ -62,6 +66,7 @@ from app.services.memory_facts import (
     get_project_memory_fact_states,
 )
 from app.services.project_contexts import save_project_memory
+from app.services.project_question_evidence import assess_project_question_answer
 from app.services.skill_router import (
     auto_select_skill,
     decide_conversation_skill_activation,
@@ -1142,6 +1147,75 @@ def _memory_direct_source_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _question_answer_readiness_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Answer ranking must reward current evidence without claiming truth."""
+
+    question = "客户是否确认了最终验收范围？"
+    manifest = build_knowledge_evidence_manifest(
+        [
+            SimpleNamespace(
+                content="客户已经书面确认最终验收范围。",
+                document_name="验收确认函.pdf",
+                document_id=31,
+                chunk_index=2,
+                score=0.91,
+            )
+        ],
+        knowledge_scope="project",
+        project_id=26,
+    )
+    cited, _ = resolve_knowledge_citations(manifest, "已确认。[K1]")
+    evidence_id = manifest["entries"][0]["evidence_id"]
+    source_map = {
+        ("knowledge", evidence_id): {
+            "source_type": "knowledge_document",
+            "evidence_id": evidence_id,
+            "citation_key": "K1",
+            "title": "验收确认函.pdf",
+        }
+    }
+    metadata = {
+        "knowledge_evidence": cited,
+        "run_evaluation": {
+            "schema_version": 1,
+            "verdict": "completed",
+            "score": 100,
+        },
+    }
+    supported = assess_project_question_answer(
+        question=question,
+        answer="客户已经书面确认最终验收范围。[K1]",
+        metadata=metadata,
+        project_id=26,
+        question_source_map=source_map,
+    )
+    unrelated = assess_project_question_answer(
+        question=question,
+        answer="今天讨论了团队团建安排。[K1]",
+        metadata=metadata,
+        project_id=26,
+        question_source_map=source_map,
+    )
+    details = [
+        {
+            "case": "relevant_current_evidence_can_rank_as_strong",
+            "passed": supported["readiness_band"] == "strong"
+            and supported["evidence"]["question_aligned_count"] == 1,
+        },
+        {
+            "case": "citations_cannot_rescue_an_unrelated_answer",
+            "passed": unrelated["readiness_band"] == "weak"
+            and "LOW_QUESTION_RELEVANCE" in unrelated["warnings"],
+        },
+        {
+            "case": "readiness_never_becomes_an_automatic_truth_verdict",
+            "passed": supported["requires_human_confirmation"] is True
+            and supported["is_correctness_verdict"] is False,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1165,6 +1239,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "skill_release_governance_accuracy": _skill_release_governance_results(),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
+        "question_answer_readiness_accuracy": _question_answer_readiness_results(),
     }
     metrics = {
         name: {
