@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type {
   ProjectDetail as ProjectDetailType,
   ProjectQuestionAnswerCandidate,
   ProjectQuestionEvidenceCandidate,
   ProjectQuestionEvidenceReview,
+  ProjectQuestionReanswerPreparation,
   ProjectQuestionPriority,
   ProjectQuestionReadinessBand,
   ProjectQuestionRemediationAction,
@@ -26,6 +28,7 @@ import { useToast } from '../../../../contexts/ToastContext'
 import { CxIcon } from '../CxIcons'
 import { CxPanel, CxStatus, type CxTone } from '../CxPrimitives'
 import { CxProjectShell } from '../CxProjectShell'
+import { saveProjectQuestionReanswerDraft } from '../questionReanswerDraft'
 
 
 interface QuestionsProps {
@@ -102,6 +105,7 @@ const EVIDENCE_WARNING_COPY: Record<string, string> = {
   WEAK_CURRENT_PROVENANCE: '当前对齐来源缺少直接或确定性溯源',
   RUN_EVALUATION_NOT_COMPLETED: '原始 Run 未通过完成裁决',
   ANSWER_MARKED_UNHELPFUL: '该回答曾被人工标记为无帮助',
+  REANSWER_EVIDENCE_CHANGED: '重新回答所引用的整改证据或审核版本已经变化',
 }
 
 function errorMessage(error: unknown): string {
@@ -563,6 +567,7 @@ function QuestionCard({
   onReopen,
   onRefresh,
 }: QuestionCardProps) {
+  const navigate = useNavigate()
   const [ownerId, setOwnerId] = useState(question.profile.owner_user_id?.toString() ?? '')
   const [priority, setPriority] = useState<ProjectQuestionPriority>(question.profile.priority)
   const [dueDate, setDueDate] = useState(question.profile.due_date)
@@ -572,6 +577,7 @@ function QuestionCard({
   const [evidenceReview, setEvidenceReview] = useState<ProjectQuestionEvidenceReview | null>(null)
   const [evidenceLoading, setEvidenceLoading] = useState(false)
   const [evidenceError, setEvidenceError] = useState('')
+  const [reanswerPreparing, setReanswerPreparing] = useState(false)
   const [remediationPlan, setRemediationPlan] = useState<ProjectQuestionRemediationPlan | null>(null)
   const [remediationLoading, setRemediationLoading] = useState(false)
   const [remediationError, setRemediationError] = useState('')
@@ -636,6 +642,44 @@ function QuestionCard({
   }, [evidenceRevision, loadEvidence, loadRemediation])
 
   const answerCandidates = evidenceReview?.candidates ?? data.answer_candidates
+  const eligibleReanswerAttachmentIds = (
+    evidenceReview?.question_evidence.attachments.sources ?? []
+  )
+    .filter((source) => (
+      source.attachment_id != null
+      && (
+        source.support_level === 'direct'
+        || source.review_status === 'accepted'
+      )
+    ))
+    .map((source) => Number(source.attachment_id))
+    .filter((id) => Number.isInteger(id) && id > 0)
+    .slice(0, 8)
+
+  const prepareEvidenceReanswer = async () => {
+    if (reanswerPreparing || eligibleReanswerAttachmentIds.length === 0) return
+    setReanswerPreparing(true)
+    setEvidenceError('')
+    try {
+      const prepared = await api.post<ProjectQuestionReanswerPreparation>(
+        `/projects/${projectId}/questions/${question.question_sha256}/reanswer/prepare`,
+        {
+          question: question.question,
+          attachment_ids: eligibleReanswerAttachmentIds,
+        },
+      )
+      saveProjectQuestionReanswerDraft(projectId, {
+        content: prepared.suggested_prompt,
+        input: prepared.input,
+        evidenceCount: prepared.sources.length,
+      })
+      navigate(`/projects/${projectId}/chat`)
+    } catch (error) {
+      setEvidenceError(errorMessage(error))
+    } finally {
+      setReanswerPreparing(false)
+    }
+  }
 
   const profileChanged =
     ownerId !== (question.profile.owner_user_id?.toString() ?? '')
@@ -796,6 +840,15 @@ function QuestionCard({
                 review={evidenceReview}
                 canSelect={question.status === 'open'}
                 onSelect={(messageId) => setAnswerId(String(messageId))}
+                canReanswer={
+                  data.can_write
+                  && data.memory.status === 'ready'
+                  && question.status !== 'resolved'
+                  && eligibleReanswerAttachmentIds.length > 0
+                  && !busy
+                }
+                reanswerPreparing={reanswerPreparing}
+                onReanswer={() => { void prepareEvidenceReanswer() }}
               />
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 9 }}>
                 <button
@@ -1879,10 +1932,16 @@ function QuestionEvidencePanel({
   review,
   canSelect,
   onSelect,
+  canReanswer,
+  reanswerPreparing,
+  onReanswer,
 }: {
   review: ProjectQuestionEvidenceReview
   canSelect: boolean
   onSelect: (messageId: number) => void
+  canReanswer: boolean
+  reanswerPreparing: boolean
+  onReanswer: () => void
 }) {
   const sources = [
     ...review.question_evidence.knowledge.sources,
@@ -1924,6 +1983,28 @@ function QuestionEvidencePanel({
           当前项目记忆含陈旧槽位，证据对齐结果需要额外复核。
         </div>
       )}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 9,
+          marginTop: 9,
+          flexWrap: 'wrap',
+        }}
+      >
+        <button
+          type="button"
+          disabled={!canReanswer || reanswerPreparing}
+          onClick={onReanswer}
+          style={secondaryButtonStyle(!canReanswer || reanswerPreparing)}
+        >
+          <CxIcon name="sparkle" size={12} />{' '}
+          {reanswerPreparing ? '正在冻结证据快照…' : '基于已核验证据重新回答'}
+        </button>
+        <span style={{ color: 'var(--ink-faint)', fontSize: 10.5 }}>
+          只生成新回答，不改写历史；人工接受仅表示可供复核，不代表事实成立。
+        </span>
+      </div>
       <div style={{ display: 'grid', gap: 7, marginTop: 10 }}>
         {review.candidates.slice(0, 5).map((candidate) => (
           <EvidenceCandidateRow

@@ -1,6 +1,6 @@
 import type { Reference } from '../types/api'
 
-const CITATION_KEY_PATTERN = /^(?:K|M)[1-9][0-9]{0,2}$/
+const CITATION_KEY_PATTERN = /^(?:A|K|M)[1-9][0-9]{0,2}$/
 
 export function knowledgeReferenceLabel(reference: Reference, index: number): string {
   const citationKey = String(reference.citation_key || '').trim()
@@ -15,7 +15,7 @@ export function normalizeKnowledgeReferences(value: unknown): Reference[] {
     const type = String(item.type || '')
     const id = Number(item.id)
     const title = String(item.title || '').trim()
-    if (!['skill', 'doc', 'file', 'milestone', 'memory'].includes(type)) return []
+    if (!['skill', 'doc', 'file', 'milestone', 'memory', 'question_evidence'].includes(type)) return []
     if (!Number.isInteger(id) || id < 0 || !title) return []
     const citationKey = String(item.citation_key || '').trim()
     return [{

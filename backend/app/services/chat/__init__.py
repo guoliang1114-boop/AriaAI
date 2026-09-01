@@ -84,6 +84,9 @@ from app.services.agent_harness.knowledge_evidence import (
 from app.services.agent_harness.project_memory_evidence import (
     resolve_runtime_project_memory_evidence,
 )
+from app.services.project_question_reanswer import (
+    resolve_runtime_project_question_reanswer_evidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -397,6 +400,13 @@ def _persist_interrupted_turn(
         state.project_memory_evidence = resolved_memory_evidence
         metadata["project_memory_evidence"] = resolved_memory_evidence
         references = [*memory_references, *references]
+    resolved_question_evidence, question_references = (
+        resolve_runtime_project_question_reanswer_evidence(runtime, full_text)
+    )
+    if resolved_question_evidence:
+        state.project_question_reanswer_evidence = resolved_question_evidence
+        metadata["project_question_reanswer_evidence"] = resolved_question_evidence
+        references = [*question_references, *references]
     if references:
         metadata["references"] = references
 
@@ -502,6 +512,13 @@ def _persist_phase_error_events(
         state.project_memory_evidence = resolved_memory_evidence
         metadata["project_memory_evidence"] = resolved_memory_evidence
         references = [*memory_references, *references]
+    resolved_question_evidence, question_references = (
+        resolve_runtime_project_question_reanswer_evidence(runtime, full_text)
+    )
+    if resolved_question_evidence:
+        state.project_question_reanswer_evidence = resolved_question_evidence
+        metadata["project_question_reanswer_evidence"] = resolved_question_evidence
+        references = [*question_references, *references]
     if references:
         metadata["references"] = references
 
@@ -622,6 +639,14 @@ async def stream_chat_events(
         ),
         project_memory_evidence=dict(
             getattr(runtime, "project_memory_evidence_manifest", None) or {}
+        ),
+        project_question_reanswer_evidence=dict(
+            getattr(
+                runtime,
+                "project_question_reanswer_evidence_manifest",
+                None,
+            )
+            or {}
         ),
     )
     state.run_id = str(getattr(runtime, "prepared_run_id", "") or "") or make_run_id()

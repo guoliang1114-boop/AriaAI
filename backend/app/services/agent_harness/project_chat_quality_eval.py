@@ -79,6 +79,13 @@ from app.services.project_question_remediation_executions import (
 from app.services.project_question_remediation_evidence_reviews import (
     build_remediation_evidence_review_contract,
 )
+from app.services.project_question_reanswer import (
+    build_project_question_reanswer_contract,
+    build_project_question_reanswer_manifest,
+    resolve_project_question_reanswer_citations,
+    validate_project_question_reanswer_manifest,
+)
+from app.services.project_question_resolutions import project_question_sha256
 from app.services.skill_router import (
     auto_select_skill,
     decide_conversation_skill_activation,
@@ -1388,6 +1395,101 @@ def _question_remediation_evidence_review_safety_results() -> tuple[
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _question_reanswer_grounding_safety_results() -> tuple[
+    int, int, list[dict[str, Any]]
+]:
+    """A re-answer stays source-bound, answer-only, and citation-exact."""
+
+    question = "客户是否确认了最终验收范围？"
+    question_identity = project_question_sha256(question)
+    contract = build_project_question_reanswer_contract()
+    manifest = build_project_question_reanswer_manifest(
+        project_id=26,
+        question_sha256=question_identity,
+        entries=[
+            {
+                "attachment_id": 51,
+                "evidence_id": f"remediation_attachment_{'a' * 64}",
+                "evidence_sha256": "a" * 64,
+                "evidence_kind": "manual_note",
+                "title": "客户回复人工核对记录",
+                "support_level": "review_required",
+                "review_status": "accepted",
+                "review_revision": 2,
+                "source_content_sha256": "b" * 64,
+            }
+        ],
+    )
+    cited, references = resolve_project_question_reanswer_citations(
+        manifest,
+        "人工记录支持这一有限表述。[A1] 无效键不会成为证据。[A9]",
+    )
+    uncited, uncited_references = resolve_project_question_reanswer_citations(
+        manifest,
+        "这段回答没有证据引用。",
+    )
+    valid, reason = validate_project_question_reanswer_manifest(cited)
+    current_source = {
+        (
+            "remediation_attachment",
+            "a" * 64,
+            51,
+            2,
+        ): {
+            "source_type": "remediation_attachment",
+            "support_level": "review_required",
+            "review_status": "accepted",
+        }
+    }
+    aligned = assess_project_question_answer(
+        question=question,
+        answer="客户对验收范围提供了回复，但仍须人工确认。[A1]",
+        metadata={"project_question_reanswer_evidence": cited},
+        project_id=26,
+        question_source_map=current_source,
+    )
+    cross_question = assess_project_question_answer(
+        question="项目预算是否获批？",
+        answer="项目预算获批。[A1]",
+        metadata={"project_question_reanswer_evidence": cited},
+        project_id=26,
+        question_source_map=current_source,
+    )
+    details = [
+        {
+            "case": "reanswer_contract_is_answer_only_and_non_agentic",
+            "passed": contract["answer_only"] is True
+            and contract["mutates_historical_messages"] is False
+            and contract["writes_long_term_memory"] is False
+            and contract["fetches_external_references"] is False
+            and contract["executes_tools"] is False
+            and contract["automatically_resolves_question"] is False,
+        },
+        {
+            "case": "only_emitted_exact_attachment_citations_are_persisted",
+            "passed": valid
+            and reason == ""
+            and cited["status"] == "partial"
+            and cited["invalid_citation_keys"] == ["A9"]
+            and [item["citation_key"] for item in references] == ["A1"],
+        },
+        {
+            "case": "uncited_available_evidence_never_becomes_a_reference",
+            "passed": uncited["status"] == "uncited"
+            and uncited["cited_evidence_ids"] == []
+            and uncited_references == [],
+        },
+        {
+            "case": "answer_alignment_is_bound_to_the_exact_project_question",
+            "passed": aligned["evidence"]["remediation_aligned_count"] == 1
+            and aligned["is_correctness_verdict"] is False
+            and cross_question["evidence"]["remediation_aligned_count"] == 0
+            and cross_question["evidence"]["invalid_citation_count"] == 1,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1421,6 +1523,9 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         ),
         "question_remediation_evidence_review_safety_rate": (
             _question_remediation_evidence_review_safety_results()
+        ),
+        "question_reanswer_grounding_safety_rate": (
+            _question_reanswer_grounding_safety_results()
         ),
     }
     metrics = {

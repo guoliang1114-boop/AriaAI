@@ -164,6 +164,8 @@ const evidenceReview: ProjectQuestionEvidenceReview = {
         cited_count: 2,
         knowledge_cited_count: 1,
         memory_cited_count: 1,
+        remediation_cited_count: 0,
+        remediation_aligned_count: 0,
         invalid_citation_count: 0,
         current_question_source_count: 2,
         question_aligned_count: 2,
@@ -446,6 +448,7 @@ function renderQuestions(refetch = vi.fn().mockResolvedValue(undefined)) {
 
 describe('project question workbench', () => {
   beforeEach(() => {
+    sessionStorage.clear()
     vi.mocked(api.get).mockReset()
     vi.mocked(api.patch).mockReset()
     vi.mocked(api.post).mockReset()
@@ -573,6 +576,78 @@ describe('project question workbench', () => {
     expect(screen.getByRole('button', { name: '标记已解决' })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: '采用回答 42' }))
     expect(screen.getByRole('combobox', { name: '选择解决问题的回答' })).toHaveValue('42')
+  })
+
+  it('prepares a bounded accepted-evidence re-answer draft without sending it', async () => {
+    const reviewWithAttachment: ProjectQuestionEvidenceReview = {
+      ...evidenceReview,
+      question_evidence: {
+        ...evidenceReview.question_evidence,
+        source_count: 3,
+        supporting_source_count: 2,
+        attachments: {
+          status: 'available',
+          source_count: 1,
+          supporting_source_count: 1,
+          sources: [{
+            source_type: 'remediation_attachment',
+            evidence_id: `remediation_attachment_${'e'.repeat(64)}`,
+            citation_key: '',
+            title: '客户回复人工核对记录',
+            attachment_id: 201,
+            execution_id: 101,
+            evidence_kind: 'manual_note',
+            support_level: 'review_required',
+            review_status: 'accepted',
+            review_revision: 1,
+            acceptance_is_truth_verdict: false,
+          }],
+        },
+      },
+    }
+    const prepared = {
+      schema_version: 1,
+      project_id: 9,
+      question: workbench.questions[0].question,
+      question_sha256: 'a'.repeat(64),
+      suggested_prompt: '请基于已核验的整改证据重新回答当前问题。',
+      input: {
+        question: workbench.questions[0].question,
+        question_sha256: 'a'.repeat(64),
+        contract_sha256: 'b'.repeat(64),
+        attachment_ids: [201],
+      },
+      sources: [{ attachment_id: 201 }],
+    }
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(reviewWithAttachment)
+      .mockResolvedValueOnce(prepared)
+    renderQuestions()
+    await screen.findByText('客户是否确认了最终验收范围？')
+
+    await userEvent.click(screen.getByRole('button', { name: '分析问题证据' }))
+    const reanswerButton = await screen.findByRole('button', {
+      name: '基于已核验证据重新回答',
+    })
+    await userEvent.click(reanswerButton)
+
+    await waitFor(() => expect(api.post).toHaveBeenNthCalledWith(
+      2,
+      `/projects/9/questions/${'a'.repeat(64)}/reanswer/prepare`,
+      {
+        question: '客户是否确认了最终验收范围？',
+        attachment_ids: [201],
+      },
+    ))
+    const draft = JSON.parse(String(sessionStorage.getItem(
+      'aria.project-question-reanswer.v1:9',
+    )))
+    expect(draft).toMatchObject({
+      content: prepared.suggested_prompt,
+      input: prepared.input,
+      evidenceCount: 1,
+    })
+    expect(api.post).toHaveBeenCalledTimes(2)
   })
 
   it('turns evidence gaps into editable local drafts without side effects', async () => {

@@ -1,6 +1,7 @@
 import type {
   GeneratedArtifact,
   KnowledgeEvidenceManifest,
+  ProjectQuestionReanswerEvidenceManifest,
   Reference,
   ToolCallEvent,
 } from './api'
@@ -33,6 +34,7 @@ export interface ChatStreamEvent {
   result?: unknown
   references?: Reference[]
   knowledge_evidence?: KnowledgeEvidenceManifest
+  project_question_reanswer_evidence?: ProjectQuestionReanswerEvidenceManifest
   artifacts?: GeneratedArtifact[]
   tool_calls?: ToolCallEvent[]
   skill_progress?: unknown[]

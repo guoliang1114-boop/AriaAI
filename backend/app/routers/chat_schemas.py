@@ -51,6 +51,26 @@ class TurnRecoveryInput(BaseModel):
     side_effects_possible: bool = False
 
 
+class ProjectQuestionReanswerInput(BaseModel):
+    """One exact, server-prepared evidence snapshot for a new answer-only Turn."""
+
+    question: str = Field(min_length=1, max_length=360)
+    question_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    contract_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    attachment_ids: List[int] = Field(
+        min_length=1,
+        max_length=8,
+    )
+
+
 class SendMessageRequest(BaseModel):
     conversation_id: Optional[int] = None
     content: str
@@ -68,6 +88,7 @@ class SendMessageRequest(BaseModel):
     turn_revision: Optional[TurnRevisionInput] = None
     turn_setup_trace: Optional[TurnSetupTraceInput] = None
     turn_recovery: Optional[TurnRecoveryInput] = None
+    project_question_reanswer: Optional[ProjectQuestionReanswerInput] = None
     action_confirmations: List[str] = []
 
 

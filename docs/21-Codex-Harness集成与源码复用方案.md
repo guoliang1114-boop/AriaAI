@@ -810,6 +810,14 @@ Skill 运行契约同步也移除了旧的 `type=legacy` 假工具占位符。�
 
 该阶段只判定“旧 worker 是否仍有权继续”，不声称能把任意外部副作用回滚，也不恢复 Codex/Provider transcript。业务授权仍由 ACL/HITAS/final-authorized writer 决定；worker lease 不能替代用户授权。
 
+### Phase 3Y：Source-bound 项目问题重新回答（已实施）
+
+- 从问题证据面板显式准备一次最多 8 条附件的无正文合同；只允许 direct 或当前 accepted 项。建议提示和来源标题可见，但源正文、审核理由、Prompt 和隐藏推理不进入准备响应。
+- 聊天运行时在创建 Conversation/Message 前重新验证问题、记忆槽位、项目范围、execution 状态、审核 revision 和当前源内容 SHA-256。漂移以 409 失败关闭，不自动重试，也不留下前端或数据库幽灵消息。
+- Re-answer Turn 固定为 answer-only、无 Skill、无工具、无项目写、无记忆写、无外链抓取、无自动关单。上下文把来源声明为不可信 workspace evidence；人工接受只表示允许复核，不是事实裁决。
+- 新回答只能用 `[A*]` 引用本轮合同来源；持久化层只接受正文实际输出的合法键。问题准备度用附件身份与审核 revision 对齐，来源或裁决变化会让旧回答降级。
+- 机制取自 Codex commit `f4e6cb78760af4eb75bb370f0f15bd8ca4cb1d3a` 的 `annotated_content.rs`、`additional_context.rs` 和 `contextual_user_message.rs` 中“模型可见内容与 Harness 分类分离、附加上下文有界、上下文消息单独识别”的最小原则，并改写为 Aria Python/FastAPI/React 与原生 ACL/证据账本。没有 Codex runtime、App Server、SDK、协议、进程或通信；无数据库迁移。
+
 ## 8. 许可证与升级流程
 
 Aria 主项目继续使用 MIT License；从 Codex 改编的具体文件同时受 Apache License 2.0 的适用要求约束。

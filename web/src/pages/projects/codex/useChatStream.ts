@@ -7,6 +7,8 @@ import type {
   KnowledgeEvidenceManifest,
   Message,
   MentionContext,
+  ProjectQuestionReanswerEvidenceManifest,
+  ProjectQuestionReanswerInput,
   Reference,
   TurnBriefInput,
   TurnRecoveryInput,
@@ -72,6 +74,7 @@ export interface ProjectChatTurnControl {
   turnRevision?: TurnRevisionInput
   turnSetupTrace?: TurnSetupTraceInput
   turnRecovery?: TurnRecoveryInput
+  projectQuestionReanswer?: ProjectQuestionReanswerInput
 }
 
 interface UseChatStreamArgs {
@@ -122,6 +125,15 @@ function readApiError(err: unknown): string {
 function createTurnRecoveryConflictError(): Error & { response: { status: 409 } } {
   const error = new Error('状态已变化，请重新核对') as Error & { response: { status: 409 } }
   error.name = 'TurnRecoveryPreviewConflictError'
+  error.response = { status: 409 }
+  return error
+}
+
+function createQuestionReanswerConflictError(): Error & { response: { status: 409 } } {
+  const error = new Error('问题或证据已经变化，请重新分析后再回答') as Error & {
+    response: { status: 409 }
+  }
+  error.name = 'ProjectQuestionReanswerConflictError'
   error.response = { status: 409 }
   return error
 }
@@ -250,13 +262,21 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     async (content: string, turnControl: ProjectChatTurnControl = {}) => {
       const text = content.trim()
       if (!text) return
+      const guardedTurn = Boolean(
+        turnControl.turnRecovery || turnControl.projectQuestionReanswer,
+      )
       if (conversationId == null) {
-        if (turnControl.turnRecovery) throw new Error('未选择对话')
+        if (guardedTurn) throw new Error('未选择对话')
         onError?.('未选择对话')
         return
       }
       if (sendInFlightRef.current || status === 'sending' || status === 'streaming') {
-        if (turnControl.turnRecovery) throw new Error('当前已有轮次正在运行，本次恢复未发送')
+        if (turnControl.turnRecovery) {
+          throw new Error('当前已有轮次正在运行，本次恢复未发送')
+        }
+        if (turnControl.projectQuestionReanswer) {
+          throw new Error('当前已有轮次正在运行，本次证据回答未发送')
+        }
         return
       }
 
@@ -285,25 +305,32 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           ...(turnControl.turnRevision ? { turn_revision: turnControl.turnRevision } : {}),
           ...(turnControl.turnSetupTrace ? { turn_setup_trace: turnControl.turnSetupTrace } : {}),
           ...(turnControl.turnRecovery ? { turn_recovery: turnControl.turnRecovery } : {}),
+          ...(turnControl.projectQuestionReanswer
+            ? { project_question_reanswer: turnControl.projectQuestionReanswer }
+            : {}),
         }),
         created_at: new Date().toISOString(),
       }
       const finishRequestedStop = () => {
-        if (turnControl.turnRecovery) {
+        if (guardedTurn) {
           // Recovery success is defined only by a matching Product run_done
           // with completed/waiting_confirmation. A local abort or cancelled
           // terminal must reject the caller so the UI cannot announce a false
           // recovery success. Before activation this also avoids a ghost
           // assistant bubble for a child run that may not exist.
           finishStoppedStream(false)
-          throw new Error('恢复运行已取消，未确认成功终态；请刷新后重新核对')
+          throw new Error(
+            turnControl.turnRecovery
+              ? '恢复运行已取消，未确认成功终态；请刷新后重新核对'
+              : '证据回答运行已取消，未确认成功终态；请刷新后重新核对',
+          )
         }
         finishStoppedStream()
       }
       // A recovery turn is guarded by the server-issued preview hash. Do not
       // render its optimistic user message until the server accepts that hash;
       // a 409 must leave no local instruction that was never persisted.
-      if (!turnControl.turnRecovery) onUserMessage(userMsg)
+      if (!guardedTurn) onUserMessage(userMsg)
 
       const token = localStorage.getItem('authToken') || ''
       const controller = new AbortController()
@@ -328,6 +355,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
             turn_revision: turnControl.turnRevision,
             turn_setup_trace: turnControl.turnSetupTrace,
             turn_recovery: turnControl.turnRecovery,
+            project_question_reanswer: turnControl.projectQuestionReanswer,
           }),
           signal: controller.signal,
         })
@@ -340,7 +368,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         setStatus('error')
         abortControllerRef.current = null
         sendInFlightRef.current = false
-        if (turnControl.turnRecovery) {
+        if (guardedTurn) {
           assistantDraftIdRef.current = 0
           setStreamingMessageId(0)
           reset()
@@ -356,16 +384,18 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         setActiveRunId(null)
         stopRequestedRef.current = false
         sendInFlightRef.current = false
-        if (turnControl.turnRecovery && response.status === 409) {
+        if (guardedTurn && response.status === 409) {
           assistantDraftIdRef.current = 0
           setStreamingMessageId(0)
           setStatus('idle')
           reset()
-          throw createTurnRecoveryConflictError()
+          throw turnControl.turnRecovery
+            ? createTurnRecoveryConflictError()
+            : createQuestionReanswerConflictError()
         }
         const message = `服务异常 (${response.status})`
         setStatus('error')
-        if (turnControl.turnRecovery) {
+        if (guardedTurn) {
           assistantDraftIdRef.current = 0
           setStreamingMessageId(0)
           reset()
@@ -381,6 +411,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       let buffer = ''
       let finalReferences: Reference[] = []
       let finalKnowledgeEvidence: KnowledgeEvidenceManifest | undefined
+      let finalQuestionReanswerEvidence: ProjectQuestionReanswerEvidenceManifest | undefined
       let finalArtifacts: GeneratedArtifact[] = []
       let finalToolCalls: unknown[] = []
       let finalSkillProgress: unknown[] = []
@@ -395,7 +426,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       let productTerminalStatus: 'completed' | 'waiting_confirmation' | 'failed' | 'cancelled' | null = null
       let productTerminalError: string | null = null
       let productStartedRunId: string | null = null
-      let recoveryUserMessagePublished = false
+      let guardedUserMessagePublished = false
 
       const handleEvent = (ev: ChatStreamEvent) => {
         // A recovery Message and child Run are only usable after the reserved
@@ -404,11 +435,11 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         // Publish the local user bubble only after a frame that the backend
         // emits strictly after successful activation.
         if (
-          turnControl.turnRecovery
-          && !recoveryUserMessagePublished
+          guardedTurn
+          && !guardedUserMessagePublished
           && (ev.type === 'conversation_id' || ev.type === 'run_started')
         ) {
-          recoveryUserMessagePublished = true
+          guardedUserMessagePublished = true
           onUserMessage(userMsg)
         }
         if (isProductRunEvent(ev)) {
@@ -507,6 +538,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           setActiveRunId(null)
           finalReferences = normalizeKnowledgeReferences(ev.references)
           finalKnowledgeEvidence = ev.knowledge_evidence
+          finalQuestionReanswerEvidence = ev.project_question_reanswer_evidence
           finalArtifacts = ev.artifacts && ev.artifacts.length > 0 ? ev.artifacts : artifactsRef.current
           finalToolCalls = ev.tool_calls || []
           finalSkillProgress = ev.skill_progress || []
@@ -572,7 +604,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         setActiveRunId(null)
         reset()
         sendInFlightRef.current = false
-        if (turnControl.turnRecovery) throw new Error(productTerminalError)
+        if (guardedTurn) throw new Error(productTerminalError)
         onError?.(productTerminalError)
         return
       }
@@ -584,17 +616,17 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         setActiveRunId(null)
         reset()
         sendInFlightRef.current = false
-        if (turnControl.turnRecovery) throw new Error(streamErr)
+        if (guardedTurn) throw new Error(streamErr)
         onError?.(streamErr)
         return
       }
 
       if (
-        turnControl.turnRecovery
+        guardedTurn
         && productTerminalStatus !== 'completed'
         && productTerminalStatus !== 'waiting_confirmation'
       ) {
-        const message = '恢复运行缺少可验证的成功终态，请重新核对后再继续'
+        const message = '受保护运行缺少可验证的成功终态，请重新核对后再继续'
         setStatus('error')
         abortControllerRef.current = null
         activeRunIdRef.current = null
@@ -615,7 +647,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         setActiveRunId(null)
         reset()
         sendInFlightRef.current = false
-        if (turnControl.turnRecovery) throw new Error(message)
+        if (guardedTurn) throw new Error(message)
         onError?.(message)
         return
       }
@@ -628,6 +660,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         metadata_json: JSON.stringify({
           references: finalReferences,
           knowledge_evidence: finalKnowledgeEvidence,
+          project_question_reanswer_evidence: finalQuestionReanswerEvidence,
           artifacts: finalArtifacts,
           tool_calls: finalToolCalls,
           skill_progress: finalSkillProgress,
@@ -643,6 +676,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           context_receipt: contextReceiptRef.current || undefined,
           turn_revision: turnControl.turnRevision,
           turn_recovery: turnControl.turnRecovery,
+          project_question_reanswer: turnControl.projectQuestionReanswer,
           activity_timeline: activityTimelineRef.current || undefined,
         }),
         created_at: new Date().toISOString(),

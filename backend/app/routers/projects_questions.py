@@ -25,6 +25,9 @@ from app.services.project_question_resolutions import (
 from app.services.project_question_evidence import (
     build_project_question_evidence_review,
 )
+from app.services.project_question_reanswer import (
+    prepare_project_question_reanswer,
+)
 from app.services.project_question_remediation import (
     build_project_question_remediation_plan,
 )
@@ -65,6 +68,11 @@ class UpdateProjectQuestionProfileRequest(BaseModel):
 
 class AnalyzeProjectQuestionEvidenceRequest(BaseModel):
     question: str = Field(min_length=1, max_length=360)
+
+
+class PrepareProjectQuestionReanswerRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=360)
+    attachment_ids: list[int] = Field(min_length=1, max_length=8)
 
 
 class PrepareProjectQuestionRemediationPromotionRequest(BaseModel):
@@ -167,6 +175,31 @@ def analyze_project_question_evidence(
         project=_project(session, project_id),
         question=body.question,
         question_sha256=question_sha256,
+    )
+
+
+@router.post("/{question_sha256}/reanswer/prepare")
+def prepare_project_question_evidence_reanswer(
+    project_id: int,
+    question_sha256: str,
+    body: PrepareProjectQuestionReanswerRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Freeze a bounded evidence snapshot for one new answer-only chat Turn."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    return prepare_project_question_reanswer(
+        session,
+        project=_project(session, project_id),
+        question=body.question,
+        question_sha256=question_sha256,
+        attachment_ids=body.attachment_ids,
     )
 
 

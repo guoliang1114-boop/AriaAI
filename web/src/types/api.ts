@@ -1145,6 +1145,8 @@ export interface ProjectQuestionAnswerAssessment {
     cited_count: number
     knowledge_cited_count: number
     memory_cited_count: number
+    remediation_cited_count: number
+    remediation_aligned_count: number
     invalid_citation_count: number
     current_question_source_count: number
     question_aligned_count: number
@@ -1230,6 +1232,80 @@ export interface ProjectQuestionEvidenceReview {
     includes_tool_outputs: false
     includes_hidden_reasoning: false
   }
+}
+
+export interface ProjectQuestionReanswerInput {
+  question: string
+  question_sha256: string
+  contract_sha256: string
+  attachment_ids: number[]
+}
+
+export interface ProjectQuestionReanswerPreparedSource {
+  attachment_id: number
+  citation_key: string
+  evidence_kind: ProjectQuestionRemediationEvidenceKind
+  title: string
+  support_level: ProjectQuestionRemediationEvidenceSupportLevel
+  review_status: ProjectQuestionRemediationEvidenceReviewStatus
+  review_revision: number
+  evidence_sha256: string
+  external_reference_not_fetched: boolean
+}
+
+export interface ProjectQuestionReanswerPreparation {
+  schema_version: 1
+  project_id: number
+  question: string
+  question_sha256: string
+  suggested_prompt: string
+  input: ProjectQuestionReanswerInput
+  sources: ProjectQuestionReanswerPreparedSource[]
+  contract: {
+    name: 'project_question_evidence_reanswer'
+    answer_only: true
+    requires_current_open_question: true
+    requires_current_evidence_snapshot: true
+    cites_only_emitted_keys: true
+    mutates_historical_messages: false
+    acceptance_is_truth_verdict: false
+    writes_long_term_memory: false
+    fetches_external_references: false
+    sends_messages: false
+    executes_tools: false
+    automatically_resolves_question: false
+  }
+  privacy: {
+    includes_bounded_source_titles: boolean
+    includes_source_content: false
+    includes_review_reasons: false
+    includes_prompt_or_hidden_reasoning: false
+  }
+}
+
+export interface ProjectQuestionReanswerEvidenceManifest {
+  schema_version: 1
+  manifest_id: string
+  contract_sha256: string
+  project_id: number
+  question_sha256: string
+  status: 'available' | 'cited' | 'uncited' | 'invalid' | 'partial' | 'not_available'
+  entries: Array<{
+    attachment_id: number
+    evidence_id: string
+    evidence_sha256: string
+    citation_key: string
+    evidence_kind: ProjectQuestionRemediationEvidenceKind
+    title: string
+    support_level: ProjectQuestionRemediationEvidenceSupportLevel
+    review_status: ProjectQuestionRemediationEvidenceReviewStatus
+    review_revision: number
+    source_content_sha256: string
+    external_reference_not_fetched: boolean
+  }>
+  cited_evidence_ids: string[]
+  invalid_citation_keys: string[]
+  acceptance_is_truth_verdict: false
 }
 
 export type ProjectQuestionRemediationStatus =
@@ -1611,7 +1687,7 @@ export interface Message {
 }
 
 export interface Reference {
-  type: 'skill' | 'doc' | 'file' | 'milestone' | 'memory'
+  type: 'skill' | 'doc' | 'file' | 'milestone' | 'memory' | 'question_evidence'
   id: number
   title: string
   schema_version?: 1

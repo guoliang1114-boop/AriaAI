@@ -61,6 +61,10 @@ from app.services.chat.pending_actions import (
 from app.services.project_contexts import mark_project_memory_stale
 from app.services.project_core import init_default_project_folders, lock_and_require_project_write
 from app.services.project_documents import create_project_document_record
+from app.services.project_question_reanswer import (
+    project_question_reanswer_manifest_reference,
+    resolve_runtime_project_question_reanswer_evidence,
+)
 from app.services.time_utils import utc_now_naive
 from app.services.chat_store import persist_assistant_message, persist_run_artifacts
 from app.services.agent_harness.active_run_lease import (
@@ -1158,6 +1162,20 @@ async def run_persist(
             **memory_evidence_ref,
         )
         cited_references = [*cited_memory_references, *cited_references]
+    resolved_question_evidence, cited_question_references = (
+        resolve_runtime_project_question_reanswer_evidence(runtime, full_text)
+    )
+    if resolved_question_evidence:
+        state.project_question_reanswer_evidence = resolved_question_evidence
+        question_evidence_ref = project_question_reanswer_manifest_reference(
+            resolved_question_evidence
+        )
+        state.record_trace_event(
+            "project_question_reanswer_citations_resolved",
+            stage="completion_evaluation",
+            **question_evidence_ref,
+        )
+        cited_references = [*cited_question_references, *cited_references]
 
     # Deterministic completion evidence gate. Unlike a model reviewer this is
     # stable across providers and only consumes bounded Aria audit summaries.
@@ -1224,6 +1242,10 @@ async def run_persist(
         metadata["knowledge_evidence"] = resolved_evidence
     if resolved_memory_evidence:
         metadata["project_memory_evidence"] = resolved_memory_evidence
+    if resolved_question_evidence:
+        metadata["project_question_reanswer_evidence"] = (
+            resolved_question_evidence
+        )
     if state.tool_call_events:
         metadata["tool_calls"] = state.tool_call_events
     if pending_action_ids:

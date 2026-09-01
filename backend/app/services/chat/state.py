@@ -54,6 +54,7 @@ class ChatSessionState:
     context_manifest: dict[str, Any] = field(default_factory=dict)
     knowledge_evidence: dict[str, Any] = field(default_factory=dict)
     project_memory_evidence: dict[str, Any] = field(default_factory=dict)
+    project_question_reanswer_evidence: dict[str, Any] = field(default_factory=dict)
     run_outputs: list[dict[str, Any]] = field(default_factory=list)
     turn_receipt: dict[str, Any] = field(default_factory=dict)
     context_receipt: dict[str, Any] = field(default_factory=dict)

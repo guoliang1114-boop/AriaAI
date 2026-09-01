@@ -96,7 +96,11 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - durable database-backed run-control inputs, ordered compare-and-set
   consumption, and process-local live-stage / same-worker cancellation hints
   adapted from the expected-turn input boundary so accepted steering or
-  cancellation intent is not owned by one ASGI process.
+  cancellation intent is not owned by one ASGI process; and
+- model-visible content paired with harness-owned classification, bounded
+  additional context, and contextual user-message separation adapted into
+  source-bound project-question re-answer snapshots and exact emitted-citation
+  resolution without retaining source text in Message metadata.
 
 Recorded upstream audit baselines include commits
 `83d1fe0e67b1323f71febc2925817732b449f1d9` and
@@ -133,6 +137,21 @@ context-guardian implementation with a native SQLModel current-state ledger,
 append-only decision events, project ACL reauthorization, optimistic revision,
 and a React/FastAPI workflow. No Codex runtime, protocol, SDK, subprocess, or
 network communication is included.
+
+For the Phase 3Y source-bound re-answer addition,
+`backend/app/services/project_question_reanswer.py` adapts the separation of
+model-visible content from harness-owned source classification in
+`codex-rs/context-fragments/src/annotated_content.rs`,
+`codex-rs/context-fragments/src/additional_context.rs`, and
+`codex-rs/core/src/context/contextual_user_message.rs` at commit
+`f4e6cb78760af4eb75bb370f0f15bd8ca4cb1d3a`. Aria replaces the upstream
+Rust/context-fragment mechanism with a bounded Python evidence snapshot,
+project ACL and open-question checks, source-content SHA-256 revalidation,
+answer-only/no-tool Turn enforcement, and persisted citations only for exact
+`[A*]` keys emitted by the new answer. It does not rewrite historical
+Messages, fetch external references, write memory, automatically resolve a
+question, or include any Codex runtime, protocol, SDK, subprocess, account, or
+network communication.
 
 OpenAI Codex is available under the Apache License 2.0:
 

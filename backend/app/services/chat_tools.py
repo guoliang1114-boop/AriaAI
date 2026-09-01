@@ -71,6 +71,9 @@ class ChatRuntime:
     # Query-aware Project Memory Evidence v1. The manifest retains only slot
     # identities and content digests; selected memory text stays in ``system``.
     project_memory_evidence_manifest: dict | None = None
+    # Exact no-content manifest for a project-question evidence re-answer.
+    # Source text is transient and exists only in the assembled system context.
+    project_question_reanswer_evidence_manifest: dict | None = None
     intent_prepared_async: bool = False
     # Per-turn context budgeting. Production runtime construction always sets
     # these values; zero keeps direct test/recovery constructors backward

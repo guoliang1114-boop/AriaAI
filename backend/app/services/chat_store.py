@@ -197,6 +197,7 @@ def build_message_metadata(
     turn_revision: Optional[dict] = None,
     turn_setup_trace: Optional[dict] = None,
     turn_recovery: Optional[dict] = None,
+    project_question_reanswer: Optional[dict] = None,
 ) -> dict:
     metadata = {}
     if skill_id:
@@ -268,6 +269,11 @@ def build_message_metadata(
         normalized_recovery = normalize_turn_recovery_contract(turn_recovery)
         if normalized_recovery:
             metadata["turn_recovery"] = normalized_recovery
+    if project_question_reanswer:
+        # This request is content-free. The current source contents stay only
+        # in the in-memory runtime context; the Assistant Message receives the
+        # resolved no-content evidence manifest after generation.
+        metadata["project_question_reanswer"] = dict(project_question_reanswer)
     return metadata
 
 

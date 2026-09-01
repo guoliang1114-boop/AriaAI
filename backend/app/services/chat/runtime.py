@@ -8,6 +8,7 @@ import time
 from dataclasses import replace
 from typing import Any
 
+from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.config import (
@@ -102,6 +103,11 @@ from app.services.chat.working_memory import (
 from app.services.consulting_intelligence import ConsultingTurnFrame, build_consulting_turn_frame
 from app.services.intent_router import IntentDecision, classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_access
+from app.services.project_question_reanswer import (
+    ProjectQuestionReanswerBundle,
+    project_question_reanswer_manifest_reference,
+    resolve_project_question_reanswer_input,
+)
 from app.services.skill_router import (
     SkillActivationDecision,
     auto_select_skill,
@@ -927,6 +933,42 @@ def prepare_chat_runtime(
     prepare_started_at = time.perf_counter()
     step_started_at = prepare_started_at
     prepare_metrics: dict[str, object] = {}
+    question_reanswer_bundle: ProjectQuestionReanswerBundle | None = None
+
+    # Re-answer evidence is a server-prepared, exact-content contract. Resolve
+    # it before creating a Conversation or persisting the user Message so an
+    # evidence/review drift fails as a normal 409 with no optimistic ghost Turn.
+    if req.project_question_reanswer is not None:
+        if not req.project_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Project-question re-answer requires a project conversation",
+            )
+        if req.turn_recovery is not None or req.action_confirmations:
+            raise HTTPException(
+                status_code=400,
+                detail="Project-question re-answer cannot be combined with recovery or actions",
+            )
+        # A re-answer is governed by its evidence contract, not a Skill
+        # workflow. Keep Skill packages available for ordinary Turns while
+        # preventing auto-selection from changing this answer-only boundary.
+        req.skill_id = None
+        req.force_skill = False
+        req.disable_skill = True
+        reanswer_input = req.project_question_reanswer
+        question_reanswer_bundle = resolve_project_question_reanswer_input(
+            session,
+            project_id=int(req.project_id),
+            question=reanswer_input.question,
+            question_sha256=reanswer_input.question_sha256,
+            contract_sha256=reanswer_input.contract_sha256,
+            attachment_ids=reanswer_input.attachment_ids,
+        )
+        prepare_metrics["project_question_reanswer"] = (
+            project_question_reanswer_manifest_reference(
+                question_reanswer_bundle.manifest
+            )
+        )
 
     # 1. Skill resolution
     _, skill_decision, effective_skill_id, effective_skill = _resolve_effective_skill(session, req)
@@ -1067,6 +1109,11 @@ def prepare_chat_runtime(
         turn_revision=req.turn_revision.model_dump() if req.turn_revision else None,
         turn_setup_trace=req.turn_setup_trace.model_dump() if req.turn_setup_trace else None,
         turn_recovery=turn_recovery or None,
+        project_question_reanswer=(
+            req.project_question_reanswer.model_dump()
+            if req.project_question_reanswer is not None
+            else None
+        ),
     )
     if isinstance(metadata.get("turn_revision"), dict):
         prepare_metrics["turn_revision"] = dict(metadata["turn_revision"])
@@ -1153,6 +1200,14 @@ def prepare_chat_runtime(
     temperature = get_float_setting(session, "temperature", DEFAULT_TEMPERATURE) or DEFAULT_TEMPERATURE
     context_mode = _context_mode_from_decision(intent_decision.chat_mode)
     context_file_ids = list(req.file_ids or [])
+    context_rag_doc_ids = list(req.rag_doc_ids or [])
+    if question_reanswer_bundle is not None:
+        context_file_ids.extend(question_reanswer_bundle.project_file_ids)
+        context_rag_doc_ids.extend(
+            question_reanswer_bundle.knowledge_document_ids
+        )
+        context_file_ids = list(dict.fromkeys(context_file_ids))
+        context_rag_doc_ids = list(dict.fromkeys(context_rag_doc_ids))
     current_artifact = working_memory.current_artifact or {}
     current_artifact_file_id = current_artifact.get("project_file_id")
     if current_artifact_file_id and should_continue_current_artifact(working_memory):
@@ -1169,7 +1224,7 @@ def prepare_chat_runtime(
         skill_id=effective_skill_id,
         project_id=req.project_id,
         knowledge_scope=req.knowledge_scope,
-        rag_doc_ids=req.rag_doc_ids if req.rag_doc_ids else None,
+        rag_doc_ids=context_rag_doc_ids if context_rag_doc_ids else None,
         file_ids=context_file_ids if context_file_ids else None,
         content=current_turn_request,
         default_max_tokens=max_tokens,
@@ -1223,6 +1278,13 @@ def prepare_chat_runtime(
     )
     if turn_recovery_prompt:
         system = f"{system.rstrip()}\n\n{turn_recovery_prompt}\n"
+    question_reanswer_prompt = (
+        question_reanswer_bundle.prompt
+        if question_reanswer_bundle is not None
+        else ""
+    )
+    if question_reanswer_prompt:
+        system = f"{system.rstrip()}\n\n{question_reanswer_prompt}\n"
 
     # Filter tools BEFORE building the capability frame so the prompt
     # can list the exact tools the LLM will see (Phase 3). The
@@ -1239,6 +1301,26 @@ def prepare_chat_runtime(
         tools=runtime_tools,
         skill_applied=bool(effective_skill),
     )
+    if question_reanswer_bundle is not None:
+        # This contract is narrower than ordinary intent routing: even if the
+        # typed request contains execution words, this exact Turn is evidence-
+        # grounded answer generation only. Business writes remain in Aria's
+        # explicit resolution/HITAS flows.
+        runtime_tools = []
+        turn_contract = replace(
+            turn_contract,
+            mode="answer_only",
+            needs_tools=False,
+            needs_artifact=False,
+            artifact_type=None,
+            target_scope="project",
+            execution_scope="chat_only",
+            expected_response="grounded_answer",
+            requires_confirmation=False,
+            write_allowed=False,
+            source="project_question_reanswer_contract",
+            reason="current accepted evidence snapshot; new answer only",
+        )
     if turn_contract.mode == "plan_only" and runtime_tools:
         runtime_tools = []
         turn_contract = build_turn_contract(
@@ -1340,7 +1422,11 @@ def prepare_chat_runtime(
             "active_task_state": active_task_layer,
             "effective_skill": chat_ctx.skill_prompt,
             "user_preferences": user_memory_section,
-            "workspace_evidence": chat_ctx.rag_context,
+            "workspace_evidence": "\n\n".join(
+                item
+                for item in (chat_ctx.rag_context, question_reanswer_prompt)
+                if item
+            ),
             "conversation_capsule": conversation_capsule_prompt,
         }
     )
@@ -1389,6 +1475,18 @@ def prepare_chat_runtime(
         or CONTEXT_HISTORY_SUMMARY_TOKENS
     )
     context_sources = list(getattr(chat_ctx, "context_sources", ()) or ())
+    if question_reanswer_prompt:
+        context_sources.append(
+            ContextSourceInput(
+                source_id="project_question_reanswer_evidence",
+                kind="retrieval",
+                trust="workspace",
+                content=question_reanswer_prompt,
+                metadata=project_question_reanswer_manifest_reference(
+                    question_reanswer_bundle.manifest
+                ),
+            )
+        )
     context_sources.extend(
         [
             ContextSourceInput(
@@ -1514,6 +1612,12 @@ def prepare_chat_runtime(
     prepare_metrics["project_memory_evidence"] = project_memory_evidence_reference(
         chat_ctx.project_memory_evidence_manifest
     )
+    if question_reanswer_bundle is not None:
+        prepare_metrics["project_question_reanswer"] = (
+            project_question_reanswer_manifest_reference(
+                question_reanswer_bundle.manifest
+            )
+        )
     prepare_metrics["history_message_count"] = len(api_messages)
     prepare_metrics["history_summarized_message_count"] = context_assembly.budget_report.summarized_messages
     prepare_metrics["intent_frame"] = intent_frame
@@ -1546,6 +1650,11 @@ def prepare_chat_runtime(
         rag_sources=chat_ctx.rag_sources,
         knowledge_evidence_manifest=chat_ctx.knowledge_evidence_manifest,
         project_memory_evidence_manifest=chat_ctx.project_memory_evidence_manifest,
+        project_question_reanswer_evidence_manifest=(
+            question_reanswer_bundle.manifest
+            if question_reanswer_bundle is not None
+            else None
+        ),
         tools=runtime_tools,
         max_tokens=runtime_max_tokens,
         temperature=temperature,

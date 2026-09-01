@@ -368,6 +368,20 @@ async def send_message(
         req.project_id = conversation.project_id
     try:
         runtime = await prepare_chat_runtime(session, req, owner_user_id=current_user.id)
+    except HTTPException as exc:
+        if req.project_question_reanswer is not None:
+            # Evidence drift is a pre-Run conflict. Preserve the real 4xx so
+            # the guarded frontend can discard no optimistic Message and ask
+            # the user to prepare a fresh evidence snapshot.
+            session.rollback()
+            raise
+        logger.error("[chat prepare error] %s", exc, exc_info=True)
+        session.rollback()
+        return StreamingResponse(
+            _prepare_error_stream(bind=session.get_bind(), req=req, exc=exc),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
     except TurnRecoveryConflict as exc:
         session.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

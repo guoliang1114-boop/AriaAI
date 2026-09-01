@@ -527,6 +527,14 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 幂等迁移 `042_v1_42` 创建 current review 与 append-only review event 两表，为附件唯一当前态、逐 review revision、状态、SHA-256 身份、FK 和检索索引建立数据库约束并保持单一 Alembic head。发布门禁从 75 个场景/23 项指标扩展为 78 个场景/24 项指标，SQLite 行为/迁移、React 裁决生命周期和 PostgreSQL 唯一当前态进入部署与备份后隔离 schema E2E。
 - 本阶段借鉴 Codex `codex-rs/core/src/context/guardian_review_evidence.rs` 在 commit `99660ab3c7b861c916e467581fa9b8723504d66b` 的“不可变证据与审阅判断分离”原则（Apache-2.0），重写为 Aria 原生 SQLModel/FastAPI/React、项目 ACL、CAS 与业务审计。源码归因见 `THIRD_PARTY_NOTICES.md`；Aria 生产运行时不导入、运行或连接 Codex。
 
+### Phase 3Y：已核验证据重新回答与 A 引用闭环（已实施）
+
+- 项目问题最薄弱的“补到证据后仍无法生成可对齐新答案”缺口已闭合：工作台可将 direct/accepted 整改附件冻结并带到项目对话，用户在发送前仍可审阅和修改问题表述。
+- 服务端不信任浏览器草稿。发送前重新验证问题仍开放、项目记忆 ready、附件未取消、人工裁决 revision 和源内容摘要未漂移；冲突返回 409，前端不显示未被服务端接受的用户消息。
+- 该轮禁用 Skill 和工具并强制 answer-only。模型必须区分直接证据、人工判断和未知信息，使用 `[A1]…[A8]`；外链不会被 Aria 自动访问，人工接受不等于真实性裁决。
+- 新 Assistant Message 保存无正文证据 manifest 与实际引用；问题工作台重算准备度时能够识别整改证据引用。裁决或来源变化后，旧回答不再保持强对齐，必须重新分析。
+- 用户仍需回到问题页选择新回答、填写解决摘要并通过记忆/槽位版本锁关单。该链路不会篡改历史回答、自动沉淀记忆、发送外部消息或自动解决问题；82 个确定性场景、25 项指标全部为 1.0，无数据库迁移。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

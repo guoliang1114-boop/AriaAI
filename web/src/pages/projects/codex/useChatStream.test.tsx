@@ -622,6 +622,100 @@ describe('useChatStream Skill control', () => {
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
+  it('guards a project-question re-answer and persists A citations from done', async () => {
+    const manifest = {
+      schema_version: 1,
+      manifest_id: 'pqr_manifest_example',
+      contract_sha256: 'b'.repeat(64),
+      project_id: 3,
+      question_sha256: 'a'.repeat(64),
+      status: 'cited',
+      entries: [],
+      cited_evidence_ids: ['remediation_attachment_example'],
+      invalid_citation_keys: [],
+      acceptance_is_truth_verdict: false,
+    }
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      'data: {"type":"run_started","run_id":"run_reanswer","timestamp":"2026-09-02T00:00:00Z"}\n\n'
+      + 'data: {"type":"text","content":"基于当前证据回答。[A1]"}\n\n'
+      + `data: ${JSON.stringify({
+        type: 'done',
+        references: [{
+          type: 'question_evidence',
+          id: 51,
+          title: '客户回复记录',
+          citation_key: 'A1',
+        }],
+        project_question_reanswer_evidence: manifest,
+      })}\n\n`
+      + 'data: {"type":"run_done","run_id":"run_reanswer","final_status":"completed"}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    ))
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+    }))
+    const projectQuestionReanswer = {
+      question: '客户是否确认了最终验收范围？',
+      question_sha256: 'a'.repeat(64),
+      contract_sha256: 'b'.repeat(64),
+      attachment_ids: [51],
+    }
+
+    await act(async () => result.current.send('基于核验证据回答', {
+      disableSkill: true,
+      projectQuestionReanswer,
+    }))
+
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      disable_skill: true,
+      project_question_reanswer: projectQuestionReanswer,
+    })
+    expect(onUserMessage).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(onUserMessage.mock.calls[0][0].metadata_json)).toMatchObject({
+      project_question_reanswer: projectQuestionReanswer,
+    })
+    expect(JSON.parse(onAssistantMessage.mock.calls[0][0].metadata_json)).toMatchObject({
+      references: [{ type: 'question_evidence', id: 51, citation_key: 'A1' }],
+      project_question_reanswer_evidence: manifest,
+    })
+  })
+
+  it('rejects stale re-answer evidence with no ghost messages', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      JSON.stringify({ detail: 'Question evidence changed' }),
+      { status: 409, headers: { 'Content-Type': 'application/json' } },
+    ))
+    const onUserMessage = vi.fn()
+    const onAssistantMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3,
+      conversationId: 4,
+      onUserMessage,
+      onAssistantMessage,
+    }))
+
+    await act(async () => {
+      await expect(result.current.send('重新回答', {
+        projectQuestionReanswer: {
+          question: '客户是否确认了最终验收范围？',
+          question_sha256: 'a'.repeat(64),
+          contract_sha256: 'b'.repeat(64),
+          attachment_ids: [51],
+        },
+      })).rejects.toThrow('问题或证据已经变化')
+    })
+
+    expect(onUserMessage).not.toHaveBeenCalled()
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps the streaming React key stable while retaining the persisted message id', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(
       'data: {"type":"text","content":"回答"}\n\n'

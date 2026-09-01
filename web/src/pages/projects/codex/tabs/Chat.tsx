@@ -7,6 +7,7 @@ import type {
   Message,
   ProjectDetail as ProjectDetailType,
   ProjectMentionables,
+  ProjectQuestionReanswerInput,
   ProjectRecoveryCenter as ProjectRecoveryCenterPayload,
   ProjectRecoveryCenterItem,
   SkillSummary,
@@ -86,6 +87,11 @@ import {
   turnRecoveryToastCopy,
 } from '../ProjectChatRecovery'
 import {
+  clearProjectQuestionReanswerDraft,
+  loadProjectQuestionReanswerDraft,
+  type ProjectQuestionReanswerDraft,
+} from '../questionReanswerDraft'
+import {
   formatUpdatedRelative,
   useConversationMessages,
   useProjectConversations,
@@ -129,6 +135,12 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
   const [requestedSelectedId, setRequestedSelectedId] = useState<number | null>(null)
   const [view, setView] = useState<'chats' | 'space' | 'recovery'>('chats')
   const [creating, setCreating] = useState(false)
+  const [questionReanswerDraft, setQuestionReanswerDraft] = (
+    useState<ProjectQuestionReanswerDraft | null>(() => (
+      loadProjectQuestionReanswerDraft(projectId)
+    ))
+  )
+  const questionReanswerAutoCreateRef = useRef<number | null>(null)
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [mentionablesState, setMentionablesState] = useState<{
     projectId: number
@@ -322,7 +334,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     void refetchConvs()
   }, [msgsError, refetchConvs])
 
-  const handleNewConversation = async () => {
+  const handleNewConversation = useCallback(async () => {
     if (creating) return
     setCreating(true)
     try {
@@ -339,7 +351,27 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
     } finally {
       setCreating(false)
     }
-  }
+  }, [creating, projectId, refetchConvs, toast])
+
+  useEffect(() => {
+    if (
+      questionReanswerDraft
+      && !convsLoading
+      && conversations.length === 0
+      && !creating
+      && questionReanswerAutoCreateRef.current !== projectId
+    ) {
+      questionReanswerAutoCreateRef.current = projectId
+      void handleNewConversation()
+    }
+  }, [
+    conversations.length,
+    convsLoading,
+    creating,
+    handleNewConversation,
+    projectId,
+    questionReanswerDraft,
+  ])
 
   const showPreview = openArtifact != null
   const selectedConv = conversations.find((c) => c.id === selectedId) ?? null
@@ -430,7 +462,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
         <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {selectedId != null ? (
             <ThreadView
-              key={selectedId}
+              key={`${selectedId}:${questionReanswerDraft?.input.contract_sha256 ?? ''}`}
               projectId={projectId}
               conversationId={selectedId}
               conversation={selectedConv}
@@ -460,6 +492,11 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
               onDeleted={handleConversationDeleted}
               onChanged={refetchConvs}
               recoveryFocus={recoveryFocus?.conversationId === selectedId ? recoveryFocus : null}
+              questionReanswerDraft={questionReanswerDraft}
+              onQuestionReanswerConsumed={() => {
+                clearProjectQuestionReanswerDraft(projectId)
+                setQuestionReanswerDraft(null)
+              }}
             />
           ) : (
             <EmptyThread />
@@ -824,6 +861,8 @@ interface ThreadViewProps {
   onDeleted: (conversationId: number) => Promise<void> | void
   onChanged: () => Promise<void>
   recoveryFocus: { messageId: number | null; requestId: number } | null
+  questionReanswerDraft: ProjectQuestionReanswerDraft | null
+  onQuestionReanswerConsumed: () => void
 }
 
 function ThreadView({
@@ -856,6 +895,8 @@ function ThreadView({
   onDeleted,
   onChanged,
   recoveryFocus,
+  questionReanswerDraft,
+  onQuestionReanswerConsumed,
 }: ThreadViewProps) {
   const navigate = useNavigate()
   const toast = useToast()
@@ -866,14 +907,23 @@ function ThreadView({
   const scrollRef = useRef<HTMLDivElement>(null)
   // Composer text is lifted here so the empty-state prompts can
   // seed it. Cleared on send.
-  const [composerText, setComposerText] = useState('')
-  const [skillSelection, setSkillSelection] = useState<ProjectSkillSelection>({ mode: 'auto' })
+  const [composerText, setComposerText] = useState(
+    questionReanswerDraft?.content ?? '',
+  )
+  const [skillSelection, setSkillSelection] = useState<ProjectSkillSelection>(
+    questionReanswerDraft ? { mode: 'off' } : { mode: 'auto' },
+  )
   const [selectedMentions, setSelectedMentions] = useState<SelectedProjectMention[]>([])
   const [turnBriefDraft, setTurnBriefDraft] = useState<ProjectTurnBriefDraft>(EMPTY_PROJECT_TURN_BRIEF)
   const [turnRevisionSource, setTurnRevisionSource] = useState<ProjectTurnRevisionSource | null>(null)
   const [turnSetupSuggestion, setTurnSetupSuggestion] = useState<TurnSetupSuggestion | null>(null)
   const [turnSetupTrace, setTurnSetupTrace] = useState<TurnSetupTraceInput | null>(null)
   const [turnSetupLoading, setTurnSetupLoading] = useState(false)
+  const [projectQuestionReanswer, setProjectQuestionReanswer] = (
+    useState<ProjectQuestionReanswerInput | null>(
+      questionReanswerDraft?.input ?? null,
+    )
+  )
   const turnSetupRequestRef = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mentionOptions = useMemo(
@@ -1317,6 +1367,48 @@ function ThreadView({
             onSkillSelect={selectSkillForNextTurn}
           />
         )}
+        {projectQuestionReanswer && (
+          <div
+            role="status"
+            style={{
+              marginBottom: 8,
+              padding: '9px 11px',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--r-sm)',
+              background: 'var(--bg-tint)',
+              color: 'var(--ink-soft)',
+              fontSize: 11.5,
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
+              alignItems: 'center',
+            }}
+          >
+            <span>
+              已绑定{' '}
+              {questionReanswerDraft?.evidenceCount
+                ?? projectQuestionReanswer.attachment_ids.length}{' '}
+              条当前核验证据。发送时会再次校验；只生成新回答，不自动关闭问题。
+            </span>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setProjectQuestionReanswer(null)
+                onQuestionReanswerConsumed()
+              }}
+              style={{
+                border: 0,
+                padding: 0,
+                background: 'transparent',
+                color: 'var(--ink-mute)',
+                cursor: busy ? 'default' : 'pointer',
+              }}
+            >
+              取消证据绑定
+            </button>
+          </div>
+        )}
         <ProjectChatComposer
           value={composerText}
           onChange={changeComposerText}
@@ -1325,6 +1417,7 @@ function ThreadView({
             const mentionContext = currentMentionContext
             const turnBrief = projectTurnBriefToInput(turnBriefDraft)
             const setupTraceForTurn = turnSetupTrace
+            const questionReanswerForTurn = projectQuestionReanswer
             setComposerText('')
             setSkillSelection({ mode: 'auto' })
             setSelectedMentions([])
@@ -1334,20 +1427,47 @@ function ThreadView({
             setTurnSetupSuggestion(null)
             setTurnSetupTrace(null)
             setTurnSetupLoading(false)
-            await onSend(
-              text,
-              {
-                ...(selectionForTurn.mode === 'explicit'
-                  ? { skillId: selectionForTurn.skillId }
-                  : selectionForTurn.mode === 'off'
-                    ? { disableSkill: true }
+            try {
+              await onSend(
+                text,
+                {
+                  ...(selectionForTurn.mode === 'explicit'
+                    ? { skillId: selectionForTurn.skillId }
+                    : selectionForTurn.mode === 'off'
+                      ? { disableSkill: true }
+                      : {}),
+                  ...(mentionContext ? { mentionContext } : {}),
+                  ...(turnBrief ? { turnBrief } : {}),
+                  ...(turnRevision ? { turnRevision } : {}),
+                  ...(setupTraceForTurn ? { turnSetupTrace: setupTraceForTurn } : {}),
+                  ...(questionReanswerForTurn
+                    ? {
+                      disableSkill: true,
+                      projectQuestionReanswer: questionReanswerForTurn,
+                    }
                     : {}),
-                ...(mentionContext ? { mentionContext } : {}),
-                ...(turnBrief ? { turnBrief } : {}),
-                ...(turnRevision ? { turnRevision } : {}),
-                ...(setupTraceForTurn ? { turnSetupTrace: setupTraceForTurn } : {}),
-              },
-            )
+                },
+              )
+              if (questionReanswerForTurn) {
+                setProjectQuestionReanswer(null)
+                onQuestionReanswerConsumed()
+                toast.success({
+                  title: '已生成新的证据绑定回答',
+                  description: '请回到问题工作台重新分析，并由人工决定是否采用。',
+                })
+              }
+            } catch (error) {
+              if (questionReanswerForTurn) {
+                setComposerText(text)
+                setProjectQuestionReanswer(questionReanswerForTurn)
+                toast.warning({
+                  title: '证据回答未发送',
+                  description: error instanceof Error
+                    ? error.message
+                    : '请重新分析当前问题证据。',
+                })
+              }
+            }
           }}
           onSteer={async (text) => {
             const accepted = await onSteer(text)

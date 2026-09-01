@@ -42,6 +42,9 @@ from app.services.project_question_resolutions import (
     normalize_project_question,
     project_question_sha256,
 )
+from app.services.project_question_reanswer import (
+    validate_project_question_reanswer_manifest,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -193,10 +196,38 @@ def _memory_entries(
     return entries, cited, invalid
 
 
+def _question_reanswer_entries(
+    manifest: Any,
+    *,
+    project_id: int,
+    question_sha256: str,
+) -> tuple[list[dict[str, Any]], set[str], int]:
+    valid, _ = validate_project_question_reanswer_manifest(manifest)
+    if (
+        not valid
+        or manifest.get("project_id") != project_id
+        or manifest.get("question_sha256") != question_sha256
+    ):
+        return [], set(), int(isinstance(manifest, dict) and bool(manifest))
+    entries = [
+        entry
+        for entry in list(manifest.get("entries") or [])
+        if isinstance(entry, dict)
+    ]
+    cited = {
+        str(item)
+        for item in list(manifest.get("cited_evidence_ids") or [])
+        if str(item)
+    }
+    invalid = len(list(manifest.get("invalid_citation_keys") or []))
+    return entries, cited, invalid
+
+
 def _candidate_evidence(
     metadata: dict[str, Any],
     *,
     project_id: int,
+    question_sha256: str,
     question_source_map: dict[tuple[Any, ...], dict[str, Any]],
 ) -> dict[str, Any]:
     knowledge_entries, knowledge_cited, knowledge_invalid = _knowledge_entries(
@@ -206,7 +237,16 @@ def _candidate_evidence(
         metadata.get("project_memory_evidence"),
         project_id=project_id,
     )
-    available_count = len(knowledge_entries) + len(memory_entries)
+    reanswer_entries, reanswer_cited, reanswer_invalid = (
+        _question_reanswer_entries(
+            metadata.get("project_question_reanswer_evidence"),
+            project_id=project_id,
+            question_sha256=question_sha256,
+        )
+    )
+    available_count = (
+        len(knowledge_entries) + len(memory_entries) + len(reanswer_entries)
+    )
     cited_entries: list[tuple[tuple[Any, ...], str]] = []
     for entry in knowledge_entries:
         if str(entry.get("evidence_id") or "") in knowledge_cited:
@@ -223,6 +263,19 @@ def _candidate_evidence(
                     "project_memory",
                 )
             )
+    for entry in reanswer_entries:
+        if str(entry.get("evidence_id") or "") in reanswer_cited:
+            cited_entries.append(
+                (
+                    (
+                        "remediation_attachment",
+                        str(entry.get("evidence_sha256") or ""),
+                        _safe_int(entry.get("attachment_id")),
+                        _safe_int(entry.get("review_revision")),
+                    ),
+                    "question_evidence",
+                )
+            )
 
     aligned_sources: list[dict[str, Any]] = []
     seen_source_keys: set[tuple[Any, ...]] = set()
@@ -231,15 +284,27 @@ def _candidate_evidence(
     aligned_support_weight = 0.0
     knowledge_cited_count = 0
     memory_cited_count = 0
+    remediation_cited_count = 0
+    remediation_aligned_count = 0
     for source_key, source_type in cited_entries:
         knowledge_cited_count += int(source_type == "knowledge")
         memory_cited_count += int(source_type == "project_memory")
+        remediation_cited_count += int(source_type == "question_evidence")
         current_source = question_source_map.get(source_key)
         if current_source is None:
             continue
         aligned_count += 1
+        remediation_aligned_count += int(source_type == "question_evidence")
         if current_source.get("source_type") == "knowledge_document":
             support_weight = 1.0
+        elif current_source.get("source_type") == "remediation_attachment":
+            if current_source.get("support_level") == "direct":
+                support_weight = 1.0
+            elif current_source.get("review_status") == "accepted":
+                # Accepted means eligible for human-reviewed use, not true.
+                support_weight = 0.8
+            else:
+                support_weight = 0.0
         elif current_source.get("memory_slot") == "open_questions":
             # An open question proves that the uncertainty exists; it cannot
             # prove that a proposed answer is true.
@@ -259,7 +324,7 @@ def _candidate_evidence(
             aligned_sources.append(dict(current_source))
 
     cited_count = len(cited_entries)
-    invalid_count = knowledge_invalid + memory_invalid
+    invalid_count = knowledge_invalid + memory_invalid + reanswer_invalid
     question_pool_count = len(question_source_map)
     alignment_rate = (
         round(aligned_count / cited_count, 4)
@@ -295,6 +360,8 @@ def _candidate_evidence(
         "cited_count": cited_count,
         "knowledge_cited_count": knowledge_cited_count,
         "memory_cited_count": memory_cited_count,
+        "remediation_cited_count": remediation_cited_count,
+        "remediation_aligned_count": remediation_aligned_count,
         "invalid_citation_count": invalid_count,
         "current_question_source_count": question_pool_count,
         "question_aligned_count": aligned_count,
@@ -320,6 +387,9 @@ def assess_project_question_answer(
     evidence = _candidate_evidence(
         parsed_metadata,
         project_id=project_id,
+        question_sha256=project_question_sha256(
+            normalize_project_question(question)
+        ),
         question_source_map=question_source_map or {},
     )
     run, run_score = _run_projection(parsed_metadata)
@@ -354,6 +424,12 @@ def assess_project_question_answer(
         and evidence["support_rate"] < 0.6
     ):
         warnings.append("WEAK_CURRENT_PROVENANCE")
+    if (
+        evidence["remediation_cited_count"]
+        and evidence["remediation_aligned_count"]
+        < evidence["remediation_cited_count"]
+    ):
+        warnings.append("REANSWER_EVIDENCE_CHANGED")
     if run["verdict"] == "failed" or run["status"] == "invalid":
         warnings.append("RUN_EVALUATION_NOT_COMPLETED")
     if feedback["rating"] == "unhelpful":
@@ -580,7 +656,13 @@ def _current_attached_question_evidence(
             if review is not None
             else "pending"
         )
-        review_revision = int(review.revision) if review is not None else 0
+        review_revision = (
+            0
+            if attachment.support_level == "direct"
+            else int(review.revision)
+            if review is not None
+            else 0
+        )
         source = {
             "source_type": "remediation_attachment",
             "evidence_id": f"remediation_attachment_{attachment.evidence_sha256}",
@@ -611,7 +693,14 @@ def _current_attached_question_evidence(
                 attachment.attached_at.isoformat() if attachment.attached_at else ""
             ),
         }
-        source_map[("remediation_attachment", attachment.evidence_sha256)] = source
+        source_map[
+            (
+                "remediation_attachment",
+                attachment.evidence_sha256,
+                int(attachment.id or 0),
+                review_revision,
+            )
+        ] = source
         sources.append(source)
     return {
         "status": "available" if sources else "not_available",

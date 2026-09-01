@@ -916,6 +916,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-09-01）：Phase 3X 将 `review_required` 附件的人工判断从不可变附件中分离为当前裁决和 append-only 历史。项目可写成员可以接受或驳回消息、外链和人工记录；每次决策都在项目写锁内重新授权，并提交独立 expected review revision。只有已接受项进入问题支持来源数，pending/rejected 仍可见但不计支持；裁决状态与 revision 进入证据 basis fingerprint，因此旧冻结 promotion 会因裁决变化失败关闭。接受只是 `human_judgment_only`，不是真值判定，不写长期记忆、不访问外链、不发送消息、不执行工具、不改变 execution revision，也不自动关单。`042_v1_42` 管理裁决当前态和事件两表；确定性门禁为 78 个场景、24 项指标。机制借鉴 Codex `guardian_review_evidence.rs`（`99660ab…`）的证据/审阅分离原则并重写为 Aria 原生服务，不引入 Codex 运行时或通信。
 
+补充进展（2026-09-02）：Phase 3Y 将已核验整改附件和新的 Assistant 回答建立精确绑定，而不回写历史消息。准备与发送采用双重验证：开放问题/记忆新鲜度、项目范围、附件与审核 revision、当前源内容摘要必须全部匹配；模型上下文最多注入 8 条不可信来源，Turn 强制 answer-only、无 Skill、无工具、无写入。新回答只持久化实际输出的 `[A*]` 引用和无正文 manifest，问题准备度以 `evidence_sha256 + attachment_id + review_revision` 与当前证据池对齐；后续审核或来源变化会让旧回答降级并提示重新分析。确定性门禁扩展为 82 个场景、25 项指标，新增 `question_reanswer_grounding_safety_rate`。本阶段复用 Message metadata 与 `042_v1_42` 证据账本，不新增数据库迁移；不引入 Codex 运行时、SDK、协议或通信。
+
 范围：
 
 - 工具注册表标准化。（首批已完成）
