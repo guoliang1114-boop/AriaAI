@@ -8,6 +8,7 @@ import type {
   ProjectQuestionReadinessBand,
   ProjectQuestionRemediationAction,
   ProjectQuestionRemediationEvidenceKind,
+  ProjectQuestionRemediationEvidenceReviewDecision,
   ProjectQuestionRemediationExecution,
   ProjectQuestionRemediationExecutionList,
   ProjectQuestionRemediationExecutionStatus,
@@ -153,6 +154,7 @@ export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProp
   const [executionData, setExecutionData] = useState<ProjectQuestionRemediationExecutionList | null>(null)
   const [executionLoading, setExecutionLoading] = useState(false)
   const [executionError, setExecutionError] = useState('')
+  const [evidenceRevision, setEvidenceRevision] = useState(0)
 
   const loadExecutions = useCallback(async () => {
     setExecutionLoading(true)
@@ -390,11 +392,14 @@ export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProp
               files={detail.files ?? []}
               loading={executionLoading}
               error={executionError}
-              onRefresh={async (memoryChanged = false) => {
+              onRefresh={async ({ memoryChanged = false, evidenceChanged = false } = {}) => {
                 if (memoryChanged) {
                   await Promise.all([load(), refetch()])
                 } else {
                   await loadExecutions()
+                }
+                if (evidenceChanged) {
+                  setEvidenceRevision((current) => current + 1)
                 }
               }}
             />
@@ -509,6 +514,7 @@ export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProp
                   projectId={projectId}
                   question={question}
                   data={data as ProjectQuestionWorkbench}
+                  evidenceRevision={evidenceRevision}
                   busy={busyQuestion === question.question_sha256}
                   onSaveProfile={saveProfile}
                   onResolve={resolveQuestion}
@@ -531,6 +537,7 @@ interface QuestionCardProps {
   projectId: number
   question: ProjectQuestionWorkbenchItem
   data: ProjectQuestionWorkbench
+  evidenceRevision: number
   busy: boolean
   onSaveProfile: (
     question: ProjectQuestionWorkbenchItem,
@@ -549,6 +556,7 @@ function QuestionCard({
   projectId,
   question,
   data,
+  evidenceRevision,
   busy,
   onSaveProfile,
   onResolve,
@@ -567,6 +575,11 @@ function QuestionCard({
   const [remediationPlan, setRemediationPlan] = useState<ProjectQuestionRemediationPlan | null>(null)
   const [remediationLoading, setRemediationLoading] = useState(false)
   const [remediationError, setRemediationError] = useState('')
+  const evidenceLoadedRef = useRef(false)
+  const remediationLoadedRef = useRef(false)
+  const lastEvidenceRevisionRef = useRef(evidenceRevision)
+  evidenceLoadedRef.current = evidenceReview !== null
+  remediationLoadedRef.current = remediationPlan !== null
 
   const loadEvidence = useCallback(async () => {
     if (evidenceLoading) return
@@ -605,6 +618,19 @@ function QuestionCard({
       setRemediationLoading(false)
     }
   }, [projectId, question.question, question.question_sha256, remediationLoading])
+
+  useEffect(() => {
+    if (lastEvidenceRevisionRef.current === evidenceRevision) return
+    lastEvidenceRevisionRef.current = evidenceRevision
+    const refreshEvidence = evidenceLoadedRef.current
+    const refreshRemediation = remediationLoadedRef.current
+    if (!refreshEvidence && !refreshRemediation) return
+    const refreshCurrentAnalysis = async () => {
+      if (refreshEvidence) await loadEvidence()
+      if (refreshRemediation) await loadRemediation()
+    }
+    void refreshCurrentAnalysis()
+  }, [evidenceRevision, loadEvidence, loadRemediation])
 
   const answerCandidates = evidenceReview?.candidates ?? data.answer_candidates
 
@@ -944,7 +970,10 @@ function RemediationExecutionCenter({
   files: ProjectFile[]
   loading: boolean
   error: string
-  onRefresh: (memoryChanged?: boolean) => Promise<void>
+  onRefresh: (options?: {
+    memoryChanged?: boolean
+    evidenceChanged?: boolean
+  }) => Promise<void>
 }) {
   const toast = useToast()
   const activeFiles = files.filter((file) => !file.deleted_at)
@@ -954,6 +983,7 @@ function RemediationExecutionCenter({
   const [busyExecutionId, setBusyExecutionId] = useState<number | null>(null)
   const [transitionNotes, setTransitionNotes] = useState<Record<number, string>>({})
   const [evidenceDrafts, setEvidenceDrafts] = useState<Record<number, ExecutionEvidenceDraft>>({})
+  const [reviewReasons, setReviewReasons] = useState<Record<number, string>>({})
 
   const evidenceDraft = (executionId: number): ExecutionEvidenceDraft => (
     evidenceDrafts[executionId] ?? {
@@ -997,7 +1027,9 @@ function RemediationExecutionCenter({
             ? '整改执行已完成'
             : '人工沟通请求已取消',
       })
-      await onRefresh(action === 'complete' && execution.target_kind === 'project_todo')
+      await onRefresh({
+        memoryChanged: action === 'complete' && execution.target_kind === 'project_todo',
+      })
     } catch (err) {
       toast.error({ title: '执行状态更新失败', description: errorMessage(err) })
     } finally {
@@ -1039,9 +1071,41 @@ function RemediationExecutionCenter({
         },
       }))
       toast.success({ title: '证据已回挂到项目问题链' })
-      await onRefresh(false)
+      await onRefresh({ evidenceChanged: true })
     } catch (err) {
       toast.error({ title: '证据挂接失败', description: errorMessage(err) })
+    } finally {
+      setBusyExecutionId(null)
+    }
+  }
+  const reviewEvidence = async (
+    execution: ProjectQuestionRemediationExecution,
+    attachmentId: number,
+    decision: ProjectQuestionRemediationEvidenceReviewDecision,
+    expectedRevision: number,
+  ) => {
+    const reason = (reviewReasons[attachmentId] ?? '').trim()
+    if (!reason || busyExecutionId !== null) return
+    setBusyExecutionId(execution.id)
+    try {
+      await api.post(
+        `/projects/${projectId}/questions/remediation-executions/${execution.id}/evidence/${attachmentId}/review`,
+        {
+          decision,
+          expected_revision: expectedRevision,
+          reason,
+        },
+      )
+      setReviewReasons((current) => ({ ...current, [attachmentId]: '' }))
+      toast.success({
+        title: decision === 'accepted' ? '证据已人工接受' : '证据已人工驳回',
+        description: decision === 'accepted'
+          ? '该裁决仅计入当前问题支持度，不等同于事实或自动关单。'
+          : '附件与裁决历史会保留，但不再计入支持来源。',
+      })
+      await onRefresh({ evidenceChanged: true })
+    } catch (err) {
+      toast.error({ title: '证据裁决失败', description: errorMessage(err) })
     } finally {
       setBusyExecutionId(null)
     }
@@ -1129,21 +1193,85 @@ function RemediationExecutionCenter({
                   </div>
                   {execution.evidence.length > 0 && (
                     <div style={{ display: 'grid', gap: 4, marginTop: 8 }}>
-                      {execution.evidence.map((item) => (
-                        <div
-                          key={item.id}
-                          style={{
-                            padding: '5px 7px',
-                            color: 'var(--ink-mute)',
-                            fontSize: 9.5,
-                            borderLeft: '2px solid var(--good)',
-                            background: 'var(--bg-tint)',
-                          }}
-                        >
-                          {item.title} · {item.support_level === 'direct' ? '项目来源已校验' : '仍需人工复核'}
-                          {item.note ? ` · ${item.note}` : ''}
-                        </div>
-                      ))}
+                      {execution.evidence.map((item) => {
+                        const reviewReason = reviewReasons[item.id] ?? ''
+                        const reviewStatusCopy = item.review.status === 'accepted'
+                          ? '人工接受（不等同事实）'
+                          : item.review.status === 'rejected'
+                            ? '已人工驳回'
+                            : item.review.status === 'pending'
+                              ? '待人工裁决'
+                              : '项目来源已校验 · 无需裁决'
+                        const reviewTone = ['accepted', 'not_required'].includes(item.review.status)
+                          ? 'var(--good)'
+                          : item.review.status === 'rejected'
+                            ? 'var(--bad)'
+                            : 'var(--warn)'
+                        return (
+                          <div
+                            key={item.id}
+                            style={{
+                              padding: '6px 7px',
+                              color: 'var(--ink-mute)',
+                              fontSize: 9.5,
+                              borderLeft: `2px solid ${reviewTone}`,
+                              background: 'var(--bg-tint)',
+                            }}
+                          >
+                            <div>
+                              {item.title} · {reviewStatusCopy}
+                              {item.note ? ` · ${item.note}` : ''}
+                            </div>
+                            {item.review.reason && (
+                              <div style={{ marginTop: 3, color: 'var(--ink-faint)' }}>
+                                最新裁决依据（v{item.review.revision}）：{item.review.reason}
+                              </div>
+                            )}
+                            {item.review.allowed_decisions.length > 0 && (
+                              <div style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
+                                <input
+                                  aria-label={`证据 ${item.id} 裁决理由`}
+                                  value={reviewReason}
+                                  maxLength={600}
+                                  disabled={busy}
+                                  placeholder="填写接受或驳回的人工核验依据"
+                                  onChange={(event) => setReviewReasons((current) => ({
+                                    ...current,
+                                    [item.id]: event.target.value,
+                                  }))}
+                                  style={{ ...controlStyle, flex: '1 1 280px' }}
+                                />
+                                <button
+                                  type="button"
+                                  disabled={busy || !reviewReason.trim()}
+                                  onClick={() => void reviewEvidence(
+                                    execution,
+                                    item.id,
+                                    'accepted',
+                                    item.review.revision,
+                                  )}
+                                  style={primaryButtonStyle(busy || !reviewReason.trim())}
+                                >
+                                  接受为人工支持
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy || !reviewReason.trim()}
+                                  onClick={() => void reviewEvidence(
+                                    execution,
+                                    item.id,
+                                    'rejected',
+                                    item.review.revision,
+                                  )}
+                                  style={secondaryButtonStyle(busy || !reviewReason.trim())}
+                                >
+                                  驳回证据
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                   {canAttach && (

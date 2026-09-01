@@ -22,6 +22,7 @@ from app.models.db import (
     Message,
     Project,
     ProjectQuestionRemediationEvidenceAttachment,
+    ProjectQuestionRemediationEvidenceReview,
     ProjectQuestionRemediationExecution,
     ProjectQuestionResolution,
 )
@@ -539,17 +540,23 @@ def _current_attached_question_evidence(
     project_id: int,
     question_sha256: str,
 ) -> tuple[dict[str, Any], dict[tuple[Any, ...], dict[str, Any]]]:
-    """Return immutable Phase 3W attachments without treating notes as truth."""
+    """Return attachments with Phase 3X human judgments kept explicit."""
 
     rows = session.exec(
         select(
             ProjectQuestionRemediationEvidenceAttachment,
             ProjectQuestionRemediationExecution,
+            ProjectQuestionRemediationEvidenceReview,
         )
         .join(
             ProjectQuestionRemediationExecution,
             ProjectQuestionRemediationExecution.id
             == ProjectQuestionRemediationEvidenceAttachment.execution_id,
+        )
+        .outerjoin(
+            ProjectQuestionRemediationEvidenceReview,
+            ProjectQuestionRemediationEvidenceReview.attachment_id
+            == ProjectQuestionRemediationEvidenceAttachment.id,
         )
         .where(
             ProjectQuestionRemediationEvidenceAttachment.project_id == project_id,
@@ -565,7 +572,15 @@ def _current_attached_question_evidence(
     ).all()
     sources: list[dict[str, Any]] = []
     source_map: dict[tuple[Any, ...], dict[str, Any]] = {}
-    for attachment, execution in rows:
+    for attachment, execution, review in rows:
+        review_status = (
+            "not_required"
+            if attachment.support_level == "direct"
+            else review.status
+            if review is not None
+            else "pending"
+        )
+        review_revision = int(review.revision) if review is not None else 0
         source = {
             "source_type": "remediation_attachment",
             "evidence_id": f"remediation_attachment_{attachment.evidence_sha256}",
@@ -575,6 +590,18 @@ def _current_attached_question_evidence(
             "execution_id": int(execution.id or 0),
             "evidence_kind": attachment.evidence_kind,
             "support_level": attachment.support_level,
+            "review_status": review_status,
+            "review_revision": review_revision,
+            "review_reason": str(review.reason or "")[:600] if review is not None else "",
+            "reviewed_by_user_id": (
+                review.reviewed_by_user_id if review is not None else None
+            ),
+            "reviewed_at": (
+                review.reviewed_at.isoformat()
+                if review is not None and review.reviewed_at
+                else ""
+            ),
+            "acceptance_is_truth_verdict": False,
             "note": str(attachment.note or "")[:MAX_PREVIEW_CHARS],
             "reference_locator": str(attachment.reference_locator or "")[:500],
             "project_file_id": attachment.project_file_id,
@@ -590,7 +617,12 @@ def _current_attached_question_evidence(
         "status": "available" if sources else "not_available",
         "source_count": len(sources),
         "supporting_source_count": sum(
-            item["support_level"] == "direct" for item in sources
+            item["support_level"] == "direct"
+            or (
+                item["support_level"] == "review_required"
+                and item["review_status"] == "accepted"
+            )
+            for item in sources
         ),
         "sources": sources,
     }, source_map
@@ -793,6 +825,10 @@ def build_project_question_evidence_review(
             "includes_retrieved_chunk_content": False,
             "includes_bounded_attachment_notes": bool(
                 attached_evidence["source_count"]
+            ),
+            "includes_bounded_review_reasons": any(
+                bool(item.get("review_reason"))
+                for item in attached_evidence["sources"]
             ),
             "includes_prompt_content": False,
             "includes_tool_inputs": False,

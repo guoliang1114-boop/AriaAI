@@ -190,6 +190,7 @@ const evidenceReview: ProjectQuestionEvidenceReview = {
     includes_full_answer_content: false,
     includes_retrieved_chunk_content: false,
     includes_bounded_attachment_notes: false,
+    includes_bounded_review_reasons: false,
     includes_prompt_content: false,
     includes_tool_inputs: false,
     includes_tool_outputs: false,
@@ -414,6 +415,19 @@ const readyExecution: ProjectQuestionRemediationExecutionList = {
     allowed_actions: ['attach_evidence', 'mark_sent', 'cancel'],
     question_resolution_status: 'open',
     contract: emptyExecutions.contract,
+    evidence_review_contract: {
+      name: 'project_question_remediation_evidence_review',
+      human_judgment_only: true,
+      acceptance_is_truth_verdict: false,
+      writes_long_term_memory: false,
+      fetches_external_references: false,
+      sends_messages: false,
+      executes_tools: false,
+      automatically_resolves_question: false,
+      reauthorizes_on_decision: true,
+      uses_optimistic_revision: true,
+      events_are_append_only: true,
+    },
   }],
 }
 
@@ -700,14 +714,53 @@ describe('project question workbench', () => {
           message_id: null,
           attached_by_user_id: 2,
           attached_at: '2026-09-01T08:10:00',
+          review: {
+            schema_version: 1,
+            status: 'pending',
+            revision: 0,
+            reason: '',
+            reviewed_by_user_id: null,
+            reviewed_at: null,
+            history: [],
+            history_truncated: false,
+            allowed_decisions: ['accepted', 'rejected'],
+            human_judgment_only: true,
+            acceptance_is_truth_verdict: false,
+          },
+        }],
+      }],
+    }
+    const acceptedExecution: ProjectQuestionRemediationExecutionList = {
+      ...evidencedExecution,
+      items: [{
+        ...evidencedExecution.items[0],
+        evidence: [{
+          ...evidencedExecution.items[0].evidence[0],
+          review: {
+            ...evidencedExecution.items[0].evidence[0].review,
+            status: 'accepted',
+            revision: 1,
+            reason: '已核对原始邮件与当前项目范围。',
+            reviewed_by_user_id: 2,
+            reviewed_at: '2026-09-01T08:12:00',
+            history: [{
+              id: 301,
+              revision: 1,
+              previous_status: 'pending',
+              status: 'accepted',
+              actor_user_id: 2,
+              reason: '已核对原始邮件与当前项目范围。',
+              created_at: '2026-09-01T08:12:00',
+            }],
+          },
         }],
       }],
     }
     const completedExecution: ProjectQuestionRemediationExecutionList = {
-      ...evidencedExecution,
-      counts: { ...evidencedExecution.counts, sent_manually: 0, completed: 1 },
+      ...acceptedExecution,
+      counts: { ...acceptedExecution.counts, sent_manually: 0, completed: 1 },
       items: [{
-        ...evidencedExecution.items[0],
+        ...acceptedExecution.items[0],
         status: 'completed',
         revision: 4,
         target: {
@@ -729,6 +782,8 @@ describe('project question workbench', () => {
         current = sentExecution
       } else if (path.endsWith('/evidence')) {
         current = evidencedExecution
+      } else if (path.endsWith('/review')) {
+        current = acceptedExecution
       } else if (path.endsWith('/transition')) {
         current = completedExecution
       }
@@ -784,7 +839,22 @@ describe('project question workbench', () => {
         message_id: null,
       },
     ))
-    expect(await screen.findByText(/客户回复记录 · 仍需人工复核/)).toBeInTheDocument()
+    expect(await screen.findByText(/客户回复记录 · 待人工裁决/)).toBeInTheDocument()
+    await userEvent.type(
+      screen.getByLabelText('证据 201 裁决理由'),
+      '已核对原始邮件与当前项目范围。',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '接受为人工支持' }))
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      '/projects/9/questions/remediation-executions/101/evidence/201/review',
+      {
+        decision: 'accepted',
+        expected_revision: 0,
+        reason: '已核对原始邮件与当前项目范围。',
+      },
+    ))
+    expect(await screen.findByText(/客户回复记录 · 人工接受（不等同事实）/)).toBeInTheDocument()
+    expect(screen.getByText(/最新裁决依据（v1）/)).toBeInTheDocument()
     const complete = screen.getByRole('button', { name: '标记整改完成' })
     expect(complete).toBeDisabled()
     await userEvent.type(

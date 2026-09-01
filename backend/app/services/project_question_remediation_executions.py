@@ -33,6 +33,10 @@ from app.models.db import (
 from app.services.cache import projects_cache
 from app.services.project_contexts import mark_project_memory_stale
 from app.services.project_core import lock_and_require_project_write
+from app.services.project_question_remediation_evidence_reviews import (
+    build_remediation_evidence_review_contract,
+    evidence_review_projections,
+)
 from app.services.time_utils import utc_now_naive
 
 
@@ -253,6 +257,8 @@ def _event_rows(
 
 def serialize_remediation_evidence_attachment(
     row: ProjectQuestionRemediationEvidenceAttachment,
+    *,
+    review: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -271,6 +277,7 @@ def serialize_remediation_evidence_attachment(
         "message_id": row.message_id,
         "attached_by_user_id": row.attached_by_user_id,
         "attached_at": row.attached_at,
+        "review": review,
     }
 
 
@@ -332,6 +339,7 @@ def serialize_project_question_remediation_execution(
         session,
         int(execution.id or 0),
     )
+    reviews_by_attachment = evidence_review_projections(session, attachments)
     events, events_truncated = _event_rows(session, int(execution.id or 0))
     resolution = session.exec(
         select(ProjectQuestionResolution).where(
@@ -358,7 +366,11 @@ def serialize_project_question_remediation_execution(
         "updated_at": execution.updated_at,
         "target": _target_payload(session, execution),
         "evidence": [
-            serialize_remediation_evidence_attachment(item) for item in attachments
+            serialize_remediation_evidence_attachment(
+                item,
+                review=reviews_by_attachment[int(item.id or 0)],
+            )
+            for item in attachments
         ],
         "events": [
             {
@@ -380,6 +392,7 @@ def serialize_project_question_remediation_execution(
         "allowed_actions": _allowed_actions(execution),
         "question_resolution_status": resolution.status if resolution is not None else "open",
         "contract": build_remediation_execution_contract(),
+        "evidence_review_contract": build_remediation_evidence_review_contract(),
     }
 
 

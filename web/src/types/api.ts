@@ -1116,6 +1116,12 @@ export interface ProjectQuestionEvidenceSource {
   execution_id?: number
   evidence_kind?: ProjectQuestionRemediationEvidenceKind
   support_level?: ProjectQuestionRemediationEvidenceSupportLevel
+  review_status?: ProjectQuestionRemediationEvidenceReviewStatus
+  review_revision?: number
+  review_reason?: string
+  reviewed_by_user_id?: number | null
+  reviewed_at?: string
+  acceptance_is_truth_verdict?: false
   note?: string
   reference_locator?: string
   project_file_id?: number | null
@@ -1218,6 +1224,7 @@ export interface ProjectQuestionEvidenceReview {
     includes_full_answer_content: false
     includes_retrieved_chunk_content: false
     includes_bounded_attachment_notes: boolean
+    includes_bounded_review_reasons: boolean
     includes_prompt_content: false
     includes_tool_inputs: false
     includes_tool_outputs: false
@@ -1411,6 +1418,40 @@ export type ProjectQuestionRemediationEvidenceSupportLevel =
   | 'direct'
   | 'review_required'
 
+export type ProjectQuestionRemediationEvidenceReviewStatus =
+  | 'not_required'
+  | 'pending'
+  | 'accepted'
+  | 'rejected'
+
+export type ProjectQuestionRemediationEvidenceReviewDecision =
+  | 'accepted'
+  | 'rejected'
+
+export interface ProjectQuestionRemediationEvidenceReviewEvent {
+  id: number
+  revision: number
+  previous_status: 'pending' | 'accepted' | 'rejected'
+  status: ProjectQuestionRemediationEvidenceReviewDecision
+  actor_user_id?: number | null
+  reason: string
+  created_at: string
+}
+
+export interface ProjectQuestionRemediationEvidenceReview {
+  schema_version: 1
+  status: ProjectQuestionRemediationEvidenceReviewStatus
+  revision: number
+  reason: string
+  reviewed_by_user_id?: number | null
+  reviewed_at?: string | null
+  history: ProjectQuestionRemediationEvidenceReviewEvent[]
+  history_truncated: boolean
+  allowed_decisions: ProjectQuestionRemediationEvidenceReviewDecision[]
+  human_judgment_only: true
+  acceptance_is_truth_verdict: false
+}
+
 export interface ProjectQuestionRemediationEvidenceAttachment {
   id: number
   execution_id: number
@@ -1428,6 +1469,7 @@ export interface ProjectQuestionRemediationEvidenceAttachment {
   message_id?: number | null
   attached_by_user_id?: number | null
   attached_at: string
+  review: ProjectQuestionRemediationEvidenceReview
 }
 
 export interface ProjectQuestionRemediationExecutionEvent {
@@ -1468,6 +1510,7 @@ export interface ProjectQuestionRemediationExecution {
   allowed_actions: ProjectQuestionRemediationExecutionAction[]
   question_resolution_status: 'open' | 'resolved'
   contract: ProjectQuestionRemediationExecutionContract
+  evidence_review_contract: ProjectQuestionRemediationEvidenceReviewContract
 }
 
 export interface ProjectQuestionRemediationExecutionContract {
@@ -1481,6 +1524,20 @@ export interface ProjectQuestionRemediationExecutionContract {
   evidence_is_project_scoped: true
   evidence_events_are_append_only: true
   automatically_resolves_question: false
+}
+
+export interface ProjectQuestionRemediationEvidenceReviewContract {
+  name: 'project_question_remediation_evidence_review'
+  human_judgment_only: true
+  acceptance_is_truth_verdict: false
+  writes_long_term_memory: false
+  fetches_external_references: false
+  sends_messages: false
+  executes_tools: false
+  automatically_resolves_question: false
+  reauthorizes_on_decision: true
+  uses_optimistic_revision: true
+  events_are_append_only: true
 }
 
 export interface ProjectQuestionRemediationExecutionList {

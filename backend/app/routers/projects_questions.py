@@ -39,6 +39,9 @@ from app.services.project_question_remediation_executions import (
     list_project_question_remediation_executions,
     transition_project_question_remediation_execution,
 )
+from app.services.project_question_remediation_evidence_reviews import (
+    review_project_question_remediation_evidence,
+)
 from app.services.project_question_workbench import (
     build_project_question_workbench,
     update_project_question_profile,
@@ -100,6 +103,12 @@ class AttachProjectQuestionRemediationEvidenceRequest(BaseModel):
     project_file_id: Optional[int] = Field(default=None, gt=0)
     knowledge_document_id: Optional[int] = Field(default=None, gt=0)
     message_id: Optional[int] = Field(default=None, gt=0)
+
+
+class ReviewProjectQuestionRemediationEvidenceRequest(BaseModel):
+    decision: str = Field(min_length=1, max_length=40)
+    expected_revision: int = Field(ge=0)
+    reason: str = Field(min_length=1, max_length=600)
 
 
 def _project(session: Session, project_id: int) -> Project:
@@ -398,6 +407,39 @@ def attach_project_question_remediation_execution_evidence(
         project_file_id=body.project_file_id,
         knowledge_document_id=body.knowledge_document_id,
         message_id=body.message_id,
+    )
+
+
+@router.post(
+    "/remediation-executions/{execution_id}/evidence/{attachment_id}/review"
+)
+def review_project_question_remediation_execution_evidence(
+    project_id: int,
+    execution_id: int,
+    attachment_id: int,
+    body: ReviewProjectQuestionRemediationEvidenceRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Record a human evidence judgment without creating a fact or closing."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return review_project_question_remediation_evidence(
+        session,
+        project_id=project_id,
+        execution_id=execution_id,
+        attachment_id=attachment_id,
+        actor_user_id=int(current_user.id),
+        decision=body.decision,
+        expected_revision=body.expected_revision,
+        reason=body.reason,
     )
 
 

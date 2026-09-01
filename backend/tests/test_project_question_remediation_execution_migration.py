@@ -21,6 +21,12 @@ MIGRATION_041 = (
     / "versions"
     / "041_v1_41_project_question_remediation_executions.py"
 )
+MIGRATION_042 = (
+    BACKEND_DIR
+    / "alembic"
+    / "versions"
+    / "042_v1_42_project_question_remediation_evidence_reviews.py"
+)
 
 
 def _load(path: Path, name: str):
@@ -182,7 +188,64 @@ def test_revision_041_creates_execution_evidence_and_backfills_idempotently() ->
         engine.dispose()
 
 
-def test_revision_041_is_the_single_alembic_head() -> None:
+def test_revision_042_creates_review_ledgers_idempotently() -> None:
+    migration_040 = _load(MIGRATION_040, "aria_migration_040_for_042")
+    migration_041 = _load(MIGRATION_041, "aria_migration_041_for_042")
+    migration_042 = _load(MIGRATION_042, "aria_migration_042")
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            _create_parent_tables(connection)
+            _run(migration_040, connection)
+            _run(migration_041, connection)
+            _run(migration_042, connection)
+            _run(migration_042, connection)
+
+            inspector = inspect(connection)
+            assert {
+                "projectquestionremediationevidencereview",
+                "projectquestionremediationevidencereviewevent",
+            } <= set(inspector.get_table_names())
+            review_checks = {
+                item["name"]
+                for item in inspector.get_check_constraints(
+                    "projectquestionremediationevidencereview"
+                )
+            }
+            assert {
+                "ck_pq_rereview_status",
+                "ck_pq_rereview_revision_identity",
+            } <= review_checks
+            review_uniques = {
+                item["name"]
+                for item in inspector.get_unique_constraints(
+                    "projectquestionremediationevidencereview"
+                )
+            }
+            assert "uq_pq_rereview_attachment" in review_uniques
+            event_indexes = {
+                item["name"]
+                for item in inspector.get_indexes(
+                    "projectquestionremediationevidencereviewevent"
+                )
+            }
+            assert {
+                "ix_pq_rerevent_review",
+                "ix_pq_rerevent_attachment",
+                "ix_pq_rerevent_project",
+            } <= event_indexes
+            event_uniques = {
+                item["name"]
+                for item in inspector.get_unique_constraints(
+                    "projectquestionremediationevidencereviewevent"
+                )
+            }
+            assert "uq_pq_rerevent_revision" in event_uniques
+    finally:
+        engine.dispose()
+
+
+def test_revision_042_is_the_single_alembic_head() -> None:
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
@@ -190,7 +253,10 @@ def test_revision_041_is_the_single_alembic_head() -> None:
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["041_v1_41"]
+    assert script.get_heads() == ["042_v1_42"]
     revision = script.get_revision("041_v1_41")
     assert revision is not None
     assert revision.down_revision == "040_v1_40"
+    latest = script.get_revision("042_v1_42")
+    assert latest is not None
+    assert latest.down_revision == "041_v1_41"

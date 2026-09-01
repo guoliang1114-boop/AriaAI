@@ -124,6 +124,16 @@ For the Phase 3N additions specifically:
 Those files record the upstream path, pinned commit, Apache-2.0 basis, and
 Aria-specific modification notice in their module headers.
 
+For the Phase 3X evidence-review addition,
+`backend/app/services/project_question_remediation_evidence_reviews.py`
+adapts the immutable-evidence / separate-review-judgment boundary from
+`codex-rs/core/src/context/guardian_review_evidence.rs` at commit
+`99660ab3c7b861c916e467581fa9b8723504d66b`. Aria replaces the upstream
+context-guardian implementation with a native SQLModel current-state ledger,
+append-only decision events, project ACL reauthorization, optimistic revision,
+and a React/FastAPI workflow. No Codex runtime, protocol, SDK, subprocess, or
+network communication is included.
+
 OpenAI Codex is available under the Apache License 2.0:
 
 - Source: <https://github.com/openai/codex>

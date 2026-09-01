@@ -16,6 +16,8 @@ from app.models.db import (
     ProjectCommunicationRequest,
     ProjectMember,
     ProjectQuestionRemediationEvidenceAttachment,
+    ProjectQuestionRemediationEvidenceReview,
+    ProjectQuestionRemediationEvidenceReviewEvent,
     ProjectQuestionRemediationExecution,
     ProjectQuestionRemediationExecutionEvent,
     ProjectQuestionResolution,
@@ -24,6 +26,9 @@ from app.models.db import (
 from app.services.project_question_remediation_executions import (
     attach_project_question_remediation_evidence,
     transition_project_question_remediation_execution,
+)
+from app.services.project_question_remediation_evidence_reviews import (
+    review_project_question_remediation_evidence,
 )
 from app.services.project_question_remediation_promotions import (
     confirm_project_question_remediation_promotion,
@@ -145,6 +150,19 @@ class ProjectQuestionRemediationExecutionDatabaseContractTests(unittest.TestCase
                 note="外部记录仍需项目成员复核。",
                 reference_locator="https://evidence.example.test/confirmations/1#private",
             )
+            attachment = session.exec(
+                select(ProjectQuestionRemediationEvidenceAttachment)
+            ).one()
+            reviewed = review_project_question_remediation_evidence(
+                session,
+                project_id=int(project.id or 0),
+                execution_id=int(execution.id or 0),
+                attachment_id=int(attachment.id or 0),
+                actor_user_id=int(owner.id or 0),
+                decision="accepted",
+                expected_revision=0,
+                reason="已对照原始记录与当前项目范围。",
+            )
             completed = transition_project_question_remediation_execution(
                 session,
                 project_id=int(project.id or 0),
@@ -157,6 +175,8 @@ class ProjectQuestionRemediationExecutionDatabaseContractTests(unittest.TestCase
 
             self.assertEqual(sent["status"], "sent_manually")
             self.assertEqual(attached["evidence_count"], 1)
+            self.assertEqual(reviewed["status"], "accepted")
+            self.assertFalse(reviewed["acceptance_is_truth_verdict"])
             self.assertEqual(
                 attached["evidence"][0]["reference_locator"],
                 "https://evidence.example.test/confirmations/1",
@@ -165,6 +185,13 @@ class ProjectQuestionRemediationExecutionDatabaseContractTests(unittest.TestCase
             self.assertEqual(completed["question_resolution_status"], "open")
             self.assertFalse(completed["target"]["delivered_by_aria"])
             self.assertEqual(session.exec(select(ProjectQuestionResolution)).all(), [])
+            review_events = session.exec(
+                select(ProjectQuestionRemediationEvidenceReviewEvent)
+            ).all()
+            self.assertEqual(
+                [(event.previous_status, event.status, event.revision) for event in review_events],
+                [("pending", "accepted", 1)],
+            )
             request = session.exec(select(ProjectCommunicationRequest)).one()
             self.assertEqual(request.status, "completed")
             events = session.exec(
@@ -226,5 +253,63 @@ class ProjectQuestionRemediationExecutionDatabaseContractTests(unittest.TestCase
             session.rollback()
             self.assertEqual(
                 len(session.exec(select(ProjectQuestionRemediationEvidenceAttachment)).all()),
+                1,
+            )
+
+    def test_database_rejects_duplicate_current_review_for_attachment(self) -> None:
+        with Session(self.engine) as session, patch(
+            "app.services.project_question_remediation_promotions.build_project_question_remediation_plan",
+            return_value=self._plan(),
+        ):
+            owner, project = self._seed(session)
+            execution = self._confirm_communication(
+                session,
+                owner=owner,
+                project=project,
+            )
+            attach_project_question_remediation_evidence(
+                session,
+                project_id=int(project.id or 0),
+                execution_id=int(execution.id or 0),
+                actor_user_id=int(owner.id or 0),
+                expected_revision=1,
+                idempotency_key="postgres-review-key-0001",
+                evidence_kind="manual_note",
+                title="人工核验记录",
+                note="需要成员裁决。",
+            )
+            attachment = session.exec(
+                select(ProjectQuestionRemediationEvidenceAttachment)
+            ).one()
+            review_project_question_remediation_evidence(
+                session,
+                project_id=int(project.id or 0),
+                execution_id=int(execution.id or 0),
+                attachment_id=int(attachment.id or 0),
+                actor_user_id=int(owner.id or 0),
+                decision="accepted",
+                expected_revision=0,
+                reason="已人工核验。",
+            )
+            original = session.exec(
+                select(ProjectQuestionRemediationEvidenceReview)
+            ).one()
+            duplicate = ProjectQuestionRemediationEvidenceReview(
+                attachment_id=original.attachment_id,
+                execution_id=original.execution_id,
+                project_id=original.project_id,
+                question_sha256=original.question_sha256,
+                evidence_sha256=original.evidence_sha256,
+                status="rejected",
+                revision=1,
+                reason="数据库不得接受同一附件的第二个当前裁决。",
+                reviewed_by_user_id=int(owner.id or 0),
+            )
+            session.add(duplicate)
+            with self.assertRaises(IntegrityError):
+                session.commit()
+            session.rollback()
+            self.assertEqual(
+                len(session.exec(select(ProjectQuestionRemediationEvidenceReview)).all()),
                 1,
             )

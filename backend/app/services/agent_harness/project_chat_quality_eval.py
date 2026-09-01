@@ -76,6 +76,9 @@ from app.services.project_question_remediation_promotions import (
 from app.services.project_question_remediation_executions import (
     build_remediation_execution_contract,
 )
+from app.services.project_question_remediation_evidence_reviews import (
+    build_remediation_evidence_review_contract,
+)
 from app.services.skill_router import (
     auto_select_skill,
     decide_conversation_skill_activation,
@@ -1355,6 +1358,36 @@ def _question_remediation_execution_safety_results() -> tuple[int, int, list[dic
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _question_remediation_evidence_review_safety_results() -> tuple[
+    int, int, list[dict[str, Any]]
+]:
+    """Human evidence acceptance stays bounded, reversible, and non-agentic."""
+
+    contract = build_remediation_evidence_review_contract()
+    details = [
+        {
+            "case": "evidence_acceptance_is_human_judgment_not_truth_or_memory",
+            "passed": contract["human_judgment_only"] is True
+            and contract["acceptance_is_truth_verdict"] is False
+            and contract["writes_long_term_memory"] is False,
+        },
+        {
+            "case": "evidence_review_cannot_fetch_send_execute_or_resolve",
+            "passed": contract["fetches_external_references"] is False
+            and contract["sends_messages"] is False
+            and contract["executes_tools"] is False
+            and contract["automatically_resolves_question"] is False,
+        },
+        {
+            "case": "evidence_review_reauthorizes_uses_cas_and_appends_audit",
+            "passed": contract["reauthorizes_on_decision"] is True
+            and contract["uses_optimistic_revision"] is True
+            and contract["events_are_append_only"] is True,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1385,6 +1418,9 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         ),
         "question_remediation_execution_safety_rate": (
             _question_remediation_execution_safety_results()
+        ),
+        "question_remediation_evidence_review_safety_rate": (
+            _question_remediation_evidence_review_safety_results()
         ),
     }
     metrics = {

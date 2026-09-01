@@ -858,6 +858,118 @@ class ProjectQuestionRemediationEvidenceAttachment(SQLModel, table=True):
     attached_at: datetime = Field(default_factory=utc_now_naive)
 
 
+class ProjectQuestionRemediationEvidenceReview(SQLModel, table=True):
+    """Current human judgment for one review-required evidence attachment."""
+
+    __table_args__ = (
+        Index("ix_pq_rereview_execution", "execution_id"),
+        Index("ix_pq_rereview_project", "project_id"),
+        Index("ix_pq_rereview_question", "question_sha256"),
+        Index("ix_pq_rereview_status", "status"),
+        Index("ix_pq_rereview_reviewed", "reviewed_at"),
+        UniqueConstraint(
+            "attachment_id",
+            name="uq_pq_rereview_attachment",
+        ),
+        CheckConstraint(
+            "status IN ('accepted', 'rejected')",
+            name="ck_pq_rereview_status",
+        ),
+        CheckConstraint(
+            "revision >= 1 AND length(question_sha256) = 64 "
+            "AND length(evidence_sha256) = 64",
+            name="ck_pq_rereview_revision_identity",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    attachment_id: int = Field(
+        foreign_key="projectquestionremediationevidenceattachment.id",
+        ondelete="CASCADE",
+    )
+    execution_id: int = Field(
+        foreign_key="projectquestionremediationexecution.id",
+        ondelete="CASCADE",
+    )
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+    )
+    question_sha256: str
+    evidence_sha256: str
+    status: str
+    revision: int = Field(default=1)
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    reviewed_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+    )
+    reviewed_at: datetime = Field(default_factory=utc_now_naive)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
+
+
+class ProjectQuestionRemediationEvidenceReviewEvent(SQLModel, table=True):
+    """Append-only history for human evidence judgments."""
+
+    __table_args__ = (
+        Index("ix_pq_rerevent_review", "review_id"),
+        Index("ix_pq_rerevent_attachment", "attachment_id"),
+        Index("ix_pq_rerevent_execution", "execution_id"),
+        Index("ix_pq_rerevent_project", "project_id"),
+        Index("ix_pq_rerevent_status", "status"),
+        Index("ix_pq_rerevent_actor", "actor_user_id"),
+        Index("ix_pq_rerevent_created", "created_at"),
+        UniqueConstraint(
+            "review_id",
+            "revision",
+            name="uq_pq_rerevent_revision",
+        ),
+        CheckConstraint(
+            "previous_status IN ('pending', 'accepted', 'rejected')",
+            name="ck_pq_rerevent_previous",
+        ),
+        CheckConstraint(
+            "status IN ('accepted', 'rejected')",
+            name="ck_pq_rerevent_status",
+        ),
+        CheckConstraint(
+            "revision >= 1 AND length(evidence_sha256) = 64",
+            name="ck_pq_rerevent_revision_identity",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    review_id: int = Field(
+        foreign_key="projectquestionremediationevidencereview.id",
+        ondelete="CASCADE",
+    )
+    attachment_id: int = Field(
+        foreign_key="projectquestionremediationevidenceattachment.id",
+        ondelete="CASCADE",
+    )
+    execution_id: int = Field(
+        foreign_key="projectquestionremediationexecution.id",
+        ondelete="CASCADE",
+    )
+    project_id: int = Field(
+        foreign_key="project.id",
+        ondelete="CASCADE",
+    )
+    revision: int
+    previous_status: str
+    status: str
+    evidence_sha256: str
+    actor_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+    )
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=utc_now_naive)
+
+
 class ProjectQuestionRemediationExecutionEvent(SQLModel, table=True):
     """Append-only execution transition and evidence audit."""
 

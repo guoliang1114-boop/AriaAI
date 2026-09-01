@@ -515,7 +515,17 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 当前未取消的附件进入 Phase 3T 当前证据池。直接项目文件/知识文档可增加支持来源；消息、外链和人工备注只提供待复核线索，附件 note 不当作答案事实。完成项目待办会使项目记忆 stale，后续重建重新裁决；人工沟通状态不自动改变记忆事实。
 - 幂等迁移 `041_v1_41` 创建 execution、evidence attachment、execution event 三表，扩展人工沟通状态 CHECK，并为目标唯一性、证据身份、revision、引用完整性、FK 与查询建立约束/索引；历史 confirmed promotion 会回填 created execution event，Alembic 保持单一 head。
 - 发布门禁从 72 个场景/22 项指标扩展为 75 个场景/23 项指标，新增 `question_remediation_execution_safety_rate`；SQLite 行为/迁移、React 生命周期以及 PostgreSQL 唯一约束与完整往返进入部署和备份后隔离 schema E2E。实现完全属于 Aria 原生 Python/FastAPI/React 与数据库，不运行、导入或连接 Codex。
-- 下一阶段 Phase 3X 建议增加“待复核证据裁决”：由项目成员把 message/external/manual 线索显式接受或驳回为有审计的证据判断，再重新计算问题准备度；裁决仍不能自动生成长期事实、自动发送沟通或自动解决问题。
+- Phase 3X 已按下述人工证据裁决合同实现，不再把该项列为待办。
+
+### Phase 3X：待复核证据人工裁决与准备度重算（已实施）
+
+- `message`、`external_reference` 和 `manual_note` 附件保持不可变；新的 current review 只保存 accepted/rejected、独立 revision、必填有界理由、操作者与时间，review event 按 review/revision 只追加完整前态/后态。项目文件和知识文档保持 direct，明确显示“无需裁决”。
+- `POST /projects/{project_id}/questions/remediation-executions/{execution_id}/evidence/{attachment_id}/review` 在路由和领域服务双层执行项目写授权，锁定项目、execution、attachment 和 current review，并用 expected review revision 做 CAS。相同裁决/相同理由的网络重试幂等返回；跨项目、跨 execution、旧 revision、直接来源或已取消 execution 均失败关闭。
+- 只有 accepted 的待复核附件增加当前问题 `supporting_source_count`；pending/rejected 仍显示来源、状态和有界理由，但不能提高支持度。review status/revision 纳入 evidence identity fingerprint，因此已经准备的冻结 promotion 会在确认时检测裁决漂移，不能沿用过期证据基准。
+- 人工接受固定声明 `human_judgment_only=true`、`acceptance_is_truth_verdict=false`。裁决不修改不可变附件和 execution revision，不写 ProjectMemoryFact/候选记忆，不使记忆 stale，不访问外链，不发消息，不调用工具，也不创建或解决 ProjectQuestionResolution；最终回答采用和关单仍走 Phase 3R/3S。
+- 前端在整改执行中心展示 pending、人工接受（不等同事实）、已驳回、无需裁决四种状态，要求填写理由后才可接受/驳回，并展示最新 revision 与依据。裁决成功后刷新执行中心、问题证据和补证计划，不自动触发模型、重建、发送或关单。
+- 幂等迁移 `042_v1_42` 创建 current review 与 append-only review event 两表，为附件唯一当前态、逐 review revision、状态、SHA-256 身份、FK 和检索索引建立数据库约束并保持单一 Alembic head。发布门禁从 75 个场景/23 项指标扩展为 78 个场景/24 项指标，SQLite 行为/迁移、React 裁决生命周期和 PostgreSQL 唯一当前态进入部署与备份后隔离 schema E2E。
+- 本阶段借鉴 Codex `codex-rs/core/src/context/guardian_review_evidence.rs` 在 commit `99660ab3c7b861c916e467581fa9b8723504d66b` 的“不可变证据与审阅判断分离”原则（Apache-2.0），重写为 Aria 原生 SQLModel/FastAPI/React、项目 ACL、CAS 与业务审计。源码归因见 `THIRD_PARTY_NOTICES.md`；Aria 生产运行时不导入、运行或连接 Codex。
 
 ## 11. 官方资料与许可证
 

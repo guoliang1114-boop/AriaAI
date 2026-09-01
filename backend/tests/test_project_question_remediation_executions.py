@@ -11,19 +11,29 @@ from app.models.db import (
     ProjectFile,
     ProjectMember,
     ProjectQuestionRemediationEvidenceAttachment,
+    ProjectQuestionRemediationEvidenceReview,
+    ProjectQuestionRemediationEvidenceReviewEvent,
     ProjectQuestionRemediationExecution,
     ProjectQuestionRemediationExecutionEvent,
     ProjectQuestionResolution,
     ProjectTodo,
     User,
 )
-from app.routers.projects_questions import get_project_question_remediation_executions
+from app.routers.projects_questions import (
+    ReviewProjectQuestionRemediationEvidenceRequest,
+    get_project_question_remediation_executions,
+    review_project_question_remediation_execution_evidence,
+)
 from app.services.project_question_evidence import _current_attached_question_evidence
 from app.services.project_question_remediation_executions import (
     attach_project_question_remediation_evidence,
     build_remediation_execution_contract,
     list_project_question_remediation_executions,
     transition_project_question_remediation_execution,
+)
+from app.services.project_question_remediation_evidence_reviews import (
+    build_remediation_evidence_review_contract,
+    review_project_question_remediation_evidence,
 )
 from app.services.project_question_remediation_promotions import (
     confirm_project_question_remediation_promotion,
@@ -439,4 +449,185 @@ def test_execution_center_route_denies_viewers_before_domain_service(monkeypatch
             current_user=viewer,
         )
     assert error.value.status_code == 403
+    assert called is False
+
+
+def test_review_required_evidence_is_adjudicated_without_becoming_truth_or_memory() -> None:
+    session, owner, _, project, _ = _seed()
+    _confirm(
+        session,
+        owner,
+        project,
+        target_kind="project_todo",
+        key="execution-review-key-0001",
+    )
+    execution = _execution(session)
+    memory_stale_before = project.memory_stale
+    attached = attach_project_question_remediation_evidence(
+        session,
+        project_id=int(project.id),
+        execution_id=int(execution.id),
+        actor_user_id=int(owner.id),
+        expected_revision=1,
+        idempotency_key="review-required-key-0001",
+        evidence_kind="manual_note",
+        title="负责人核验记录",
+        note="已对照客户邮件，仍需项目成员裁决。",
+    )
+    attachment = session.exec(select(ProjectQuestionRemediationEvidenceAttachment)).one()
+    assert attached["evidence"][0]["review"]["status"] == "pending"
+    assert attached["evidence"][0]["review"]["revision"] == 0
+    assert attached["evidence_review_contract"] == (
+        build_remediation_evidence_review_contract()
+    )
+
+    accepted = review_project_question_remediation_evidence(
+        session,
+        project_id=int(project.id),
+        execution_id=int(execution.id),
+        attachment_id=int(attachment.id),
+        actor_user_id=int(owner.id),
+        decision="accepted",
+        expected_revision=0,
+        reason="已人工核对原始邮件与当前项目范围。",
+    )
+    retried = review_project_question_remediation_evidence(
+        session,
+        project_id=int(project.id),
+        execution_id=int(execution.id),
+        attachment_id=int(attachment.id),
+        actor_user_id=int(owner.id),
+        decision="accepted",
+        expected_revision=0,
+        reason="已人工核对原始邮件与当前项目范围。",
+    )
+    assert accepted["status"] == retried["status"] == "accepted"
+    assert accepted["revision"] == retried["revision"] == 1
+    assert accepted["human_judgment_only"] is True
+    assert accepted["acceptance_is_truth_verdict"] is False
+    assert len(session.exec(select(ProjectQuestionRemediationEvidenceReview)).all()) == 1
+    assert len(session.exec(select(ProjectQuestionRemediationEvidenceReviewEvent)).all()) == 1
+
+    bundle, _ = _current_attached_question_evidence(
+        session,
+        project_id=int(project.id),
+        question_sha256=project_question_sha256(QUESTION),
+    )
+    assert bundle["supporting_source_count"] == 1
+    assert bundle["sources"][0]["review_status"] == "accepted"
+    assert bundle["sources"][0]["acceptance_is_truth_verdict"] is False
+    session.refresh(project)
+    session.refresh(execution)
+    assert project.memory_stale is memory_stale_before
+    assert execution.revision == 2
+    assert session.exec(select(ProjectQuestionResolution)).all() == []
+
+    with pytest.raises(HTTPException) as stale:
+        review_project_question_remediation_evidence(
+            session,
+            project_id=int(project.id),
+            execution_id=int(execution.id),
+            attachment_id=int(attachment.id),
+            actor_user_id=int(owner.id),
+            decision="rejected",
+            expected_revision=0,
+            reason="裁决已被其他成员更新。",
+        )
+    assert stale.value.status_code == 409
+    rejected = review_project_question_remediation_evidence(
+        session,
+        project_id=int(project.id),
+        execution_id=int(execution.id),
+        attachment_id=int(attachment.id),
+        actor_user_id=int(owner.id),
+        decision="rejected",
+        expected_revision=1,
+        reason="附件缺少可追溯的发送时间。",
+    )
+    assert rejected["status"] == "rejected"
+    assert rejected["revision"] == 2
+    assert [item["status"] for item in rejected["history"]] == [
+        "rejected",
+        "accepted",
+    ]
+    bundle, _ = _current_attached_question_evidence(
+        session,
+        project_id=int(project.id),
+        question_sha256=project_question_sha256(QUESTION),
+    )
+    assert bundle["supporting_source_count"] == 0
+    assert bundle["sources"][0]["review_reason"] == "附件缺少可追溯的发送时间。"
+
+
+def test_direct_evidence_cannot_be_reviewed_and_review_route_denies_viewer(
+    monkeypatch,
+) -> None:
+    session, owner, viewer, project, _ = _seed()
+    _confirm(
+        session,
+        owner,
+        project,
+        target_kind="project_todo",
+        key="execution-direct-review-key-0001",
+    )
+    execution = _execution(session)
+    project_file = ProjectFile(
+        project_id=int(project.id),
+        name="权威项目文件.pdf",
+        file_type="pdf",
+        path="project/authoritative.pdf",
+    )
+    session.add(project_file)
+    session.commit()
+    session.refresh(project_file)
+    attached = attach_project_question_remediation_evidence(
+        session,
+        project_id=int(project.id),
+        execution_id=int(execution.id),
+        actor_user_id=int(owner.id),
+        expected_revision=1,
+        idempotency_key="direct-review-key-0001",
+        evidence_kind="project_file",
+        project_file_id=int(project_file.id),
+    )
+    attachment = session.exec(select(ProjectQuestionRemediationEvidenceAttachment)).one()
+    assert attached["evidence"][0]["review"]["status"] == "not_required"
+    with pytest.raises(HTTPException) as not_required:
+        review_project_question_remediation_evidence(
+            session,
+            project_id=int(project.id),
+            execution_id=int(execution.id),
+            attachment_id=int(attachment.id),
+            actor_user_id=int(owner.id),
+            decision="accepted",
+            expected_revision=0,
+            reason="不应对直接项目来源创建裁决。",
+        )
+    assert not_required.value.status_code == 409
+
+    called = False
+
+    def should_not_run(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("domain service must not run")
+
+    monkeypatch.setattr(
+        "app.routers.projects_questions.review_project_question_remediation_evidence",
+        should_not_run,
+    )
+    with pytest.raises(HTTPException) as denied:
+        review_project_question_remediation_execution_evidence(
+            project_id=int(project.id),
+            execution_id=int(execution.id),
+            attachment_id=int(attachment.id),
+            body=ReviewProjectQuestionRemediationEvidenceRequest(
+                decision="accepted",
+                expected_revision=0,
+                reason="viewer must not adjudicate",
+            ),
+            session=session,
+            current_user=viewer,
+        )
+    assert denied.value.status_code == 403
     assert called is False

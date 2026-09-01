@@ -167,7 +167,19 @@ def _evidence_identity_fingerprint(question_evidence: dict[str, Any]) -> str:
             if not evidence_id:
                 continue
             source_type = _bounded(source.get("source_type"), 40)
-            identities.add(f"{source_type}:{evidence_id}")
+            identity = f"{source_type}:{evidence_id}"
+            if (
+                collection_name == "attachments"
+                and source.get("support_level") == "review_required"
+            ):
+                review_status = _bounded(source.get("review_status"), 20) or "pending"
+                try:
+                    review_revision = max(0, int(source.get("review_revision") or 0))
+                except (TypeError, ValueError):
+                    review_revision = 0
+                if review_status != "pending" or review_revision:
+                    identity = f"{identity}:review={review_status}:v{review_revision}"
+            identities.add(identity)
     return hashlib.sha256(
         json.dumps(sorted(identities), ensure_ascii=False, separators=(",", ":")).encode(
             "utf-8"

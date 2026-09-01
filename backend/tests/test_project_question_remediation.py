@@ -178,6 +178,30 @@ def test_remediation_basis_changes_when_current_evidence_identity_changes() -> N
     assert first["basis"]["fingerprint"] != second["basis"]["fingerprint"]
 
 
+def test_remediation_basis_changes_when_attachment_review_decision_changes() -> None:
+    pending_review = _review()
+    accepted_review = _review()
+    source = {
+        "source_type": "remediation_attachment",
+        "evidence_id": "remediation_attachment_" + "e" * 64,
+        "support_level": "review_required",
+        "review_status": "pending",
+        "review_revision": 0,
+    }
+    pending_review["question_evidence"]["attachments"] = {"sources": [source]}
+    accepted_review["question_evidence"]["attachments"] = {
+        "sources": [{**source, "review_status": "accepted", "review_revision": 1}]
+    }
+
+    pending = build_question_evidence_remediation_plan(pending_review)
+    accepted = build_question_evidence_remediation_plan(accepted_review)
+
+    assert pending["basis"]["evidence_identity_fingerprint"] != accepted["basis"][
+        "evidence_identity_fingerprint"
+    ]
+    assert pending["basis"]["fingerprint"] != accepted["basis"]["fingerprint"]
+
+
 def test_invalid_or_stale_evidence_fails_closed_to_internal_checks() -> None:
     payload = build_question_evidence_remediation_plan(
         _review(

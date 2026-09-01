@@ -914,6 +914,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-09-01）：Phase 3W 为已确认补证目标增加独立、可审计的执行 Harness。每个原生 ProjectTodo 或 ProjectCommunicationRequest 只对应一个 execution，所有人工已发送证明、附证、完成与取消动作都重新经过项目写授权、项目行锁和 expected revision，并写入按 revision 唯一的 append-only event。完成前从数据库重新统计不可变证据附件，至少一条才允许推进；直接项目文件/知识文档与待复核的消息、外链、人工记录明确区分。人工沟通的“已发送”只是用户证明，Aria 没有 outbound delivery、消息发送或工具执行能力。执行状态也没有问题解决权限，问题仍保持开放，直到用户另行采用持久化回答并通过既有解决账本。`041_v1_41` 管理 execution/evidence/event 三表、状态与引用约束并保持单一迁移 head；发布门禁为 75 个场景、23 项指标。实现仍是 Aria 原生服务，不引入 Codex App Server、SDK、协议、进程或通信。
 
+补充进展（2026-09-01）：Phase 3X 将 `review_required` 附件的人工判断从不可变附件中分离为当前裁决和 append-only 历史。项目可写成员可以接受或驳回消息、外链和人工记录；每次决策都在项目写锁内重新授权，并提交独立 expected review revision。只有已接受项进入问题支持来源数，pending/rejected 仍可见但不计支持；裁决状态与 revision 进入证据 basis fingerprint，因此旧冻结 promotion 会因裁决变化失败关闭。接受只是 `human_judgment_only`，不是真值判定，不写长期记忆、不访问外链、不发送消息、不执行工具、不改变 execution revision，也不自动关单。`042_v1_42` 管理裁决当前态和事件两表；确定性门禁为 78 个场景、24 项指标。机制借鉴 Codex `guardian_review_evidence.rs`（`99660ab…`）的证据/审阅分离原则并重写为 Aria 原生服务，不引入 Codex 运行时或通信。
+
 范围：
 
 - 工具注册表标准化。（首批已完成）
