@@ -578,8 +578,11 @@ function QuestionCard({
   const evidenceLoadedRef = useRef(false)
   const remediationLoadedRef = useRef(false)
   const lastEvidenceRevisionRef = useRef(evidenceRevision)
-  evidenceLoadedRef.current = evidenceReview !== null
-  remediationLoadedRef.current = remediationPlan !== null
+
+  useEffect(() => {
+    evidenceLoadedRef.current = evidenceReview !== null
+    remediationLoadedRef.current = remediationPlan !== null
+  }, [evidenceReview, remediationPlan])
 
   const loadEvidence = useCallback(async () => {
     if (evidenceLoading) return
