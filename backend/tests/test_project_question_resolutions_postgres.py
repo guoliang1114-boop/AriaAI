@@ -25,6 +25,9 @@ from app.services.chat.conversation_continuity import (
 )
 from app.services.chat_store import delete_conversation_with_messages
 from app.services.project_contexts import save_project_memory
+from app.services.project_question_answer_adoption import (
+    parse_project_question_resolution_event_note,
+)
 from app.services.project_question_resolutions import (
     project_question_sha256,
     reopen_project_question,
@@ -142,7 +145,12 @@ class ProjectQuestionResolutionDatabaseContractTests(unittest.TestCase):
                 )
             ).all()
             self.assertEqual([item.action for item in events], ["resolved", "reopened"])
-            self.assertEqual(events[0].note, "书面确认已归档。")
+            audit = parse_project_question_resolution_event_note(events[0].note)
+            self.assertEqual(audit["resolution_summary"], "书面确认已归档。")
+            self.assertEqual(
+                audit["answer_adoption"]["answer_message_id"],
+                int(answer.id or 0),
+            )
             final = build_conversation_continuity_snapshot(
                 session,
                 conversation=conversation,
