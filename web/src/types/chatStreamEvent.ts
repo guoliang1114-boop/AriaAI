@@ -8,6 +8,7 @@ import type {
 import type {
   ContextMemoryLayer,
   ContextReceiptEvent,
+  ContextSkillRuntimeContract,
   ContextWarningCode,
   TurnReceiptEvent,
 } from './productRunEvent'
@@ -165,6 +166,10 @@ const CONTEXT_WARNING_CODES = new Set<ContextWarningCode>([
   'user_preference_overridden',
   'memory_retrieval_truncated',
   'skill_match_ambiguous',
+  'skill_instructions_missing',
+  'skill_instructions_compacted',
+  'skill_tool_contract_invalid',
+  'skill_verification_not_declared',
   'context_compacted',
   'project_world_state_changed',
   'project_world_state_truncated',
@@ -213,6 +218,49 @@ function normalizeContextMemoryLayer(value: unknown): ContextMemoryLayer | null 
         ['language', 'tone', 'format', 'verbosity'] as unknown[]
       ).includes(item))
       : [],
+  }
+}
+
+function normalizeContextSkillRuntime(value: unknown): ContextSkillRuntimeContract | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const runtime = value as Partial<ContextSkillRuntimeContract>
+  if (
+    runtime.schema_version !== 1
+    || !['loaded', 'compacted', 'degraded'].includes(String(runtime.load_status || ''))
+    || !['bundled', 'custom'].includes(String(runtime.package_kind || ''))
+    || !['available', 'not_declared'].includes(String(runtime.verification_status || ''))
+    || Boolean(runtime.scripts_executable)
+  ) return undefined
+  const releaseSha = typeof runtime.release_sha256 === 'string'
+    && /^[a-f0-9]{64}$/u.test(runtime.release_sha256)
+    ? runtime.release_sha256
+    : undefined
+  return {
+    schema_version: 1,
+    load_status: runtime.load_status as ContextSkillRuntimeContract['load_status'],
+    package_kind: runtime.package_kind as ContextSkillRuntimeContract['package_kind'],
+    release_id: runtime.release_id == null ? undefined : String(runtime.release_id).slice(0, 80),
+    version: String(runtime.version || '').slice(0, 64),
+    release_status: String(runtime.release_status || '').slice(0, 32),
+    release_sha256: releaseSha,
+    instruction_loaded: Boolean(runtime.instruction_loaded),
+    instruction_complete: Boolean(runtime.instruction_complete),
+    progressive_loading: Boolean(runtime.progressive_loading),
+    resource_count: nonNegativeInt(runtime.resource_count),
+    resource_names: stringList(runtime.resource_names)
+      .map((name) => name.replace(/\s+/gu, ' ').trim().slice(0, 160))
+      .filter(Boolean)
+      .slice(0, 16),
+    script_resource_count: nonNegativeInt(runtime.script_resource_count),
+    scripts_executable: false,
+    tool_contract_valid: Boolean(runtime.tool_contract_valid),
+    declared_tool_count: nonNegativeInt(runtime.declared_tool_count),
+    granted_tool_count: nonNegativeInt(runtime.granted_tool_count),
+    policy_filtered_tool_count: nonNegativeInt(runtime.policy_filtered_tool_count),
+    verification_status: runtime.verification_status as ContextSkillRuntimeContract['verification_status'],
+    verification_step_count: nonNegativeInt(runtime.verification_step_count),
+    verification_source_count: nonNegativeInt(runtime.verification_source_count),
+    verification_context_complete: Boolean(runtime.verification_context_complete),
   }
 }
 
@@ -278,6 +326,7 @@ export function toContextReceiptEvent(event: ChatStreamEvent): ContextReceiptEve
           score: nonNegativeInt(candidate.score),
         }))
         : undefined,
+      runtime: normalizeContextSkillRuntime(skill.runtime),
     },
     evidence: {
       workspace_context: Boolean(evidence.workspace_context),

@@ -89,6 +89,30 @@ export type ContextMemoryLayerScope = "user" | "client" | "project";
 export type ContextMemoryOverrideDimension = "language" | "tone" | "format" | "verbosity";
 export type ContextSkillStatus = "applied" | "ambiguous" | "not_used";
 export type ContextSkillUsageMode = "none" | "advisory" | "workflow";
+export interface ContextSkillRuntimeContract {
+  schema_version: 1;
+  load_status: "loaded" | "compacted" | "degraded";
+  package_kind: "bundled" | "custom";
+  release_id?: string;
+  version: string;
+  release_status: string;
+  release_sha256?: string;
+  instruction_loaded: boolean;
+  instruction_complete: boolean;
+  progressive_loading: boolean;
+  resource_count: number;
+  resource_names: string[];
+  script_resource_count: number;
+  scripts_executable: false;
+  tool_contract_valid: boolean;
+  declared_tool_count: number;
+  granted_tool_count: number;
+  policy_filtered_tool_count: number;
+  verification_status: "available" | "not_declared";
+  verification_step_count: number;
+  verification_source_count: number;
+  verification_context_complete: boolean;
+}
 export type ContextWarningCode =
   | "project_memory_missing"
   | "project_memory_stale"
@@ -96,6 +120,10 @@ export type ContextWarningCode =
   | "user_preference_overridden"
   | "memory_retrieval_truncated"
   | "skill_match_ambiguous"
+  | "skill_instructions_missing"
+  | "skill_instructions_compacted"
+  | "skill_tool_contract_invalid"
+  | "skill_verification_not_declared"
   | "context_compacted"
   | "project_world_state_changed"
   | "project_world_state_truncated";
@@ -160,6 +188,7 @@ export interface ContextReceiptEvent {
     reason: string;
     confidence: number;
     candidates?: Array<{ id?: string; name: string; score: number }>;
+    runtime?: ContextSkillRuntimeContract;
   };
   evidence: {
     workspace_context: boolean;

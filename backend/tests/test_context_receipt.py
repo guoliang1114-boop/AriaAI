@@ -154,3 +154,40 @@ def test_build_context_receipt_reports_project_state_version_and_change():
     assert event["world_state"]["changed"] is True
     assert event["world_state"]["changed_categories"] == ["todos"]
     assert "project_world_state_changed" in event["warnings"]
+
+
+def test_build_context_receipt_exposes_exact_skill_load_contract_without_prompt():
+    runtime = _runtime(
+        skill_runtime_contract={
+            "schema_version": 1,
+            "load_status": "loaded",
+            "package_kind": "bundled",
+            "release_id": "17",
+            "version": "2.1.0",
+            "release_status": "stable",
+            "release_sha256": "c" * 64,
+            "instruction_loaded": True,
+            "instruction_complete": True,
+            "progressive_loading": True,
+            "resource_count": 1,
+            "resource_names": ["references/quality-checklist.md"],
+            "script_resource_count": 0,
+            "scripts_executable": False,
+            "tool_contract_valid": True,
+            "declared_tool_count": 2,
+            "granted_tool_count": 1,
+            "policy_filtered_tool_count": 1,
+            "verification_status": "available",
+            "verification_step_count": 7,
+            "verification_source_count": 1,
+            "verification_context_complete": True,
+        },
+    )
+
+    event = build_context_receipt("run_skill_contract", runtime)
+
+    assert event["skill"]["runtime"]["release_id"] == "17"
+    assert event["skill"]["runtime"]["resource_count"] == 1
+    assert event["skill"]["runtime"]["granted_tool_count"] == 1
+    assert "system_prompt" not in str(event)
+    assert "tool_schema" not in str(event)

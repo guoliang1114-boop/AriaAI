@@ -22,6 +22,7 @@ Design notes:
 """
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -257,6 +258,9 @@ _MEMORY_LAYER_FACETS = {
 }
 _SKILL_RECEIPT_STATUSES = frozenset({"applied", "ambiguous", "not_used"})
 _SKILL_USAGE_MODES = frozenset({"none", "advisory", "workflow"})
+_SKILL_LOAD_STATUSES = frozenset({"loaded", "compacted", "degraded"})
+_SKILL_PACKAGE_KINDS = frozenset({"bundled", "custom"})
+_SKILL_VERIFICATION_STATUSES = frozenset({"available", "not_declared"})
 _CONTEXT_WARNING_CODES = frozenset(
     {
         "project_memory_missing",
@@ -265,6 +269,10 @@ _CONTEXT_WARNING_CODES = frozenset(
         "user_preference_overridden",
         "memory_retrieval_truncated",
         "skill_match_ambiguous",
+        "skill_instructions_missing",
+        "skill_instructions_compacted",
+        "skill_tool_contract_invalid",
+        "skill_verification_not_declared",
         "context_compacted",
         "project_world_state_changed",
         "project_world_state_truncated",
@@ -412,6 +420,137 @@ def _normalize_memory_layer(value: dict) -> dict[str, Any]:
         "truncated": bool(value.get("truncated", False)),
         "overridden_dimensions": list(dict.fromkeys(overridden_dimensions)),
     }
+
+
+def _normalize_skill_runtime_contract(value: dict) -> dict[str, Any]:
+    """Whitelist the content-free selected-Skill load manifest."""
+
+    try:
+        schema_version = int(value.get("schema_version") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "context_receipt.skill.runtime.schema_version is invalid"
+        ) from exc
+    if schema_version != 1:
+        raise ValueError(
+            "context_receipt.skill.runtime.schema_version must be 1"
+        )
+    normalized: dict[str, Any] = {
+        "schema_version": 1,
+        "load_status": _require_in(
+            str(value.get("load_status") or ""),
+            _SKILL_LOAD_STATUSES,
+            "context_receipt.skill.runtime.load_status",
+        ),
+        "package_kind": _require_in(
+            str(value.get("package_kind") or ""),
+            _SKILL_PACKAGE_KINDS,
+            "context_receipt.skill.runtime.package_kind",
+        ),
+        "version": str(value.get("version") or "")[:64],
+        "release_status": str(value.get("release_status") or "")[:32],
+        "instruction_loaded": bool(value.get("instruction_loaded")),
+        "instruction_complete": bool(value.get("instruction_complete")),
+        "progressive_loading": bool(value.get("progressive_loading")),
+        "scripts_executable": bool(value.get("scripts_executable")),
+        "tool_contract_valid": bool(value.get("tool_contract_valid")),
+        "verification_status": _require_in(
+            str(value.get("verification_status") or ""),
+            _SKILL_VERIFICATION_STATUSES,
+            "context_receipt.skill.runtime.verification_status",
+        ),
+        "verification_context_complete": bool(
+            value.get("verification_context_complete")
+        ),
+    }
+    if normalized["scripts_executable"]:
+        raise ValueError(
+            "context_receipt.skill.runtime.scripts_executable must be false"
+        )
+    for key in (
+        "resource_count",
+        "script_resource_count",
+        "declared_tool_count",
+        "granted_tool_count",
+        "policy_filtered_tool_count",
+        "verification_step_count",
+        "verification_source_count",
+    ):
+        try:
+            normalized[key] = max(0, int(value.get(key) or 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"context_receipt.skill.runtime.{key} is invalid"
+            ) from exc
+    resource_names = list(
+        dict.fromkeys(
+            " ".join(str(name or "").split())[:160]
+            for name in list(value.get("resource_names") or [])[:16]
+            if str(name or "").strip()
+        )
+    )
+    normalized["resource_names"] = resource_names
+    if normalized["resource_count"] != len(resource_names):
+        raise ValueError(
+            "context_receipt.skill.runtime.resource_count must match resource_names"
+        )
+    if not normalized["progressive_loading"]:
+        raise ValueError(
+            "context_receipt.skill.runtime.progressive_loading must be true"
+        )
+    if normalized["script_resource_count"] > normalized["resource_count"]:
+        raise ValueError(
+            "context_receipt.skill.runtime.script_resource_count is invalid"
+        )
+    if (
+        normalized["granted_tool_count"] > normalized["declared_tool_count"]
+        or normalized["policy_filtered_tool_count"]
+        != normalized["declared_tool_count"] - normalized["granted_tool_count"]
+    ):
+        raise ValueError(
+            "context_receipt.skill.runtime tool counts are inconsistent"
+        )
+    if normalized["load_status"] == "loaded" and (
+        not normalized["instruction_loaded"]
+        or not normalized["instruction_complete"]
+        or not normalized["tool_contract_valid"]
+    ):
+        raise ValueError(
+            "context_receipt.skill.runtime loaded status is inconsistent"
+        )
+    if normalized["load_status"] == "compacted" and (
+        not normalized["instruction_loaded"]
+        or normalized["instruction_complete"]
+        or not normalized["tool_contract_valid"]
+    ):
+        raise ValueError(
+            "context_receipt.skill.runtime compacted status is inconsistent"
+        )
+    if normalized["verification_status"] == "not_declared" and (
+        normalized["verification_step_count"] > 0
+        or normalized["verification_source_count"] > 0
+    ):
+        raise ValueError(
+            "context_receipt.skill.runtime verification counts are inconsistent"
+        )
+    if normalized["verification_context_complete"] and (
+        normalized["verification_status"] != "available"
+        or not normalized["instruction_complete"]
+    ):
+        raise ValueError(
+            "context_receipt.skill.runtime verification context is inconsistent"
+        )
+    release_id = str(value.get("release_id") or "").strip()
+    if release_id:
+        normalized["release_id"] = release_id[:80]
+    release_sha256 = str(value.get("release_sha256") or "").strip().lower()
+    if release_sha256:
+        if not re.fullmatch(r"[0-9a-f]{64}", release_sha256):
+            raise ValueError(
+                "context_receipt.skill.runtime.release_sha256 is invalid"
+            )
+        normalized["release_sha256"] = release_sha256
+    return normalized
 
 
 # ----------------------------------------------------------------------
@@ -621,6 +760,11 @@ def context_receipt(
         candidates.append(payload)
     if candidates:
         normalized_skill["candidates"] = candidates
+    skill_runtime = skill.get("runtime")
+    if skill_status == "applied" and isinstance(skill_runtime, dict):
+        normalized_skill["runtime"] = _normalize_skill_runtime_contract(
+            skill_runtime
+        )
 
     normalized_evidence: dict[str, Any] = {}
     for key in (

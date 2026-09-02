@@ -786,6 +786,7 @@ function PersistentContextReceipt({
     ? ` · ${receipt.memory.retrieval_mode === 'full' ? '全量' : '按问题'}召回 ${receipt.memory.selected_item_count} 条记忆`
     : ''
   const memoryLayerLabels = (receipt.memory.layers || []).map(contextMemoryLayerLabel)
+  const skillRuntime = receipt.skill.runtime
   const worldStateLabel = receipt.world_state
     ? ` · 项目状态 ${receipt.world_state.current_version}${receipt.world_state.changed ? ' 有变化' : ''}`
     : ''
@@ -803,6 +804,40 @@ function PersistentContextReceipt({
       {memoryLayerLabels.length > 0 && (
         <div style={{ marginTop: 4, paddingLeft: 14 }}>
           {memoryLayerLabels.map((label) => <div key={label}>{label}</div>)}
+        </div>
+      )}
+      {skillRuntime && (
+        <div
+          aria-label="Skill 本轮加载回执"
+          style={{ marginTop: 4, paddingLeft: 14 }}
+        >
+          <div style={{ color: skillRuntime.load_status === 'loaded' ? 'var(--ink-mute)' : 'var(--warn)' }}>
+            Skill 发布 v{skillRuntime.version || '未记录'}
+            {skillRuntime.release_status ? ` · ${SKILL_RELEASE_STATUS_LABELS[skillRuntime.release_status] || skillRuntime.release_status}` : ''}
+            {skillRuntime.release_sha256 ? ` · ${skillRuntime.release_sha256.slice(0, 8)}` : ''}
+            {skillRuntime.load_status === 'compacted' ? ' · Skill 上下文未完整保留' : ''}
+            {skillRuntime.load_status === 'degraded' ? ' · Skill 加载降级' : ''}
+          </div>
+          <div>
+            本轮按需加载 {skillRuntime.instruction_loaded ? '1 份指令' : '0 份指令'}
+            {` + ${skillRuntime.resource_count} 项资源`}
+            {skillRuntime.declared_tool_count > 0
+              ? ` · Skill 工具 ${skillRuntime.granted_tool_count}/${skillRuntime.declared_tool_count} 可用`
+              : ' · 未声明 Skill 专属工具'}
+          </div>
+          <div style={{ color: skillRuntime.verification_context_complete ? 'var(--good)' : 'var(--warn)' }}>
+            {skillRuntime.verification_status === 'available' && skillRuntime.verification_context_complete
+              ? `完成校验已声明${skillRuntime.verification_step_count > 0 ? ` · ${skillRuntime.verification_step_count} 项检查` : ''}`
+              : skillRuntime.verification_status === 'available'
+                ? '已声明完成校验，但 Skill 上下文未完整保留，不能宣称已经通过验证'
+                : '未声明包级完成校验，系统不会宣称已经通过 Skill 验证'}
+            {' · 包内脚本不会自动执行'}
+          </div>
+          {skillRuntime.resource_names.length > 0 && (
+            <div title={skillRuntime.resource_names.join(' · ')}>
+              已加载资源 · {skillRuntime.resource_names.join(' · ')}
+            </div>
+          )}
         </div>
       )}
       {receipt.world_state?.changed && (
@@ -832,6 +867,12 @@ const PROJECT_WORLD_STATE_LABELS: Record<string, string> = {
   financials: '财务',
   stakeholders: '干系人',
   deliverables: '交付物',
+}
+
+const SKILL_RELEASE_STATUS_LABELS: Record<string, string> = {
+  stable: '稳定版',
+  preview: '预览版',
+  deprecated: '已弃用',
 }
 
 /* ────────────────────────────────────────────────────────────────

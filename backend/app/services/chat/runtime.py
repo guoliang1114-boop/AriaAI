@@ -49,6 +49,11 @@ from app.services.agent_harness.skill_releases import (
     active_skill_view,
     resolve_skill_release,
 )
+from app.services.agent_harness.skill_runtime_contract import (
+    build_skill_runtime_contract,
+    finalize_skill_runtime_contract,
+    format_skill_runtime_contract_for_prompt,
+)
 from app.services.agent_harness.turn_interrupt import get_active_turn
 from app.services.agent_harness.durable_run_inputs import (
     DurableRunInputRejected,
@@ -1332,6 +1337,14 @@ def prepare_chat_runtime(
     prepare_metrics["turn_contract"] = turn_contract.to_dict()
     system = _append_turn_contract_frame(system, turn_contract.to_dict())
     system = _append_capability_frame(system, intent_decision, runtime_tools)
+    skill_runtime_contract = build_skill_runtime_contract(
+        effective_skill,
+        release_id=skill_release_assignment.release_id,
+        granted_tools=runtime_tools,
+    )
+    skill_runtime_boundary = format_skill_runtime_contract_for_prompt(
+        skill_runtime_contract
+    )
 
     # Inject the current user's explicit preferences after removing saved
     # dimensions superseded by this turn. A content-free missing/selection
@@ -1420,7 +1433,11 @@ def prepare_chat_runtime(
             "current_user_request": current_turn_request,
             "project_scope": chat_ctx.project_context,
             "active_task_state": active_task_layer,
-            "effective_skill": chat_ctx.skill_prompt,
+            "effective_skill": "\n\n".join(
+                part
+                for part in (chat_ctx.skill_prompt, skill_runtime_boundary)
+                if part
+            ),
             "user_preferences": user_memory_section,
             "workspace_evidence": "\n\n".join(
                 item
@@ -1435,6 +1452,12 @@ def prepare_chat_runtime(
     )
     if instruction_precedence_frame:
         system = f"{system.rstrip()}\n\n{instruction_precedence_frame}\n"
+    if skill_runtime_boundary:
+        # Keep the short non-executable/runtime boundary at the tail of the
+        # prepared system so deterministic middle compaction preferentially
+        # retains it. The receipt below separately reports whether the entire
+        # Skill body survived final context budgeting.
+        system = f"{system.rstrip()}\n\n{skill_runtime_boundary}\n"
     prepare_metrics["conversation_capsule"] = conversation_capsule_reference(
         conversation_capsule
     )
@@ -1602,6 +1625,17 @@ def prepare_chat_runtime(
     system = context_assembly.system
     api_messages = context_assembly.messages
     runtime_tools = context_assembly.tools
+    skill_runtime_contract = finalize_skill_runtime_contract(
+        skill_runtime_contract,
+        instruction_complete=(
+            not bool((chat_ctx.skill_prompt or "").strip())
+            or (chat_ctx.skill_prompt or "").strip() in system
+        ),
+    )
+    if skill_runtime_contract:
+        prepare_metrics["skill_runtime_contract"] = dict(
+            skill_runtime_contract
+        )
     prepare_metrics["context_budget"] = context_assembly.budget_report.to_dict()
     prepare_metrics["context_compacted"] = context_assembly.budget_report.compacted
     prepare_metrics["context_window_tokens"] = context_assembly.budget_report.context_window_tokens
@@ -1683,6 +1717,7 @@ def prepare_chat_runtime(
         instruction_manifest=instruction_manifest,
         context_manifest=context_assembly.manifest,
         context_receipt=chat_ctx.context_receipt,
+        skill_runtime_contract=skill_runtime_contract,
         intent_prepared_async=intent_prepared_async,
         context_window_tokens=context_window_tokens,
         context_safety_margin_percent=context_safety_percent,

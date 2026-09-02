@@ -90,6 +90,31 @@ describe('chat receipt normalization', () => {
         usage_mode: 'advisory',
         reason: 'matched',
         confidence: 0.92,
+        runtime: {
+          schema_version: 1,
+          load_status: 'loaded',
+          package_kind: 'bundled',
+          release_id: '17',
+          version: '2.1.0',
+          release_status: 'stable',
+          release_sha256: 'a'.repeat(64),
+          instruction_loaded: true,
+          instruction_complete: true,
+          progressive_loading: true,
+          resource_count: 1,
+          resource_names: ['references/quality-checklist.md'],
+          script_resource_count: 0,
+          scripts_executable: false,
+          tool_contract_valid: true,
+          declared_tool_count: 2,
+          granted_tool_count: 1,
+          policy_filtered_tool_count: 1,
+          verification_status: 'available',
+          verification_step_count: 7,
+          verification_source_count: 1,
+          verification_context_complete: true,
+          prompt: 'private instructions',
+        },
       },
       evidence: {
         workspace_context: true,
@@ -115,7 +140,17 @@ describe('chat receipt normalization', () => {
         version: 3,
         layers: [{ scope: 'user', overridden_dimensions: ['language'] }],
       },
+      skill: {
+        runtime: {
+          release_id: '17',
+          version: '2.1.0',
+          resource_count: 1,
+          granted_tool_count: 1,
+          verification_step_count: 7,
+        },
+      },
     })
+    expect(JSON.stringify(valid && toContextReceiptEvent(valid))).not.toContain('private instructions')
     expect(incomplete && toContextReceiptEvent(incomplete)).toBeNull()
   })
 

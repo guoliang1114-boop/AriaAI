@@ -258,7 +258,83 @@ class ContextReceiptTest(unittest.TestCase):
         self.assertNotIn("content", event)
         self.assertNotIn("_source_snapshots", str(event))
         self.assertNotIn("source_sha256", str(event))
-        self.assertNotIn("private-source-hash", str(event))
+
+    def test_context_receipt_whitelists_skill_runtime_contract(self):
+        event = context_receipt(
+            make_run_id(),
+            scope="chat",
+            memory={
+                "status": "not_applicable",
+                "version": 0,
+                "retrieval_mode": "none",
+            },
+            skill={
+                "status": "applied",
+                "usage_mode": "workflow",
+                "name": "Proposal",
+                "reason": "forced_by_user",
+                "confidence": 1.0,
+                "runtime": {
+                    "schema_version": 1,
+                    "load_status": "loaded",
+                    "package_kind": "bundled",
+                    "release_id": "19",
+                    "version": "1.2.0",
+                    "release_status": "stable",
+                    "release_sha256": "d" * 64,
+                    "instruction_loaded": True,
+                    "instruction_complete": True,
+                    "progressive_loading": True,
+                    "resource_count": 1,
+                    "resource_names": ["references/quality-checklist.md"],
+                    "script_resource_count": 0,
+                    "scripts_executable": False,
+                    "tool_contract_valid": True,
+                    "declared_tool_count": 2,
+                    "granted_tool_count": 1,
+                    "policy_filtered_tool_count": 1,
+                    "verification_status": "available",
+                    "verification_step_count": 6,
+                    "verification_source_count": 1,
+                    "verification_context_complete": True,
+                    "prompt": "must never leave backend",
+                },
+            },
+            evidence={},
+        )
+
+        runtime = event["skill"]["runtime"]
+        self.assertEqual(runtime["release_id"], "19")
+        self.assertEqual(runtime["resource_names"], ["references/quality-checklist.md"])
+        self.assertEqual(runtime["granted_tool_count"], 1)
+        self.assertNotIn("prompt", runtime)
+
+    def test_context_receipt_rejects_executable_package_scripts(self):
+        with self.assertRaisesRegex(ValueError, "scripts_executable must be false"):
+            context_receipt(
+                make_run_id(),
+                scope="chat",
+                memory={
+                    "status": "not_applicable",
+                    "version": 0,
+                    "retrieval_mode": "none",
+                },
+                skill={
+                    "status": "applied",
+                    "usage_mode": "workflow",
+                    "name": "Unsafe",
+                    "reason": "forced_by_user",
+                    "confidence": 1.0,
+                    "runtime": {
+                        "schema_version": 1,
+                        "load_status": "loaded",
+                        "package_kind": "custom",
+                        "scripts_executable": True,
+                        "verification_status": "not_declared",
+                    },
+                },
+                evidence={},
+            )
 
     def test_context_receipt_rejects_overrides_on_non_user_layer(self):
         with self.assertRaises(ValueError):

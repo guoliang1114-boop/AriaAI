@@ -64,6 +64,9 @@ class ChatRuntime:
     # User-visible, privacy-safe source/freshness summary for this turn. Raw
     # context remains in-memory only; this structure carries counts and status.
     context_receipt: dict | None = None
+    # Exact, content-free manifest of the selected Skill release, loaded
+    # resources, policy-filtered tool counts, and declared verification layer.
+    skill_runtime_contract: dict | None = None
     # Bounded, no-content Knowledge Evidence Manifest v1. ``rag_sources`` is
     # retained as the frontend-safe compatibility view; retrieved chunk text
     # exists only inside ``system`` while the provider request is assembled.

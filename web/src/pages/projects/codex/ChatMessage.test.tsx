@@ -168,6 +168,66 @@ describe('ProjectChatMessage', () => {
     expect(screen.getByText(/客户记忆 v5：使用 2 项.*待刷新/)).toBeInTheDocument()
   })
 
+  it('shows the exact Skill release, loaded resources, tool boundary, and verification receipt', () => {
+    const receipt: ContextReceiptEvent = {
+      ...ambiguousReceipt,
+      skill: {
+        status: 'applied',
+        usage_mode: 'workflow',
+        id: '7',
+        name: '咨询提案',
+        source: 'explicit',
+        reason: 'forced_by_user',
+        confidence: 1,
+        runtime: {
+          schema_version: 1,
+          load_status: 'loaded',
+          package_kind: 'bundled',
+          release_id: '17',
+          version: '2.1.0',
+          release_status: 'stable',
+          release_sha256: 'abcdef12'.padEnd(64, '0'),
+          instruction_loaded: true,
+          instruction_complete: true,
+          progressive_loading: true,
+          resource_count: 2,
+          resource_names: [
+            'references/proposal-structure.md',
+            'references/quality-checklist.md',
+          ],
+          script_resource_count: 0,
+          scripts_executable: false,
+          tool_contract_valid: true,
+          declared_tool_count: 2,
+          granted_tool_count: 1,
+          policy_filtered_tool_count: 1,
+          verification_status: 'available',
+          verification_step_count: 8,
+          verification_source_count: 1,
+          verification_context_complete: true,
+        },
+      },
+      warnings: [],
+    }
+    const message: Message = {
+      id: 21,
+      conversation_id: 4,
+      role: 'assistant',
+      content: '提案已经完成。',
+      metadata_json: JSON.stringify({ context_receipt: receipt }),
+      created_at: '2026-09-03T00:00:00Z',
+    }
+
+    render(<ProjectChatMessage message={message} projectId={3} />)
+    fireEvent.click(screen.getByText(/工作流：咨询提案/))
+
+    expect(screen.getByLabelText('Skill 本轮加载回执')).toHaveTextContent('Skill 发布 v2.1.0 · 稳定版 · abcdef12')
+    expect(screen.getByLabelText('Skill 本轮加载回执')).toHaveTextContent('本轮按需加载 1 份指令 + 2 项资源')
+    expect(screen.getByLabelText('Skill 本轮加载回执')).toHaveTextContent('Skill 工具 1/2 可用')
+    expect(screen.getByLabelText('Skill 本轮加载回执')).toHaveTextContent('完成校验已声明 · 8 项检查')
+    expect(screen.getByLabelText('Skill 本轮加载回执')).toHaveTextContent('包内脚本不会自动执行')
+  })
+
   it('shows a persisted user Brief and restores its exact turn controls', () => {
     const onTurnBriefReuse = vi.fn()
     const message: Message = {

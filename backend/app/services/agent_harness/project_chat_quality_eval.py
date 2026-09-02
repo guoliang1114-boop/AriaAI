@@ -34,6 +34,12 @@ from app.services.agent_harness.skill_releases import (
     skill_release_sha256,
     skill_rollout_bucket,
 )
+from app.services.agent_harness.skill_runtime_contract import (
+    build_skill_runtime_contract,
+    finalize_skill_runtime_contract,
+    format_skill_runtime_contract_for_prompt,
+    skill_runtime_contract_warnings,
+)
 from app.services.agent_harness.project_world_state import (
     WORLD_STATE_CATEGORIES,
     WORLD_STATE_SCHEMA_VERSION,
@@ -1555,6 +1561,83 @@ def _question_answer_adoption_safety_results() -> tuple[
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _skill_runtime_contract_results() -> tuple[int, int, list[dict[str, Any]]]:
+    skill = SimpleNamespace(
+        builtin_key="proposal",
+        package_version="2.0.0",
+        package_status="stable",
+        package_sha256="e" * 64,
+        tools_definition_json='[{"name":"read"},{"name":"write"}]',
+        system_prompt=(
+            "# Proposal\n\n---\n\n"
+            "## Bundled Reference: references/quality-checklist.md\n\n"
+            "# Quality Checklist\n- [ ] Evidence\n- [ ] Review"
+        ),
+    )
+    contract = build_skill_runtime_contract(
+        skill,
+        release_id=7,
+        granted_tools=[{"name": "read"}],
+    )
+    rendered = format_skill_runtime_contract_for_prompt(contract)
+    compacted = finalize_skill_runtime_contract(
+        contract,
+        instruction_complete=False,
+    )
+    degraded = build_skill_runtime_contract(
+        SimpleNamespace(
+            builtin_key="",
+            package_version="",
+            package_status="preview",
+            package_sha256="",
+            tools_definition_json="invalid",
+            system_prompt="",
+        )
+    )
+    details = [
+        {
+            "case": "skill_runtime_binds_exact_release_and_loaded_resources",
+            "passed": contract["release_id"] == "7"
+            and contract["release_sha256"] == "e" * 64
+            and contract["resource_names"]
+            == ["references/quality-checklist.md"],
+        },
+        {
+            "case": "skill_runtime_intersects_tools_with_aria_policy",
+            "passed": contract["declared_tool_count"] == 2
+            and contract["granted_tool_count"] == 1
+            and contract["policy_filtered_tool_count"] == 1,
+        },
+        {
+            "case": "skill_runtime_never_authorizes_package_scripts",
+            "passed": contract["scripts_executable"] is False
+            and "Package scripts are never executable" in rendered,
+        },
+        {
+            "case": "skill_runtime_surfaces_verification_and_degraded_loads",
+            "passed": contract["verification_status"] == "available"
+            and contract["verification_step_count"] == 2
+            and skill_runtime_contract_warnings(degraded)
+            == [
+                "skill_instructions_missing",
+                "skill_tool_contract_invalid",
+                "skill_verification_not_declared",
+            ],
+        },
+        {
+            "case": "skill_runtime_prompt_boundary_excludes_release_fingerprint",
+            "passed": "e" * 64 not in rendered
+            and "quality-checklist.md" not in rendered
+            and "tool_input" not in rendered
+            and compacted["load_status"] == "compacted"
+            and compacted["verification_context_complete"] is False
+            and "skill_instructions_compacted"
+            in skill_runtime_contract_warnings(compacted),
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1576,6 +1659,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "interaction_feedback_privacy_rate": _interaction_feedback_results(),
         "skill_quality_attribution_accuracy": _skill_run_quality_results(),
         "skill_release_governance_accuracy": _skill_release_governance_results(),
+        "skill_runtime_contract_accuracy": _skill_runtime_contract_results(),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
         "question_answer_readiness_accuracy": _question_answer_readiness_results(),

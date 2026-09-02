@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.agent_harness.skill_runtime_contract import (
+    skill_runtime_contract_warnings,
+)
+
 
 def _dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
@@ -69,6 +73,9 @@ def build_context_receipt(run_id: str, runtime: Any) -> dict[str, Any]:
         "confidence": metrics.get("skill_decision_confidence", 0.0),
         "candidates": candidates,
     }
+    skill_runtime = _dict(getattr(runtime, "skill_runtime_contract", None))
+    if skill_status == "applied" and skill_runtime:
+        skill["runtime"] = skill_runtime
 
     manifest_ref = context_manifest_reference(
         getattr(runtime, "context_manifest", None)
@@ -114,6 +121,7 @@ def build_context_receipt(run_id: str, runtime: Any) -> dict[str, Any]:
             warnings.append("memory_retrieval_truncated")
     if skill_status == "ambiguous":
         warnings.append("skill_match_ambiguous")
+    warnings.extend(skill_runtime_contract_warnings(skill_runtime))
     if evidence["compacted"]:
         warnings.append("context_compacted")
 

@@ -1,7 +1,7 @@
 # 项目对话与 Skill 交互全量优化方案
 
 > 更新日期：2026-08-28
-> 对照基线：OpenAI Codex `83d1fe0e67b1323f71febc2925817732b449f1d9`；发布快照/重建机制固定于 `343074d4207d572809bd8cea15f4be1d09d98e0b`
+> 对照基线：OpenAI Codex `83d1fe0e67b1323f71febc2925817732b449f1d9`；发布快照/重建机制固定于 `343074d4207d572809bd8cea15f4be1d09d98e0b`；Phase 4A Skill 本轮加载边界固定于 `5e26f7621c1c470fe62350d61c9eb4d6c772a0da`
 > 产品边界：只吸收源码机制，不运行、不调用、不连接 Codex。
 
 ## 1. 结论
@@ -543,6 +543,16 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 问题页显示 `bound / legacy_unbound / answer_unavailable / answer_changed / evidence_changed`。回答不可用、正文改变，或整改附件集合/人工裁决变化会自动把解决项投影为待复核；准备度始终声明不是正确性裁决。
 - 重答成功后不再只弹出“请自己返回”的提示：项目对话给出精确返回入口，携带持久 Message ID；问题页自动重新召回答案证据并预选该回答，但不自动填写人工摘要、不自动采用、不自动关单。
 - 本阶段借鉴 Codex 固定 commit `986ff1cc7ced0081ec5014b700a376333d87f869` 的稳定 review target 与 durable terminal item 原则，全部实现仍是 Aria 原生 Python/FastAPI/React、项目权限、项目记忆和审计事件。发布门禁为 85 个场景、26 项指标，新增 `question_answer_adoption_safety_rate`；不运行、导入或连接 Codex。
+
+### Phase 4A：Skill 本轮按需加载与验证契约（已实施）
+
+- Skill 被选中后，不再只显示名称。运行时基于已经解析出的不可变 `SkillRelease` 生成 `Skill Runtime Contract v1`，绑定 release ID、semver、发布状态、release SHA-256、指令是否加载、最终 Provider 上下文是否完整保留、实际随发布快照注入的 bundled resource 名称和数量；若上下文预算压缩了完整 Skill body，状态确定性降为 `compacted`，验证上下文也标为不完整。不返回 Skill Prompt、工具 schema、项目正文、工具参数或隐藏推理。
+- 资源清单只从当前 release 的冻结 Prompt 中已存在的 `Bundled Reference` 标记提取，最多 16 项。当前文件系统后来增加或修改的资源不能反向改变历史 Turn；未命中的 Skill 包和未显式加入发布 Prompt 的 reference/example/asset/script 不进入本轮上下文。
+- Skill 声明工具与通过 `ActionPolicy` / `ToolAccessPolicy` 后真正可见的 Aria 工具取交集，回执只显示声明数、授权数和被策略过滤数。包内脚本固定 `scripts_executable=false`；文档提到脚本、资源名包含脚本，或模型提出脚本都不会获得执行权，只有本轮正式暴露的 Aria 工具可运行。
+- Runtime 确定性识别 `Quality Checklist`、验证/验收/完成标准及质量清单 reference，生成 `available / not_declared` 和检查项数量。该状态表示 Skill 声明了交付前检查，不冒充实际自动验证结果；未声明时 Provider 边界明确禁止声称“已通过包级验证”，前端也显示黄色提示。
+- 项目对话“本轮依据”新增精确 Skill 发布、短 SHA、按需加载指令/资源、工具授权比例、验证清单和“脚本不会自动执行”回执；旧消息和没有新字段的客户端继续兼容。Context Receipt 新增三类受控 warning：缺指令、工具合同损坏、未声明验证。
+- 确定性发布门禁由 85 个场景/26 项指标扩展为 90 个场景/27 项指标，新增 `skill_runtime_contract_accuracy`，固定精确发布身份、按需资源、权限交集、脚本不可执行、验证声明和无正文回执五条不变量。本阶段复用现有 `SkillRelease`、`ChatRun`、Message metadata 与 Context Receipt，不新增数据库迁移。
+- 本阶段参考 OpenAI Codex `codex-rs/skills/src/selection.rs`、`codex-rs/ext/skills/src/host_prompt.rs` 和 `fragments.rs` 在 commit `5e26f7621c1c470fe62350d61c9eb4d6c772a0da` 的“轻量发现、本轮命中后再加载、显式加载结果”边界，并重写为 Aria 原生 Python/React、数据库发布快照与业务授权。Aria 生产运行时不导入、运行或连接 Codex。
 
 ## 11. 官方资料与许可证
 

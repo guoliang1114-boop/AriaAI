@@ -61,6 +61,10 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - immutable Skill contract snapshots, reconstructed active views,
   project-sticky rollout buckets, content-free release health, and fail-back
   decisions adapted to Aria-native database releases and ChatRun lifecycle.
+- selected-only Skill prompt loading outcomes adapted into exact immutable
+  release receipts, frozen bundled-resource inventories, policy-filtered tool
+  counts, declared verification status, and an invariant that package scripts
+  are not executable in Aria merely because a Skill mentions them; and
 - project-bound retained conversation capsules, previous-state fingerprint
   chaining, bounded tool outcomes, unresolved blocker retention, and
   current-turn constraint supersession without remote compaction; and
@@ -105,7 +109,8 @@ with a Codex runtime. The adapted mechanisms currently cover:
 Recorded upstream audit baselines include commits
 `83d1fe0e67b1323f71febc2925817732b449f1d9` and
 `343074d4207d572809bd8cea15f4be1d09d98e0b`, plus the later run-completion
-baseline `99660ab3c7b861c916e467581fa9b8723504d66b`. The specific upstream source path,
+baseline `99660ab3c7b861c916e467581fa9b8723504d66b` and the Phase 4A Skill-loading
+baseline `5e26f7621c1c470fe62350d61c9eb4d6c772a0da`. The specific upstream source path,
 pinned commit, and Aria modification notice are recorded in each adapted
 Python module.
 
@@ -163,6 +168,17 @@ final project-lock reauthorization, answer/evidence SHA-256 revalidation,
 backward-compatible append-only resolution-event envelope, and React/FastAPI
 two-step human workflow. No Codex runtime, protocol, SDK, subprocess, account,
 or network communication is included.
+
+For the Phase 4A Skill runtime-contract addition,
+`backend/app/services/agent_harness/skill_runtime_contract.py` adapts the
+selected-only loading boundary and explicit load outcomes from
+`codex-rs/skills/src/selection.rs`, `codex-rs/ext/skills/src/host_prompt.rs`,
+and `codex-rs/ext/skills/src/fragments.rs` at commit
+`5e26f7621c1c470fe62350d61c9eb4d6c772a0da`. Aria replaces filesystem prompt
+injection with its own immutable database release view, content-free Context
+Receipt, policy-filtered native tools, and a fixed non-executable package-script
+boundary. No Codex runtime, protocol, SDK, subprocess, account, or network
+communication is included.
 
 OpenAI Codex is available under the Apache License 2.0:
 
