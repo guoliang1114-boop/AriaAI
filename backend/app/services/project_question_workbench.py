@@ -104,10 +104,22 @@ def _resolution_payload(
     project_memory_stale: bool,
     current_hashes: set[str],
     available_message_ids: set[int],
+    answer_adoption: dict[str, Any] | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     reappeared = row.question_sha256 in current_hashes
     memory_changed = current_memory_version > int(row.resolved_memory_version or 0)
-    needs_review = bool(project_memory_stale or memory_changed or reappeared)
+    adoption = answer_adoption or {
+        "status": "legacy_unbound",
+        "integrity_review_reason": "",
+        "answer_content_bound": False,
+        "evidence_basis_bound": False,
+        "requires_human_confirmation": True,
+        "is_correctness_verdict": False,
+    }
+    integrity_reason = str(adoption.get("integrity_review_reason") or "")
+    needs_review = bool(
+        project_memory_stale or memory_changed or reappeared or integrity_reason
+    )
     review_reason = (
         "question_reappeared"
         if reappeared
@@ -115,7 +127,7 @@ def _resolution_payload(
         if project_memory_stale
         else "project_memory_changed"
         if memory_changed
-        else ""
+        else integrity_reason
     )
     answer_available = int(row.answer_message_id or 0) in available_message_ids
     payload = {
@@ -128,6 +140,7 @@ def _resolution_payload(
         "resolved_memory_version": int(row.resolved_memory_version or 0),
         "resolved_slot_version": int(row.resolved_slot_version or 0),
         "resolved_at": _iso(row.resolved_at),
+        "answer_adoption": adoption,
     }
     return ("needs_review" if needs_review else "resolved"), review_reason, payload
 
@@ -226,6 +239,14 @@ def build_project_question_workbench(
     available_message_ids = set(
         session.exec(select(Message.id).where(Message.id.in_(message_ids))).all()
     ) if message_ids else set()
+    from app.services.project_question_answer_adoption import (
+        build_project_question_resolution_adoption_projections,
+    )
+
+    adoption_by_resolution = build_project_question_resolution_adoption_projections(
+        session,
+        resolutions,
+    )
 
     items: list[dict[str, Any]] = []
     emitted: set[str] = set()
@@ -242,6 +263,7 @@ def build_project_question_workbench(
                 project_memory_stale=bool(memory["stale"]),
                 current_hashes=current_hashes,
                 available_message_ids=available_message_ids,
+                answer_adoption=adoption_by_resolution.get(int(row.id or 0)),
             )
         items.append(
             {
@@ -267,6 +289,7 @@ def build_project_question_workbench(
                 project_memory_stale=bool(memory["stale"]),
                 current_hashes=current_hashes,
                 available_message_ids=available_message_ids,
+                answer_adoption=adoption_by_resolution.get(int(row.id or 0)),
             )
         items.append(
             {

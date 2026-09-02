@@ -8,6 +8,7 @@ import { api } from '../../../../api/client'
 import { ToastProvider } from '../../../../contexts/ToastContext'
 import type {
   ProjectDetail,
+  ProjectQuestionAnswerAdoptionPreview,
   ProjectQuestionEvidenceReview,
   ProjectQuestionRemediationPlan,
   ProjectQuestionRemediationExecutionList,
@@ -193,6 +194,49 @@ const evidenceReview: ProjectQuestionEvidenceReview = {
     includes_retrieved_chunk_content: false,
     includes_bounded_attachment_notes: false,
     includes_bounded_review_reasons: false,
+    includes_prompt_content: false,
+    includes_tool_inputs: false,
+    includes_tool_outputs: false,
+    includes_hidden_reasoning: false,
+  },
+}
+
+const adoptionPreview: ProjectQuestionAnswerAdoptionPreview = {
+  schema_version: 1,
+  project_id: 9,
+  question: workbench.questions[0].question,
+  question_sha256: 'a'.repeat(64),
+  memory_version: 5,
+  slot_version: 3,
+  snapshot_sha256: 'd'.repeat(64),
+  resolution_summary: '书面确认已归档。',
+  answer: {
+    ...workbench.answer_candidates[0],
+    content_sha256: 'e'.repeat(64),
+  },
+  evidence_identity_fingerprint: 'f'.repeat(64),
+  attachment_evidence_identity_fingerprint: '0'.repeat(64),
+  assessment: evidenceReview.candidates[0].assessment,
+  contract: {
+    name: 'project_question_answer_adoption',
+    preview_resolves_question: false,
+    requires_explicit_confirmation: true,
+    reauthorizes_on_confirmation: true,
+    rechecks_current_question: true,
+    rechecks_answer_content: true,
+    rechecks_current_evidence_basis: true,
+    confirmation_resolves_question: true,
+    mutates_historical_messages: false,
+    writes_long_term_memory_before_confirmation: false,
+    sends_messages: false,
+    executes_tools: false,
+    is_correctness_verdict: false,
+  },
+  privacy: {
+    includes_bounded_answer_preview: true,
+    includes_full_answer_content: false,
+    includes_retrieved_chunk_content: false,
+    includes_bounded_source_metadata: true,
     includes_prompt_content: false,
     includes_tool_inputs: false,
     includes_tool_outputs: false,
@@ -433,11 +477,14 @@ const readyExecution: ProjectQuestionRemediationExecutionList = {
   }],
 }
 
-function renderQuestions(refetch = vi.fn().mockResolvedValue(undefined)) {
+function renderQuestions(
+  refetch = vi.fn().mockResolvedValue(undefined),
+  initialEntry = '/',
+) {
   return {
     refetch,
     ...render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <ToastProvider>
           <CxProjectQuestions projectId={9} detail={detail} refetch={refetch} />
         </ToastProvider>
@@ -505,7 +552,7 @@ describe('project question workbench', () => {
     expect(await screen.findByText('责任版本 1')).toBeInTheDocument()
   })
 
-  it('requires an explicit project answer and summary before resolving', async () => {
+  it('requires a frozen answer-adoption review before resolving', async () => {
     const resolved: ProjectQuestionWorkbench = {
       ...workbench,
       memory: { ...workbench.memory, memory_version: 6, slot_version: 4 },
@@ -523,23 +570,54 @@ describe('project question workbench', () => {
           resolved_memory_version: 6,
           resolved_slot_version: 4,
           resolved_at: '2026-08-31T09:00:00',
+          answer_adoption: {
+            status: 'bound',
+            integrity_review_reason: '',
+            snapshot_sha256: 'd'.repeat(64),
+            answer_content_sha256: 'e'.repeat(64),
+            evidence_identity_fingerprint: 'f'.repeat(64),
+            readiness_score: 91,
+            readiness_band: 'strong',
+            warnings: [],
+            answer_content_bound: true,
+            evidence_basis_bound: true,
+            requires_human_confirmation: true,
+            is_correctness_verdict: false,
+          },
         },
       }],
     }
-    vi.mocked(api.post).mockResolvedValue(resolved)
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(adoptionPreview)
+      .mockResolvedValueOnce(resolved)
     const { refetch } = renderQuestions()
     await screen.findByText('客户是否确认了最终验收范围？')
 
-    const resolveButton = screen.getByRole('button', { name: '标记已解决' })
+    const resolveButton = screen.getByRole('button', { name: '确认采用并关单' })
     expect(resolveButton).toBeDisabled()
     await userEvent.selectOptions(
       screen.getByRole('combobox', { name: '选择解决问题的回答' }),
       '42',
     )
     await userEvent.type(screen.getByRole('textbox', { name: '解决摘要' }), '书面确认已归档。')
+    await userEvent.click(screen.getByRole('button', { name: '核验采用' }))
+
+    await waitFor(() => expect(api.post).toHaveBeenNthCalledWith(
+      1,
+      `/projects/9/questions/${'a'.repeat(64)}/answer-adoption/prepare`,
+      {
+        question: '客户是否确认了最终验收范围？',
+        answer_message_id: 42,
+        resolution_summary: '书面确认已归档。',
+      },
+      { timeout: 60_000 },
+    ))
+    expect(await screen.findByRole('region', { name: '回答采用核验' })).toBeInTheDocument()
+    expect(resolveButton).toBeEnabled()
     await userEvent.click(resolveButton)
 
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+    await waitFor(() => expect(api.post).toHaveBeenNthCalledWith(
+      2,
       '/projects/9/questions/resolve',
       {
         question: '客户是否确认了最终验收范围？',
@@ -547,6 +625,7 @@ describe('project question workbench', () => {
         resolution_summary: '书面确认已归档。',
         expected_memory_version: 5,
         expected_slot_version: 3,
+        answer_adoption_snapshot_sha256: 'd'.repeat(64),
       },
     ))
     expect(refetch).toHaveBeenCalledTimes(1)
@@ -573,7 +652,7 @@ describe('project question workbench', () => {
       { timeout: 60_000 },
     )
     expect(screen.getByRole('combobox', { name: '选择解决问题的回答' })).toHaveValue('')
-    expect(screen.getByRole('button', { name: '标记已解决' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认采用并关单' })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: '采用回答 42' }))
     expect(screen.getByRole('combobox', { name: '选择解决问题的回答' })).toHaveValue('42')
   })
@@ -648,6 +727,22 @@ describe('project question workbench', () => {
       evidenceCount: 1,
     })
     expect(api.post).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns from a re-answer with the persisted answer selected and reanalyzed', async () => {
+    vi.mocked(api.post).mockResolvedValueOnce(evidenceReview)
+    renderQuestions(
+      vi.fn().mockResolvedValue(undefined),
+      `/projects/9/questions?question=${'a'.repeat(64)}&answer=42`,
+    )
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      `/projects/9/questions/${'a'.repeat(64)}/evidence`,
+      { question: '客户是否确认了最终验收范围？' },
+      { timeout: 60_000 },
+    ))
+    expect(screen.getByRole('combobox', { name: '选择解决问题的回答' })).toHaveValue('42')
+    expect(await screen.findByRole('region', { name: '问题证据分析' })).toBeInTheDocument()
   })
 
   it('turns evidence gaps into editable local drafts without side effects', async () => {

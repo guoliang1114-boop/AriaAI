@@ -1037,7 +1037,14 @@ export interface ProjectQuestionResolution {
   id: number
   question: string
   status: 'resolved' | 'needs_review'
-  review_reason: '' | 'question_reappeared' | 'project_memory_stale' | 'project_memory_changed'
+  review_reason:
+    | ''
+    | 'question_reappeared'
+    | 'project_memory_stale'
+    | 'project_memory_changed'
+    | 'answer_unavailable'
+    | 'answer_changed'
+    | 'answer_evidence_changed'
   resolution_summary: string
   answer_message_id?: number | null
   answer_conversation_id?: number | null
@@ -1046,6 +1053,7 @@ export interface ProjectQuestionResolution {
   resolved_memory_version: number
   resolved_slot_version: number
   resolved_at: string
+  answer_adoption?: ProjectQuestionResolutionAdoption
 }
 
 export type ProjectQuestionPriority = 'low' | 'normal' | 'high' | 'critical'
@@ -1069,6 +1077,27 @@ export interface ProjectQuestionWorkbenchResolution {
   resolved_memory_version: number
   resolved_slot_version: number
   resolved_at: string
+  answer_adoption?: ProjectQuestionResolutionAdoption
+}
+
+export interface ProjectQuestionResolutionAdoption {
+  status:
+    | 'bound'
+    | 'legacy_unbound'
+    | 'answer_unavailable'
+    | 'answer_changed'
+    | 'evidence_changed'
+  integrity_review_reason: string
+  snapshot_sha256?: string
+  answer_content_sha256?: string
+  evidence_identity_fingerprint?: string
+  readiness_score?: number
+  readiness_band?: ProjectQuestionReadinessBand
+  warnings?: string[]
+  answer_content_bound: boolean
+  evidence_basis_bound: boolean
+  requires_human_confirmation: true
+  is_correctness_verdict: false
 }
 
 export interface ProjectQuestionWorkbenchItem {
@@ -1080,6 +1109,9 @@ export interface ProjectQuestionWorkbenchItem {
     | 'question_reappeared'
     | 'project_memory_stale'
     | 'project_memory_changed'
+    | 'answer_unavailable'
+    | 'answer_changed'
+    | 'answer_evidence_changed'
   profile: ProjectQuestionProfile
   resolution?: ProjectQuestionWorkbenchResolution | null
 }
@@ -1213,6 +1245,8 @@ export interface ProjectQuestionEvidenceReview {
     recommended_message_id?: number | null
     bands: Record<ProjectQuestionReadinessBand, number>
     truncated: boolean
+    evidence_identity_fingerprint?: string
+    attachment_evidence_identity_fingerprint?: string
   }
   candidates: ProjectQuestionEvidenceCandidate[]
   assessment_contract: {
@@ -1227,6 +1261,46 @@ export interface ProjectQuestionEvidenceReview {
     includes_retrieved_chunk_content: false
     includes_bounded_attachment_notes: boolean
     includes_bounded_review_reasons: boolean
+    includes_prompt_content: false
+    includes_tool_inputs: false
+    includes_tool_outputs: false
+    includes_hidden_reasoning: false
+  }
+}
+
+export interface ProjectQuestionAnswerAdoptionPreview {
+  schema_version: 1
+  project_id: number
+  question: string
+  question_sha256: string
+  memory_version: number
+  slot_version: number
+  snapshot_sha256: string
+  resolution_summary: string
+  answer: ProjectQuestionAnswerCandidate & { content_sha256: string }
+  evidence_identity_fingerprint: string
+  attachment_evidence_identity_fingerprint: string
+  assessment: ProjectQuestionAnswerAssessment
+  contract: {
+    name: 'project_question_answer_adoption'
+    preview_resolves_question: false
+    requires_explicit_confirmation: true
+    reauthorizes_on_confirmation: true
+    rechecks_current_question: true
+    rechecks_answer_content: true
+    rechecks_current_evidence_basis: true
+    confirmation_resolves_question: true
+    mutates_historical_messages: false
+    writes_long_term_memory_before_confirmation: false
+    sends_messages: false
+    executes_tools: false
+    is_correctness_verdict: false
+  }
+  privacy: {
+    includes_bounded_answer_preview: true
+    includes_full_answer_content: false
+    includes_retrieved_chunk_content: false
+    includes_bounded_source_metadata: true
     includes_prompt_content: false
     includes_tool_inputs: false
     includes_tool_outputs: false

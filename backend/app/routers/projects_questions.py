@@ -22,6 +22,9 @@ from app.services.project_question_resolutions import (
     reopen_project_question,
     resolve_project_question,
 )
+from app.services.project_question_answer_adoption import (
+    build_project_question_answer_adoption_snapshot,
+)
 from app.services.project_question_evidence import (
     build_project_question_evidence_review,
 )
@@ -73,6 +76,12 @@ class AnalyzeProjectQuestionEvidenceRequest(BaseModel):
 class PrepareProjectQuestionReanswerRequest(BaseModel):
     question: str = Field(min_length=1, max_length=360)
     attachment_ids: list[int] = Field(min_length=1, max_length=8)
+
+
+class PrepareProjectQuestionAnswerAdoptionRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=360)
+    answer_message_id: int = Field(gt=0)
+    resolution_summary: str = Field(min_length=1, max_length=600)
 
 
 class PrepareProjectQuestionRemediationPromotionRequest(BaseModel):
@@ -201,6 +210,33 @@ def prepare_project_question_evidence_reanswer(
         question_sha256=question_sha256,
         attachment_ids=body.attachment_ids,
     )
+
+
+@router.post("/{question_sha256}/answer-adoption/prepare")
+def prepare_project_question_answer_adoption(
+    project_id: int,
+    question_sha256: str,
+    body: PrepareProjectQuestionAnswerAdoptionRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Prepare a side-effect-free, evidence-bound human adoption preview."""
+
+    require_project_access(
+        session,
+        project_id,
+        current_user,
+        require_write=True,
+    )
+    snapshot = build_project_question_answer_adoption_snapshot(
+        session,
+        project=_project(session, project_id),
+        question=body.question,
+        question_sha256=question_sha256,
+        answer_message_id=body.answer_message_id,
+        resolution_summary=body.resolution_summary,
+    )
+    return snapshot.public
 
 
 @router.post("/{question_sha256}/remediation")
@@ -543,6 +579,11 @@ def resolve_project_workbench_question(
             status_code=409,
             detail="The selected Assistant answer is unavailable or outside this project.",
         )
+    if not body.answer_adoption_snapshot_sha256:
+        raise HTTPException(
+            status_code=400,
+            detail="Prepare and review the answer adoption snapshot before resolving.",
+        )
     _, conversation = scoped_answer
     resolve_project_question(
         session,
@@ -553,6 +594,9 @@ def resolve_project_workbench_question(
         resolution_summary=body.resolution_summary,
         expected_memory_version=body.expected_memory_version,
         expected_slot_version=body.expected_slot_version,
+        expected_answer_adoption_snapshot_sha256=(
+            body.answer_adoption_snapshot_sha256
+        ),
     )
     return _workbench(
         session,

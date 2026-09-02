@@ -112,7 +112,7 @@ interface UseChatStreamReturn {
    * same React node updates in place at `done` instead of remounting
    * (no end-of-stream reformat flash). */
   streamingMessageId: number
-  send: (content: string, turnControl?: ProjectChatTurnControl) => Promise<void>
+  send: (content: string, turnControl?: ProjectChatTurnControl) => Promise<Message | void>
   steer: (content: string) => Promise<boolean>
   stop: () => void
 }
@@ -689,6 +689,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       sendInFlightRef.current = false
       setStatus('idle')
       reset()
+      return assistantMsg
     },
     [
       conversationId,

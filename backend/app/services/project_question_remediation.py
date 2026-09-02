@@ -17,6 +17,7 @@ from sqlmodel import Session
 from app.models.db import Project
 from app.services.project_question_evidence import (
     build_project_question_evidence_review,
+    project_question_evidence_identity_fingerprint,
 )
 
 
@@ -153,38 +154,6 @@ def _question_archetype(question: str) -> dict[str, str]:
         "request": "请提供能够直接支持该结论的原始文件、系统记录或负责人确认。",
         "acceptance": "包含结论口径、适用时间、负责主体和原始来源定位信息。",
     }
-
-
-def _evidence_identity_fingerprint(question_evidence: dict[str, Any]) -> str:
-    identities: set[str] = set()
-    for collection_name in ("memory", "knowledge", "attachments"):
-        collection = question_evidence.get(collection_name)
-        collection = collection if isinstance(collection, dict) else {}
-        for source in list(collection.get("sources") or []):
-            if not isinstance(source, dict):
-                continue
-            evidence_id = _bounded(source.get("evidence_id"), 160)
-            if not evidence_id:
-                continue
-            source_type = _bounded(source.get("source_type"), 40)
-            identity = f"{source_type}:{evidence_id}"
-            if (
-                collection_name == "attachments"
-                and source.get("support_level") == "review_required"
-            ):
-                review_status = _bounded(source.get("review_status"), 20) or "pending"
-                try:
-                    review_revision = max(0, int(source.get("review_revision") or 0))
-                except (TypeError, ValueError):
-                    review_revision = 0
-                if review_status != "pending" or review_revision:
-                    identity = f"{identity}:review={review_status}:v{review_revision}"
-            identities.add(identity)
-    return hashlib.sha256(
-        json.dumps(sorted(identities), ensure_ascii=False, separators=(",", ":")).encode(
-            "utf-8"
-        )
-    ).hexdigest()
 
 
 def _add_gap(
@@ -439,7 +408,7 @@ def build_question_evidence_remediation_plan(
         "strong_candidate_count": strong_count,
         "recommended_message_id": summary.get("recommended_message_id"),
         "gap_codes": [gap["code"] for gap in gaps],
-        "evidence_identity_fingerprint": _evidence_identity_fingerprint(
+        "evidence_identity_fingerprint": project_question_evidence_identity_fingerprint(
             question_evidence
         ),
     }

@@ -535,6 +535,15 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 新 Assistant Message 保存无正文证据 manifest 与实际引用；问题工作台重算准备度时能够识别整改证据引用。裁决或来源变化后，旧回答不再保持强对齐，必须重新分析。
 - 用户仍需回到问题页选择新回答、填写解决摘要并通过记忆/槽位版本锁关单。该链路不会篡改历史回答、自动沉淀记忆、发送外部消息或自动解决问题；82 个确定性场景、25 项指标全部为 1.0，无数据库迁移。
 
+### Phase 3Z：回答采用快照、二次确认与证据漂移复核（已实施）
+
+- 问题工作台选择回答和填写解决摘要后，必须先调用 `POST /projects/{project_id}/questions/{question_sha256}/answer-adoption/prepare`。服务端重新召回当前证据、评估精确 Message，并返回无完整回答/无 chunk/无 Prompt 的采用预览；该步骤不修改项目记忆或解决账本。
+- 采用快照绑定问题、memory/slot version、Message/Conversation、回答正文 SHA-256、解决摘要 SHA-256、全量当前证据身份、整改附件裁决身份和准备度摘要。最终 `/questions/resolve` 必须携带 snapshot SHA-256；项目写锁内再次授权和重算，漂移以 409 失败关闭。
+- 确认后才执行 Phase 3R 的原子关单。v1 采用审计 envelope 写入当前 resolution revision 对应的 append-only event note；旧纯文本 note 可读为 `legacy_unbound`。这复用了既有表和唯一事件 revision，不新增迁移。
+- 问题页显示 `bound / legacy_unbound / answer_unavailable / answer_changed / evidence_changed`。回答不可用、正文改变，或整改附件集合/人工裁决变化会自动把解决项投影为待复核；准备度始终声明不是正确性裁决。
+- 重答成功后不再只弹出“请自己返回”的提示：项目对话给出精确返回入口，携带持久 Message ID；问题页自动重新召回答案证据并预选该回答，但不自动填写人工摘要、不自动采用、不自动关单。
+- 本阶段借鉴 Codex 固定 commit `986ff1cc7ced0081ec5014b700a376333d87f869` 的稳定 review target 与 durable terminal item 原则，全部实现仍是 Aria 原生 Python/FastAPI/React、项目权限、项目记忆和审计事件。发布门禁为 85 个场景、26 项指标，新增 `question_answer_adoption_safety_rate`；不运行、导入或连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

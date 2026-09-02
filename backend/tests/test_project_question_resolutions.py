@@ -30,6 +30,9 @@ from app.services.project_contexts import (
     _get_existing_raw_memory,
     save_project_memory,
 )
+from app.services.project_question_answer_adoption import (
+    parse_project_question_resolution_event_note,
+)
 
 
 QUESTION = "客户是否已经确认验收范围？"
@@ -137,9 +140,11 @@ def test_resolution_atomically_retires_question_and_binds_assistant_answer() -> 
             ProjectQuestionResolutionEvent.resolution_revision
         )
     ).all()
-    assert [(item.action, item.note) for item in events] == [
-        ("resolved", "客户书面确认已覆盖当前验收边界。")
-    ]
+    assert [item.action for item in events] == ["resolved"]
+    audit = parse_project_question_resolution_event_note(events[0].note)
+    assert audit["resolution_summary"] == "客户书面确认已覆盖当前验收边界。"
+    assert audit["answer_adoption"]["answer_message_id"] == answer.id
+    assert len(audit["answer_adoption"]["snapshot_sha256"]) == 64
     fact = session.exec(
         select(ProjectMemoryFact).where(
             ProjectMemoryFact.fact_key == row.question_fact_key
@@ -224,7 +229,9 @@ def test_reopen_returns_question_as_user_pinned_anchor() -> None:
     ]
     assert events[0].answer_message_id == answer.id
     assert events[2].answer_message_id == revised_answer.id
-    assert events[2].note == "新增例外已经二次书面确认。"
+    audit = parse_project_question_resolution_event_note(events[2].note)
+    assert audit["resolution_summary"] == "新增例外已经二次书面确认。"
+    assert audit["answer_adoption"]["answer_message_id"] == revised_answer.id
 
 
 def test_resolution_rejects_stale_memory_version_without_partial_write() -> None:

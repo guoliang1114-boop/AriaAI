@@ -138,6 +138,12 @@ class ResolveProjectQuestionRequest(BaseModel):
     resolution_summary: str = Field(min_length=1, max_length=600)
     expected_memory_version: int = Field(ge=1)
     expected_slot_version: int = Field(ge=1)
+    answer_adoption_snapshot_sha256: Optional[str] = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
 
 
 class ReopenProjectQuestionRequest(BaseModel):

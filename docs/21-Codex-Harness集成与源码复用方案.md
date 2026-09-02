@@ -818,6 +818,15 @@ Skill 运行契约同步也移除了旧的 `type=legacy` 假工具占位符。�
 - 新回答只能用 `[A*]` 引用本轮合同来源；持久化层只接受正文实际输出的合法键。问题准备度用附件身份与审核 revision 对齐，来源或裁决变化会让旧回答降级。
 - 机制取自 Codex commit `f4e6cb78760af4eb75bb370f0f15bd8ca4cb1d3a` 的 `annotated_content.rs`、`additional_context.rs` 和 `contextual_user_message.rs` 中“模型可见内容与 Harness 分类分离、附加上下文有界、上下文消息单独识别”的最小原则，并改写为 Aria Python/FastAPI/React 与原生 ACL/证据账本。没有 Codex runtime、App Server、SDK、协议、进程或通信；无数据库迁移。
 
+### Phase 3Z：证据绑定回答的人工采用完整性（已实施）
+
+- 项目问题关单从“一次点击绑定 Message ID”升级为“准备核验 → 明确确认”。准备响应冻结当前问题/槽位版本、Assistant Message/Conversation 身份、回答正文 SHA-256、人工解决摘要 SHA-256、当前证据身份、附件裁决身份与确定性准备度；准备本身零写入、零关单。
+- 确认只能提交服务端 snapshot SHA-256。最终服务在项目写锁内重新授权并重算完整快照；问题、回答正文、解决摘要、项目记忆、证据池或人工裁决任一漂移均以 409 失败关闭，随后才进入既有原子记忆关单事务。
+- 已确认快照以无回答正文、无来源正文的 v1 审计 envelope 写入既有 `ProjectQuestionResolutionEvent.note`。历史纯文本 note 继续兼容；不修改历史 Assistant Message，也不新增第二套解决账本或数据库迁移。
+- 工作台从当前解决 revision 的权威事件重建采用状态。回答删除/不可用、正文摘要变化、整改附件新增/取消或人工裁决 revision 变化会把旧结论标为 `needs_review`；`legacy_unbound` 明确区分旧版本关单，但不会伪造完整性证明。
+- 重答完成后项目对话提供“返回问题并核验采用”，携带服务端持久化 Message ID；问题页定位该问题、自动重新分析证据并预选新回答，仍要求用户填写摘要和第二次确认。
+- 最小机制参考 Codex commit `986ff1cc7ced0081ec5014b700a376333d87f869` 的 `codex-rs/protocol/src/approvals.rs`（review lifecycle 绑定稳定 target item）与 `codex-rs/rollout/src/policy.rs`（耐久 terminal item 是权威状态），重写为 Aria 原生项目问题/证据/ACL/事件合同。确定性发布门禁扩展为 85 个场景、26 项指标，新增 `question_answer_adoption_safety_rate`。没有 Codex runtime、App Server、SDK、协议、进程或通信；无数据库迁移。
+
 ## 8. 许可证与升级流程
 
 Aria 主项目继续使用 MIT License；从 Codex 改编的具体文件同时受 Apache License 2.0 的适用要求约束。

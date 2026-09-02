@@ -19,8 +19,10 @@ from app.routers.chat_schemas import (
     ResolveProjectQuestionRequest,
 )
 from app.routers.projects_questions import (
+    PrepareProjectQuestionAnswerAdoptionRequest,
     UpdateProjectQuestionProfileRequest,
     patch_project_question_profile,
+    prepare_project_question_answer_adoption,
     reopen_project_workbench_question,
     resolve_project_workbench_question,
 )
@@ -298,6 +300,17 @@ def test_project_route_selects_cross_conversation_answer_and_reopens_without_sou
         current_user=owner,
     )
 
+    adoption = prepare_project_question_answer_adoption(
+        int(project.id or 0),
+        project_question_sha256(QUESTION),
+        PrepareProjectQuestionAnswerAdoptionRequest(
+            question=QUESTION,
+            answer_message_id=int(answers[1].id or 0),
+            resolution_summary="书面确认已经归档并核对。",
+        ),
+        session=session,
+        current_user=owner,
+    )
     resolved = resolve_project_workbench_question(
         int(project.id or 0),
         ResolveProjectQuestionRequest(
@@ -306,6 +319,7 @@ def test_project_route_selects_cross_conversation_answer_and_reopens_without_sou
             resolution_summary="书面确认已经归档并核对。",
             expected_memory_version=before["memory"]["memory_version"],
             expected_slot_version=before["memory"]["slot_version"],
+            answer_adoption_snapshot_sha256=adoption["snapshot_sha256"],
         ),
         session=session,
         current_user=owner,
@@ -313,6 +327,7 @@ def test_project_route_selects_cross_conversation_answer_and_reopens_without_sou
     item = resolved["questions"][0]
     assert item["status"] == "resolved"
     assert item["resolution"]["answer_conversation_id"] == conversations[1].id
+    assert item["resolution"]["answer_adoption"]["status"] == "bound"
     assert resolved["counts"]["open"] == 0
 
     reopened = reopen_project_workbench_question(
@@ -353,3 +368,43 @@ def test_project_route_rejects_answer_from_another_project() -> None:
             current_user=owner,
         )
     assert exc.value.status_code == 409
+
+
+def test_project_route_rejects_changed_answer_after_adoption_preview() -> None:
+    session, owner, _, _, project, _, answers = _seed()
+    before = build_project_question_workbench(
+        session,
+        project=project,
+        current_user=owner,
+    )
+    adoption = prepare_project_question_answer_adoption(
+        int(project.id or 0),
+        project_question_sha256(QUESTION),
+        PrepareProjectQuestionAnswerAdoptionRequest(
+            question=QUESTION,
+            answer_message_id=int(answers[1].id or 0),
+            resolution_summary="书面确认已经归档并核对。",
+        ),
+        session=session,
+        current_user=owner,
+    )
+    answers[1].content = "回答在确认前发生变化。"
+    session.add(answers[1])
+    session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        resolve_project_workbench_question(
+            int(project.id or 0),
+            ResolveProjectQuestionRequest(
+                question=QUESTION,
+                answer_message_id=int(answers[1].id or 0),
+                resolution_summary="书面确认已经归档并核对。",
+                expected_memory_version=before["memory"]["memory_version"],
+                expected_slot_version=before["memory"]["slot_version"],
+                answer_adoption_snapshot_sha256=adoption["snapshot_sha256"],
+            ),
+            session=session,
+            current_user=owner,
+        )
+    assert exc.value.status_code == 409
+    session.rollback()

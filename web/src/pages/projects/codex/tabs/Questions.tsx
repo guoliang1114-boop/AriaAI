@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import type {
   ProjectDetail as ProjectDetailType,
+  ProjectQuestionAnswerAdoptionPreview,
   ProjectQuestionAnswerCandidate,
   ProjectQuestionEvidenceCandidate,
   ProjectQuestionEvidenceReview,
@@ -58,6 +59,9 @@ const REVIEW_COPY: Record<string, string> = {
   question_reappeared: '同一问题再次出现在项目记忆中，请重新核对结论。',
   project_memory_stale: '项目记忆当前已陈旧，旧结论不能直接沿用。',
   project_memory_changed: '解决后项目记忆发生过变化，请确认结论仍然有效。',
+  answer_unavailable: '采用时绑定的回答已不可用，请重新核对结论。',
+  answer_changed: '采用时绑定的回答正文完整性已变化，请重新核对。',
+  answer_evidence_changed: '采用后问题证据或人工裁决发生变化，请重新核对结论。',
 }
 
 const READINESS_COPY: Record<ProjectQuestionReadinessBand, { label: string; tone: CxTone }> = {
@@ -65,6 +69,14 @@ const READINESS_COPY: Record<ProjectQuestionReadinessBand, { label: string; tone
   review: { label: '建议复核', tone: 'warn' },
   weak: { label: '证据较弱', tone: 'bad' },
   unrated: { label: '无法评分', tone: 'neutral' },
+}
+
+const ADOPTION_STATUS_COPY: Record<string, string> = {
+  bound: '回答正文与采用证据已绑定',
+  legacy_unbound: '历史关单未记录采用快照',
+  answer_unavailable: '绑定回答已不可用',
+  answer_changed: '绑定回答完整性变化',
+  evidence_changed: '采用证据或裁决已变化',
 }
 
 const REMEDIATION_STATUS_COPY: Record<
@@ -149,6 +161,11 @@ function isEvidenceCandidate(
 
 export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProps) {
   const toast = useToast()
+  const [searchParams] = useSearchParams()
+  const focusedQuestionSha256 = /^[a-f0-9]{64}$/.test(searchParams.get('question') || '')
+    ? String(searchParams.get('question'))
+    : ''
+  const focusedAnswerMessageId = Number(searchParams.get('answer') || 0)
   const [data, setData] = useState<ProjectQuestionWorkbench | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -282,7 +299,12 @@ export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProp
   )
 
   const resolveQuestion = useCallback(
-    (question: ProjectQuestionWorkbenchItem, answerMessageId: number, summary: string) => {
+    (
+      question: ProjectQuestionWorkbenchItem,
+      answerMessageId: number,
+      summary: string,
+      adoptionSnapshotSha256: string,
+    ) => {
       if (!data) return Promise.resolve()
       return mutate(
         question,
@@ -292,6 +314,7 @@ export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProp
           resolution_summary: summary,
           expected_memory_version: data.memory.memory_version,
           expected_slot_version: data.memory.slot_version,
+          answer_adoption_snapshot_sha256: adoptionSnapshotSha256,
         }),
         '问题已解决并写入审计账本',
         true,
@@ -519,6 +542,13 @@ export function CxProjectQuestions({ projectId, detail, refetch }: QuestionsProp
                   question={question}
                   data={data as ProjectQuestionWorkbench}
                   evidenceRevision={evidenceRevision}
+                  preferredAnswerMessageId={
+                    question.question_sha256 === focusedQuestionSha256
+                    && Number.isInteger(focusedAnswerMessageId)
+                    && focusedAnswerMessageId > 0
+                      ? focusedAnswerMessageId
+                      : null
+                  }
                   busy={busyQuestion === question.question_sha256}
                   onSaveProfile={saveProfile}
                   onResolve={resolveQuestion}
@@ -542,6 +572,7 @@ interface QuestionCardProps {
   question: ProjectQuestionWorkbenchItem
   data: ProjectQuestionWorkbench
   evidenceRevision: number
+  preferredAnswerMessageId: number | null
   busy: boolean
   onSaveProfile: (
     question: ProjectQuestionWorkbenchItem,
@@ -551,6 +582,7 @@ interface QuestionCardProps {
     question: ProjectQuestionWorkbenchItem,
     answerMessageId: number,
     summary: string,
+    adoptionSnapshotSha256: string,
   ) => Promise<void>
   onReopen: (question: ProjectQuestionWorkbenchItem, reason: string) => Promise<void>
   onRefresh: () => Promise<void>
@@ -561,6 +593,7 @@ function QuestionCard({
   question,
   data,
   evidenceRevision,
+  preferredAnswerMessageId,
   busy,
   onSaveProfile,
   onResolve,
@@ -571,8 +604,15 @@ function QuestionCard({
   const [ownerId, setOwnerId] = useState(question.profile.owner_user_id?.toString() ?? '')
   const [priority, setPriority] = useState<ProjectQuestionPriority>(question.profile.priority)
   const [dueDate, setDueDate] = useState(question.profile.due_date)
-  const [answerId, setAnswerId] = useState('')
+  const [answerId, setAnswerId] = useState(
+    preferredAnswerMessageId ? String(preferredAnswerMessageId) : '',
+  )
   const [summary, setSummary] = useState('')
+  const [adoptionPreview, setAdoptionPreview] = (
+    useState<ProjectQuestionAnswerAdoptionPreview | null>(null)
+  )
+  const [adoptionPreparing, setAdoptionPreparing] = useState(false)
+  const [adoptionError, setAdoptionError] = useState('')
   const [reopenReason, setReopenReason] = useState('')
   const [evidenceReview, setEvidenceReview] = useState<ProjectQuestionEvidenceReview | null>(null)
   const [evidenceLoading, setEvidenceLoading] = useState(false)
@@ -609,6 +649,12 @@ function QuestionCard({
       setEvidenceLoading(false)
     }
   }, [evidenceLoading, projectId, question.question, question.question_sha256])
+
+  useEffect(() => {
+    if (!preferredAnswerMessageId || evidenceLoadedRef.current) return
+    setAnswerId(String(preferredAnswerMessageId))
+    void loadEvidence()
+  }, [loadEvidence, preferredAnswerMessageId])
 
   const loadRemediation = useCallback(async () => {
     if (remediationLoading) return
@@ -681,16 +727,58 @@ function QuestionCard({
     }
   }
 
+  const clearAdoptionPreview = () => {
+    setAdoptionPreview(null)
+    setAdoptionError('')
+  }
+
+  const prepareAnswerAdoption = async () => {
+    const normalizedSummary = summary.trim()
+    const selectedAnswerId = Number(answerId)
+    if (
+      adoptionPreparing
+      || !Number.isInteger(selectedAnswerId)
+      || selectedAnswerId <= 0
+      || !normalizedSummary
+    ) return
+    setAdoptionPreparing(true)
+    setAdoptionError('')
+    try {
+      const preview = await api.post<ProjectQuestionAnswerAdoptionPreview>(
+        `/projects/${projectId}/questions/${question.question_sha256}/answer-adoption/prepare`,
+        {
+          question: question.question,
+          answer_message_id: selectedAnswerId,
+          resolution_summary: normalizedSummary,
+        },
+        { timeout: 60_000 },
+      )
+      setAdoptionPreview(preview)
+    } catch (error) {
+      setAdoptionPreview(null)
+      setAdoptionError(errorMessage(error))
+    } finally {
+      setAdoptionPreparing(false)
+    }
+  }
+
   const profileChanged =
     ownerId !== (question.profile.owner_user_id?.toString() ?? '')
     || priority !== question.profile.priority
     || dueDate !== question.profile.due_date
-  const canResolve =
+  const adoptionPreviewMatches = Boolean(
+    adoptionPreview
+    && adoptionPreview.answer.message_id === Number(answerId)
+    && adoptionPreview.resolution_summary === summary.trim()
+  )
+  const canPrepareAdoption =
     data.can_write
     && data.memory.status === 'ready'
     && !!answerId
     && !!summary.trim()
     && !busy
+    && !adoptionPreparing
+  const canResolve = canPrepareAdoption && adoptionPreviewMatches
   const canReopen =
     data.can_write
     && data.memory.status === 'ready'
@@ -742,7 +830,8 @@ function QuestionCard({
               <div style={{ marginTop: 4, color: 'var(--ink-faint)', fontSize: 10.5 }}>
                 {formatDateTime(question.resolution.resolved_at)} · 回答
                 {question.resolution.answer_available ? '可定位' : '已不可用'} · 解决版本{' '}
-                {question.resolution.resolution_revision}
+                {question.resolution.resolution_revision} ·{' '}
+                {ADOPTION_STATUS_COPY[question.resolution.answer_adoption?.status ?? 'legacy_unbound']}
               </div>
             </div>
           )}
@@ -839,7 +928,10 @@ function QuestionCard({
               <QuestionEvidencePanel
                 review={evidenceReview}
                 canSelect={question.status === 'open'}
-                onSelect={(messageId) => setAnswerId(String(messageId))}
+                onSelect={(messageId) => {
+                  setAnswerId(String(messageId))
+                  clearAdoptionPreview()
+                }}
                 canReanswer={
                   data.can_write
                   && data.memory.status === 'ready'
@@ -903,7 +995,10 @@ function QuestionCard({
             aria-label="选择解决问题的回答"
             value={answerId}
             disabled={!data.can_write || busy || data.memory.status !== 'ready'}
-            onChange={(event) => setAnswerId(event.target.value)}
+            onChange={(event) => {
+              setAnswerId(event.target.value)
+              clearAdoptionPreview()
+            }}
             style={controlStyle}
           >
             <option value="">选择项目内的 Assistant 回答…</option>
@@ -920,18 +1015,62 @@ function QuestionCard({
             value={summary}
             maxLength={600}
             disabled={!data.can_write || busy || data.memory.status !== 'ready'}
-            onChange={(event) => setSummary(event.target.value)}
+            onChange={(event) => {
+              setSummary(event.target.value)
+              clearAdoptionPreview()
+            }}
             placeholder="填写人工核对后的解决摘要"
             style={controlStyle}
           />
-          <button
-            type="button"
-            disabled={!canResolve}
-            onClick={() => void onResolve(question, Number(answerId), summary.trim())}
-            style={primaryButtonStyle(!canResolve)}
-          >
-            标记已解决
-          </button>
+          <div style={{ display: 'flex', gap: 7 }}>
+            <button
+              type="button"
+              disabled={!canPrepareAdoption || adoptionPreviewMatches}
+              onClick={() => { void prepareAnswerAdoption() }}
+              style={secondaryButtonStyle(!canPrepareAdoption || adoptionPreviewMatches)}
+            >
+              {adoptionPreparing ? '正在核验…' : adoptionPreviewMatches ? '已核验' : '核验采用'}
+            </button>
+            <button
+              type="button"
+              disabled={!canResolve}
+              onClick={() => void onResolve(
+                question,
+                Number(answerId),
+                summary.trim(),
+                adoptionPreview?.snapshot_sha256 ?? '',
+              )}
+              style={primaryButtonStyle(!canResolve)}
+            >
+              确认采用并关单
+            </button>
+          </div>
+          {adoptionError && (
+            <div role="alert" style={{ gridColumn: '1 / -1', color: 'var(--bad)', fontSize: 11.5 }}>
+              {adoptionError}
+            </div>
+          )}
+          {adoptionPreviewMatches && adoptionPreview && (
+            <div
+              role="region"
+              aria-label="回答采用核验"
+              style={{
+                gridColumn: '1 / -1',
+                padding: '9px 11px',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--r-sm)',
+                background: 'var(--bg-tint)',
+                color: 'var(--ink-soft)',
+                fontSize: 11.5,
+              }}
+            >
+              当前采用快照：{adoptionPreview.assessment.readiness_score} 分 ·{' '}
+              {READINESS_COPY[adoptionPreview.assessment.readiness_band].label} · 引用{' '}
+              {adoptionPreview.assessment.evidence.cited_count} 条 · 当前对齐{' '}
+              {adoptionPreview.assessment.evidence.question_aligned_count} 条。
+              确认时会重新核对问题、回答正文和证据状态；该评分不是正确性裁决。
+            </div>
+          )}
         </div>
       )}
 

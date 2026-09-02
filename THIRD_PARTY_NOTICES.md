@@ -153,6 +153,17 @@ Messages, fetch external references, write memory, automatically resolve a
 question, or include any Codex runtime, protocol, SDK, subprocess, account, or
 network communication.
 
+For the Phase 3Z answer-adoption addition,
+`backend/app/services/project_question_answer_adoption.py` adapts the stable
+review-target lifecycle from `codex-rs/protocol/src/approvals.rs` and the
+durable-terminal-item boundary from `codex-rs/rollout/src/policy.rs` at commit
+`986ff1cc7ced0081ec5014b700a376333d87f869`. Aria replaces the upstream Rust
+approval/rollout mechanisms with a native project-question adoption snapshot,
+final project-lock reauthorization, answer/evidence SHA-256 revalidation,
+backward-compatible append-only resolution-event envelope, and React/FastAPI
+two-step human workflow. No Codex runtime, protocol, SDK, subprocess, account,
+or network communication is included.
+
 OpenAI Codex is available under the Apache License 2.0:
 
 - Source: <https://github.com/openai/codex>

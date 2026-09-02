@@ -26,3 +26,9 @@ def test_http_route_signatures_are_registered_once() -> None:
             "/projects/{project_id}/questions/{question_sha256}/remediation",
         )
     ] == 1
+    assert signatures[
+        (
+            ("POST",),
+            "/projects/{project_id}/questions/{question_sha256}/answer-adoption/prepare",
+        )
+    ] == 1

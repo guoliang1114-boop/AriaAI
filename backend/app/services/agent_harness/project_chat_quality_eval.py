@@ -85,6 +85,11 @@ from app.services.project_question_reanswer import (
     resolve_project_question_reanswer_citations,
     validate_project_question_reanswer_manifest,
 )
+from app.services.project_question_answer_adoption import (
+    build_project_question_answer_adoption_contract,
+    encode_project_question_resolution_event_note,
+    parse_project_question_resolution_event_note,
+)
 from app.services.project_question_resolutions import project_question_sha256
 from app.services.skill_router import (
     auto_select_skill,
@@ -1490,6 +1495,66 @@ def _question_reanswer_grounding_safety_results() -> tuple[
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _question_answer_adoption_safety_results() -> tuple[
+    int, int, list[dict[str, Any]]
+]:
+    """Answer adoption stays explicit, snapshot-bound, and audit-readable."""
+
+    contract = build_project_question_answer_adoption_contract()
+    audit = {
+        "schema_version": 1,
+        "snapshot_sha256": "a" * 64,
+        "domain": "aria.project-question-answer-adoption.v1",
+        "project_id": 26,
+        "question_sha256": "b" * 64,
+        "memory_version": 4,
+        "slot_version": 2,
+        "answer_message_id": 91,
+        "answer_conversation_id": 13,
+        "answer_content_sha256": "c" * 64,
+        "resolution_summary_sha256": "d" * 64,
+        "evidence_identity_fingerprint": "e" * 64,
+        "attachment_evidence_identity_fingerprint": "f" * 64,
+        "assessment": {
+            "readiness_score": 86,
+            "readiness_band": "strong",
+            "warnings": [],
+            "requires_human_confirmation": True,
+            "is_correctness_verdict": False,
+        },
+    }
+    note = encode_project_question_resolution_event_note("人工核对后采用。", audit)
+    parsed = parse_project_question_resolution_event_note(note)
+    tampered = json.loads(note)
+    tampered["answer_adoption"]["answer_content_sha256"] = "invalid"
+    rejected = parse_project_question_resolution_event_note(
+        json.dumps(tampered, ensure_ascii=False)
+    )
+    details = [
+        {
+            "case": "answer_adoption_preview_never_resolves_without_confirmation",
+            "passed": contract["preview_resolves_question"] is False
+            and contract["requires_explicit_confirmation"] is True
+            and contract["confirmation_resolves_question"] is True,
+        },
+        {
+            "case": "answer_adoption_reauthorizes_and_rechecks_item_and_evidence",
+            "passed": contract["reauthorizes_on_confirmation"] is True
+            and contract["rechecks_current_question"] is True
+            and contract["rechecks_answer_content"] is True
+            and contract["rechecks_current_evidence_basis"] is True
+            and contract["mutates_historical_messages"] is False,
+        },
+        {
+            "case": "answer_adoption_audit_rejects_invalid_content_bindings",
+            "passed": parsed["resolution_summary"] == "人工核对后采用。"
+            and parsed["answer_adoption"]["answer_message_id"] == 91
+            and rejected["answer_adoption"] is None,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1526,6 +1591,9 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         ),
         "question_reanswer_grounding_safety_rate": (
             _question_reanswer_grounding_safety_results()
+        ),
+        "question_answer_adoption_safety_rate": (
+            _question_answer_adoption_safety_results()
         ),
     }
     metrics = {

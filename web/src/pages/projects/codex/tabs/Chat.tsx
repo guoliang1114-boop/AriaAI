@@ -854,7 +854,7 @@ interface ThreadViewProps {
   pendingActionKey: string | null
   onConfirmAction: (batch: PendingActionBatch) => void
   onRejectAction: (batch: PendingActionBatch) => void
-  onSend: (text: string, turnControl?: ProjectChatTurnControl) => Promise<void>
+  onSend: (text: string, turnControl?: ProjectChatTurnControl) => Promise<Message | void>
   onSteer: (text: string) => Promise<boolean>
   onStop: () => void
   onOpenArtifact: (artifact: GeneratedArtifact) => void
@@ -924,6 +924,10 @@ function ThreadView({
       questionReanswerDraft?.input ?? null,
     )
   )
+  const [completedQuestionReanswer, setCompletedQuestionReanswer] = useState<{
+    questionSha256: string
+    answerMessageId: number
+  } | null>(null)
   const turnSetupRequestRef = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mentionOptions = useMemo(
@@ -1409,6 +1413,43 @@ function ThreadView({
             </button>
           </div>
         )}
+        {!projectQuestionReanswer && completedQuestionReanswer && (
+          <div
+            role="status"
+            style={{
+              marginBottom: 8,
+              padding: '9px 11px',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--r-sm)',
+              background: 'var(--bg-tint)',
+              color: 'var(--ink-soft)',
+              fontSize: 11.5,
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
+              alignItems: 'center',
+            }}
+          >
+            <span>新的证据绑定回答已持久化。返回问题工作台后会定位并重新核验证据。</span>
+            <button
+              type="button"
+              onClick={() => navigate(
+                `/projects/${projectId}/questions?question=${completedQuestionReanswer.questionSha256}`
+                + `&answer=${completedQuestionReanswer.answerMessageId}`,
+              )}
+              style={{
+                border: 0,
+                padding: 0,
+                background: 'transparent',
+                color: 'var(--accent)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              返回问题并核验采用
+            </button>
+          </div>
+        )}
         <ProjectChatComposer
           value={composerText}
           onChange={changeComposerText}
@@ -1428,7 +1469,7 @@ function ThreadView({
             setTurnSetupTrace(null)
             setTurnSetupLoading(false)
             try {
-              await onSend(
+              const completedMessage = await onSend(
                 text,
                 {
                   ...(selectionForTurn.mode === 'explicit'
@@ -1449,6 +1490,22 @@ function ThreadView({
                 },
               )
               if (questionReanswerForTurn) {
+                let persistedMessageId = Number(completedMessage?.id || 0)
+                try {
+                  const metadata = JSON.parse(completedMessage?.metadata_json || '{}') as {
+                    persisted_message_id?: unknown
+                  }
+                  const persisted = Number(metadata.persisted_message_id || 0)
+                  if (Number.isInteger(persisted) && persisted > 0) persistedMessageId = persisted
+                } catch {
+                  // A malformed local projection must not invent a server Message identity.
+                }
+                if (Number.isInteger(persistedMessageId) && persistedMessageId > 0) {
+                  setCompletedQuestionReanswer({
+                    questionSha256: questionReanswerForTurn.question_sha256,
+                    answerMessageId: persistedMessageId,
+                  })
+                }
                 setProjectQuestionReanswer(null)
                 onQuestionReanswerConsumed()
                 toast.success({

@@ -7,10 +7,11 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.db import (
     Conversation,
+    Message,
     Project,
     ProjectFile,
     ProjectMember,
@@ -38,7 +39,14 @@ from app.services.project_question_reanswer import (
     resolve_project_question_reanswer_input,
     validate_project_question_reanswer_manifest,
 )
-from app.services.project_question_resolutions import project_question_sha256
+from app.services.project_question_answer_adoption import (
+    build_project_question_answer_adoption_snapshot,
+)
+from app.services.project_question_resolutions import (
+    project_question_sha256,
+    resolve_project_question,
+)
+from app.services.project_question_workbench import build_project_question_workbench
 
 
 QUESTION = "客户是否确认了最终验收范围？"
@@ -162,7 +170,6 @@ def test_prepare_resolve_and_cite_current_accepted_evidence() -> None:
             "content_sha256": resolved["entries"][0]["source_content_sha256"],
         }
     ]
-
     with pytest.raises(HTTPException) as duplicate:
         prepare_project_question_reanswer(
             session,
@@ -172,6 +179,132 @@ def test_prepare_resolve_and_cite_current_accepted_evidence() -> None:
             attachment_ids=[int(attachment.id), int(attachment.id)],
         )
     assert duplicate.value.status_code == 400
+
+
+def test_confirmed_answer_adoption_requires_review_after_evidence_judgment_changes() -> None:
+    session, owner, _, project, attachment = _seed()
+    conversation = Conversation(
+        title="整改后回答",
+        project_id=int(project.id),
+        owner_user_id=int(owner.id),
+    )
+    session.add(conversation)
+    session.flush()
+    answer = Message(
+        conversation_id=int(conversation.id),
+        role="assistant",
+        content="客户范围已经确认，但该结论仍需人工采用。",
+    )
+    session.add(answer)
+    session.commit()
+    session.refresh(project)
+    session.refresh(conversation)
+    session.refresh(answer)
+    snapshot = build_project_question_answer_adoption_snapshot(
+        session,
+        project=project,
+        question=QUESTION,
+        question_sha256=project_question_sha256(QUESTION),
+        answer_message_id=int(answer.id),
+        resolution_summary="项目负责人已核对当前回答和证据。",
+    )
+    row = resolve_project_question(
+        session,
+        conversation=conversation,
+        actor_user_id=int(owner.id),
+        question=QUESTION,
+        answer_message_id=int(answer.id),
+        resolution_summary="项目负责人已核对当前回答和证据。",
+        expected_memory_version=snapshot.public["memory_version"],
+        expected_slot_version=snapshot.public["slot_version"],
+        expected_answer_adoption_snapshot_sha256=snapshot.public["snapshot_sha256"],
+    )
+    assert row.status == "resolved"
+
+    review = session.exec(
+        select(ProjectQuestionRemediationEvidenceReview).where(
+            ProjectQuestionRemediationEvidenceReview.attachment_id == int(attachment.id)
+        )
+    ).one()
+    review.status = "rejected"
+    review.revision = 2
+    review.reason = "复核后发现该人工记录不足以支持结论。"
+    session.add(review)
+    session.commit()
+    session.refresh(project)
+
+    workbench = build_project_question_workbench(
+        session,
+        project=project,
+        current_user=owner,
+    )
+    resolved = workbench["questions"][0]
+    assert resolved["status"] == "needs_review"
+    assert resolved["review_reason"] == "answer_evidence_changed"
+    assert resolved["resolution"]["answer_adoption"]["status"] == "evidence_changed"
+
+
+def test_answer_adoption_confirmation_rejects_changed_evidence_judgment() -> None:
+    session, owner, _, project, attachment = _seed()
+    conversation = Conversation(
+        title="待采用回答",
+        project_id=int(project.id),
+        owner_user_id=int(owner.id),
+    )
+    session.add(conversation)
+    session.flush()
+    answer = Message(
+        conversation_id=int(conversation.id),
+        role="assistant",
+        content="客户范围已经确认，但采用前必须重新核对证据。",
+    )
+    session.add(answer)
+    session.commit()
+    session.refresh(project)
+    session.refresh(conversation)
+    session.refresh(answer)
+    snapshot = build_project_question_answer_adoption_snapshot(
+        session,
+        project=project,
+        question=QUESTION,
+        question_sha256=project_question_sha256(QUESTION),
+        answer_message_id=int(answer.id),
+        resolution_summary="项目负责人准备采用当前回答。",
+    )
+
+    review = session.exec(
+        select(ProjectQuestionRemediationEvidenceReview).where(
+            ProjectQuestionRemediationEvidenceReview.attachment_id == int(attachment.id)
+        )
+    ).one()
+    review.status = "rejected"
+    review.revision = 2
+    review.reason = "确认前复核发现该记录不足以支持结论。"
+    session.add(review)
+    session.commit()
+
+    with pytest.raises(HTTPException) as drift:
+        resolve_project_question(
+            session,
+            conversation=conversation,
+            actor_user_id=int(owner.id),
+            question=QUESTION,
+            answer_message_id=int(answer.id),
+            resolution_summary="项目负责人准备采用当前回答。",
+            expected_memory_version=snapshot.public["memory_version"],
+            expected_slot_version=snapshot.public["slot_version"],
+            expected_answer_adoption_snapshot_sha256=snapshot.public["snapshot_sha256"],
+        )
+    assert drift.value.status_code == 409
+    session.rollback()
+    session.refresh(project)
+    workbench = build_project_question_workbench(
+        session,
+        project=project,
+        current_user=owner,
+    )
+    assert workbench["counts"]["open"] == 1
+    assert workbench["counts"]["resolved"] == 0
 
 
 def test_review_drift_rejects_old_contract_and_old_answer_alignment() -> None:

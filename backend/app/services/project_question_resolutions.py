@@ -143,10 +143,22 @@ def _serialize_resolution(
     project_memory_stale: bool,
     current_question_hashes: set[str],
     answer_message_available: bool,
+    answer_adoption: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reappeared = row.question_sha256 in current_question_hashes
     memory_changed = current_memory_version > int(row.resolved_memory_version or 0)
-    needs_review = bool(project_memory_stale or memory_changed or reappeared)
+    adoption = answer_adoption or {
+        "status": "legacy_unbound",
+        "integrity_review_reason": "",
+        "answer_content_bound": False,
+        "evidence_basis_bound": False,
+        "requires_human_confirmation": True,
+        "is_correctness_verdict": False,
+    }
+    integrity_reason = str(adoption.get("integrity_review_reason") or "")
+    needs_review = bool(
+        project_memory_stale or memory_changed or reappeared or integrity_reason
+    )
     review_reason = (
         "question_reappeared"
         if reappeared
@@ -154,7 +166,7 @@ def _serialize_resolution(
         if project_memory_stale
         else "project_memory_changed"
         if memory_changed
-        else ""
+        else integrity_reason
     )
     return {
         "id": int(row.id or 0),
@@ -169,6 +181,7 @@ def _serialize_resolution(
         "resolved_memory_version": int(row.resolved_memory_version or 0),
         "resolved_slot_version": int(row.resolved_slot_version or 0),
         "resolved_at": row.resolved_at.isoformat(),
+        "answer_adoption": adoption,
     }
 
 
@@ -197,6 +210,14 @@ def list_project_question_resolutions(
     available_ids = set(
         session.exec(select(Message.id).where(Message.id.in_(message_ids))).all()
     ) if message_ids else set()
+    from app.services.project_question_answer_adoption import (
+        build_project_question_resolution_adoption_projections,
+    )
+
+    adoption_by_resolution = build_project_question_resolution_adoption_projections(
+        session,
+        rows,
+    )
     current_hashes = {
         project_question_sha256(question)
         for question in current_questions
@@ -209,6 +230,7 @@ def list_project_question_resolutions(
             project_memory_stale=project_memory_stale,
             current_question_hashes=current_hashes,
             answer_message_available=int(row.answer_message_id or 0) in available_ids,
+            answer_adoption=adoption_by_resolution.get(int(row.id or 0)),
         )
         for row in rows
     ]
@@ -224,6 +246,7 @@ def resolve_project_question(
     resolution_summary: str,
     expected_memory_version: int,
     expected_slot_version: int,
+    expected_answer_adoption_snapshot_sha256: str | None = None,
 ) -> ProjectQuestionResolution:
     if conversation.project_id is None:
         raise HTTPException(status_code=400, detail="A project conversation is required")
@@ -283,6 +306,30 @@ def resolve_project_question(
         raise HTTPException(
             status_code=409,
             detail="This question is no longer open; reload the project state.",
+        )
+    from app.services.project_question_answer_adoption import (
+        build_project_question_answer_adoption_snapshot,
+        encode_project_question_resolution_event_note,
+    )
+
+    adoption_snapshot = build_project_question_answer_adoption_snapshot(
+        session,
+        project=project,
+        question=current_question,
+        question_sha256=question_hash,
+        answer_message_id=answer_message_id,
+        resolution_summary=normalized_summary,
+    )
+    expected_adoption_sha256 = str(
+        expected_answer_adoption_snapshot_sha256 or ""
+    ).lower()
+    if (
+        expected_adoption_sha256
+        and adoption_snapshot.public["snapshot_sha256"] != expected_adoption_sha256
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Answer or evidence changed; prepare a new adoption review.",
         )
     question_fact_key = _question_fact_key(
         session,
@@ -373,7 +420,10 @@ def resolve_project_question(
             resolution_revision=int(row.resolution_revision),
             question_text=row.question_text,
             question_fact_key=row.question_fact_key,
-            note=normalized_summary,
+            note=encode_project_question_resolution_event_note(
+                normalized_summary,
+                adoption_snapshot.audit,
+            ),
             answer_message_id=row.answer_message_id,
             answer_conversation_id=row.answer_conversation_id,
             actor_user_id=actor_user_id,

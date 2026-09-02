@@ -10,6 +10,8 @@ reasoning do not.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 from typing import Any
@@ -69,6 +71,49 @@ _VALID_RUN_VERDICTS = {"completed", "waiting_confirmation", "failed"}
 _VALID_FEEDBACK_REASONS = {
     "inaccurate", "missing_context", "wrong_skill", "wrong_action", "unclear", "incomplete",
 }
+
+
+def project_question_evidence_identity_fingerprint(
+    question_evidence: dict[str, Any],
+    *,
+    collections: tuple[str, ...] = ("memory", "knowledge", "attachments"),
+) -> str:
+    """Hash current source identities without retaining source content.
+
+    Review-required attachments include their current human-judgment revision,
+    so accepting, rejecting, or superseding a judgment invalidates a prepared
+    answer-adoption snapshot. Titles, notes, review reasons, prompts, chunks,
+    and answer text are deliberately excluded.
+    """
+
+    identities: set[str] = set()
+    for collection_name in collections:
+        collection = question_evidence.get(collection_name)
+        collection = collection if isinstance(collection, dict) else {}
+        for source in list(collection.get("sources") or []):
+            if not isinstance(source, dict):
+                continue
+            evidence_id = str(source.get("evidence_id") or "").strip()[:200]
+            if not evidence_id:
+                continue
+            source_type = str(source.get("source_type") or "").strip()[:40]
+            identity = f"{source_type}:{evidence_id}"
+            if collection_name == "attachments":
+                support_level = str(source.get("support_level") or "")[:40]
+                review_status = str(source.get("review_status") or "pending")[:20]
+                review_revision = max(0, _safe_int(source.get("review_revision")))
+                identity = (
+                    f"{identity}:support={support_level}:"
+                    f"review={review_status}:v{review_revision}"
+                )
+            identities.add(identity)
+    return hashlib.sha256(
+        json.dumps(
+            sorted(identities),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -757,6 +802,7 @@ def build_project_question_evidence_review(
     project: Project,
     question: str,
     question_sha256: str,
+    focus_message_id: int | None = None,
 ) -> dict[str, Any]:
     """Recall current evidence and rank persisted project answers for review."""
 
@@ -809,18 +855,25 @@ def build_project_question_evidence_review(
         for message, conversation in rows[:MAX_EVALUATED_CANDIDATES]
     }
     selected_answer_id = int(resolution.answer_message_id or 0) if resolution is not None else 0
-    if selected_answer_id and selected_answer_id not in candidates_by_id:
+    required_message_ids = {
+        value
+        for value in (selected_answer_id, int(focus_message_id or 0))
+        if value > 0
+    }
+    for required_message_id in sorted(required_message_ids):
+        if required_message_id in candidates_by_id:
+            continue
         selected = session.exec(
             select(Message, Conversation)
             .join(Conversation, Conversation.id == Message.conversation_id)
             .where(
-                Message.id == selected_answer_id,
+                Message.id == required_message_id,
                 Message.role == "assistant",
                 Conversation.project_id == project_id,
             )
         ).first()
         if selected is not None:
-            candidates_by_id[selected_answer_id] = selected
+            candidates_by_id[required_message_id] = selected
 
     candidates: list[dict[str, Any]] = []
     for message, conversation in candidates_by_id.values():
@@ -852,6 +905,14 @@ def build_project_question_evidence_review(
         reverse=True,
     )
     returned = candidates[:MAX_RETURNED_CANDIDATES]
+    focus_id = int(focus_message_id or 0)
+    if focus_id > 0 and all(item["message_id"] != focus_id for item in returned):
+        focused = next(
+            (item for item in candidates if item["message_id"] == focus_id),
+            None,
+        )
+        if focused is not None:
+            returned = [*returned[: MAX_RETURNED_CANDIDATES - 1], focused]
     band_counts = {
         band: sum(item["assessment"]["readiness_band"] == band for item in candidates)
         for band in ("strong", "review", "weak", "unrated")
@@ -895,6 +956,21 @@ def build_project_question_evidence_review(
             "recommended_message_id": recommended,
             "bands": band_counts,
             "truncated": truncated or len(candidates) > MAX_RETURNED_CANDIDATES,
+            "evidence_identity_fingerprint": (
+                project_question_evidence_identity_fingerprint(
+                    {
+                        "memory": memory_evidence,
+                        "knowledge": knowledge_evidence,
+                        "attachments": attached_evidence,
+                    }
+                )
+            ),
+            "attachment_evidence_identity_fingerprint": (
+                project_question_evidence_identity_fingerprint(
+                    {"attachments": attached_evidence},
+                    collections=("attachments",),
+                )
+            ),
         },
         "candidates": returned,
         "assessment_contract": {
