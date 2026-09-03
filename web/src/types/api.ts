@@ -2225,6 +2225,11 @@ export interface ChatTraceContextDiagnostic {
   compaction_strategy: string
   summary_injected: boolean
   oldest_retained_message_index?: number | null
+  prompt_manifest_present: boolean
+  prompt_manifest_valid: boolean
+  prompt_manifest_reason: string
+  prompt_layer_count: number
+  prompt_manifest_sha256: string
 }
 
 export interface ChatTraceExecutionDiagnostic {

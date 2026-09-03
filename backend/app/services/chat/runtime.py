@@ -100,10 +100,16 @@ from app.services.chat.mode_registry import (
     ActionPolicy,
     ChatMode,
     HistoryStrategy,
-    MODE_CONFIG,
+    ModelStrategy,
     ToolAccessPolicy,
+    filter_tools_for_mode,
+    mode_config_for,
 )
 from app.services.chat.turn_contract import build_turn_contract, format_turn_user_request
+from app.services.chat.prompt_assembler import (
+    build_prompt_layer_manifest,
+    load_prompt_fragment,
+)
 from app.services.chat.turn_recovery import (
     TurnRecoveryConflict,
     TurnRecoveryError,
@@ -142,12 +148,6 @@ from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
 # context budgeter compact this larger window instead of irreversibly dropping
 # everything before the latest 24 messages.
 CHAT_HISTORY_WINDOW = 96
-STANDALONE_FAST_PATH_MODEL = "moonshot-v1-8k"
-STANDALONE_FAST_PATH_MAX_TOKENS = 1536
-STANDALONE_CHAT_MAX_TOKENS = 2048
-CLIENT_PORTFOLIO_FAST_MODEL = "deepseek-v4-flash"
-CLIENT_PORTFOLIO_MAX_TOKENS = 4096
-WORKSPACE_INVENTORY_MAX_TOKENS = 6144
 SHORT_CONFIRMATION_TERMS = (
     "执行",
     "确认",
@@ -250,10 +250,10 @@ def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
 
 
 def _is_standalone_fast_path(req: SendMessageRequest, effective_skill_id: int | None, chat_mode: ChatMode) -> bool:
+    mode_config = mode_config_for(chat_mode)
     return (
-        chat_mode == ChatMode.STANDALONE_QA
-        and
-        req.project_id is None
+        mode_config.model_strategy is ModelStrategy.LENGTH_AWARE_FAST_PATH
+        and req.project_id is None
         and effective_skill_id is None
         and not req.rag_doc_ids
         and not req.file_ids
@@ -455,36 +455,38 @@ def _resolve_runtime_model_and_tokens(
     chat_mode: ChatMode = ChatMode.PROJECT_DEEP_DIVE,
 ) -> tuple[str, int]:
     normalized = (selected_model or "").lower()
+    mode_config = mode_config_for(chat_mode)
+    mode_token_cap = max(1, int(mode_config.max_tokens))
+    resolved_tokens = min(max_tokens, mode_token_cap)
+    eligible_for_fast_model = bool(
+        mode_config.fast_model
+        and mode_config.fast_source_models
+        and any(normalized.startswith(name) for name in mode_config.fast_source_models)
+    )
 
-    if chat_mode == ChatMode.CROSS_PROJECT_PORTFOLIO:
-        if has_deepseek_api_key and normalized in {"kimi-k3", "kimi-k2.6", "deepseek-v4-pro"}:
-            return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
-        return selected_model, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
+    if mode_config.model_strategy is ModelStrategy.FAST_PORTFOLIO:
+        if has_deepseek_api_key and eligible_for_fast_model:
+            return mode_config.fast_model, min(
+                resolved_tokens,
+                mode_config.fast_max_tokens or mode_token_cap,
+            )
+        return selected_model, resolved_tokens
 
-    if chat_mode == ChatMode.WORKSPACE_INVENTORY:
-        if has_deepseek_api_key and normalized in {"kimi-k3", "kimi-k2.6", "deepseek-v4-pro"}:
-            return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
-        return selected_model, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
+    if (
+        mode_config.model_strategy is ModelStrategy.LENGTH_AWARE_FAST_PATH
+        and eligible_for_fast_model
+        and _is_standalone_fast_path(req, effective_skill_id, chat_mode)
+    ):
+        return mode_config.fast_model, min(
+            resolved_tokens,
+            mode_config.fast_max_tokens or mode_token_cap,
+        )
 
-    if _is_standalone_fast_path(req, effective_skill_id, chat_mode) and normalized.startswith(("kimi-k3", "kimi-k2.6")):
-        return STANDALONE_FAST_PATH_MODEL, min(max_tokens, STANDALONE_FAST_PATH_MAX_TOKENS)
-
-    if req.project_id is None and effective_skill_id is None:
-        return selected_model, min(max_tokens, STANDALONE_CHAT_MAX_TOKENS)
-
-    return selected_model, max_tokens
+    return selected_model, resolved_tokens
 
 
 def _context_mode_from_decision(chat_mode: ChatMode) -> str:
-    if chat_mode == ChatMode.CROSS_PROJECT_PORTFOLIO:
-        return "client_portfolio"
-    if chat_mode == ChatMode.WORKSPACE_INVENTORY:
-        return "workspace_inventory"
-    if chat_mode == ChatMode.PROJECT_DEEP_DIVE:
-        return "project"
-    if chat_mode == ChatMode.SKILL_EXECUTION:
-        return "skill"
-    return "workspace_brief"
+    return mode_config_for(chat_mode).context_mode
 
 
 def _should_apply_skill(content: str, skill: Skill | None) -> bool:
@@ -697,7 +699,7 @@ def _api_messages_with_recovery_steering(
 def _history_for_model(history: list[Message], chat_mode: ChatMode) -> list[Message]:
     """Apply the centralized mode history contract before token budgeting."""
 
-    mode_config = MODE_CONFIG.get(chat_mode, MODE_CONFIG[ChatMode.PROJECT_DEEP_DIVE])
+    mode_config = mode_config_for(chat_mode)
     if mode_config.history_strategy is HistoryStrategy.NONE or mode_config.history_window <= 0:
         return []
     window = max(1, min(int(mode_config.history_window), CHAT_HISTORY_WINDOW))
@@ -718,11 +720,7 @@ def _format_recent_tool_history_context(history: list[Message]) -> str:
     if not sections:
         return ""
     recent_sections = sections[-4:]
-    return (
-        "## Recent Tool Execution Context\n"
-        "Use this as structured state from prior turns. Do not quote it unless the user asks for execution details.\n\n"
-        + "\n\n".join(recent_sections)
-    )
+    return load_prompt_fragment("frames/recent_tool_history.md") + "\n\n" + "\n\n".join(recent_sections)
 
 
 def _response_contract_for_intent(intent_decision: IntentDecision, skill_decision: SkillActivationDecision) -> str:
@@ -826,18 +824,7 @@ def _append_capability_frame(
         f"- tools_granted: {', '.join(tool_names) if tool_names else '(none)'}",
     ]
     if not tool_names:
-        lines.extend(
-            [
-                "",
-                "**You have NO function-calling tools for this turn.** Respond in"
-                " text only. Do not claim you can save files, generate documents,"
-                " or modify the project space — the user's request was routed to a"
-                " read-only or direct-answer mode. If the user explicitly asked for"
-                " a deliverable, say so directly and tell them how to rephrase, for"
-                " example: \"本轮没有获得写工具(routing_reason 上面已列出)。"
-                "如需生成文件,请改成『生成一份 md 项目报告』这样明确的措辞。\"",
-            ]
-        )
+        lines.extend(["", load_prompt_fragment("frames/capability_no_tools.md")])
     elif intent_decision.tool_access_policy == ToolAccessPolicy.WRITE_ALLOWED:
         # When write/destructive tools are granted, the model must issue the
         # structured tool call directly. Modify/delete tool calls are frozen by
@@ -845,21 +832,7 @@ def _append_capability_frame(
         # Preview) BEFORE anything runs — so calling the tool does not execute
         # immediately. Models otherwise tend to ask "确认删除吗?" in text and
         # never call the tool, which silently blocks the whole flow.
-        lines.extend(
-            [
-                "",
-                "**To create, modify, or delete project content, CALL the"
-                " appropriate tool directly — do NOT ask the user to confirm in"
-                " chat first.** Modify and destructive tool calls are automatically"
-                " frozen by the system and surfaced to the user as a confirmation"
-                " card (Action Preview) before anything executes; issuing the tool"
-                " call does not change anything by itself, it triggers that"
-                " confirmation UI. Replying with a text question like"
-                " \"确认删除吗?\" instead of calling the tool blocks the action and"
-                " is incorrect. Make the structured tool call and let the system"
-                " handle user confirmation.",
-            ]
-        )
+        lines.extend(["", load_prompt_fragment("frames/capability_write_tools.md")])
     return f"{system.rstrip()}{chr(10).join(lines)}"
 
 
@@ -883,15 +856,7 @@ def _append_turn_contract_frame(system: str, turn_contract: dict) -> str:
         if value in ("", None, [], ()):
             continue
         lines.append(f"- {key}: {value}")
-    lines.extend(
-        [
-            "",
-            "Follow this contract exactly: if mode=plan_only, do not execute tools"
-            " and clearly state that no action has been taken; if mode=execute_now,"
-            " complete the requested action within the granted tools and report the"
-            " actual completion state.",
-        ]
-    )
+    lines.extend(["", load_prompt_fragment("frames/turn_contract.md")])
     return f"{system.rstrip()}{chr(10).join(lines)}"
 
 
@@ -1337,10 +1302,10 @@ def prepare_chat_runtime(
 
     # Filter tools BEFORE building the capability frame so the prompt
     # can list the exact tools the LLM will see (Phase 3). The
-    # second filter call below is redundant but kept until we're
-    # confident this path is the only filter site.
+    # access-policy filter then narrows the mode boundary for this turn.
+    mode_tools = filter_tools_for_mode(chat_ctx.tools, intent_decision.chat_mode)
     runtime_tools = filter_tools_for_access(
-        chat_ctx.tools,
+        mode_tools,
         intent_decision.action_policy,
         intent_decision.tool_access_policy,
     )
@@ -1381,6 +1346,21 @@ def prepare_chat_runtime(
     prepare_metrics["turn_contract"] = turn_contract.to_dict()
     system = _append_turn_contract_frame(system, turn_contract.to_dict())
     system = _append_capability_frame(system, intent_decision, runtime_tools)
+    runtime_prompt_fragments: list[str] = []
+    if tool_history_context:
+        runtime_prompt_fragments.append("frames/recent_tool_history.md")
+    runtime_prompt_fragments.append("frames/turn_contract.md")
+    if runtime_tools and intent_decision.tool_access_policy == ToolAccessPolicy.WRITE_ALLOWED:
+        runtime_prompt_fragments.append("frames/capability_write_tools.md")
+    elif not runtime_tools:
+        runtime_prompt_fragments.append("frames/capability_no_tools.md")
+    prepare_metrics["prompt_layer_manifest"] = build_prompt_layer_manifest(
+        skill_prompt=chat_ctx.skill_prompt,
+        rag_context=chat_ctx.rag_context,
+        project_context=chat_ctx.project_context,
+        chat_mode=intent_decision.chat_mode,
+        runtime_fragment_paths=tuple(runtime_prompt_fragments),
+    )
     skill_runtime_contract = build_skill_runtime_contract(
         effective_skill,
         release_id=skill_release_assignment.release_id,

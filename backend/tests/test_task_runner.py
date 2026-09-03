@@ -7,6 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.models.db import ScheduledTask, Skill, Project
 from app.services import task_runner as tr_module
+from app.services.chat.mode_registry import ChatMode
 from tests.test_database import create_test_engine, drop_all_tables
 
 
@@ -106,6 +107,7 @@ class RunTaskTestCase(unittest.TestCase):
         self.mock_build_sys.assert_called_once()
         args, kwargs = self.mock_build_sys.call_args
         self.assertIn("You analyze data", args[0])
+        self.assertEqual(kwargs.get("chat_mode"), ChatMode.SKILL_EXECUTION)
 
     def test_run_task_with_project(self):
         import asyncio
@@ -121,6 +123,7 @@ class RunTaskTestCase(unittest.TestCase):
         self.mock_build_sys.assert_called_once()
         args, kwargs = self.mock_build_sys.call_args
         self.assertIn("Alpha", kwargs.get("project_context", ""))
+        self.assertEqual(kwargs.get("chat_mode"), ChatMode.PROJECT_DEEP_DIVE)
 
     def test_run_task_failure(self):
         import asyncio

@@ -19,8 +19,19 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.models.db import ChatTrace, ClientRecord, Project, ProjectPayment, Skill
 from app.routers.chat_schemas import SendMessageRequest
-from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
-from app.services.chat.runtime import _history_for_model, _resolve_effective_skill
+from app.services.chat.config_validation import assert_chat_runtime_configuration
+from app.services.chat.mode_registry import (
+    ActionPolicy,
+    ChatMode,
+    ToolAccessPolicy,
+    filter_tools_for_mode,
+)
+from app.services.chat.prompt_assembler import build_prompt_layer_manifest
+from app.services.chat.runtime import (
+    _history_for_model,
+    _resolve_effective_skill,
+    _resolve_runtime_model_and_tokens,
+)
 from app.services.chat.trace import build_chat_trace_diagnostic
 from app.services.chat.turn_contract import build_turn_contract
 from app.services.chat.turn_setup import recommend_turn_brief_template
@@ -121,6 +132,12 @@ from app.services.skill_router import (
     auto_select_skill,
     decide_conversation_skill_activation,
 )
+from app.tools import file_generators as _file_generators  # noqa: F401
+from app.tools import office_documents as _office_documents  # noqa: F401
+from app.tools import pdf_tools as _pdf_tools  # noqa: F401
+from app.tools import pdf_translation as _pdf_translation  # noqa: F401
+from app.tools import project_markdown as _project_markdown  # noqa: F401
+from app.tools import registry as tool_registry
 
 
 _CATALOG = (
@@ -1971,6 +1988,80 @@ def _conversation_trace_diagnostic_results() -> tuple[int, int, list[dict[str, A
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _runtime_configuration_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Mode, prompt, and tool permission configuration stays one safe contract."""
+
+    report = assert_chat_runtime_configuration(tool_registry.list_tools())
+    standalone_model, standalone_tokens = _resolve_runtime_model_and_tokens(
+        SimpleNamespace(
+            content="hello",
+            project_id=None,
+            rag_doc_ids=[],
+            file_ids=[],
+        ),
+        "kimi-k2.6",
+        8192,
+        None,
+        chat_mode=ChatMode.STANDALONE_QA,
+    )
+    portfolio_model, portfolio_tokens = _resolve_runtime_model_and_tokens(
+        SimpleNamespace(
+            content="portfolio",
+            project_id=1,
+            rag_doc_ids=[],
+            file_ids=[],
+        ),
+        "deepseek-v4-pro",
+        8192,
+        None,
+        has_deepseek_api_key=True,
+        chat_mode=ChatMode.CROSS_PROJECT_PORTFOLIO,
+    )
+    candidate_tools = [
+        {"name": "read_project_file"},
+        {"name": "generate_ppt"},
+        {"name": "unknown_dynamic_tool"},
+    ]
+    standalone_tools = filter_tools_for_mode(candidate_tools, ChatMode.STANDALONE_QA)
+    skill_tools = filter_tools_for_mode(candidate_tools, ChatMode.SKILL_EXECUTION)
+    prompt_manifest = build_prompt_layer_manifest(
+        skill_prompt="PRIVATE-SKILL",
+        rag_context="PRIVATE-KNOWLEDGE",
+        project_context="PRIVATE-PROJECT",
+        chat_mode=ChatMode.SKILL_EXECUTION,
+        runtime_fragment_paths=("frames/turn_contract.md",),
+    )
+    prompt_manifest_json = json.dumps(prompt_manifest, ensure_ascii=False)
+    details = [
+        {
+            "case": "all_chat_modes_and_registered_tools_have_valid_central_config",
+            "passed": report["valid"]
+            and report["mode_count"] == 6
+            and report["tool_count"] == 17,
+        },
+        {
+            "case": "mode_registry_drives_fast_model_and_token_caps",
+            "passed": standalone_model == "moonshot-v1-8k"
+            and standalone_tokens == 1536
+            and portfolio_model == "deepseek-v4-flash"
+            and portfolio_tokens == 4096,
+        },
+        {
+            "case": "mode_tool_boundary_blocks_undeclared_and_unknown_tools",
+            "passed": standalone_tools == []
+            and [tool["name"] for tool in skill_tools or []]
+            == ["read_project_file", "generate_ppt"],
+        },
+        {
+            "case": "file_backed_prompt_manifest_is_hash_only",
+            "passed": prompt_manifest["layer_count"] == 7
+            and len(prompt_manifest["manifest_sha256"]) == 64
+            and "PRIVATE" not in prompt_manifest_json,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -2001,6 +2092,9 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         ),
         "conversation_trace_diagnostic_safety_rate": (
             _conversation_trace_diagnostic_results()
+        ),
+        "chat_runtime_configuration_integrity_rate": (
+            _runtime_configuration_results()
         ),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),

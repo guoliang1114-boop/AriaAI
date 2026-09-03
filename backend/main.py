@@ -18,6 +18,7 @@ from app.routers import auth as auth_router
 from app.routers.auth import seed_admin_user
 from app.services import scheduler
 from app.services.chat.action_reaper import reap_stale_executing_actions_with_engine
+from app.services.chat.config_validation import assert_chat_runtime_configuration
 from app.services.agent_harness.active_run_lease import (
     reap_stale_chat_runs_with_engine,
 )
@@ -29,6 +30,8 @@ from app.tools import file_generators  # noqa: F401
 from app.tools import office_documents  # noqa: F401
 from app.tools import pdf_translation  # noqa: F401
 from app.tools import pdf_tools  # noqa: F401
+from app.tools import project_markdown  # noqa: F401
+from app.tools import registry as tool_registry
 from app.routers.skills import DEFAULT_SKILLS, ensure_builtin_pro_skills
 from app.services.project_core import init_default_project_folders
 from sqlmodel import Session, select, SQLModel
@@ -123,6 +126,16 @@ def _fix_pg_sequences():
 async def lifespan(app: FastAPI):
     # Startup
     validate_jwt_secret()
+    runtime_config_report = assert_chat_runtime_configuration(
+        tool_registry.list_tools()
+    )
+    logging.getLogger(__name__).info(
+        "Chat runtime configuration verified: modes=%s tools=%s prompts=%s sha256=%s",
+        runtime_config_report["mode_count"],
+        runtime_config_report["tool_count"],
+        runtime_config_report["prompt_file_count"],
+        runtime_config_report["config_sha256"][:12],
+    )
     create_db()
     migrate_db()
     _fix_pg_sequences()

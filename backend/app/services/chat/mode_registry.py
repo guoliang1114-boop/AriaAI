@@ -56,7 +56,12 @@ class ModeConfig:
     max_tokens: int
     history_window: int
     history_strategy: HistoryStrategy
-    inject_project_context: bool
+    context_mode: str
+    include_identity_preamble: bool = True
+    allow_dynamic_tools: bool = False
+    fast_model: str = ""
+    fast_max_tokens: int = 0
+    fast_source_models: tuple[str, ...] = field(default_factory=tuple)
     tool_pool: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -67,7 +72,10 @@ MODE_CONFIG: dict[ChatMode, ModeConfig] = {
         max_tokens=2048,
         history_window=96,
         history_strategy=HistoryStrategy.FULL,
-        inject_project_context=False,
+        context_mode="workspace_brief",
+        fast_model="moonshot-v1-8k",
+        fast_max_tokens=1536,
+        fast_source_models=("kimi-k3", "kimi-k2.6"),
     ),
     ChatMode.PROJECT_DEEP_DIVE: ModeConfig(
         prompt_template="modes/project_deep_dive.md",
@@ -75,7 +83,7 @@ MODE_CONFIG: dict[ChatMode, ModeConfig] = {
         max_tokens=8192,
         history_window=96,
         history_strategy=HistoryStrategy.FULL,
-        inject_project_context=True,
+        context_mode="project",
         tool_pool=(
             "read_project_markdown_document",
             "read_project_file",
@@ -91,7 +99,11 @@ MODE_CONFIG: dict[ChatMode, ModeConfig] = {
         max_tokens=4096,
         history_window=6,
         history_strategy=HistoryStrategy.RECENT,
-        inject_project_context=True,
+        context_mode="client_portfolio",
+        include_identity_preamble=False,
+        fast_model="deepseek-v4-flash",
+        fast_max_tokens=4096,
+        fast_source_models=("kimi-k3", "kimi-k2.6", "deepseek-v4-pro"),
         tool_pool=("read_project_markdown_document", "read_project_file"),
     ),
     ChatMode.WORKSPACE_INVENTORY: ModeConfig(
@@ -100,7 +112,11 @@ MODE_CONFIG: dict[ChatMode, ModeConfig] = {
         max_tokens=6144,
         history_window=6,
         history_strategy=HistoryStrategy.RECENT,
-        inject_project_context=True,
+        context_mode="workspace_inventory",
+        include_identity_preamble=False,
+        fast_model="deepseek-v4-flash",
+        fast_max_tokens=6144,
+        fast_source_models=("kimi-k3", "kimi-k2.6", "deepseek-v4-pro"),
     ),
     ChatMode.SKILL_EXECUTION: ModeConfig(
         prompt_template="modes/skill_execution.md",
@@ -108,7 +124,8 @@ MODE_CONFIG: dict[ChatMode, ModeConfig] = {
         max_tokens=8192,
         history_window=96,
         history_strategy=HistoryStrategy.FULL,
-        inject_project_context=True,
+        context_mode="skill",
+        allow_dynamic_tools=True,
     ),
     ChatMode.TASK_ORCHESTRATION: ModeConfig(
         prompt_template="",
@@ -116,6 +133,49 @@ MODE_CONFIG: dict[ChatMode, ModeConfig] = {
         max_tokens=8192,
         history_window=0,
         history_strategy=HistoryStrategy.NONE,
-        inject_project_context=True,
+        context_mode="project",
+        allow_dynamic_tools=True,
     ),
 }
+
+
+def mode_config_for(mode: ChatMode | str | None) -> ModeConfig:
+    """Resolve a complete chat-mode contract with a conservative fallback."""
+
+    try:
+        normalized = mode if isinstance(mode, ChatMode) else ChatMode(str(mode or ""))
+    except ValueError:
+        # Unknown modes must not inherit a project write-capable tool pool.
+        normalized = ChatMode.STANDALONE_QA
+    return MODE_CONFIG[normalized]
+
+
+def filter_tools_for_mode(
+    tools: list[dict] | None,
+    mode: ChatMode | str | None,
+) -> list[dict] | None:
+    """Apply the mode-level tool boundary before action-policy filtering.
+
+    Skill and durable-task modes may consume their frozen dynamic tool set.
+    Every other mode is restricted to its explicit ``tool_pool``. Unknown and
+    malformed tools are dropped here and still fail closed in execution.
+    """
+
+    if not tools:
+        return tools
+    config = mode_config_for(mode)
+    if config.allow_dynamic_tools:
+        from app.tools.capabilities import builtin_tool_manifest  # noqa: PLC0415
+
+        return [
+            tool
+            for tool in tools
+            if isinstance(tool, dict)
+            and builtin_tool_manifest(str(tool.get("name") or "").strip()) is not None
+        ]
+    allowed = set(config.tool_pool)
+    return [
+        tool
+        for tool in tools
+        if isinstance(tool, dict) and str(tool.get("name") or "").strip() in allowed
+    ]

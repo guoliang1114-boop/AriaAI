@@ -10,6 +10,7 @@ from sqlmodel import Session
 from app.database import engine
 from app.models.db import ScheduledTask, Skill, Project, Conversation, Message
 from app.services.claude import complete, build_system_prompt
+from app.services.chat.mode_registry import ChatMode
 from app.services.time_utils import utc_now_naive
 
 
@@ -37,7 +38,18 @@ async def run_task(task_id: int) -> None:
                 if project:
                     project_context = f"Project: {project.name}\nClient: {project.client}"
 
-            system = build_system_prompt(skill_prompt, project_context=project_context)
+            chat_mode = (
+                ChatMode.SKILL_EXECUTION
+                if skill_prompt
+                else ChatMode.PROJECT_DEEP_DIVE
+                if project_context
+                else ChatMode.STANDALONE_QA
+            )
+            system = build_system_prompt(
+                skill_prompt,
+                project_context=project_context,
+                chat_mode=chat_mode,
+            )
             messages = [{"role": "user", "content": task.prompt or f"Run scheduled analysis: {task.name}"}]
             response = await complete(messages, system=system)
 

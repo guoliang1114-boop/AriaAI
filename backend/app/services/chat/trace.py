@@ -31,6 +31,7 @@ from app.services.agent_harness.project_memory_evidence import (
 from app.services.agent_harness.conversation_capsule import conversation_capsule_reference
 from app.services.agent_harness.instruction_manifest import instruction_manifest_reference
 from app.services.chat.state import ChatSessionState
+from app.services.chat.prompt_assembler import validate_prompt_layer_manifest
 from app.services.chat_tools import ChatRuntime
 
 
@@ -234,6 +235,13 @@ def _context_diagnostic(metadata: Any) -> dict[str, Any]:
     summary = summary if isinstance(summary, dict) else {}
     budget = manifest.get("budget") if valid and isinstance(manifest, dict) else {}
     budget = budget if isinstance(budget, dict) else {}
+    prepare_metrics = metadata.get("prepare_metrics")
+    prepare_metrics = prepare_metrics if isinstance(prepare_metrics, dict) else {}
+    prompt_manifest = prepare_metrics.get("prompt_layer_manifest")
+    prompt_manifest_present = isinstance(prompt_manifest, dict)
+    prompt_manifest_valid, prompt_manifest_reason = validate_prompt_layer_manifest(
+        prompt_manifest
+    )
     return {
         "manifest_valid": valid,
         "manifest_reason": reason,
@@ -273,6 +281,19 @@ def _context_diagnostic(metadata: Any) -> dict[str, Any]:
             _bounded_non_negative_int(budget.get("oldest_retained_message_index"))
             if valid and budget.get("oldest_retained_message_index") is not None
             else None
+        ),
+        "prompt_manifest_present": prompt_manifest_present,
+        "prompt_manifest_valid": prompt_manifest_valid,
+        "prompt_manifest_reason": prompt_manifest_reason,
+        "prompt_layer_count": (
+            _bounded_non_negative_int(prompt_manifest.get("layer_count"))
+            if prompt_manifest_valid
+            else 0
+        ),
+        "prompt_manifest_sha256": (
+            str(prompt_manifest.get("manifest_sha256") or "")
+            if prompt_manifest_valid
+            else ""
         ),
     }
 
@@ -436,6 +457,10 @@ def compare_chat_trace_diagnostics(
         "summarized_messages",
         "truncated_recent_messages",
         "estimated_total_after",
+        "prompt_manifest_present",
+        "prompt_manifest_valid",
+        "prompt_layer_count",
+        "prompt_manifest_sha256",
     ):
         add_change(f"context.{field}", base["context"][field], target["context"][field])
     for field in ("tool_decision_count", "artifact_count", "fallback_count"):
@@ -444,6 +469,11 @@ def compare_chat_trace_diagnostics(
     warnings: list[str] = []
     if not target["context"]["manifest_valid"]:
         warnings.append("target_context_manifest_invalid")
+    if (
+        target["context"]["prompt_manifest_present"]
+        and not target["context"]["prompt_manifest_valid"]
+    ):
+        warnings.append("target_prompt_manifest_invalid")
     if target["context"]["history_compacted"]:
         warnings.append("target_history_compacted")
     if target["context"]["truncated_recent_messages"]:
@@ -454,6 +484,13 @@ def compare_chat_trace_diagnostics(
         warnings.append("route_changed")
     if target["routing"]["model_used"] != base["routing"]["model_used"]:
         warnings.append("model_changed")
+    if (
+        base["context"]["prompt_manifest_valid"]
+        and target["context"]["prompt_manifest_valid"]
+        and target["context"]["prompt_manifest_sha256"]
+        != base["context"]["prompt_manifest_sha256"]
+    ):
+        warnings.append("prompt_layers_changed")
 
     return {
         "schema_version": TRACE_DIAGNOSTIC_SCHEMA_VERSION,

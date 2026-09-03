@@ -23,18 +23,13 @@ from app.services.chat import prepare_chat_runtime as _prepare_chat_runtime
 from app.services.chat import prepare_chat_runtime_async as _prepare_chat_runtime_async
 from app.services.chat import stream_chat_events
 from app.services.chat.state import ChatSessionState
+from app.services.chat.mode_registry import MODE_CONFIG, ChatMode
 
 # ---------------------------------------------------------------------------
 # Re-export runtime helpers (moved to chat.runtime)
 # ---------------------------------------------------------------------------
 from app.services.chat.runtime import (
     CHAT_HISTORY_WINDOW,
-    CLIENT_PORTFOLIO_FAST_MODEL,
-    CLIENT_PORTFOLIO_MAX_TOKENS,
-    STANDALONE_CHAT_MAX_TOKENS,
-    STANDALONE_FAST_PATH_MAX_TOKENS,
-    STANDALONE_FAST_PATH_MODEL,
-    WORKSPACE_INVENTORY_MAX_TOKENS,
     _cap_max_tokens_for_model,
     _load_provider_module,
     build_chat_context,
@@ -45,6 +40,15 @@ from app.services.chat.runtime import (
     _resolve_runtime_model_and_tokens,
     _should_apply_skill,
 )
+
+# Historical import names remain available, but their values now come from the
+# centralized mode registry rather than a second set of runtime constants.
+STANDALONE_FAST_PATH_MODEL = MODE_CONFIG[ChatMode.STANDALONE_QA].fast_model
+STANDALONE_FAST_PATH_MAX_TOKENS = MODE_CONFIG[ChatMode.STANDALONE_QA].fast_max_tokens
+STANDALONE_CHAT_MAX_TOKENS = MODE_CONFIG[ChatMode.STANDALONE_QA].max_tokens
+CLIENT_PORTFOLIO_FAST_MODEL = MODE_CONFIG[ChatMode.CROSS_PROJECT_PORTFOLIO].fast_model
+CLIENT_PORTFOLIO_MAX_TOKENS = MODE_CONFIG[ChatMode.CROSS_PROJECT_PORTFOLIO].max_tokens
+WORKSPACE_INVENTORY_MAX_TOKENS = MODE_CONFIG[ChatMode.WORKSPACE_INVENTORY].max_tokens
 
 # ---------------------------------------------------------------------------
 # Re-export SSE helpers (moved to chat.sse)

@@ -593,6 +593,14 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 项目消息只在用户点击“查看回答诊断”后加载；可选择同一会话另一轮，直接看到路由、模型、压缩、历史保留、工具与降级变化。本阶段复用现有 `ChatTrace`，无数据库迁移。上下文预算与历史管理继续基于仓库已注明的 Codex Apache-2.0 固定版本机制，全部实现为 Aria 原生 Python/React，不运行或连接 Codex。
 - 确定性发布门禁扩展为 112 个场景、32 项指标，新增 `conversation_trace_diagnostic_safety_rate`，覆盖 full/recent/none Mode、超限历史压缩和诊断隐私。
 
+### Phase 4G：对话运行配置与 Prompt 层完整性（已实施）
+
+- 6 个 Chat Mode 的 Prompt、模型策略、Token 上限、上下文模式、历史策略、身份前言和工具池统一由 `MODE_CONFIG` 驱动。Portfolio/Workspace/Standalone 不再在 runtime 内各自维护模型分支；Scheduled Task 显式选择 Mode。
+- 工具进入 Provider 前先经过 Mode 工具池，再经过 ToolAccessPolicy 与 ActionPolicy。普通项目对话只能看到声明的项目工具；Skill/Task 虽允许冻结动态工具集，但未知或未注册工具仍被移除。运行时 Capability Manifest 继续是权限、副作用、重试、并行和事件映射的唯一事实源。
+- 基础身份、Mode、统一回答纪律、Skill/Project/Knowledge 上下文包装、工具历史、Turn Contract 和能力边界改为文件化 Prompt。统一回答纪律固定结论优先、事实/推断分离、陈旧/缺失证据披露、禁止虚报执行以及合法证据键引用。
+- 每轮持久化 `Prompt Layer Manifest v1`，只含有序相对路径、层 SHA-256 和整体 SHA-256；用户侧回答诊断只展示是否存在、是否完整、层数和跨轮版本变化，不返回任一 Prompt 或业务正文。
+- `assert_chat_runtime_configuration` 在启动与部署测试中检查 Mode 全覆盖、17 个工具注册/Manifest 一致性、操作枚举与权限映射、工具池、Prompt 文件及工具说明 YAML。任何缺失或漂移失败关闭。确定性门禁为 116 个场景、33 项指标，新增 `chat_runtime_configuration_integrity_rate`；无数据库迁移，无新增 Codex 源码复用，不运行或连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

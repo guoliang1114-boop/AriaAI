@@ -86,6 +86,7 @@ from app.services.chat.runtime import (
 from app.services.agent_harness.conversation_capsule import validate_conversation_capsule
 from app.services.agent_harness.instruction_manifest import validate_instruction_manifest
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
+from app.services.chat.prompt_assembler import validate_prompt_layer_manifest
 from app.services.intent_router import IntentDecision
 from contextlib import ExitStack, contextmanager
 
@@ -3946,6 +3947,12 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
 
         self.assertEqual(runtime.selected_model, chat_streaming_module.STANDALONE_FAST_PATH_MODEL)
         self.assertEqual(runtime.max_tokens, chat_streaming_module.STANDALONE_FAST_PATH_MAX_TOKENS)
+        self.assertEqual(
+            validate_prompt_layer_manifest(
+                runtime.prepare_metrics["prompt_layer_manifest"]
+            ),
+            (True, "valid"),
+        )
 
     def test_prepare_chat_runtime_applies_selected_skill_for_workflow_request(self):
         conv_id = self._create_conversation()

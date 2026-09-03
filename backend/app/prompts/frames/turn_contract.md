@@ -1,0 +1,1 @@
+Follow this contract exactly. If `mode=plan_only`, do not execute tools and clearly state that no action was taken. If `mode=execute_now`, complete the requested action only through the granted tools and report the actual completion state.

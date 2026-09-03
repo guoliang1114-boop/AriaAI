@@ -26,11 +26,13 @@ const POLICY_LABELS: Record<string, string> = {
 
 const WARNING_LABELS: Record<string, string> = {
   target_context_manifest_invalid: '本轮上下文清单未通过完整性校验',
+  target_prompt_manifest_invalid: '本轮 Prompt 层清单未通过完整性校验',
   target_history_compacted: '本轮因上下文空间不足压缩了较早对话',
   target_recent_messages_truncated: '本轮有近期消息被截短',
   target_more_fallbacks: '本轮降级或拦截事件比对照轮更多',
   route_changed: '本轮对话路由与对照轮不同',
   model_changed: '本轮模型与对照轮不同',
+  prompt_layers_changed: '本轮使用的文件化 Prompt 层与对照轮不同',
 }
 
 const COMPACTION_LABELS: Record<string, string> = {
@@ -55,6 +57,10 @@ const CHANGE_LABELS: Record<string, string> = {
   'context.summarized_messages': '摘要化消息数',
   'context.truncated_recent_messages': '截短近期消息数',
   'context.estimated_total_after': '最终估算 Token',
+  'context.prompt_manifest_present': 'Prompt 层清单',
+  'context.prompt_manifest_valid': 'Prompt 层完整性',
+  'context.prompt_layer_count': 'Prompt 层数量',
+  'context.prompt_manifest_sha256': 'Prompt 层版本',
   'execution.tool_decision_count': '工具决策数',
   'execution.artifact_count': '交付物数',
   'execution.fallback_count': '降级事件数',
@@ -209,6 +215,11 @@ export function ConversationTraceInspector({
               {context.compacted && (
                 <div>压缩策略 · {COMPACTION_LABELS[context.compaction_strategy] || context.compaction_strategy}</div>
               )}
+              <div style={{ color: context.prompt_manifest_present && !context.prompt_manifest_valid ? 'var(--warn)' : 'var(--ink-mute)' }}>
+                Prompt 层 · {context.prompt_manifest_present
+                  ? `${context.prompt_layer_count} 层 / ${context.prompt_manifest_valid ? '清单已校验' : '清单不可验证'}`
+                  : '历史记录未包含文件层清单'}
+              </div>
               <div>
                 执行 · 工具决策 {execution.tool_decision_count} 次
                 {` · 交付物 ${execution.artifact_count} 个 · 降级/拦截 ${execution.fallback_count} 次`}

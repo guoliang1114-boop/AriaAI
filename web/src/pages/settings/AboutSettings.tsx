@@ -77,6 +77,7 @@ export function AboutSettings() {
             'Skill 发布版本、状态和包指纹进入正式运行快照，项目质量面板可按版本查看完成率和用户反馈。',
             'Skill 新增不可变发布历史、项目级稳定灰度、隐私安全健康指标、自动止损以及管理员推广和一键回滚。',
             '长期对话扩大为 96 条预算候选并公开实际保留/摘要数量；每条项目回答可按需查看内容安全诊断并与同会话其他轮次对比。',
+            '对话 Mode 统一控制模型、Token、上下文和工具池；Prompt 静态行为层文件化并加入 SHA-256 完整性诊断与启动门禁。',
           ]
         : [
             'Unified Product Run Event activity timeline across live and persisted Skill, step, tool, artifact, error, and confirmation states.',
@@ -87,6 +88,7 @@ export function AboutSettings() {
             'Formal Skill release version/status/fingerprint snapshots and project-level outcome metrics by exact release.',
             'Immutable Skill release history, project-sticky canaries, privacy-safe health metrics, automatic stop-loss, and administrator promotion or rollback.',
             'Long conversations now budget up to 96 candidate messages with explicit retention summaries, plus on-demand content-free diagnostics and same-conversation turn comparison.',
+            'Chat modes now centrally govern models, token caps, context, and tool pools, with file-backed prompt layers, SHA-256 diagnostics, and fail-closed startup validation.',
           ],
     },
     {

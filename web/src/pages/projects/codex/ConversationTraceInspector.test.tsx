@@ -45,6 +45,11 @@ function diagnostic(overrides: Partial<ChatTraceDiagnostic> = {}): ChatTraceDiag
       compaction_strategy: 'recent_turns_with_bounded_excerpts',
       summary_injected: true,
       oldest_retained_message_index: 12,
+      prompt_manifest_present: true,
+      prompt_manifest_valid: true,
+      prompt_manifest_reason: 'valid',
+      prompt_layer_count: 7,
+      prompt_manifest_sha256: 'a'.repeat(64),
     },
     execution: {
       tool_decision_count: 2,
@@ -91,6 +96,7 @@ describe('ConversationTraceInspector', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2))
     expect(await screen.findByText(/项目深挖 · 只读工具 · glm-5\.1/)).toBeInTheDocument()
     expect(screen.getByText(/历史 18 → 6 条 · 摘要化 12 条 · 截短近期 1 条/)).toBeInTheDocument()
+    expect(screen.getByText(/Prompt 层 · 7 层 \/ 清单已校验/)).toBeInTheDocument()
     expect(screen.getByText(/工具决策 2 次 · 交付物 1 个 · 降级\/拦截 1 次 · 1420 ms/)).toBeInTheDocument()
     expect(screen.getByText(/不包含消息正文、Prompt、工具输入输出或隐藏推理/)).toBeInTheDocument()
     expect(screen.getByText('暂无其他可对比轮次')).toBeInTheDocument()

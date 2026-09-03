@@ -922,6 +922,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-09-03）：Phase 4F 将 full-history Mode 的预预算候选从 24 条扩展为 96 条，并让 `MODE_CONFIG.history_strategy/history_window` 真正统一控制 full/recent/none。统一预算器按最近轮次、工具批次和有界较早摘录压缩，Context Receipt 明确区分加载、保留、摘要化和近期截短数量。`ChatTrace` 在原始内部记录之外新增内容安全诊断投影、分页和同会话两轮对比，项目消息按需展示路由、上下文、执行和差异，不返回 Prompt、正文、工具 payload、路径或隐藏推理。确定性门禁扩展为 112 个场景、32 项指标。本阶段复用现有表，不新增迁移，也不引入 Codex 运行时、SDK、协议或通信。
 
+补充进展（2026-09-03）：Phase 4G 将 `MODE_CONFIG` 提升为模型策略、Token 上限、上下文模式、历史策略、身份前言和 Mode 工具池的单一事实源；普通对话工具先过 Mode 白名单，再过 ToolAccess/Action Policy，Skill 动态工具也必须属于 Aria 中央注册表。静态 Prompt 行为层全部迁入可审查文件，每轮生成只含路径与 SHA-256 的 `Prompt Layer Manifest v1`，回答诊断可核验层数、完整性与跨轮版本变化而不暴露正文。服务启动和部署测试统一校验 6 个 Mode、17 个注册工具、操作 schema、权限 Manifest 与 Prompt/YAML 完整性。确定性门禁为 116 个场景、33 项指标；不新增迁移，不引入或连接 Codex。
+
 补充进展（2026-09-03）：Phase 4B 将 Skill 验收声明与真实交付物验证连接起来。运行合同以 SHA-256 绑定精确验收计划；Persistence Harness 在 `GeneratedFile` 落库事务内执行 Aria 自有的只读文件身份和格式完整性检查，并将结果按文件字节、校验器版本与 Skill 发布写入不可变 `ArtifactVerification`。自动化层绝不执行 Skill script、宏或代码，也不把语义/业务验收冒充为自动通过；此类步骤保持 `manual_required`，上下文不完整保持 `partial`，技术失败不能满足交付契约。Product Run Event、消息 metadata、恢复与前端卡片共享无正文摘要，授权 API 仅返回有界检查码。幂等迁移 `043_v1_43` 保持单一 head；确定性门禁扩展为 95 个场景、28 项指标。不引入 Codex 运行时、SDK、协议、进程或通信。
 
 补充进展（2026-09-03）：Phase 4C 为 `manual_required` 制品增加业务验收和最终交付门禁。验收绑定精确技术证据、文件字节和 Skill 验收计划，以 expected revision 处理并发，并写入当前态与 append-only 审计事件；接受/退回必须填写理由。技术失败、格式不支持或 Skill 上下文不完整不能被人工覆盖。Aria 自有声明式校验器注册表只支持有界结构指标，未知规则失败关闭，且不会执行 Skill 包代码、宏、shell 或动态 callable。预览面板可查看证据、验收、退回和历史。幂等迁移 `044_v1_44` 保持单一 head；确定性门禁为 99 个场景、29 项指标。不引入 Codex 运行时、SDK、协议、进程或通信。
