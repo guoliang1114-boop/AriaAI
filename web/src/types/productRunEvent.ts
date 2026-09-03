@@ -213,6 +213,10 @@ export interface ContextReceiptEvent {
     attached_file_count: number;
     knowledge_reference_count: number;
     history_message_count: number;
+    /** Optional for persisted receipts created before history-retention disclosure shipped. */
+    history_retained_message_count?: number;
+    history_summarized_message_count?: number;
+    history_truncated_message_count?: number;
     conversation_capsule: boolean;
     user_preferences: boolean;
     compacted: boolean;

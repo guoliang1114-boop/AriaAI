@@ -64,6 +64,12 @@ def _runtime(**overrides):
             "skill_decision": "auto_skill_advisory_match:舞弊风险评估",
             "skill_decision_confidence": 0.9,
             "history_message_count_loaded": 7,
+            "history_message_count": 5,
+            "context_budget": {
+                "history_messages_after": 5,
+                "summarized_messages": 2,
+                "truncated_recent_messages": 1,
+            },
             "user_memory_injected": True,
         },
         "skill_id": 9,
@@ -94,6 +100,9 @@ def test_build_context_receipt_reports_advisory_skill_and_stale_memory():
     assert event["skill"]["usage_mode"] == "advisory"
     assert event["evidence"]["knowledge_reference_count"] == 1
     assert event["evidence"]["history_message_count"] == 7
+    assert event["evidence"]["history_retained_message_count"] == 5
+    assert event["evidence"]["history_summarized_message_count"] == 2
+    assert event["evidence"]["history_truncated_message_count"] == 1
     assert "project_memory_stale" in event["warnings"]
     assert "client_memory_stale" in event["warnings"]
     assert "user_preference_overridden" in event["warnings"]

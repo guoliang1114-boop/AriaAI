@@ -60,6 +60,9 @@ def test_context_budget_leaves_short_requests_unchanged() -> None:
     assert result.messages is not messages
     assert result.report.compacted is False
     assert result.report.history_messages_after == 2
+    assert result.report.compaction_strategy == "none"
+    assert result.report.summary_injected is False
+    assert result.report.oldest_retained_message_index == 0
 
 
 def test_context_budget_does_not_preemptively_truncate_large_system_that_fits() -> None:
@@ -101,6 +104,10 @@ def test_context_budget_compacts_old_history_and_preserves_latest_tail() -> None
 
     assert result.report.compacted is True
     assert result.report.summarized_messages > 0
+    assert result.report.compaction_strategy == "recent_turns_with_bounded_excerpts"
+    assert result.report.summary_injected is True
+    assert "older_history_summarized" in result.report.compaction_reason_codes
+    assert result.report.oldest_retained_message_index == result.report.summarized_messages
     assert result.report.history_messages_after >= 4
     assert result.messages[-1]["content"].endswith("LATEST-END")
     assert "Earlier Conversation — Compacted Excerpts" in result.system

@@ -2207,6 +2207,83 @@ export interface ChatTrace {
   created_at?: string
 }
 
+export interface ChatTraceContextDiagnostic {
+  manifest_valid: boolean
+  manifest_reason: string
+  compacted: boolean
+  system_compacted: boolean
+  history_compacted: boolean
+  source_count: number
+  included_source_count: number
+  history_messages_before: number
+  history_messages_after: number
+  summarized_messages: number
+  truncated_recent_messages: number
+  estimated_total_before: number
+  estimated_total_after: number
+  context_window_tokens: number
+  compaction_strategy: string
+  summary_injected: boolean
+  oldest_retained_message_index?: number | null
+}
+
+export interface ChatTraceExecutionDiagnostic {
+  tool_decision_count: number
+  tool_status_counts: Record<string, number>
+  artifact_count: number
+  fallback_count: number
+  fallback_types: string[]
+  timings: Record<string, number>
+}
+
+export interface ChatTraceDiagnostic {
+  schema_version: 1
+  id?: number | null
+  trace_id: string
+  conversation_id: number
+  message_id?: number | null
+  project_id?: number | null
+  created_at?: string
+  routing: {
+    chat_mode: string
+    action_policy: string
+    intent_method: string
+    intent_reason: string
+    model_used: string
+  }
+  context: ChatTraceContextDiagnostic
+  execution: ChatTraceExecutionDiagnostic
+  privacy: {
+    includes_prompt_content: false
+    includes_message_content: false
+    includes_tool_inputs: false
+    includes_tool_outputs: false
+    includes_hidden_reasoning: false
+  }
+}
+
+export interface ChatTraceDiagnosticList {
+  schema_version: 1
+  conversation_id: number
+  items: ChatTraceDiagnostic[]
+  next_before_id?: number | null
+  has_more: boolean
+}
+
+export interface ChatTraceDiagnosticComparison {
+  schema_version: 1
+  conversation_id: number
+  base: ChatTraceDiagnostic
+  target: ChatTraceDiagnostic
+  changes: Array<{
+    field: string
+    before: string | number | boolean | null
+    after: string | number | boolean | null
+  }>
+  warnings: string[]
+  privacy: ChatTraceDiagnostic['privacy']
+}
+
 export interface TaskRunStep {
   id: number
   key: string

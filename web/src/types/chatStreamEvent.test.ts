@@ -122,6 +122,9 @@ describe('chat receipt normalization', () => {
         attached_file_count: 0,
         knowledge_reference_count: 2,
         history_message_count: 4,
+        history_retained_message_count: 3,
+        history_summarized_message_count: 1,
+        history_truncated_message_count: 1,
         conversation_capsule: true,
         user_preferences: true,
         compacted: false,
@@ -150,6 +153,12 @@ describe('chat receipt normalization', () => {
           verification_step_count: 7,
           verification_plan_sha256: 'd'.repeat(64),
         },
+      },
+      evidence: {
+        history_message_count: 4,
+        history_retained_message_count: 3,
+        history_summarized_message_count: 1,
+        history_truncated_message_count: 1,
       },
     })
     expect(JSON.stringify(valid && toContextReceiptEvent(valid))).not.toContain('private instructions')

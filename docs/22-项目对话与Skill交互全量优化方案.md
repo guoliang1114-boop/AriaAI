@@ -584,6 +584,15 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 服务端分别锁定制品与 Knowledge Source，对两个资源重做最终写授权，核对真实文件字节与技术/业务/人工合成验收门禁。按制品、Source 和内容摘要去重，原始字节落到受控知识存储，审计关系与持久化 `KnowledgeJob` 负责可恢复索引。响应明确声明不写项目/客户记忆、不外发、不解决项目问题。
 - 幂等迁移 `046_v1_46` 增加制品校验要求和归档关系，保持唯一 Alembic head。部署与备份后生产数据库 E2E 纳入新迁移测试；超时窗口扩展为 job 40 分钟/SSH 35 分钟，以覆盖已达 98% 的全套件而不放宽 schema 隔离、`public` 签名或清理要求。确定性门禁为 108 个场景、31 项指标。全部实现是 Aria 原生 Python/FastAPI/React/PostgreSQL，不运行、导入或连接 Codex。
 
+### Phase 4F：长期对话压缩与回答诊断（已实施）
+
+- 普通问答、项目深挖和 Skill 执行最多读取 96 条可见候选消息，再由 Context Budget 在真实模型窗口内决定保留与压缩；跨项目/工作台查询保留 6 条，任务编排不携带普通聊天历史。Mode 的历史行为统一来自 `MODE_CONFIG`，不再由 runtime 分支各自猜测。
+- 压缩保持最近消息优先、UTF-8 安全和 tool_use/tool_result 原子关系，较早历史只形成有界摘录并明确标为历史数据。预算报告固定记录策略、原因、摘要注入、最早保留位置及前后计数，不调用 Codex 或任一远程 compaction API。
+- Context Receipt 新增加载、Provider 实际保留、摘要化和近期截短计数；旧回执字段可继续读取。三套对话 UI 使用同一标签逻辑，不再把预预算加载量展示成最终上下文量。
+- 新增单消息回答诊断、Conversation 内分页列表和 trace-id 对比接口。投影只包含 Mode、Action Policy、路由方法/受控原因、模型、上下文完整性与计数、工具状态计数、Artifact 数、fallback 类型及白名单耗时；严格排除 Message/Prompt 正文、工具参数/结果、Artifact 路径和隐藏推理，并在读取及对比前执行 Conversation ACL。
+- 项目消息只在用户点击“查看回答诊断”后加载；可选择同一会话另一轮，直接看到路由、模型、压缩、历史保留、工具与降级变化。本阶段复用现有 `ChatTrace`，无数据库迁移。上下文预算与历史管理继续基于仓库已注明的 Codex Apache-2.0 固定版本机制，全部实现为 Aria 原生 Python/React，不运行或连接 Codex。
+- 确定性发布门禁扩展为 112 个场景、32 项指标，新增 `conversation_trace_diagnostic_safety_rate`，覆盖 full/recent/none Mode、超限历史压缩和诊断隐私。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

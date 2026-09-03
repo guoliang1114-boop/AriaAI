@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from app.database import get_session
@@ -11,7 +11,11 @@ from app.routers.auth import get_current_user, require_admin
 from app.routers.chat_schemas import TestConnectionRequest, TestModelRequest
 from app.routers.chat_security import require_conversation_access
 from app.routers.chat_security import require_project_access
-from app.services.chat.trace import get_latest_chat_trace
+from app.services.chat.trace import (
+    compare_chat_trace_diagnostics,
+    get_chat_trace_diagnostic,
+    list_chat_trace_diagnostics,
+)
 from app.services.agent_harness.run_rollout import get_chat_rollout
 from app.services.agent_harness.turn_interrupt import get_active_turn
 from app.services.chat.turn_recovery import (
@@ -153,12 +157,57 @@ def get_conversation_trace(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """Return the latest structured trace for a conversation turn."""
+    """Return the latest content-free diagnostic for a conversation turn."""
     require_conversation_access(session, conversation_id, current_user)
-    trace = get_latest_chat_trace(session, conversation_id, message_id=message_id)
+    trace = get_chat_trace_diagnostic(
+        session,
+        conversation_id,
+        message_id=message_id,
+    )
     if not trace:
         raise HTTPException(status_code=404, detail="Chat trace not found")
     return trace
+
+
+@router.get("/conversations/{conversation_id}/traces")
+def list_conversation_trace_diagnostics(
+    conversation_id: int,
+    limit: int = Query(default=20, ge=1, le=50),
+    before_id: Optional[int] = Query(default=None, ge=1),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """List bounded, content-free diagnostics for recent conversation turns."""
+
+    require_conversation_access(session, conversation_id, current_user)
+    return list_chat_trace_diagnostics(
+        session,
+        conversation_id,
+        limit=limit,
+        before_id=before_id,
+    )
+
+
+@router.get("/conversations/{conversation_id}/trace-compare")
+def compare_conversation_trace_diagnostics(
+    conversation_id: int,
+    base_trace_id: str = Query(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"),
+    target_trace_id: str = Query(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Compare two turns without exposing prompts, content, or tool payloads."""
+
+    require_conversation_access(session, conversation_id, current_user)
+    comparison = compare_chat_trace_diagnostics(
+        session,
+        conversation_id,
+        base_trace_id=base_trace_id,
+        target_trace_id=target_trace_id,
+    )
+    if comparison is None:
+        raise HTTPException(status_code=404, detail="Chat trace comparison target not found")
+    return comparison
 
 
 @router.get("/conversations/{conversation_id}/rollout")
@@ -267,12 +316,16 @@ def get_message_trace(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """Return the structured trace bound to a specific assistant message."""
+    """Return the safe diagnostic bound to a specific assistant message."""
     message = session.get(Message, message_id)
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
     require_conversation_access(session, message.conversation_id, current_user)
-    trace = get_latest_chat_trace(session, message.conversation_id, message_id=message_id)
+    trace = get_chat_trace_diagnostic(
+        session,
+        message.conversation_id,
+        message_id=message_id,
+    )
     if not trace:
         raise HTTPException(status_code=404, detail="Chat trace not found")
     return trace

@@ -17,7 +17,7 @@ import type { ContextReceiptEvent } from '../../../types/productRunEvent'
 import { parseChatStreamEvent, toContextReceiptEvent } from '../../../types/chatStreamEvent'
 import type { RunActivityTimeline } from '../../../stores/runActivityReducer'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
-import { contextMemoryLayerLabel } from '../../../utils/contextReceipt'
+import { contextHistoryEvidenceLabel, contextMemoryLayerLabel } from '../../../utils/contextReceipt'
 import { CxIcon } from './CxIcons'
 import { ProjectChatActivityTimeline } from './ProjectChatActivityTimeline'
 import { SkillCandidateButtons } from './SkillCandidateButtons'
@@ -32,6 +32,7 @@ import {
 import { PROJECT_TURN_REVISION_FIELD_LABELS } from './ProjectTurnSetupControl'
 import { formatUpdatedRelative } from './useProjectsApi'
 import { artifactVerificationLabel } from '../../../utils/artifactVerification'
+import { ConversationTraceInspector } from './ConversationTraceInspector'
 
 /** Project-chat-tab message bubble.
  *
@@ -359,6 +360,12 @@ export function ProjectChatMessage({
               <PersistentContextReceipt
                 receipt={meta.contextReceipt}
                 onSkillSelect={onSkillSelect}
+              />
+            )}
+            {!isStreaming && !meta.locallyStopped && (meta.persistedMessageId || message.id) > 0 && (
+              <ConversationTraceInspector
+                conversationId={message.conversation_id}
+                messageId={meta.persistedMessageId || message.id}
               />
             )}
             {!isStreaming && meta.references.length > 0 && <ReferenceChips refs={meta.references} />}
@@ -783,6 +790,7 @@ function PersistentContextReceipt({
       : '未额外启用 Skill'
   const evidenceCount = receipt.evidence.knowledge_reference_count
     + receipt.evidence.attached_file_count
+  const historyLabel = contextHistoryEvidenceLabel(receipt.evidence)
   const retrievalLabel = receipt.memory.selected_item_count > 0
     ? ` · ${receipt.memory.retrieval_mode === 'full' ? '全量' : '按问题'}召回 ${receipt.memory.selected_item_count} 条记忆`
     : ''
@@ -798,9 +806,7 @@ function PersistentContextReceipt({
       </summary>
       <div style={{ marginTop: 4, paddingLeft: 14 }}>
         {evidenceCount > 0 ? `${evidenceCount} 项文件/知识证据` : '未附加文件或知识证据'}
-        {receipt.evidence.history_message_count > 0
-          ? ` · ${receipt.evidence.history_message_count} 条近期对话`
-          : ''}
+        {historyLabel ? ` · ${historyLabel}` : ''}
       </div>
       {memoryLayerLabels.length > 0 && (
         <div style={{ marginTop: 4, paddingLeft: 14 }}>

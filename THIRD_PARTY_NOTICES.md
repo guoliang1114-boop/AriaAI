@@ -9,7 +9,8 @@ with a Codex runtime. The adapted mechanisms currently cover:
 - head/tail output buffering;
 - byte-based token estimation, UTF-8-safe middle truncation, per-turn
   context-window budgeting, atomic tool-batch retention, and structured tool
-  payload compaction;
+  payload compaction, extended with a larger Aria-owned pre-budget history
+  candidate window and content-free compaction decision receipts;
 - append-only rollout ordinals, chronological checkpoint reconstruction, and
   fail-closed recovery planning;
 - single-artifact structured text patch parsing, ordered replacement planning,

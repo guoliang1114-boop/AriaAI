@@ -1,4 +1,4 @@
-import type { ContextMemoryLayer } from '../types/productRunEvent'
+import type { ContextMemoryLayer, ContextReceiptEvent } from '../types/productRunEvent'
 
 const MEMORY_SCOPE_LABELS: Record<ContextMemoryLayer['scope'], string> = {
   user: '个人偏好',
@@ -47,4 +47,22 @@ export function contextMemoryLayerLabel(layer: ContextMemoryLayer): string {
     ? `；本轮要求覆盖已保存的${overrideLabels.join('、')}偏好`
     : ''
   return `${MEMORY_SCOPE_LABELS[layer.scope]}${versionLabel}：${usageLabel}${freshnessLabel}${slotFreshnessLabel}${evidenceLabel}${factTraceLabel}${overrideLabel}`
+}
+
+export function contextHistoryEvidenceLabel(
+  evidence: ContextReceiptEvent['evidence'],
+): string {
+  const loaded = evidence.history_message_count
+  if (loaded <= 0) return ''
+  const retained = evidence.history_retained_message_count ?? loaded
+  const summarized = evidence.history_summarized_message_count ?? 0
+  const truncated = evidence.history_truncated_message_count ?? 0
+  const parts = [
+    retained === loaded && summarized === 0
+      ? `${retained} 条近期对话`
+      : `近期对话保留 ${retained}/${loaded} 条`,
+  ]
+  if (summarized > 0) parts.push(`较早 ${summarized} 条已生成有界摘要`)
+  if (truncated > 0) parts.push(`近期 ${truncated} 条有截短`)
+  return parts.join(' · ')
 }

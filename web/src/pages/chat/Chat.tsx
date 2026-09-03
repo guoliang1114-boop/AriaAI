@@ -58,6 +58,7 @@ import { describeRunSkill, normalizeRunSkill, type ActiveRunSkill } from '../../
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
 import { formatDateOnly, formatDatePartsKey, formatTimeOnly, parseAppDateTime } from '../../utils/timezone'
 import { artifactVerificationLabel } from '../../utils/artifactVerification'
+import { contextHistoryEvidenceLabel } from '../../utils/contextReceipt'
 
 const PAGE_SIZE = 20
 let nextOptimisticId = -1
@@ -486,6 +487,7 @@ function MainContextReceiptSummary({ receipt }: { receipt: ContextReceiptEvent }
   const memoryRetrievalLabel = receipt.memory.selected_item_count > 0
     ? `${receipt.memory.retrieval_mode === 'full' ? '全量' : '按问题'}召回 ${receipt.memory.selected_item_count} 条记忆 / ${receipt.memory.selected_slot_count} 个槽位`
     : ''
+  const historyLabel = contextHistoryEvidenceLabel(receipt.evidence)
   const evidenceBits = [
     receipt.evidence.knowledge_reference_count > 0
       ? `${receipt.evidence.knowledge_reference_count} 条知识证据`
@@ -493,9 +495,7 @@ function MainContextReceiptSummary({ receipt }: { receipt: ContextReceiptEvent }
     receipt.evidence.attached_file_count > 0
       ? `${receipt.evidence.attached_file_count} 个指定文件`
       : '',
-    receipt.evidence.history_message_count > 0
-      ? `${receipt.evidence.history_message_count} 条近期对话`
-      : '',
+    historyLabel,
   ].filter(Boolean)
   const hasWarning = receipt.warnings.some((warning) =>
     ['project_memory_missing', 'project_memory_stale', 'skill_match_ambiguous'].includes(warning),

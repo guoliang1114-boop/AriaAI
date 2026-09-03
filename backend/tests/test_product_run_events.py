@@ -216,6 +216,9 @@ class ContextReceiptTest(unittest.TestCase):
                 "attached_file_count": 1,
                 "knowledge_reference_count": 2,
                 "history_message_count": 8,
+                "history_retained_message_count": 6,
+                "history_summarized_message_count": 2,
+                "history_truncated_message_count": 1,
                 "conversation_capsule": True,
                 "user_preferences": False,
                 "compacted": False,
@@ -233,6 +236,9 @@ class ContextReceiptTest(unittest.TestCase):
         self.assertEqual(event["memory"]["selected_item_count"], 6)
         self.assertEqual(event["memory"]["stale_slots"], ["key_risks"])
         self.assertEqual(event["memory"]["stale_slot_count"], 1)
+        self.assertEqual(event["evidence"]["history_retained_message_count"], 6)
+        self.assertEqual(event["evidence"]["history_summarized_message_count"], 2)
+        self.assertEqual(event["evidence"]["history_truncated_message_count"], 1)
         self.assertEqual(event["memory"]["evidence_ref_count"], 9)
         self.assertEqual(event["memory"]["direct_fact_count"], 2)
         self.assertEqual(event["memory"]["matched_fact_count"], 1)

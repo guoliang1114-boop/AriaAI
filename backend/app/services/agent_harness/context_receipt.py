@@ -91,6 +91,20 @@ def build_context_receipt(run_id: str, runtime: Any) -> dict[str, Any]:
             "history_message_count": int(
                 metrics.get("history_message_count_loaded") or 0
             ),
+            "history_retained_message_count": int(
+                _dict(metrics.get("context_budget")).get("history_messages_after")
+                or metrics.get("history_message_count")
+                or metrics.get("history_message_count_loaded")
+                or 0
+            ),
+            "history_summarized_message_count": int(
+                _dict(metrics.get("context_budget")).get("summarized_messages")
+                or 0
+            ),
+            "history_truncated_message_count": int(
+                _dict(metrics.get("context_budget")).get("truncated_recent_messages")
+                or 0
+            ),
             "conversation_capsule": bool(capsule_ref.get("valid")),
             "user_preferences": bool(metrics.get("user_memory_injected", False)),
             "compacted": bool(manifest_ref.get("compacted", False)),

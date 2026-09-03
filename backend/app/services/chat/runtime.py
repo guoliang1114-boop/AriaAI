@@ -96,7 +96,13 @@ from app.services.provider_selector import (
 from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.chat_tools import ChatRuntime
 from app.services.chat.intent_contract import build_chat_intent_contract
-from app.services.chat.mode_registry import ActionPolicy, ChatMode, MODE_CONFIG, ToolAccessPolicy
+from app.services.chat.mode_registry import (
+    ActionPolicy,
+    ChatMode,
+    HistoryStrategy,
+    MODE_CONFIG,
+    ToolAccessPolicy,
+)
 from app.services.chat.turn_contract import build_turn_contract, format_turn_user_request
 from app.services.chat.turn_recovery import (
     TurnRecoveryConflict,
@@ -132,7 +138,10 @@ from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-CHAT_HISTORY_WINDOW = 24
+# Upper bound for DB-backed history candidates. Full-history modes let the
+# context budgeter compact this larger window instead of irreversibly dropping
+# everything before the latest 24 messages.
+CHAT_HISTORY_WINDOW = 96
 STANDALONE_FAST_PATH_MODEL = "moonshot-v1-8k"
 STANDALONE_FAST_PATH_MAX_TOKENS = 1536
 STANDALONE_CHAT_MAX_TOKENS = 2048
@@ -685,6 +694,16 @@ def _api_messages_with_recovery_steering(
     return api_messages
 
 
+def _history_for_model(history: list[Message], chat_mode: ChatMode) -> list[Message]:
+    """Apply the centralized mode history contract before token budgeting."""
+
+    mode_config = MODE_CONFIG.get(chat_mode, MODE_CONFIG[ChatMode.PROJECT_DEEP_DIVE])
+    if mode_config.history_strategy is HistoryStrategy.NONE or mode_config.history_window <= 0:
+        return []
+    window = max(1, min(int(mode_config.history_window), CHAT_HISTORY_WINDOW))
+    return list(history[-window:])
+
+
 def _format_recent_tool_history_context(history: list[Message]) -> str:
     sections: list[str] = []
     for message in history:
@@ -1190,9 +1209,7 @@ def prepare_chat_runtime(
         for message in history
         if getattr(message, "id", None) not in recovery_steering_message_ids
     ]
-    if intent_decision.chat_mode in {ChatMode.CROSS_PROJECT_PORTFOLIO, ChatMode.WORKSPACE_INVENTORY}:
-        window = MODE_CONFIG.get(intent_decision.chat_mode, MODE_CONFIG[ChatMode.PROJECT_DEEP_DIVE]).history_window
-        history_for_model = history_for_model[-max(1, min(window, CHAT_HISTORY_WINDOW)) :]
+    history_for_model = _history_for_model(history_for_model, intent_decision.chat_mode)
     current_user_message_id = prepare_metrics.get("source_user_message_id")
     api_messages = _api_messages_with_recovery_steering(
         history_for_model,

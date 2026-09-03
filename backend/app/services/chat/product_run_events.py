@@ -804,6 +804,9 @@ def context_receipt(
         "attached_file_count",
         "knowledge_reference_count",
         "history_message_count",
+        "history_retained_message_count",
+        "history_summarized_message_count",
+        "history_truncated_message_count",
     ):
         try:
             normalized_evidence[key] = max(0, int(evidence.get(key) or 0))

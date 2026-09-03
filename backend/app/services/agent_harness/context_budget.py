@@ -156,9 +156,18 @@ class ContextBudgetReport:
     estimated_total_before: int
     estimated_total_after: int
     compacted: bool
+    compaction_strategy: str
+    compaction_reason_codes: tuple[str, ...]
+    summary_injected: bool
+    oldest_retained_message_index: Optional[int]
+    retained_recent_messages: int
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        # Persisted manifests are JSON contracts; normalize the immutable tuple
+        # now so an encode/decode round trip remains byte-for-byte comparable.
+        payload["compaction_reason_codes"] = list(self.compaction_reason_codes)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -506,6 +515,11 @@ def apply_context_budget(
             estimated_total_before=estimated_before,
             estimated_total_after=estimated_before,
             compacted=False,
+            compaction_strategy="none",
+            compaction_reason_codes=(),
+            summary_injected=False,
+            oldest_retained_message_index=0 if messages else None,
+            retained_recent_messages=len(messages),
         )
         return ContextBudgetResult(
             system=system,
@@ -609,6 +623,21 @@ def apply_context_budget(
         or summarized_messages
         or truncated_recent_messages
     )
+    compaction_reasons: list[str] = []
+    if system_original_tokens is not None:
+        compaction_reasons.append("system_over_budget")
+    if summarized_messages:
+        compaction_reasons.append("older_history_summarized")
+    if truncated_recent_messages:
+        compaction_reasons.append("recent_history_truncated")
+    if history_excerpt:
+        compaction_strategy = "recent_turns_with_bounded_excerpts"
+    elif truncated_recent_messages:
+        compaction_strategy = "recent_turns_truncated"
+    elif system_original_tokens is not None:
+        compaction_strategy = "system_middle_truncated"
+    else:
+        compaction_strategy = "none"
     report = ContextBudgetReport(
         context_window_tokens=context_window,
         safety_margin_tokens=safety_margin,
@@ -630,6 +659,11 @@ def apply_context_budget(
         estimated_total_before=estimated_before,
         estimated_total_after=estimated_after,
         compacted=compacted,
+        compaction_strategy=compaction_strategy,
+        compaction_reason_codes=tuple(compaction_reasons),
+        summary_injected=bool(history_excerpt),
+        oldest_retained_message_index=(summarized_messages if compacted_messages else None),
+        retained_recent_messages=len(compacted_messages),
     )
     return ContextBudgetResult(
         system=final_system,

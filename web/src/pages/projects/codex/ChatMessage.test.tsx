@@ -168,6 +168,35 @@ describe('ProjectChatMessage', () => {
     expect(screen.getByText(/客户记忆 v5：使用 2 项.*待刷新/)).toBeInTheDocument()
   })
 
+  it('distinguishes loaded, retained, summarized, and truncated conversation history', () => {
+    const receipt: ContextReceiptEvent = {
+      ...ambiguousReceipt,
+      evidence: {
+        ...ambiguousReceipt.evidence,
+        history_message_count: 42,
+        history_retained_message_count: 6,
+        history_summarized_message_count: 36,
+        history_truncated_message_count: 1,
+        compacted: true,
+      },
+    }
+    const message: Message = {
+      id: 31,
+      conversation_id: 4,
+      role: 'assistant',
+      content: '已基于保留上下文回答。',
+      metadata_json: JSON.stringify({ context_receipt: receipt }),
+      created_at: '2026-09-03T00:00:00Z',
+    }
+
+    render(<ProjectChatMessage message={message} projectId={3} />)
+    fireEvent.click(screen.getByText(/本轮依据/))
+
+    expect(screen.getByText(/近期对话保留 6\/42 条/)).toBeInTheDocument()
+    expect(screen.getByText(/较早 36 条已生成有界摘要/)).toBeInTheDocument()
+    expect(screen.getByText(/近期 1 条有截短/)).toBeInTheDocument()
+  })
+
   it('shows the exact Skill release, loaded resources, tool boundary, and verification receipt', () => {
     const receipt: ContextReceiptEvent = {
       ...ambiguousReceipt,

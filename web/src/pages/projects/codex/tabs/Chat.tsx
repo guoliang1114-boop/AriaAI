@@ -20,7 +20,7 @@ import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../../types/pr
 import type { RunActivityTimeline } from '../../../../stores/runActivityReducer'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
-import { contextMemoryLayerLabel } from '../../../../utils/contextReceipt'
+import { contextHistoryEvidenceLabel, contextMemoryLayerLabel } from '../../../../utils/contextReceipt'
 import { CxConfirmDialog, CxSkeleton } from '../../../../components/codex'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
@@ -2222,6 +2222,7 @@ function ProjectContextReceiptSummary({
     ? `${receipt.memory.retrieval_mode === 'full' ? '全量' : '按问题'}召回 ${receipt.memory.selected_item_count} 条记忆 / ${receipt.memory.selected_slot_count} 个槽位`
     : ''
   const memoryLayerLabels = (receipt.memory.layers || []).map(contextMemoryLayerLabel)
+  const historyLabel = contextHistoryEvidenceLabel(receipt.evidence)
   const evidenceBits = [
     receipt.evidence.knowledge_reference_count > 0
       ? `${receipt.evidence.knowledge_reference_count} 条知识证据`
@@ -2229,9 +2230,7 @@ function ProjectContextReceiptSummary({
     receipt.evidence.attached_file_count > 0
       ? `${receipt.evidence.attached_file_count} 个指定文件`
       : '',
-    receipt.evidence.history_message_count > 0
-      ? `${receipt.evidence.history_message_count} 条近期对话`
-      : '',
+    historyLabel,
   ].filter(Boolean)
   const hasWarning = receipt.warnings.some((warning) =>
     [

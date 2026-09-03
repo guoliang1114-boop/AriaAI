@@ -78,7 +78,11 @@ from app.services import provider_selector as provider_selector_module
 from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
 from app.services import scheduler as scheduler_module
-from app.services.chat.runtime import prepare_chat_runtime, _upgrade_policy_for_artifact_continuation
+from app.services.chat.runtime import (
+    _history_for_model,
+    _upgrade_policy_for_artifact_continuation,
+    prepare_chat_runtime,
+)
 from app.services.agent_harness.conversation_capsule import validate_conversation_capsule
 from app.services.agent_harness.instruction_manifest import validate_instruction_manifest
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
@@ -3808,7 +3812,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
     def test_prepare_chat_runtime_limits_history_window_for_standalone_chat(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:
-            for index in range(30):
+            for index in range(120):
                 session.add(
                     Message(
                         conversation_id=conv_id,
@@ -3840,8 +3844,31 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 )
 
         self.assertEqual(len(runtime.api_messages), chat_streaming_module.CHAT_HISTORY_WINDOW)
-        self.assertEqual(runtime.api_messages[0]["content"], "message-7")
+        self.assertEqual(runtime.api_messages[0]["content"], "message-25")
         self.assertEqual(runtime.api_messages[-1]["content"], "latest-message")
+
+    def test_history_selection_uses_mode_registry_for_full_recent_and_none(self):
+        history = [
+            Message(conversation_id=1, role="user", content=f"message-{index}")
+            for index in range(12)
+        ]
+
+        full = _history_for_model(
+            history,
+            ChatMode.PROJECT_DEEP_DIVE,
+        )
+        recent = _history_for_model(
+            history,
+            ChatMode.WORKSPACE_INVENTORY,
+        )
+        none = _history_for_model(
+            history,
+            ChatMode.TASK_ORCHESTRATION,
+        )
+
+        self.assertEqual([item.content for item in full], [item.content for item in history])
+        self.assertEqual([item.content for item in recent], [f"message-{index}" for index in range(6, 12)])
+        self.assertEqual(none, [])
 
     def test_prepare_chat_runtime_builds_capsule_and_instruction_manifest(self):
         conv_id = self._create_conversation()

@@ -17,10 +17,11 @@ from typing import Any
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models.db import ClientRecord, Project, ProjectPayment, Skill
+from app.models.db import ChatTrace, ClientRecord, Project, ProjectPayment, Skill
 from app.routers.chat_schemas import SendMessageRequest
-from app.services.chat.mode_registry import ActionPolicy, ToolAccessPolicy
-from app.services.chat.runtime import _resolve_effective_skill
+from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
+from app.services.chat.runtime import _history_for_model, _resolve_effective_skill
+from app.services.chat.trace import build_chat_trace_diagnostic
 from app.services.chat.turn_contract import build_turn_contract
 from app.services.chat.turn_setup import recommend_turn_brief_template
 from app.services.chat.user_memory_prompt import build_user_memory_prompt_bundle
@@ -76,6 +77,7 @@ from app.services.context_builder.memory_formatters import (
     build_client_memory_prompt_bundle,
     _format_project_memory_for_prompt,
 )
+from app.services.context_builder.assembly import assemble_context
 from app.services.conversation_state import merge_user_constraints
 from app.services.intent_router import classify_chat_intent
 from app.services.memory_rebuilds import (
@@ -1890,6 +1892,85 @@ def _skill_deliverable_business_verifier_results() -> tuple[
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _conversation_trace_diagnostic_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Long-history budgeting and user-facing diagnostics stay safe and exact."""
+
+    candidates = [SimpleNamespace(id=index + 1) for index in range(48)]
+    full_history = _history_for_model(candidates, ChatMode.PROJECT_DEEP_DIVE)
+    recent_history = _history_for_model(candidates, ChatMode.WORKSPACE_INVENTORY)
+    task_history = _history_for_model(candidates, ChatMode.TASK_ORCHESTRATION)
+    private_messages = [
+        {
+            "role": "user" if index % 2 == 0 else "assistant",
+            "content": f"PRIVATE-HISTORY-{index} " + ("detail " * 600),
+        }
+        for index in range(20)
+    ]
+    assembly = assemble_context(
+        system="PRIVATE-SYSTEM " + ("policy " * 600),
+        messages=private_messages,
+        tools=None,
+        sources=[],
+        context_window_tokens=4_096,
+        max_output_tokens=512,
+        history_summary_tokens=256,
+    )
+    trace = ChatTrace(
+        trace_id="trace_quality_safe",
+        conversation_id=1,
+        message_id=2,
+        chat_mode="project_deep_dive",
+        action_policy="read_only_tool",
+        intent_method="llm_guarded",
+        intent_reason="PRIVATE user content was repeated here",
+        model_used="quality-model",
+        metadata_json=json.dumps(
+            {
+                "context_manifest": assembly.manifest,
+                "prepare_metrics": {"user_goal": "PRIVATE-GOAL"},
+            }
+        ),
+        tool_decisions_json=json.dumps(
+            [{"status": "blocked", "input": {"secret": "PRIVATE-TOOL"}}]
+        ),
+        fallback_events_json=json.dumps(
+            [{"type": "tool_blocked", "reason": "PRIVATE-FALLBACK"}]
+        ),
+    )
+    diagnostic = build_chat_trace_diagnostic(trace)
+    diagnostic_json = json.dumps(diagnostic, ensure_ascii=False, default=str)
+    budget = assembly.budget_report
+    details = [
+        {
+            "case": "full_history_mode_exposes_more_than_legacy_24_candidates_to_budgeting",
+            "passed": len(full_history) == 48,
+        },
+        {
+            "case": "mode_registry_enforces_recent_and_none_history_strategies",
+            "passed": len(recent_history) == 6 and task_history == [],
+        },
+        {
+            "case": "overflow_history_has_auditable_bounded_compaction_decision",
+            "passed": budget.compacted
+            and budget.compaction_strategy == "recent_turns_with_bounded_excerpts"
+            and budget.summary_injected
+            and budget.summarized_messages > 0
+            and budget.estimated_total_after
+            <= budget.context_window_tokens - budget.safety_margin_tokens,
+        },
+        {
+            "case": "trace_diagnostic_explains_counts_without_private_runtime_content",
+            "passed": diagnostic["context"]["manifest_valid"]
+            and diagnostic["context"]["history_compacted"]
+            and diagnostic["routing"]["intent_reason"]
+            == "router_explanation_withheld"
+            and diagnostic["execution"]["tool_status_counts"].get("blocked") == 1
+            and "PRIVATE" not in diagnostic_json,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1917,6 +1998,9 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "skill_deliverable_contract_accuracy": _skill_deliverable_contract_results(),
         "skill_deliverable_business_verifier_accuracy": (
             _skill_deliverable_business_verifier_results()
+        ),
+        "conversation_trace_diagnostic_safety_rate": (
+            _conversation_trace_diagnostic_results()
         ),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
