@@ -110,6 +110,10 @@ from app.services.memory_slots import (
     build_memory_read_authority_report,
 )
 from app.services.memory_operation_state import build_memory_operation_authority_report
+from app.services.memory_legacy_quarantine import (
+    FLATTENED_STRUCTURED_STAKEHOLDER_KEYS,
+    build_memory_legacy_quarantine_report,
+)
 from app.services.memory_facts import (
     MODEL_SOURCE_ATTRIBUTIONS_KEY,
     bind_model_source_attributions,
@@ -2269,6 +2273,29 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             )
         ],
     )
+    legacy_quarantine = build_memory_legacy_quarantine_report(
+        [
+            ClientRecord(
+                name="Quarantined",
+                client_memory_legacy_quarantine_json=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "entries": [
+                            {
+                                "kind": "flattened_structured_stakeholder_v1",
+                                "payload": {
+                                    key: f"PRIVATE-{index}"
+                                    for index, key in enumerate(
+                                        FLATTENED_STRUCTURED_STAKEHOLDER_KEYS
+                                    )
+                                },
+                            }
+                        ],
+                    }
+                ),
+            )
+        ]
+    )
     unknown_key_fingerprint = hashlib.sha256(
         b"aria.memory.aggregate-key.v1\0_client_promotion"
     ).hexdigest()
@@ -2281,6 +2308,7 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             scoped_metadata,
             wrong_scope_metadata,
             operation_state,
+            legacy_quarantine,
             filtered_project_memory,
             filtered_client_memory,
         ],
@@ -2321,6 +2349,14 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             "passed": operation_state["native_cutover_ready"]
             and operation_state["missing_native_state_count"] == 0
             and operation_state["divergent_native_state_count"] == 0
+            and "PRIVATE" not in serialized,
+        },
+        {
+            "case": "legacy_memory_quarantine_audit_is_content_free",
+            "passed": legacy_quarantine["quarantine_integrity_ready"]
+            and legacy_quarantine["quarantined_entity_count"] == 1
+            and legacy_quarantine["recognized_entry_count"] == 1
+            and legacy_quarantine["unknown_entry_count"] == 0
             and "PRIVATE" not in serialized,
         },
         {

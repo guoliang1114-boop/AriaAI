@@ -290,6 +290,8 @@ jobs:
                 tests/test_memory_failure_recovery.py \
                 tests/test_memory_operation_state.py \
                 tests/test_memory_operation_state_migration.py \
+                tests/test_memory_legacy_quarantine.py \
+                tests/test_memory_legacy_quarantine_migration.py \
                 tests/test_memory_source_attributions.py \
                 tests/test_memory_source_fingerprints.py \
                 tests/test_memory_slots.py \

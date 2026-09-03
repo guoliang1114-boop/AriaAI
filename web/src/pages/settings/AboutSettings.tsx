@@ -86,6 +86,7 @@ export function AboutSettings() {
             '记忆失败、项目到客户晋升及客户重建取消代次已迁入原生运维列，保留旧聚合回退并加入无正文覆盖/分歧审计。',
             '未分类聚合键现在仅输出有界的命名空间 SHA-256、长度、类型和计数，支持隐私安全的历史 schema 定位。',
             '完整记忆解析现在只接收并规范化 Aria 声明的业务槽位；成功保存同步清除原生与旧聚合失败回执。',
+            '已确认的历史客户干系人拍平数据会在备份后无损迁入私有隔离列，并以无正文完整性报告验证，不会自动晋升为正式联系人。',
           ]
         : [
             'Unified Product Run Event activity timeline across live and persisted Skill, step, tool, artifact, error, and confirmation states.',
@@ -105,6 +106,7 @@ export function AboutSettings() {
             'Memory failures, project-to-client promotion receipts, and client rebuild epochs now use native operational columns with legacy fallback and content-free coverage/divergence audits.',
             'Unknown aggregate keys now emit only bounded namespaced SHA-256 fingerprints, lengths, types, and counts for privacy-safe legacy-schema diagnosis.',
             'Full memory parsing now accepts and normalizes only Aria-declared business slots; successful saves clear both native and legacy aggregate failure receipts.',
+            'Confirmed legacy flattened stakeholder data is losslessly moved into a private quarantine column after backup and verified through a content-free integrity audit, without automatic promotion to a formal contact.',
           ],
     },
     {

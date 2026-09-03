@@ -32,6 +32,11 @@ class ClientRecord(SQLModel, table=True):
         exclude=True,
         sa_column=Column(Text, nullable=False, default=""),
     )
+    client_memory_legacy_quarantine_json: str = Field(
+        default="{}",
+        exclude=True,
+        sa_column=Column(Text, nullable=False, default="{}"),
+    )
     client_memory_rebuild_generation: str = Field(default="", exclude=True)
     created_at: datetime = Field(default_factory=utc_now_naive)
 
