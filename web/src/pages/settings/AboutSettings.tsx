@@ -85,6 +85,7 @@ export function AboutSettings() {
             '记忆审计按项目/客户作用域识别 Aria 运维元数据，值不外泄，错误作用域与未知键仍保持告警。',
             '记忆失败、项目到客户晋升及客户重建取消代次已迁入原生运维列，保留旧聚合回退并加入无正文覆盖/分歧审计。',
             '未分类聚合键现在仅输出有界的命名空间 SHA-256、长度、类型和计数，支持隐私安全的历史 schema 定位。',
+            '完整记忆解析现在只接收 Aria 声明的业务槽位；成功保存同步清除原生与旧聚合失败回执。',
           ]
         : [
             'Unified Product Run Event activity timeline across live and persisted Skill, step, tool, artifact, error, and confirmation states.',
@@ -103,6 +104,7 @@ export function AboutSettings() {
             'Memory audits now classify Aria operational metadata by project/client scope without exposing values; wrong-scope and unknown keys remain warnings.',
             'Memory failures, project-to-client promotion receipts, and client rebuild epochs now use native operational columns with legacy fallback and content-free coverage/divergence audits.',
             'Unknown aggregate keys now emit only bounded namespaced SHA-256 fingerprints, lengths, types, and counts for privacy-safe legacy-schema diagnosis.',
+            'Full memory parsing now accepts only Aria-declared business slots; successful saves clear both native and legacy aggregate failure receipts.',
           ],
     },
     {

@@ -443,7 +443,7 @@ def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
     parsed_business = {
         key: strip_memory_source_tags(value)
         for key, value in parsed.items()
-        if key != MODEL_SOURCE_ATTRIBUTIONS_KEY
+        if key in CLIENT_MEMORY_SLOT_KEYS
     }
     memory = {
         **_default_client_memory(client),
@@ -685,6 +685,7 @@ def save_client_memory(
 
     client.client_memory_rebuild_status = "idle"
     client.client_memory_rebuild_failed_at = None
+    memory.pop("_last_failure", None)
     set_client_memory_failure(client, None)
     session.add(client)
     from app.services.memory_slots import sync_client_memory_slots

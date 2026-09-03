@@ -92,6 +92,7 @@ from app.services.chat.turn_recovery import (
     build_turn_recovery_preview,
     format_turn_recovery_for_prompt,
 )
+from app.services.client_contexts import parse_client_memory
 from app.services.context_builder.memory_formatters import (
     build_client_memory_prompt_bundle,
     _format_project_memory_for_prompt,
@@ -115,7 +116,7 @@ from app.services.memory_facts import (
     capture_project_memory_source_snapshots,
     get_project_memory_fact_states,
 )
-from app.services.project_contexts import save_project_memory
+from app.services.project_contexts import parse_project_memory, save_project_memory
 from app.services.project_question_evidence import assess_project_question_answer
 from app.services.project_question_remediation import (
     build_question_evidence_remediation_plan,
@@ -2223,6 +2224,26 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
         healthy_rows,
         slot_keys,
     )
+    filtered_project_memory = parse_project_memory(
+        json.dumps(
+            {
+                "project_brief": "Verified brief",
+                "PRIVATE PERSON NAME": "PRIVATE PROJECT VALUE",
+                "_last_failure": {"message": "PRIVATE FAILURE"},
+            }
+        ),
+        Project(name="Parser", client="Client"),
+    )
+    filtered_client_memory = parse_client_memory(
+        json.dumps(
+            {
+                "client_profile": "Verified profile",
+                "PRIVATE PERSON NAME": "PRIVATE CLIENT VALUE",
+                "_last_failure": {"message": "PRIVATE FAILURE"},
+            }
+        ),
+        ClientRecord(name="Parser"),
+    )
     operation_state = build_memory_operation_authority_report(
         [
             Project(
@@ -2256,6 +2277,8 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             scoped_metadata,
             wrong_scope_metadata,
             operation_state,
+            filtered_project_memory,
+            filtered_client_memory,
         ],
         ensure_ascii=False,
     )
@@ -2306,6 +2329,16 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
                     "value_type": "object",
                 }
             ]
+            and "PRIVATE" not in serialized,
+        },
+        {
+            "case": "full_memory_parsers_drop_unrequested_root_keys",
+            "passed": filtered_project_memory["project_brief"] == "Verified brief"
+            and filtered_client_memory["client_profile"] == "Verified profile"
+            and "PRIVATE PERSON NAME" not in filtered_project_memory
+            and "PRIVATE PERSON NAME" not in filtered_client_memory
+            and "_last_failure" not in filtered_project_memory
+            and "_last_failure" not in filtered_client_memory
             and "PRIVATE" not in serialized,
         },
     ]

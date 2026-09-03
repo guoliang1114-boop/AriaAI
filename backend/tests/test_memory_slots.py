@@ -26,6 +26,8 @@ from app.services.agent_harness.project_memory_evidence import build_project_mem
 from app.services.client_contexts import (
     get_client_memory_payload,
     mark_client_memory_stale,
+    parse_client_memory,
+    parse_client_memory_patch,
     save_client_memory,
 )
 from app.services.context_builder.chat_context import build_chat_context
@@ -52,6 +54,12 @@ from app.services.memory_rebuilds import (
     plan_client_memory_rebuild,
     plan_project_memory_rebuild,
 )
+from app.services.memory_operation_state import (
+    get_client_memory_failure,
+    get_project_memory_failure,
+    set_client_memory_failure,
+    set_project_memory_failure,
+)
 from app.services.memory_facts import (
     fact_states_by_slot,
     get_client_memory_fact_states,
@@ -61,6 +69,8 @@ from app.services.project_contexts import (
     get_project_memory_payload,
     mark_project_memories_stale_by_client_id,
     mark_project_memory_stale,
+    parse_project_memory,
+    parse_project_memory_patch,
     save_project_memory,
 )
 
@@ -151,6 +161,105 @@ def _fact_value_sha256(value):
         default=str,
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def test_full_memory_parsers_drop_unrequested_root_keys():
+    project = Project(name="Pilot", client="Acme")
+    client = ClientRecord(name="Acme")
+
+    project_memory = parse_project_memory(
+        json.dumps(
+            {
+                "project_brief": "Verified brief",
+                "PRIVATE PERSON NAME": "PRIVATE PROJECT VALUE",
+                "_last_failure": {"message": "PRIVATE FAILURE"},
+            }
+        ),
+        project,
+    )
+    client_memory = parse_client_memory(
+        json.dumps(
+            {
+                "client_profile": "Verified profile",
+                "PRIVATE PERSON NAME": "PRIVATE CLIENT VALUE",
+                "_last_failure": {"message": "PRIVATE FAILURE"},
+            }
+        ),
+        client,
+    )
+
+    assert project_memory["project_brief"] == "Verified brief"
+    assert client_memory["client_profile"] == "Verified profile"
+    assert "PRIVATE PERSON NAME" not in project_memory
+    assert "PRIVATE PERSON NAME" not in client_memory
+    assert "_last_failure" not in project_memory
+    assert "_last_failure" not in client_memory
+    assert "PRIVATE" not in json.dumps(project_memory)
+    assert "PRIVATE" not in json.dumps(client_memory)
+
+
+def test_successful_partial_memory_save_clears_native_and_legacy_failures():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            client = ClientRecord(name="Acme")
+            session.add(project)
+            session.add(client)
+            session.commit()
+            session.refresh(project)
+            session.refresh(client)
+
+            save_project_memory(session, project.id, _project_memory(), trigger="seed")
+            save_client_memory(session, client.id, _client_memory(), trigger="seed")
+            project = session.get(Project, project.id)
+            client = session.get(ClientRecord, client.id)
+            project_raw = json.loads(project.context_memory_json)
+            client_raw = json.loads(client.client_memory_json)
+            failure = {"stage": "provider", "message": "PRIVATE FAILURE"}
+            project_raw["_last_failure"] = failure
+            client_raw["_last_failure"] = failure
+            project.context_memory_json = json.dumps(project_raw)
+            client.client_memory_json = json.dumps(client_raw)
+            set_project_memory_failure(project, failure)
+            set_client_memory_failure(client, failure)
+            session.add(project)
+            session.add(client)
+            session.commit()
+
+            project_patch = parse_project_memory_patch(
+                json.dumps({"project_brief": "Recovered project"}),
+                project,
+                ("project_brief",),
+            )
+            client_patch = parse_client_memory_patch(
+                json.dumps({"client_profile": "Recovered client"}),
+                client,
+                ("client_profile",),
+            )
+            save_project_memory(
+                session,
+                project.id,
+                project_patch,
+                trigger="recovered",
+                rebuilt_slots=("project_brief",),
+            )
+            save_client_memory(
+                session,
+                client.id,
+                client_patch,
+                trigger="recovered",
+                rebuilt_slots=("client_profile",),
+            )
+
+            project = session.get(Project, project.id)
+            client = session.get(ClientRecord, client.id)
+            assert get_project_memory_failure(project) == {}
+            assert get_client_memory_failure(client) == {}
+            assert "_last_failure" not in json.loads(project.context_memory_json)
+            assert "_last_failure" not in json.loads(client.client_memory_json)
+    finally:
+        engine.dispose()
 
 
 def test_project_memory_dual_write_versions_only_changed_slot_and_records_sources():

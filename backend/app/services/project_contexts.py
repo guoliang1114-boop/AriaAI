@@ -1025,7 +1025,7 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
     parsed_business = {
         key: strip_memory_source_tags(value)
         for key, value in parsed.items()
-        if key != MODEL_SOURCE_ATTRIBUTIONS_KEY
+        if key in PROJECT_MEMORY_SLOT_KEYS
     }
     memory = {**base, **parsed_business}
     for key in ("recent_progress", "next_actions", "delivery_signals"):
@@ -1305,6 +1305,7 @@ def save_project_memory(
     memory["last_updated_at"] = project.memory_updated_at.isoformat()
     project.memory_rebuild_status = "idle"
     project.memory_rebuild_failed_at = None
+    memory.pop("_last_failure", None)
     set_project_memory_failure(project, None)
     project.updated_at = utc_now_naive()
     session.add(project)
