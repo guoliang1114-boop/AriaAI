@@ -51,6 +51,8 @@ def test_grounded_provider_release_gate_passes_with_supported_answers():
         "abstention_accuracy": 1.0,
         "source_priority_accuracy": 1.0,
         "provenance_calibration_accuracy": 1.0,
+        "first_pass_case_accuracy": 1.0,
+        "quality_repair_success_rate": 1.0,
     }
     assert report["case_count"] == 6
     assert report["thresholds"]["factual_accuracy"] == 1.0
@@ -246,3 +248,43 @@ def test_grounded_provider_gate_rejects_one_missing_requested_dimension():
             "abstention_failed": False,
         }
     ]
+
+
+def test_grounded_provider_repairs_a_missing_dimension_with_bounded_feedback():
+    financial_attempts = 0
+
+    async def repairable_provider(system: str, prompt: str, max_tokens: int) -> str:
+        nonlocal financial_attempts
+        if "合同总额" in prompt:
+            financial_attempts += 1
+            if "质量复核发现" not in prompt:
+                return (
+                    "- [R1] 合同总额 120 万元 [E1]\n"
+                    "- [R3] 下一笔于 2026-09-15 到期 [E2]"
+                )
+            return (
+                "- [R1] 合同总额 120 万元 [E1]\n"
+                "- [R2] 未收款 40 万元 [E1]\n"
+                "- [R3] 下一笔于 2026-09-15 到期 [E2]"
+            )
+        return await _passing_provider(system, prompt, max_tokens)
+
+    report = asyncio.run(
+        run_grounded_provider_eval(
+            repairable_provider,
+            provider="test",
+            model="test-model",
+        )
+    )
+
+    financial = next(
+        item
+        for item in report["cases"]
+        if item["case_id"] == "project_financial_status"
+    )
+    assert report["release_gate_passed"] is True
+    assert report["metrics"]["first_pass_case_accuracy"] == 0.8333
+    assert report["metrics"]["quality_repair_success_rate"] == 1.0
+    assert financial["quality_repair_count"] == 1
+    assert financial["quality_repair_succeeded"] is True
+    assert financial_attempts == 2

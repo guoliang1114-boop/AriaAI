@@ -445,8 +445,19 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             assert fleet["hybrid_fallback_entity_count"] == 1
             assert fleet["business_slot_cutover_ready_rate"] == 0.5
             assert fleet["aggregate_fallback_slot_count"] == 2
+            assert fleet["aggregate_fallback_slots_by_key"] == {
+                "financial_status": 1,
+                "key_risks": 1,
+            }
             assert fleet["missing_slot_count"] == 1
+            assert fleet["missing_slots_by_key"] == {"key_risks": 1}
             assert fleet["corrupt_slot_count"] == 1
+            assert fleet["corrupt_slots_by_key"] == {"financial_status": 1}
+            assert fleet["safe_aggregate_only_keys_by_key"]["rebuild_log"] == 2
+            divergent_fleet = summarize_memory_read_authority([divergent])
+            assert divergent_fleet["divergent_slots_by_key"] == {
+                "project_brief": 1
+            }
     finally:
         engine.dispose()
 

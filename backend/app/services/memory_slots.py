@@ -1255,6 +1255,19 @@ def summarize_memory_read_authority(
     """Aggregate content-free authority metrics for operational audits."""
 
     items = [dict(report) for report in reports]
+
+    def slot_counts(field: str) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for item in items:
+            values = item.get(field)
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                key = str(value or "").strip()
+                if key:
+                    counts[key] = counts.get(key, 0) + 1
+        return dict(sorted(counts.items()))
+
     total = len(items)
     cutover_ready = sum(
         bool(item.get("business_slot_cutover_ready")) for item in items
@@ -1282,22 +1295,29 @@ def summarize_memory_read_authority(
             max(0, int(item.get("aggregate_fallback_slot_count") or 0))
             for item in items
         ),
+        "aggregate_fallback_slots_by_key": slot_counts(
+            "aggregate_fallback_slots"
+        ),
         "missing_slot_count": sum(
             max(0, int(item.get("missing_slot_count") or 0))
             for item in items
         ),
+        "missing_slots_by_key": slot_counts("missing_slots"),
         "stale_slot_count": sum(
             max(0, int(item.get("stale_slot_count") or 0))
             for item in items
         ),
+        "stale_slots_by_key": slot_counts("stale_slots"),
         "divergent_slot_count": sum(
             max(0, int(item.get("divergent_slot_count") or 0))
             for item in items
         ),
+        "divergent_slots_by_key": slot_counts("divergent_slots"),
         "corrupt_slot_count": sum(
             max(0, int(item.get("corrupt_slot_count") or 0))
             for item in items
         ),
+        "corrupt_slots_by_key": slot_counts("corrupt_slots"),
         "aggregate_container_retirement_ready_entity_count": sum(
             bool(item.get("aggregate_container_retirement_ready"))
             for item in items
@@ -1306,6 +1326,7 @@ def summarize_memory_read_authority(
             max(0, int(item.get("aggregate_only_key_count") or 0))
             for item in items
         ),
+        "safe_aggregate_only_keys_by_key": slot_counts("aggregate_only_keys"),
         "entities_with_unknown_aggregate_keys": sum(
             max(0, int(item.get("aggregate_only_unknown_key_count") or 0)) > 0
             for item in items

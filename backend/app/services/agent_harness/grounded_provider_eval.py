@@ -11,12 +11,13 @@ import asyncio
 import hashlib
 import re
 import time
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Mapping
 
 
 ProviderComplete = Callable[[str, str, int], Awaitable[str]]
 PROVIDER_EVAL_MAX_ATTEMPTS = 3
 PROVIDER_EVAL_RETRY_DELAYS_SECONDS = (2.0, 5.0)
+PROVIDER_EVAL_MAX_QUALITY_REPAIRS = 2
 
 GROUNDED_QA_SYSTEM = """You are Aria's grounded project Q&A assistant.
 Use only the evidence supplied in the user message. Do not add outside facts or assumptions.
@@ -25,7 +26,7 @@ When evidence conflicts, CURRENT and DIRECT evidence overrides STALE or indirect
 DIRECT and MATCHED evidence may support a factual answer. SCOPED, LEGACY, and UNRESOLVED memory is not independently verified; qualify it or explicitly say it is unconfirmed.
 Write every requested supported fact as a separate bullet. End that same bullet with exactly one matching ASCII citation token such as [E1].
 Use the literal ASCII square-bracket form [E1]; do not use full-width brackets, a separate source list, or citations on the next line.
-Required shape: `- <one supported fact> [E1]`. The final non-whitespace characters of every supported bullet must be its citation token.
+Required shape: `- [R1] <one supported fact> [E1]`. Keep the matching [R*] label from the requested-fact checklist. The final non-whitespace characters of every supported bullet must be its citation token.
 Invalid shape: list several uncited facts and then add `Sources: [E1] [E2]` at the end.
 Never invent a citation key. Cover every fact type explicitly requested by the question. If a requested fact is absent, explicitly say that the provided evidence is insufficient and do not guess.
 Answer concisely in Chinese."""
@@ -278,7 +279,7 @@ def _render_case_prompt(case: dict[str, Any]) -> str:
         "必须逐项覆盖的事实类型：",
         *required_facts,
         "完整性规则：最终回答必须逐项覆盖每个 [R*]，不得用相邻指标替代；缺失项也必须单独说明证据不足。",
-        "输出格式：严格按 [R*] 顺序逐项输出，每个事实类型单独一条项目符号，并在同一行句末写唯一对应的 ASCII [E*]；证据缺失的事实明确拒答。",
+        "输出格式：严格按 [R*] 顺序逐项输出并保留对应的 [R*] 标签；每个事实类型单独一条项目符号，并在同一行句末写唯一对应的 ASCII [E*]；证据缺失的事实明确拒答。",
     ]
     return "\n".join(blocks)
 
@@ -342,6 +343,59 @@ def grade_grounded_answer(case: dict[str, Any], answer: str) -> dict[str, Any]:
     }
 
 
+def _case_passed(item: Mapping[str, Any]) -> bool:
+    return bool(
+        item["present_claim_count"] == item["required_claim_count"]
+        and item["correctly_cited_claim_count"] == item["required_claim_count"]
+        and not item["forbidden_hits"]
+        and not item["invalid_citations"]
+        and item["passed_abstention"]
+    )
+
+
+def _render_quality_repair_prompt(
+    case: Mapping[str, Any],
+    original_prompt: str,
+    draft: str,
+    grade: Mapping[str, Any],
+) -> str:
+    required_fact_types = tuple(case.get("required_fact_types") or ())
+    findings: list[str] = []
+    for index, claim in enumerate(grade.get("claims") or (), start=1):
+        label = (
+            str(required_fact_types[index - 1])
+            if index <= len(required_fact_types)
+            else f"requested fact {index}"
+        )
+        if not claim.get("present"):
+            findings.append(f"- [R{index}] `{label}` 尚未明确回答。")
+        elif not claim.get("correctly_cited"):
+            findings.append(
+                f"- [R{index}] `{label}` 必须在同一条末尾使用 "
+                f"[{claim.get('expected_citation')}]。"
+            )
+    if grade.get("invalid_citations"):
+        findings.append("- 删除证据列表中不存在的引用键。")
+    if grade.get("forbidden_hits"):
+        findings.append("- 删除证据不支持或已被更新证据取代的断言。")
+    if case.get("must_abstain") and not grade.get("passed_abstention"):
+        findings.append("- 对缺失或未核验事实明确说明无法确认，不得猜测。")
+    if not findings:
+        findings.append("- 严格按逐项清单重写，并确保每项引用与本行事实匹配。")
+    return "\n".join(
+        (
+            original_prompt,
+            "",
+            "以下是未通过完整性与引用校验的初稿：",
+            draft,
+            "",
+            "质量复核发现：",
+            *findings,
+            "请只输出修正后的最终回答，不解释修订过程。",
+        )
+    )
+
+
 def _ratio(passed: int, total: int) -> float:
     return round(passed / total, 4) if total else 1.0
 
@@ -395,14 +449,37 @@ async def run_grounded_provider_eval(
     started = time.perf_counter()
     for case in _CASES:
         case_started = time.perf_counter()
+        prompt = _render_case_prompt(case)
         answer, provider_retry_count = await _complete_with_bounded_retry(
             complete,
             GROUNDED_QA_SYSTEM,
-            _render_case_prompt(case),
+            prompt,
             700,
         )
-        result = grade_grounded_answer(case, str(answer or ""))
+        answer = str(answer or "")
+        result = grade_grounded_answer(case, answer)
+        first_pass = result
+        quality_repair_count = 0
+        while (
+            not _case_passed(result)
+            and quality_repair_count < PROVIDER_EVAL_MAX_QUALITY_REPAIRS
+        ):
+            answer, retry_count = await _complete_with_bounded_retry(
+                complete,
+                GROUNDED_QA_SYSTEM,
+                _render_quality_repair_prompt(case, prompt, answer, result),
+                700,
+            )
+            provider_retry_count += retry_count
+            quality_repair_count += 1
+            answer = str(answer or "")
+            result = grade_grounded_answer(case, answer)
         result["provider_retry_count"] = provider_retry_count
+        result["quality_repair_count"] = quality_repair_count
+        result["first_pass_passed"] = _case_passed(first_pass)
+        result["quality_repair_succeeded"] = bool(
+            quality_repair_count and _case_passed(result)
+        )
         result["duration_ms"] = round((time.perf_counter() - case_started) * 1000)
         results.append(result)
 
@@ -415,15 +492,6 @@ async def run_grounded_provider_eval(
     )
     abstention_cases = [item for item in results if item["must_abstain"]]
     passed_abstentions = sum(int(item["passed_abstention"]) for item in abstention_cases)
-
-    def case_passed(item: dict[str, Any]) -> bool:
-        return bool(
-            item["present_claim_count"] == item["required_claim_count"]
-            and item["correctly_cited_claim_count"] == item["required_claim_count"]
-            and not item["forbidden_hits"]
-            and not item["invalid_citations"]
-            and item["passed_abstention"]
-        )
 
     priority_results = [
         item
@@ -441,12 +509,20 @@ async def run_grounded_provider_eval(
         "unsupported_claim_rate": _ratio(unsupported_count, max(1, total_claims)),
         "abstention_accuracy": _ratio(passed_abstentions, len(abstention_cases)),
         "source_priority_accuracy": _ratio(
-            sum(int(case_passed(item)) for item in priority_results),
+            sum(int(_case_passed(item)) for item in priority_results),
             len(priority_results),
         ),
         "provenance_calibration_accuracy": _ratio(
-            sum(int(case_passed(item)) for item in provenance_results),
+            sum(int(_case_passed(item)) for item in provenance_results),
             len(provenance_results),
+        ),
+        "first_pass_case_accuracy": _ratio(
+            sum(int(item["first_pass_passed"]) for item in results),
+            len(results),
+        ),
+        "quality_repair_success_rate": _ratio(
+            sum(int(item["quality_repair_succeeded"]) for item in results),
+            sum(int(item["quality_repair_count"] > 0) for item in results),
         ),
     }
     thresholds = {
@@ -456,6 +532,7 @@ async def run_grounded_provider_eval(
         "abstention_accuracy": 1.0,
         "source_priority_accuracy": 1.0,
         "provenance_calibration_accuracy": 1.0,
+        "quality_repair_success_rate": 1.0,
     }
     release_gate_passed = (
         metrics["factual_accuracy"] >= thresholds["factual_accuracy"]
@@ -465,6 +542,8 @@ async def run_grounded_provider_eval(
         and metrics["source_priority_accuracy"] >= thresholds["source_priority_accuracy"]
         and metrics["provenance_calibration_accuracy"]
         >= thresholds["provenance_calibration_accuracy"]
+        and metrics["quality_repair_success_rate"]
+        >= thresholds["quality_repair_success_rate"]
     )
     return {
         "schema_version": 1,
