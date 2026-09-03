@@ -108,6 +108,7 @@ from app.services.memory_slots import (
     PROJECT_MEMORY_SLOT_KEYS,
     build_memory_read_authority_report,
 )
+from app.services.memory_operation_state import build_memory_operation_authority_report
 from app.services.memory_facts import (
     MODEL_SOURCE_ATTRIBUTIONS_KEY,
     bind_model_source_attributions,
@@ -2222,8 +2223,37 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
         healthy_rows,
         slot_keys,
     )
+    operation_state = build_memory_operation_authority_report(
+        [
+            Project(
+                name="Operation state",
+                client="Client",
+                context_memory_json=json.dumps(
+                    {"_client_promotion": {"status": "completed", "private": "VALUE"}}
+                ),
+                client_memory_promotion_json=json.dumps(
+                    {"status": "completed", "private": "VALUE"}
+                ),
+            )
+        ],
+        [
+            ClientRecord(
+                name="Operation state",
+                client_memory_json=json.dumps({"_rebuild_generation": "PRIVATE-EPOCH"}),
+                client_memory_rebuild_generation="PRIVATE-EPOCH",
+            )
+        ],
+    )
     serialized = json.dumps(
-        [healthy, missing, corrupt, divergent, scoped_metadata, wrong_scope_metadata],
+        [
+            healthy,
+            missing,
+            corrupt,
+            divergent,
+            scoped_metadata,
+            wrong_scope_metadata,
+            operation_state,
+        ],
         ensure_ascii=False,
     )
     details = [
@@ -2254,6 +2284,13 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             "passed": scoped_metadata["aggregate_only_unknown_key_count"] == 0
             and "_client_promotion" in scoped_metadata["aggregate_only_keys"]
             and wrong_scope_metadata["aggregate_only_unknown_key_count"] == 1
+            and "PRIVATE" not in serialized,
+        },
+        {
+            "case": "native_operation_state_cutover_is_content_free",
+            "passed": operation_state["native_cutover_ready"]
+            and operation_state["missing_native_state_count"] == 0
+            and operation_state["divergent_native_state_count"] == 0
             and "PRIVATE" not in serialized,
         },
     ]

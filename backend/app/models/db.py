@@ -27,6 +27,12 @@ class ClientRecord(SQLModel, table=True):
     client_memory_updated_at: Optional[datetime] = None
     client_memory_rebuild_status: str = "idle"
     client_memory_rebuild_failed_at: Optional[datetime] = None
+    client_memory_last_failure_json: str = Field(
+        default="",
+        exclude=True,
+        sa_column=Column(Text, nullable=False, default=""),
+    )
+    client_memory_rebuild_generation: str = Field(default="", exclude=True)
     created_at: datetime = Field(default_factory=utc_now_naive)
 
     documents: list["KnowledgeDocument"] = Relationship(back_populates="client")
@@ -91,6 +97,16 @@ class Project(SQLModel, table=True):
     memory_updated_at: Optional[datetime] = None
     memory_rebuild_status: str = "idle"
     memory_rebuild_failed_at: Optional[datetime] = None
+    memory_last_failure_json: str = Field(
+        default="",
+        exclude=True,
+        sa_column=Column(Text, nullable=False, default=""),
+    )
+    client_memory_promotion_json: str = Field(
+        default="",
+        exclude=True,
+        sa_column=Column(Text, nullable=False, default=""),
+    )
     notes: str = ""                 # Accumulated project notes (from "沉淀到项目" actions)
     md_notes: str = ""              # Project-level Markdown notes
     created_at: datetime = Field(default_factory=utc_now_naive)

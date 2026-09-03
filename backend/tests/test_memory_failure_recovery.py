@@ -559,11 +559,13 @@ async def test_client_run_now_persists_failed_owner_after_removed_job():
             await clients_memory.run_client_memory_jobs_now(52, session, actor)
 
     failure = json.loads(client.client_memory_json)["_last_failure"]
+    native_failure = json.loads(client.client_memory_last_failure_json)
     assert client.client_memory_rebuild_status == "failed"
     assert client.client_memory_rebuild_failed_at is not None
     assert failure["stage"] == "rebuild"
     assert failure["message"] == "truncated client memory payload"
     assert failure["retry_count"] == 0
+    assert native_failure == failure
     assert session.rollback_count == 2
     assert session.commit_count == 1
 
@@ -683,10 +685,14 @@ async def test_archive_promotion_failure_is_persisted_without_failing_project_pa
     assert promotion["message"] == "provider unavailable"
     assert promotion["failed_at"]
     visible_failure = json.loads(project.context_memory_json)["_last_failure"]
+    native_promotion = json.loads(project.client_memory_promotion_json)
+    native_failure = json.loads(project.memory_last_failure_json)
     assert visible_failure["category"] == "unknown"
     assert visible_failure["stage"] == "client_promotion"
     # retry_count counts retries already attempted; the initial attempt is 0.
     assert visible_failure["retry_count"] == 0
+    assert native_promotion == promotion
+    assert native_failure == visible_failure
 
 
 @pytest.mark.asyncio
@@ -810,9 +816,13 @@ def test_provider_failure_receipt_rechecks_exact_source_authorization(
             assert memory["_client_promotion"]["status"] == "failed"
             assert memory["_client_promotion"]["message"] == "provider unavailable"
             assert memory["_last_failure"]["stage"] == "client_promotion"
+            assert json.loads(saved.client_memory_promotion_json) == memory["_client_promotion"]
+            assert json.loads(saved.memory_last_failure_json) == memory["_last_failure"]
         else:
             assert "_client_promotion" not in memory
             assert "_last_failure" not in memory
+            assert saved.client_memory_promotion_json == ""
+            assert saved.memory_last_failure_json == ""
     finally:
         engine.dispose()
 

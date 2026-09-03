@@ -19,6 +19,7 @@ from app.services.memory_rebuilds import (
     assert_memory_rebuild_baseline,
 )
 from app.services.memory_source_tags import strip_memory_source_tags
+from app.services.memory_operation_state import set_client_memory_failure
 from app.services.memory_slots import (
     CLIENT_MEMORY_SLOT_KEYS,
     build_client_slot_evidence_refs,
@@ -43,10 +44,8 @@ SUPPORTED_CLIENT_MEMORY_SUMMARY_TYPES = {
     "delivery",
 }
 
-# A cancel epoch stored in ``ClientRecord.client_memory_json`` because the
-# legacy client table has no operational generation column.  This token is
-# execution control, not product memory, so it must never enter prompts or API
-# payloads. Rebuild start never writes it; cancellation alone rotates it.
+# Compatibility key for the cancel epoch. The native owner column is
+# authoritative; this copy remains during the aggregate-JSON cutover.
 CLIENT_MEMORY_REBUILD_GENERATION_KEY = "_rebuild_generation"
 
 CORE_CLIENT_MEMORY_SUMMARY_TYPES = [
@@ -686,6 +685,7 @@ def save_client_memory(
 
     client.client_memory_rebuild_status = "idle"
     client.client_memory_rebuild_failed_at = None
+    set_client_memory_failure(client, None)
     session.add(client)
     from app.services.memory_slots import sync_client_memory_slots
     from app.services.memory_facts import sync_client_memory_facts

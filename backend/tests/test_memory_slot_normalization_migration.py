@@ -203,12 +203,12 @@ def test_revision_047_is_a_noop_when_legacy_tables_are_absent() -> None:
         engine.dispose()
 
 
-def test_revision_047_is_the_single_alembic_head() -> None:
+def test_revision_047_precedes_the_single_alembic_head() -> None:
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["047_v1_47"]
+    assert script.get_heads() == ["048_v1_48"]
     latest = script.get_revision("047_v1_47")
     assert latest is not None
     assert latest.down_revision == "046_v1_46"

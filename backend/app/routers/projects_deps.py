@@ -148,6 +148,11 @@ from app.services.project_milestones import (
 from app.services.project_notes import build_project_note_polish_messages, save_project_notes
 from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
+from app.services.memory_operation_state import (
+    get_project_memory_failure,
+    set_project_client_promotion,
+    set_project_memory_failure,
+)
 from app.tools.project_markdown import update_project_markdown_document
 from app.services.project_todos import (
     create_project_todo,
@@ -670,7 +675,7 @@ async def _auto_promote_archived_project_to_client_memory(
             "memory promotion conflict: project was removed before promotion commit"
         )
     raw_project_memory = _get_existing_raw_memory(project)
-    raw_project_memory["_client_promotion"] = {
+    promotion = {
         "status": "completed",
         "client_id": client.id,
         "client_name": client.name,
@@ -678,9 +683,12 @@ async def _auto_promote_archived_project_to_client_memory(
         "last_attempt_at": utc_now_naive().isoformat(),
         "trigger": "project_archived_auto_promoted",
     }
-    last_failure = raw_project_memory.get("_last_failure")
+    raw_project_memory["_client_promotion"] = promotion
+    set_project_client_promotion(project, promotion)
+    last_failure = get_project_memory_failure(project)
     if isinstance(last_failure, dict) and last_failure.get("stage") == "client_promotion":
         raw_project_memory.pop("_last_failure", None)
+        set_project_memory_failure(project, None)
     project.context_memory_json = json.dumps(raw_project_memory, ensure_ascii=False)
     project.updated_at = utc_now_naive()
     session.add(project)
@@ -1013,13 +1021,15 @@ def _set_project_memory_failure(
 
     failed_at = utc_now_naive()
     memory = _get_raw_project_memory(current)
-    memory["_last_failure"] = {
+    failure = {
         "category": _classify_memory_failure(stage, message),
         "stage": stage,
         "message": message[:400],
         "retry_count": retry_count,
         "failed_at": failed_at.isoformat(),
     }
+    memory["_last_failure"] = failure
+    set_project_memory_failure(current, failure)
     current.context_memory_json = json.dumps(memory, ensure_ascii=False)
     if mark_rebuild_failed:
         current.memory_rebuild_status = "failed"
@@ -1030,8 +1040,7 @@ def _set_project_memory_failure(
 
 
 def _get_project_memory_failure(project: Project) -> dict | None:
-    failure = _get_raw_project_memory(project).get("_last_failure")
-    return failure if isinstance(failure, dict) else None
+    return get_project_memory_failure(project) or None
 
 
 def _get_project_memory_successes(project: Project) -> list[dict]:

@@ -24,7 +24,6 @@ from app.services.client_permissions import (
     require_client_access,
 )
 from app.services.client_contexts import (
-    CLIENT_MEMORY_REBUILD_GENERATION_KEY,
     CORE_CLIENT_MEMORY_SUMMARY_TYPES,
     build_client_memory_data,
     build_client_memory_prompt,
@@ -35,6 +34,7 @@ from app.services.client_contexts import (
     save_client_memory,
 )
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
+from app.services.memory_operation_state import get_client_memory_rebuild_generation
 from app.services.memory_facts import (
     capture_client_memory_source_snapshots,
     get_client_memory_fact_states,
@@ -67,7 +67,6 @@ from app.routers.clients_deps import (
     _generate_client_memory_summary_cache,
     _get_client_memory_failure,
     _get_client_memory_successes,
-    _get_raw_client_memory,
     _normalize_client_summary_types,
     _normalized_name,
     _parse_client_memory_job,
@@ -254,13 +253,7 @@ async def run_client_memory_jobs_now(
     expected_rebuild_status = (
         client.client_memory_rebuild_status if client is not None else None
     )
-    expected_rebuild_generation = str(
-        _get_raw_client_memory(client).get(
-            CLIENT_MEMORY_REBUILD_GENERATION_KEY,
-            "",
-        )
-        or ""
-    )
+    expected_rebuild_generation = get_client_memory_rebuild_generation(client)
     try:
         payload = await _rebuild_client_memory(
             session,

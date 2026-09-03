@@ -60,6 +60,7 @@ from app.services.client_contexts import (
 )
 from app.services.client_permissions import lock_and_require_client_access
 from app.services.memory_operations import classify_memory_failure
+from app.services.memory_operation_state import set_project_memory_failure
 from app.services.memory_slots import (
     load_client_memory_slot_values,
     load_project_memory_slot_values,
@@ -387,13 +388,15 @@ def _record_authorized_project_memory_failure(
     except json.JSONDecodeError:
         memory = {}
     failed_at = utc_now_naive()
-    memory["_last_failure"] = {
+    failure = {
         "category": classify_memory_failure(stage, message),
         "stage": stage,
         "message": message[:400],
         "retry_count": 0,
         "failed_at": failed_at.isoformat(),
     }
+    memory["_last_failure"] = failure
+    set_project_memory_failure(current, failure)
     current.context_memory_json = json.dumps(memory, ensure_ascii=False)
     session.add(current)
     session.commit()

@@ -23,6 +23,11 @@ from app.services import scheduler as scheduler_service
 from app.services.cache import clients_cache, projects_cache
 from app.services.client_contexts import mark_client_memory_stale
 from app.services.memory_operations import classify_memory_failure
+from app.services.memory_operation_state import (
+    get_project_client_promotion,
+    set_project_client_promotion,
+    set_project_memory_failure,
+)
 from app.services.project_ai import (
     build_project_ai_suggest_messages,
     parse_project_ai_suggestions,
@@ -109,10 +114,7 @@ _CLIENT_PROMOTION_KEY = "_client_promotion"
 
 
 def _client_promotion_state(project: Project | None) -> dict:
-    if project is None:
-        return {}
-    state = _get_existing_raw_memory(project).get(_CLIENT_PROMOTION_KEY)
-    return dict(state) if isinstance(state, dict) else {}
+    return get_project_client_promotion(project)
 
 
 def _client_promotion_completed(project: Project | None) -> bool:
@@ -186,7 +188,7 @@ def _record_client_promotion_failure(
     except (TypeError, ValueError):
         previous_attempts = 0
     failed_at = utc_now_naive().isoformat()
-    memory[_CLIENT_PROMOTION_KEY] = {
+    promotion = {
         **previous,
         "status": "failed",
         "attempt_count": previous_attempts + 1,
@@ -195,13 +197,17 @@ def _record_client_promotion_failure(
         "message": str(error)[:400],
         "trigger": "project_archived_auto_promoted",
     }
-    memory["_last_failure"] = {
+    failure = {
         "category": classify_memory_failure("client_promotion", str(error)),
         "stage": "client_promotion",
         "message": str(error)[:400],
         "retry_count": previous_attempts,
         "failed_at": failed_at,
     }
+    memory[_CLIENT_PROMOTION_KEY] = promotion
+    memory["_last_failure"] = failure
+    set_project_client_promotion(project, promotion)
+    set_project_memory_failure(project, failure)
     project.context_memory_json = json.dumps(memory, ensure_ascii=False)
     session.add(project)
     session.commit()

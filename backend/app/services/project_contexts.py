@@ -19,6 +19,7 @@ from app.services.memory_rebuilds import (
     assert_memory_rebuild_baseline,
 )
 from app.services.memory_source_tags import strip_memory_source_tags
+from app.services.memory_operation_state import set_project_memory_failure
 from app.services.memory_slots import (
     PROJECT_MEMORY_SLOT_KEYS,
     build_project_slot_evidence_refs,
@@ -1304,6 +1305,7 @@ def save_project_memory(
     memory["last_updated_at"] = project.memory_updated_at.isoformat()
     project.memory_rebuild_status = "idle"
     project.memory_rebuild_failed_at = None
+    set_project_memory_failure(project, None)
     project.updated_at = utc_now_naive()
     session.add(project)
     from app.services.memory_slots import sync_project_memory_slots

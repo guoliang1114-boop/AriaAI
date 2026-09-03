@@ -19,18 +19,17 @@ from app.services.memory_slots import (
     get_project_memory_read_authority_report,
     summarize_memory_read_authority,
 )
+from app.services.memory_operation_state import build_memory_operation_authority_report
 from app.services.project_contexts import get_project_memory_payload
 
 
 def build_report(session: Session) -> dict[str, object]:
-    projects = session.exec(
-        select(Project).where(Project.memory_version > 0).order_by(Project.id)
-    ).all()
-    clients = session.exec(
-        select(ClientRecord)
-        .where(ClientRecord.client_memory_version > 0)
-        .order_by(ClientRecord.id)
-    ).all()
+    all_projects = session.exec(select(Project).order_by(Project.id)).all()
+    all_clients = session.exec(select(ClientRecord).order_by(ClientRecord.id)).all()
+    projects = [project for project in all_projects if int(project.memory_version or 0) > 0]
+    clients = [
+        client for client in all_clients if int(client.client_memory_version or 0) > 0
+    ]
     project_reports = [
         get_project_memory_read_authority_report(
             session,
@@ -52,6 +51,10 @@ def build_report(session: Session) -> dict[str, object]:
         "content_included": False,
         "project": summarize_memory_read_authority(project_reports),
         "client": summarize_memory_read_authority(client_reports),
+        "operation_state": build_memory_operation_authority_report(
+            all_projects,
+            all_clients,
+        ),
     }
 
 

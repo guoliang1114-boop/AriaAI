@@ -46,6 +46,12 @@ from app.services.memory_rebuilds import (
     begin_memory_prompt_snapshot,
     plan_client_memory_rebuild,
 )
+from app.services.memory_operation_state import (
+    get_client_memory_failure,
+    get_client_memory_rebuild_generation,
+    set_client_memory_failure,
+    set_client_memory_rebuild_generation,
+)
 from app.services.memory_slots import (
     CLIENT_MEMORY_SLOT_KEYS,
     get_client_memory_slot_states,
@@ -175,13 +181,7 @@ def _assert_client_rebuild_generation(
     expected_generation: str,
 ) -> None:
     current_status = str(client.client_memory_rebuild_status or "idle")
-    current_generation = str(
-        _get_raw_client_memory(client).get(
-            CLIENT_MEMORY_REBUILD_GENERATION_KEY,
-            "",
-        )
-        or ""
-    )
+    current_generation = get_client_memory_rebuild_generation(client)
     if (
         current_status != expected_rebuild_status
         or current_generation != expected_generation
@@ -419,12 +419,13 @@ def _get_raw_client_memory(client: ClientRecord) -> dict:
 
 
 def _rotate_client_memory_rebuild_generation(client: ClientRecord) -> str:
-    """Cancel every older in-flight rebuild without a schema migration."""
+    """Cancel every older in-flight rebuild with a durable native epoch."""
 
     generation = uuid.uuid4().hex
     memory = _get_raw_client_memory(client)
     memory[CLIENT_MEMORY_REBUILD_GENERATION_KEY] = generation
     client.client_memory_json = json.dumps(memory, ensure_ascii=False)
+    set_client_memory_rebuild_generation(client, generation)
     return generation
 
 
@@ -488,13 +489,7 @@ def _set_client_memory_failure(
         and current.client_memory_rebuild_status == "idle"
     ) or (
         expected_rebuild_generation is not None
-        and str(
-            _get_raw_client_memory(current).get(
-                CLIENT_MEMORY_REBUILD_GENERATION_KEY,
-                "",
-            )
-            or ""
-        )
+        and get_client_memory_rebuild_generation(current)
         != expected_rebuild_generation
     ):
         session.rollback()
@@ -502,13 +497,15 @@ def _set_client_memory_failure(
 
     failed_at = utc_now_naive()
     memory = _get_raw_client_memory(current)
-    memory["_last_failure"] = {
+    failure = {
         "category": _classify_memory_failure(stage, message),
         "stage": stage,
         "message": message[:400],
         "retry_count": retry_count,
         "failed_at": failed_at.isoformat(),
     }
+    memory["_last_failure"] = failure
+    set_client_memory_failure(current, failure)
     current.client_memory_json = json.dumps(memory, ensure_ascii=False)
     if mark_rebuild_failed:
         current.client_memory_rebuild_status = "failed"
@@ -519,8 +516,7 @@ def _set_client_memory_failure(
 
 
 def _get_client_memory_failure(client: ClientRecord) -> dict | None:
-    failure = _get_raw_client_memory(client).get("_last_failure")
-    return failure if isinstance(failure, dict) else None
+    return get_client_memory_failure(client) or None
 
 
 def _get_client_memory_successes(client: ClientRecord) -> list[dict]:
@@ -697,13 +693,7 @@ async def _rebuild_client_memory(
         trusted_system=trusted_system,
     )
     locked_rebuild_status = str(client.client_memory_rebuild_status or "idle")
-    locked_generation = str(
-        _get_raw_client_memory(client).get(
-            CLIENT_MEMORY_REBUILD_GENERATION_KEY,
-            "",
-        )
-        or ""
-    )
+    locked_generation = get_client_memory_rebuild_generation(client)
     expected_rebuild_status = (
         str(start_rebuild_status)
         if start_rebuild_status is not None
@@ -1147,13 +1137,7 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
         client.client_memory_rebuild_failed_at = None
         expected_memory_version = int(client.client_memory_version or 0)
         expected_rebuild_status = "rebuilding"
-        expected_rebuild_generation = str(
-            _get_raw_client_memory(client).get(
-                CLIENT_MEMORY_REBUILD_GENERATION_KEY,
-                "",
-            )
-            or ""
-        )
+        expected_rebuild_generation = get_client_memory_rebuild_generation(client)
         session.add(client)
         session.commit()
 
@@ -1186,13 +1170,7 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
                 if (
                     int(client.client_memory_version or 0) > expected_memory_version
                     or client.client_memory_rebuild_status == "idle"
-                    or str(
-                        _get_raw_client_memory(client).get(
-                            CLIENT_MEMORY_REBUILD_GENERATION_KEY,
-                            "",
-                        )
-                        or ""
-                    )
+                    or get_client_memory_rebuild_generation(client)
                     != expected_rebuild_generation
                 ):
                     session.rollback()

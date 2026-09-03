@@ -288,6 +288,8 @@ jobs:
                 tests/test_layered_memory_routing.py \
                 tests/test_memory_fact_source_trust.py \
                 tests/test_memory_failure_recovery.py \
+                tests/test_memory_operation_state.py \
+                tests/test_memory_operation_state_migration.py \
                 tests/test_memory_source_attributions.py \
                 tests/test_memory_source_fingerprints.py \
                 tests/test_memory_slots.py \

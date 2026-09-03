@@ -83,6 +83,7 @@ export function AboutSettings() {
             '已验证备份后的幂等迁移仅将历史缺失数组字段的 null 槽位占位收敛为 []，不覆盖显式空值、内容、异常摘要或版本冲突。',
             '项目/客户记忆详情、项目简报、干系人分析和工作区项目组合已切换为有效槽位优先读取；缺失或损坏只回退单个槽位。',
             '记忆审计按项目/客户作用域识别 Aria 运维元数据，值不外泄，错误作用域与未知键仍保持告警。',
+            '记忆失败、项目到客户晋升及客户重建取消代次已迁入原生运维列，保留旧聚合回退并加入无正文覆盖/分歧审计。',
           ]
         : [
             'Unified Product Run Event activity timeline across live and persisted Skill, step, tool, artifact, error, and confirmation states.',
@@ -99,6 +100,7 @@ export function AboutSettings() {
             'After a verified backup, an idempotent migration normalizes only legacy null placeholders for missing array fields to []; explicit nulls, content, invalid digests, and version conflicts remain untouched.',
             'Project/client memory details, briefings, stakeholder analysis, and workspace portfolios now prefer verified slot values with per-slot aggregate fallback.',
             'Memory audits now classify Aria operational metadata by project/client scope without exposing values; wrong-scope and unknown keys remain warnings.',
+            'Memory failures, project-to-client promotion receipts, and client rebuild epochs now use native operational columns with legacy fallback and content-free coverage/divergence audits.',
           ],
     },
     {
