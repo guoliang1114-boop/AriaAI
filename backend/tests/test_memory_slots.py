@@ -171,6 +171,9 @@ def test_full_memory_parsers_drop_unrequested_root_keys():
         json.dumps(
             {
                 "project_brief": "Verified brief",
+                "recent_progress": [" valid progress ", 42, ""],
+                "client_stakeholders": [{"name": "Valid"}, "invalid"],
+                "financial_status": {"unexpected": "object"},
                 "PRIVATE PERSON NAME": "PRIVATE PROJECT VALUE",
                 "_last_failure": {"message": "PRIVATE FAILURE"},
             }
@@ -181,6 +184,8 @@ def test_full_memory_parsers_drop_unrequested_root_keys():
         json.dumps(
             {
                 "client_profile": "Verified profile",
+                "decision_patterns": [" valid pattern ", 42, ""],
+                "key_contacts": [{"name": "Valid"}, "invalid"],
                 "PRIVATE PERSON NAME": "PRIVATE CLIENT VALUE",
                 "_last_failure": {"message": "PRIVATE FAILURE"},
             }
@@ -189,7 +194,12 @@ def test_full_memory_parsers_drop_unrequested_root_keys():
     )
 
     assert project_memory["project_brief"] == "Verified brief"
+    assert project_memory["recent_progress"] == ["valid progress"]
+    assert project_memory["client_stakeholders"] == [{"name": "Valid"}]
+    assert project_memory["financial_status"] == ""
     assert client_memory["client_profile"] == "Verified profile"
+    assert client_memory["decision_patterns"] == ["valid pattern"]
+    assert client_memory["key_contacts"] == [{"name": "Valid"}]
     assert "PRIVATE PERSON NAME" not in project_memory
     assert "PRIVATE PERSON NAME" not in client_memory
     assert "_last_failure" not in project_memory

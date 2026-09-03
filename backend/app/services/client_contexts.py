@@ -432,6 +432,7 @@ def _client_model_fact_bindings(
 
 def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
     existing = get_client_memory_payload(client)
+    base = _default_client_memory(client)
     try:
         parsed = json.loads(_extract_first_json_object(raw))
     except json.JSONDecodeError:
@@ -446,19 +447,34 @@ def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
         if key in CLIENT_MEMORY_SLOT_KEYS
     }
     memory = {
-        **_default_client_memory(client),
+        **base,
         **parsed_business,
     }
+    client_profile = memory.get("client_profile")
+    memory["client_profile"] = (
+        client_profile.strip()
+        if isinstance(client_profile, str)
+        else base["client_profile"]
+    )
     for key in (
         "decision_patterns",
         "lessons_learned",
         "relationship_signals",
-        "project_history",
         "sensitive_topics",
-        "key_contacts",
     ):
         value = memory.get(key)
-        memory[key] = value if isinstance(value, list) else []
+        memory[key] = (
+            [item.strip() for item in value if isinstance(item, str) and item.strip()]
+            if isinstance(value, list)
+            else []
+        )
+    for key in ("key_contacts", "project_history"):
+        value = memory.get(key)
+        memory[key] = (
+            [dict(item) for item in value if isinstance(item, dict)]
+            if isinstance(value, list)
+            else []
+        )
     memory["rebuild_log"] = existing.get("rebuild_log", []) if isinstance(existing.get("rebuild_log"), list) else []
     memory["source_project_ids"] = (
         existing.get("source_project_ids", []) if isinstance(existing.get("source_project_ids"), list) else []
@@ -467,9 +483,9 @@ def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
     structured_stakeholders = existing.get("structured_stakeholders", [])
     parsed_stakeholders = memory.get("structured_stakeholders", [])
     memory["structured_stakeholders"] = (
-        parsed_stakeholders
+        [dict(item) for item in parsed_stakeholders if isinstance(item, dict)]
         if isinstance(parsed_stakeholders, list) and parsed_stakeholders
-        else structured_stakeholders
+        else [dict(item) for item in structured_stakeholders if isinstance(item, dict)]
         if isinstance(structured_stakeholders, list)
         else []
     )

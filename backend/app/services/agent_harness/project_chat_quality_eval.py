@@ -2228,6 +2228,8 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
         json.dumps(
             {
                 "project_brief": "Verified brief",
+                "recent_progress": [" valid progress ", 42, ""],
+                "financial_status": {"unexpected": "object"},
                 "PRIVATE PERSON NAME": "PRIVATE PROJECT VALUE",
                 "_last_failure": {"message": "PRIVATE FAILURE"},
             }
@@ -2238,6 +2240,8 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
         json.dumps(
             {
                 "client_profile": "Verified profile",
+                "decision_patterns": [" valid pattern ", 42, ""],
+                "key_contacts": [{"name": "Valid"}, "invalid"],
                 "PRIVATE PERSON NAME": "PRIVATE CLIENT VALUE",
                 "_last_failure": {"message": "PRIVATE FAILURE"},
             }
@@ -2334,7 +2338,11 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
         {
             "case": "full_memory_parsers_drop_unrequested_root_keys",
             "passed": filtered_project_memory["project_brief"] == "Verified brief"
+            and filtered_project_memory["recent_progress"] == ["valid progress"]
+            and filtered_project_memory["financial_status"] == ""
             and filtered_client_memory["client_profile"] == "Verified profile"
+            and filtered_client_memory["decision_patterns"] == ["valid pattern"]
+            and filtered_client_memory["key_contacts"] == [{"name": "Valid"}]
             and "PRIVATE PERSON NAME" not in filtered_project_memory
             and "PRIVATE PERSON NAME" not in filtered_client_memory
             and "_last_failure" not in filtered_project_memory

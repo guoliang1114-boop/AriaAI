@@ -1028,11 +1028,27 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
         if key in PROJECT_MEMORY_SLOT_KEYS
     }
     memory = {**base, **parsed_business}
+    for key in (
+        "project_brief",
+        "current_stage",
+        "current_objective",
+        "financial_status",
+    ):
+        value = memory.get(key)
+        memory[key] = value.strip() if isinstance(value, str) else base[key]
     for key in ("recent_progress", "next_actions", "delivery_signals"):
         value = memory.get(key)
-        memory[key] = value if isinstance(value, list) else []
+        memory[key] = (
+            [item.strip() for item in value if isinstance(item, str) and item.strip()]
+            if isinstance(value, list)
+            else []
+        )
     client_stakeholders = memory.get("client_stakeholders")
-    memory["client_stakeholders"] = client_stakeholders if isinstance(client_stakeholders, list) else []
+    memory["client_stakeholders"] = (
+        [dict(item) for item in client_stakeholders if isinstance(item, dict)]
+        if isinstance(client_stakeholders, list)
+        else []
+    )
 
     for key in EDITABLE_MEMORY_SLOTS:
         existing_slot = existing_raw.get(key, {})
