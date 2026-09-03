@@ -557,6 +557,22 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
                     : ''}
                 </CxStatus>
               )}
+              {slotLedger?.read_authority && (
+                <CxStatus
+                  tone={
+                    slotLedger.read_authority.read_mode === 'slot_ledger'
+                      ? 'good'
+                      : 'warn'
+                  }
+                >
+                  {slotLedger.read_authority.read_mode === 'slot_ledger'
+                    ? '读取权威：槽位账本'
+                    : `兼容回退 ${slotLedger.read_authority.aggregate_fallback_slot_count} 个槽位`}
+                  {slotLedger.read_authority.divergent_slot_count > 0
+                    ? ` · ${slotLedger.read_authority.divergent_slot_count} 个双写差异`
+                    : ''}
+                </CxStatus>
+              )}
               {project.memory_rebuild_status && project.memory_rebuild_status !== 'idle' && (
                 <CxStatus tone="accent" pulse>
                   {project.memory_rebuild_status}

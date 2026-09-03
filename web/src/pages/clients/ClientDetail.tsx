@@ -964,6 +964,20 @@ function ClientMemoryPanel({
                 {formatMemoryRebuildSummary(memorySlots, isZh) ? (
                   <span>{formatMemoryRebuildSummary(memorySlots, isZh)}</span>
                 ) : null}
+                {memorySlots.read_authority ? (
+                  <span>
+                    {memorySlots.read_authority.read_mode === 'slot_ledger'
+                      ? (isZh ? '读取权威：槽位账本' : 'Read authority: slot ledger')
+                      : (isZh
+                          ? `兼容回退 ${memorySlots.read_authority.aggregate_fallback_slot_count} 个槽位`
+                          : `${memorySlots.read_authority.aggregate_fallback_slot_count} aggregate fallbacks`)}
+                    {memorySlots.read_authority.divergent_slot_count > 0
+                      ? (isZh
+                          ? ` · ${memorySlots.read_authority.divergent_slot_count} 个双写差异`
+                          : ` · ${memorySlots.read_authority.divergent_slot_count} dual-write differences`)
+                      : ''}
+                  </span>
+                ) : null}
                 {memoryFacts ? (
                   <span>
                     {isZh

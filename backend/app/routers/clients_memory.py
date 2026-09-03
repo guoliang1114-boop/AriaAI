@@ -41,6 +41,7 @@ from app.services.memory_facts import (
 )
 from app.services.memory_slots import (
     CLIENT_MEMORY_SLOT_KEYS,
+    get_client_memory_read_authority_report,
     get_client_memory_slot_states,
 )
 from app.services.memory_rebuilds import (
@@ -560,7 +561,14 @@ def get_client_memory_slots(
     client = require_client_access(session, client_id, current_user)
     slots = get_client_memory_slot_states(session, client_id)
     stale_count = sum(item["status"] in {"stale", "corrupt"} for item in slots)
-    rebuild_metadata = latest_memory_rebuild_metadata(get_client_memory_payload(client))
+    aggregate_payload = get_client_memory_payload(client)
+    rebuild_metadata = latest_memory_rebuild_metadata(aggregate_payload)
+    read_authority = get_client_memory_read_authority_report(
+        session,
+        client,
+        aggregate_payload,
+        slot_states=slots,
+    )
     return {
         "scope": "client",
         "entity_id": client_id,
@@ -568,6 +576,7 @@ def get_client_memory_slots(
         "slot_count": len(slots),
         "stale_slot_count": stale_count,
         "slots": slots,
+        "read_authority": read_authority,
         **rebuild_metadata,
     }
 

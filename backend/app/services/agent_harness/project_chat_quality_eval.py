@@ -17,7 +17,14 @@ from typing import Any
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models.db import ChatTrace, ClientRecord, Project, ProjectPayment, Skill
+from app.models.db import (
+    ChatTrace,
+    ClientRecord,
+    Project,
+    ProjectMemorySlot,
+    ProjectPayment,
+    Skill,
+)
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.config_validation import assert_chat_runtime_configuration
 from app.services.chat.mode_registry import (
@@ -96,7 +103,11 @@ from app.services.memory_rebuilds import (
     plan_client_memory_rebuild,
     plan_project_memory_rebuild,
 )
-from app.services.memory_slots import CLIENT_MEMORY_SLOT_KEYS, PROJECT_MEMORY_SLOT_KEYS
+from app.services.memory_slots import (
+    CLIENT_MEMORY_SLOT_KEYS,
+    PROJECT_MEMORY_SLOT_KEYS,
+    build_memory_read_authority_report,
+)
 from app.services.memory_facts import (
     MODEL_SOURCE_ATTRIBUTIONS_KEY,
     bind_model_source_attributions,
@@ -2153,6 +2164,84 @@ def _grounded_answer_contract_results() -> tuple[int, int, list[dict[str, Any]]]
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Aggregate-memory fallback stays explicit and content-free."""
+
+    def row(slot_key: str, value: Any) -> ProjectMemorySlot:
+        value_json = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return ProjectMemorySlot(
+            project_id=1,
+            slot_key=slot_key,
+            value_json=value_json,
+            value_sha256=hashlib.sha256(value_json.encode("utf-8")).hexdigest(),
+            is_stale=False,
+        )
+
+    slot_keys = ("project_brief", "key_risks")
+    payload = {
+        "project_brief": "PRIVATE-BRIEF",
+        "key_risks": ["PRIVATE-RISK"],
+        "memory_version": 3,
+        "rebuild_log": [],
+    }
+    healthy_rows = [
+        row("project_brief", "PRIVATE-BRIEF"),
+        row("key_risks", ["PRIVATE-RISK"]),
+    ]
+    healthy = build_memory_read_authority_report(payload, healthy_rows, slot_keys)
+    missing = build_memory_read_authority_report(
+        payload,
+        healthy_rows[:1],
+        slot_keys,
+    )
+    corrupt_row = row("key_risks", ["PRIVATE-RISK"])
+    corrupt_row.value_json = '"PRIVATE-TAMPER"'
+    corrupt = build_memory_read_authority_report(
+        payload,
+        [healthy_rows[0], corrupt_row],
+        slot_keys,
+    )
+    divergent = build_memory_read_authority_report(
+        {**payload, "project_brief": "PRIVATE-OLD"},
+        healthy_rows,
+        slot_keys,
+    )
+    serialized = json.dumps(
+        [healthy, missing, corrupt, divergent],
+        ensure_ascii=False,
+    )
+    details = [
+        {
+            "case": "complete_matching_slot_ledger_is_business_cutover_ready",
+            "passed": healthy["read_mode"] == "slot_ledger"
+            and healthy["business_slot_cutover_ready"]
+            and healthy["dual_write_consistent"],
+        },
+        {
+            "case": "missing_slot_is_explicit_aggregate_fallback",
+            "passed": missing["read_mode"] == "hybrid_aggregate_fallback"
+            and missing["aggregate_fallback_slots"] == ["key_risks"],
+        },
+        {
+            "case": "corrupt_slot_is_explicit_aggregate_fallback",
+            "passed": corrupt["corrupt_slots"] == ["key_risks"]
+            and not corrupt["business_slot_cutover_ready"],
+        },
+        {
+            "case": "dual_write_divergence_is_visible_without_memory_content",
+            "passed": divergent["divergent_slots"] == ["project_brief"]
+            and not divergent["dual_write_consistent"]
+            and "PRIVATE" not in serialized,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -2188,6 +2277,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
             _runtime_configuration_results()
         ),
         "grounded_answer_contract_accuracy": _grounded_answer_contract_results(),
+        "memory_read_authority_accuracy": _memory_read_authority_results(),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
         "question_answer_readiness_accuracy": _question_answer_readiness_results(),

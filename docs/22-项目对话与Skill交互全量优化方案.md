@@ -609,6 +609,13 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 确定性门禁扩展为 120 个场景、34 项指标，新增 `grounded_answer_contract_accuracy`。项目记忆页显示来源可核验比例、范围来源和待补证数，对话回执对非直接来源给出警示。
 - 本阶段无数据库迁移，不运行、导入或连接 Codex；项目、记忆、Skill、权限与审计仍全部属于 Aria。
 
+### Phase 4I：聚合记忆兼容依赖量化（已实施）
+
+- 新增无正文 `Memory Read Authority Report v1`，按项目/客户精确统计预期槽位、可读账本值、缺失/损坏回退、陈旧槽位、双写差异和非槽位聚合键。
+- 报告分别表示业务槽位是否可切换、双写是否一致、聚合容器是否可废弃，不把“槽位齐全”误报成“历史、rebuild 和 candidate 元数据已可删除”。
+- 项目和客户记忆界面显示槽位账本权威或兼容回退/双写差异数。部署与生产数据库 E2E 运行只读全库汇总，输出不含实体 ID、记忆值、证据正文或凭据。
+- 确定性门禁扩展为 124 个场景、35 项指标，新增 `memory_read_authority_accuracy`。本阶段无迁移，不自动删除聚合数据，不引入或连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

@@ -79,6 +79,7 @@ export function AboutSettings() {
             '长期对话扩大为 96 条预算候选并公开实际保留/摘要数量；每条项目回答可按需查看内容安全诊断并与同会话其他轮次对比。',
             '对话 Mode 统一控制模型、Token、上下文和工具池；Prompt 静态行为层文件化并加入 SHA-256 完整性诊断与启动门禁。',
             '项目问答新增逐项完整性、当前直接证据优先和未核验记忆限定规则；真实模型发布门禁收紧为六类场景全量通过，记忆页同步展示来源可核验比例。',
+            '记忆读取权威报告量化槽位账本覆盖、聚合 JSON 回退和双写差异；部署与生产 E2E 执行无正文全库审计。',
           ]
         : [
             'Unified Product Run Event activity timeline across live and persisted Skill, step, tool, artifact, error, and confirmation states.',
@@ -91,6 +92,7 @@ export function AboutSettings() {
             'Long conversations now budget up to 96 candidate messages with explicit retention summaries, plus on-demand content-free diagnostics and same-conversation turn comparison.',
             'Chat modes now centrally govern models, token caps, context, and tool pools, with file-backed prompt layers, SHA-256 diagnostics, and fail-closed startup validation.',
             'Project Q&A now enforces per-dimension completeness, current direct-evidence priority, and qualified unresolved memory, backed by a strict six-case real-provider release gate and visible provenance health.',
+            'A content-free memory read-authority audit now quantifies slot-ledger coverage, aggregate JSON fallback, and dual-write divergence during deploys and production E2E.',
           ],
     },
     {

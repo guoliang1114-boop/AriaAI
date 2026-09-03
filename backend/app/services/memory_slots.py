@@ -61,6 +61,19 @@ CLIENT_MEMORY_SLOT_KEYS = (
     "project_history",
     "sensitive_topics",
 )
+SAFE_AGGREGATE_ONLY_KEYS = frozenset(
+    {
+        "memory_version",
+        "last_updated_at",
+        "stale",
+        "rebuild_log",
+        "source_project_ids",
+        "_coverage",
+        "_accepted_memory_candidates",
+        "_model_source_attributions",
+        "_rebuild_generation",
+    }
+)
 PROJECT_EDITABLE_SLOT_KEYS = frozenset(
     {"key_risks", "open_questions", "stakeholder_notes"}
 )
@@ -1108,6 +1121,237 @@ def _overlay_slot_rows(
                     )
             result[row.slot_key] = flattened
     return result, states
+
+
+def build_memory_read_authority_report(
+    aggregate_payload: Mapping[str, Any],
+    rows: Iterable[ProjectMemorySlot | ClientMemorySlot],
+    slot_keys: Iterable[str],
+    *,
+    editable_slot_keys: Iterable[str] = (),
+    slot_states: Iterable[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """Describe slot-ledger authority without returning memory content.
+
+    The aggregate JSON remains a compatibility container. This report makes
+    every business-slot fallback and dual-write divergence observable before
+    Aria attempts a future read-model cutover or removes compatibility code.
+    """
+
+    expected = tuple(dict.fromkeys(str(key) for key in slot_keys if str(key)))
+    expected_set = set(expected)
+    editable = {str(key) for key in editable_slot_keys if str(key)}
+    row_by_key = {
+        str(row.slot_key): row
+        for row in rows
+        if str(row.slot_key) in expected_set
+    }
+    unexpected_slots = sorted(
+        {
+            str(row.slot_key)
+            for row in rows
+            if str(row.slot_key) not in expected_set
+        }
+    )
+    state_by_key = {
+        str(state.get("slot_key") or ""): state
+        for state in slot_states
+        if isinstance(state, Mapping) and str(state.get("slot_key") or "")
+    }
+
+    ledger_slots: list[str] = []
+    ready_slots: list[str] = []
+    stale_slots: list[str] = []
+    missing_slots: list[str] = []
+    corrupt_slots: list[str] = []
+    divergent_slots: list[str] = []
+    for slot_key in expected:
+        row = row_by_key.get(slot_key)
+        if row is None:
+            missing_slots.append(slot_key)
+            continue
+        integrity_ok, value = _decode_slot_value(row)
+        if not integrity_ok:
+            corrupt_slots.append(slot_key)
+            continue
+        ledger_slots.append(slot_key)
+        state = state_by_key.get(slot_key)
+        status = str(state.get("status") or "") if state else (
+            "stale" if row.is_stale else "ready"
+        )
+        if status == "ready":
+            ready_slots.append(slot_key)
+        else:
+            stale_slots.append(slot_key)
+
+        detail_key = f"{slot_key}_detail"
+        aggregate_value = (
+            aggregate_payload.get(detail_key)
+            if slot_key in editable and detail_key in aggregate_payload
+            else aggregate_payload.get(slot_key)
+        )
+        if _sha256_json(aggregate_value) != _sha256_json(value):
+            divergent_slots.append(slot_key)
+
+    fallback_set = set(missing_slots) | set(corrupt_slots)
+    fallback_slots = [
+        slot_key
+        for slot_key in expected
+        if slot_key in fallback_set
+    ]
+    derived_detail_keys = {f"{slot_key}_detail" for slot_key in editable}
+    aggregate_only_keys = [
+        str(key)
+        for key in aggregate_payload
+        if str(key) not in expected_set and str(key) not in derived_detail_keys
+    ]
+    safe_aggregate_only_keys = sorted(
+        key for key in aggregate_only_keys if key in SAFE_AGGREGATE_ONLY_KEYS
+    )
+    unknown_aggregate_only_key_count = sum(
+        key not in SAFE_AGGREGATE_ONLY_KEYS for key in aggregate_only_keys
+    )
+    business_slot_cutover_ready = not fallback_slots
+    dual_write_consistent = (
+        business_slot_cutover_ready
+        and not divergent_slots
+        and not unexpected_slots
+    )
+    return {
+        "schema_version": 1,
+        "read_mode": (
+            "slot_ledger"
+            if business_slot_cutover_ready
+            else "hybrid_aggregate_fallback"
+        ),
+        "expected_slot_count": len(expected),
+        "ledger_row_count": len(row_by_key),
+        "ledger_value_count": len(ledger_slots),
+        "ready_slot_count": len(ready_slots),
+        "stale_slot_count": len(stale_slots),
+        "missing_slot_count": len(missing_slots),
+        "missing_slots": missing_slots,
+        "corrupt_slot_count": len(corrupt_slots),
+        "corrupt_slots": corrupt_slots,
+        "aggregate_fallback_slot_count": len(fallback_slots),
+        "aggregate_fallback_slots": fallback_slots,
+        "divergent_slot_count": len(divergent_slots),
+        "divergent_slots": divergent_slots,
+        "unexpected_slot_count": len(unexpected_slots),
+        "aggregate_only_key_count": len(aggregate_only_keys),
+        "aggregate_only_keys": safe_aggregate_only_keys,
+        "aggregate_only_unknown_key_count": unknown_aggregate_only_key_count,
+        "business_slot_cutover_ready": business_slot_cutover_ready,
+        "dual_write_consistent": dual_write_consistent,
+        "aggregate_container_retirement_ready": (
+            dual_write_consistent and not aggregate_only_keys
+        ),
+    }
+
+
+def summarize_memory_read_authority(
+    reports: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Aggregate content-free authority metrics for operational audits."""
+
+    items = [dict(report) for report in reports]
+    total = len(items)
+    cutover_ready = sum(
+        bool(item.get("business_slot_cutover_ready")) for item in items
+    )
+    consistent = sum(bool(item.get("dual_write_consistent")) for item in items)
+    return {
+        "schema_version": 1,
+        "entity_count": total,
+        "slot_ledger_entity_count": sum(
+            item.get("read_mode") == "slot_ledger" for item in items
+        ),
+        "hybrid_fallback_entity_count": sum(
+            item.get("read_mode") == "hybrid_aggregate_fallback"
+            for item in items
+        ),
+        "business_slot_cutover_ready_entity_count": cutover_ready,
+        "business_slot_cutover_ready_rate": round(cutover_ready / total, 4)
+        if total
+        else 1.0,
+        "dual_write_consistent_entity_count": consistent,
+        "dual_write_consistency_rate": round(consistent / total, 4)
+        if total
+        else 1.0,
+        "aggregate_fallback_slot_count": sum(
+            max(0, int(item.get("aggregate_fallback_slot_count") or 0))
+            for item in items
+        ),
+        "missing_slot_count": sum(
+            max(0, int(item.get("missing_slot_count") or 0))
+            for item in items
+        ),
+        "stale_slot_count": sum(
+            max(0, int(item.get("stale_slot_count") or 0))
+            for item in items
+        ),
+        "divergent_slot_count": sum(
+            max(0, int(item.get("divergent_slot_count") or 0))
+            for item in items
+        ),
+        "corrupt_slot_count": sum(
+            max(0, int(item.get("corrupt_slot_count") or 0))
+            for item in items
+        ),
+        "aggregate_container_retirement_ready_entity_count": sum(
+            bool(item.get("aggregate_container_retirement_ready"))
+            for item in items
+        ),
+        "aggregate_only_key_count": sum(
+            max(0, int(item.get("aggregate_only_key_count") or 0))
+            for item in items
+        ),
+        "entities_with_unknown_aggregate_keys": sum(
+            max(0, int(item.get("aggregate_only_unknown_key_count") or 0)) > 0
+            for item in items
+        ),
+    }
+
+
+def get_project_memory_read_authority_report(
+    session: Session,
+    project: Project,
+    aggregate_payload: Mapping[str, Any],
+    *,
+    slot_states: Iterable[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    rows = session.exec(
+        select(ProjectMemorySlot).where(
+            ProjectMemorySlot.project_id == int(project.id or 0)
+        )
+    ).all()
+    return build_memory_read_authority_report(
+        aggregate_payload,
+        rows,
+        PROJECT_MEMORY_SLOT_KEYS,
+        editable_slot_keys=PROJECT_EDITABLE_SLOT_KEYS,
+        slot_states=slot_states,
+    )
+
+
+def get_client_memory_read_authority_report(
+    session: Session,
+    client: ClientRecord,
+    aggregate_payload: Mapping[str, Any],
+    *,
+    slot_states: Iterable[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    rows = session.exec(
+        select(ClientMemorySlot).where(
+            ClientMemorySlot.client_id == int(client.id or 0)
+        )
+    ).all()
+    return build_memory_read_authority_report(
+        aggregate_payload,
+        rows,
+        CLIENT_MEMORY_SLOT_KEYS,
+        slot_states=slot_states,
+    )
 
 
 def load_project_memory_slot_view(

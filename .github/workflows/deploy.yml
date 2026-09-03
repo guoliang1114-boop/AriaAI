@@ -367,6 +367,11 @@ jobs:
             "$PYTHON" scripts/migration_governance.py upgrade
             "$PYTHON" scripts/migration_governance.py check
 
+            # Audit the remaining aggregate-JSON read dependency after the
+            # verified backup. The report uses an explicit read-only
+            # transaction and never exposes memory content.
+            "$PYTHON" scripts/memory_read_authority_report.py
+
             # Reload backend after code and schema changes.
             mkdir -p /www/wwwroot/AriaAI/logs
             pm2 delete ariaai-backend >/dev/null 2>&1 || true

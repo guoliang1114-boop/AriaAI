@@ -32,11 +32,14 @@ from app.services.context_builder.memory_formatters import build_client_memory_p
 from app.services.memory_slots import (
     CLIENT_MEMORY_SLOT_KEYS,
     PROJECT_MEMORY_SLOT_KEYS,
+    get_client_memory_read_authority_report,
     get_client_memory_slot_states,
+    get_project_memory_read_authority_report,
     get_project_memory_slot_states,
     load_client_memory_slot_view,
     load_project_memory_slot_view,
     project_memory_slots_for_trigger,
+    summarize_memory_read_authority,
 )
 from app.services.memory_rebuilds import (
     MemoryPatchValidationError,
@@ -363,6 +366,114 @@ def test_slot_view_prefers_verified_slot_value_over_aggregate_json():
 
             assert view["project_brief"] == "Current project brief"
             assert states["project_brief"]["status"] == "ready"
+    finally:
+        engine.dispose()
+
+
+def test_memory_read_authority_report_exposes_fallback_without_content():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+
+            project = session.get(Project, project.id)
+            aggregate = get_project_memory_payload(project)
+            healthy = get_project_memory_read_authority_report(
+                session,
+                project,
+                aggregate,
+                slot_states=get_project_memory_slot_states(session, project.id),
+            )
+            assert healthy["read_mode"] == "slot_ledger"
+            assert healthy["ledger_value_count"] == len(PROJECT_MEMORY_SLOT_KEYS)
+            assert healthy["aggregate_fallback_slot_count"] == 0
+            assert healthy["business_slot_cutover_ready"] is True
+            assert healthy["dual_write_consistent"] is True
+            assert healthy["aggregate_container_retirement_ready"] is False
+            assert "rebuild_log" in healthy["aggregate_only_keys"]
+
+            aggregate["project_brief"] = "PRIVATE TAMPERED CONTENT"
+            aggregate["PRIVATE PERSON NAME"] = "PRIVATE VALUE"
+            divergent = get_project_memory_read_authority_report(
+                session,
+                project,
+                aggregate,
+            )
+            assert divergent["divergent_slots"] == ["project_brief"]
+            assert divergent["dual_write_consistent"] is False
+            assert divergent["aggregate_only_unknown_key_count"] == 1
+            assert "PRIVATE" not in json.dumps(divergent)
+
+            missing_row = session.exec(
+                select(ProjectMemorySlot).where(
+                    ProjectMemorySlot.project_id == project.id,
+                    ProjectMemorySlot.slot_key == "key_risks",
+                )
+            ).one()
+            session.delete(missing_row)
+            corrupt_row = session.exec(
+                select(ProjectMemorySlot).where(
+                    ProjectMemorySlot.project_id == project.id,
+                    ProjectMemorySlot.slot_key == "financial_status",
+                )
+            ).one()
+            corrupt_row.value_json = '"tampered"'
+            session.add(corrupt_row)
+            session.commit()
+
+            degraded = get_project_memory_read_authority_report(
+                session,
+                project,
+                get_project_memory_payload(project),
+            )
+            assert degraded["read_mode"] == "hybrid_aggregate_fallback"
+            assert degraded["missing_slots"] == ["key_risks"]
+            assert degraded["corrupt_slots"] == ["financial_status"]
+            assert degraded["aggregate_fallback_slots"] == [
+                "key_risks",
+                "financial_status",
+            ]
+            assert degraded["business_slot_cutover_ready"] is False
+
+            fleet = summarize_memory_read_authority([healthy, degraded])
+            assert fleet["entity_count"] == 2
+            assert fleet["slot_ledger_entity_count"] == 1
+            assert fleet["hybrid_fallback_entity_count"] == 1
+            assert fleet["business_slot_cutover_ready_rate"] == 0.5
+            assert fleet["aggregate_fallback_slot_count"] == 2
+            assert fleet["missing_slot_count"] == 1
+            assert fleet["corrupt_slot_count"] == 1
+    finally:
+        engine.dispose()
+
+
+def test_client_memory_read_authority_report_uses_all_expected_slots():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            client = ClientRecord(name="Acme")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            save_client_memory(session, client.id, _client_memory(), trigger="test")
+
+            client = session.get(ClientRecord, client.id)
+            report = get_client_memory_read_authority_report(
+                session,
+                client,
+                get_client_memory_payload(client),
+                slot_states=get_client_memory_slot_states(session, client.id),
+            )
+
+            assert report["read_mode"] == "slot_ledger"
+            assert report["expected_slot_count"] == len(CLIENT_MEMORY_SLOT_KEYS)
+            assert report["ledger_value_count"] == len(CLIENT_MEMORY_SLOT_KEYS)
+            assert report["dual_write_consistent"] is True
+            assert report["aggregate_container_retirement_ready"] is False
     finally:
         engine.dispose()
 

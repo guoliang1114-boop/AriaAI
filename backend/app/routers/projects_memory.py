@@ -38,7 +38,10 @@ from app.services.project_core import get_project_or_404, lock_and_require_proje
 from app.routers.projects_deps import complete_with_selected_model, stream_with_selected_model
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
 from app.services.memory_facts import get_project_memory_fact_states
-from app.services.memory_slots import get_project_memory_slot_states
+from app.services.memory_slots import (
+    get_project_memory_read_authority_report,
+    get_project_memory_slot_states,
+)
 from app.services.memory_rebuilds import latest_memory_rebuild_metadata
 from app.services.time_utils import utc_now_naive
 from app.routers.projects_deps import (
@@ -335,8 +338,13 @@ def get_project_memory_slots(project_id: int, session: Session = Depends(get_ses
     project = get_project_or_404(session, project_id)
     slots = get_project_memory_slot_states(session, project_id)
     stale_count = sum(item["status"] in {"stale", "corrupt"} for item in slots)
-    rebuild_metadata = latest_memory_rebuild_metadata(
-        get_project_memory_payload(project)
+    aggregate_payload = get_project_memory_payload(project)
+    rebuild_metadata = latest_memory_rebuild_metadata(aggregate_payload)
+    read_authority = get_project_memory_read_authority_report(
+        session,
+        project,
+        aggregate_payload,
+        slot_states=slots,
     )
     return {
         "scope": "project",
@@ -345,6 +353,7 @@ def get_project_memory_slots(project_id: int, session: Session = Depends(get_ses
         "slot_count": len(slots),
         "stale_slot_count": stale_count,
         "slots": slots,
+        "read_authority": read_authority,
         **rebuild_metadata,
     }
 

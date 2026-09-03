@@ -27,9 +27,12 @@ def test_remote_release_keeps_backup_before_migration_and_restart() -> None:
     workflow = _workflow_text()
     backup = workflow.index('"$PYTHON" scripts/verified_postgres_backup.py')
     migration = workflow.index('"$PYTHON" scripts/migration_governance.py upgrade')
+    memory_audit = workflow.index(
+        '"$PYTHON" scripts/memory_read_authority_report.py'
+    )
     restart = workflow.index("pm2 delete ariaai-backend")
 
-    assert backup < migration < restart
+    assert backup < migration < memory_audit < restart
 
 
 def test_remote_release_runs_this_contract_test() -> None:

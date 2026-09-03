@@ -140,6 +140,31 @@ export interface MemorySlotState {
   updated_at?: string | null
 }
 
+export interface MemoryReadAuthorityReport {
+  schema_version: 1
+  read_mode: 'slot_ledger' | 'hybrid_aggregate_fallback'
+  expected_slot_count: number
+  ledger_row_count: number
+  ledger_value_count: number
+  ready_slot_count: number
+  stale_slot_count: number
+  missing_slot_count: number
+  missing_slots: string[]
+  corrupt_slot_count: number
+  corrupt_slots: string[]
+  aggregate_fallback_slot_count: number
+  aggregate_fallback_slots: string[]
+  divergent_slot_count: number
+  divergent_slots: string[]
+  unexpected_slot_count: number
+  aggregate_only_key_count: number
+  aggregate_only_keys: string[]
+  aggregate_only_unknown_key_count: number
+  business_slot_cutover_ready: boolean
+  dual_write_consistent: boolean
+  aggregate_container_retirement_ready: boolean
+}
+
 export interface MemorySlotListResponse {
   scope: 'project' | 'client'
   entity_id: number
@@ -147,6 +172,7 @@ export interface MemorySlotListResponse {
   slot_count: number
   stale_slot_count: number
   slots: MemorySlotState[]
+  read_authority?: MemoryReadAuthorityReport
   last_rebuild_mode?: 'partial' | 'full' | 'full_fallback' | 'targeted_edit' | string | null
   last_rebuilt_slots?: string[]
   last_rebuild_fallback_reason?: string | null

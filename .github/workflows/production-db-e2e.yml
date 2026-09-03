@@ -478,5 +478,6 @@ jobs:
                 raise SystemExit(result.returncode if result is not None else 1)
             PY
 
+            "$PYTHON" scripts/memory_read_authority_report.py
             curl -fsS --max-time 10 http://127.0.0.1:8000/health >/dev/null
             echo "Production database E2E completed successfully."
