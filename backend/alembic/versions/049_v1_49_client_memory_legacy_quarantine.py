@@ -188,4 +188,7 @@ def downgrade() -> None:
         return
     if "client_memory_legacy_quarantine_json" in _columns("clientrecord"):
         _restore_quarantine_for_downgrade()
-        op.drop_column("clientrecord", "client_memory_legacy_quarantine_json")
+        # Batch mode recreates the table on older SQLite releases used by the
+        # deploy contract tests, while PostgreSQL still emits a native ALTER.
+        with op.batch_alter_table("clientrecord") as batch_op:
+            batch_op.drop_column("client_memory_legacy_quarantine_json")
