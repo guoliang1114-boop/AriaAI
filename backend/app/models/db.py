@@ -1824,6 +1824,7 @@ class GeneratedFile(SQLModel, table=True):
     deliverable_contract_sha256: str = Field(default="", index=True)
     deliverable_catalog_sha256: str = Field(default="", index=True)
     deliverable_skill_release_sha256: str = Field(default="", index=True)
+    deliverable_business_verifiers_json: str = "[]"
     saved_to_project_by_user_id: Optional[int] = Field(
         default=None,
         foreign_key="user.id",

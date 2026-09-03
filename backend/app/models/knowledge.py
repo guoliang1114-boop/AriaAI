@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import Column, Index, String, Text, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, Column, Index, String, Text, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 from app.services.time_utils import utc_now_naive
@@ -185,6 +185,56 @@ class KnowledgeDocumentEvent(SQLModel, table=True):
     duration_ms: int = Field(default=0)
     metadata_json: str = Field(default="{}")
     created_at: datetime = Field(default_factory=utc_now_naive)
+
+
+class ArtifactKnowledgeArchive(SQLModel, table=True):
+    """Auditable, idempotent link from verified output to a chosen Source."""
+
+    __tablename__ = "artifact_knowledge_archive"
+    __table_args__ = (
+        UniqueConstraint(
+            "generated_file_id",
+            "knowledge_source_id",
+            "content_sha256",
+            name="uq_artifact_knowledge_archive_target",
+        ),
+        CheckConstraint(
+            "length(content_sha256) = 64 "
+            "AND length(deliverable_contract_sha256) IN (0, 64)",
+            name="ck_artifact_knowledge_archive_identity",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    generated_file_id: int = Field(
+        foreign_key="generatedfile.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    knowledge_source_id: Optional[int] = Field(
+        default=None,
+        foreign_key="knowledge_source.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    knowledge_document_id: Optional[int] = Field(
+        default=None,
+        foreign_key="knowledge_document.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    content_sha256: str = Field(index=True)
+    deliverable_contract_sha256: str = Field(default="", index=True)
+    source_name: str = Field(default="", sa_column=Column(String(255)))
+    source_scope_type: str = Field(default="", sa_column=Column(String(50)))
+    source_scope_id: Optional[int] = Field(default=None)
+    requested_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
 
 
 class KnowledgeJob(SQLModel, table=True):

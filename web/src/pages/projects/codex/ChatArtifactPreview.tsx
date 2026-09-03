@@ -10,6 +10,7 @@ import type {
 import type { ArtifactVerificationSummary } from '../../../types/productRunEvent'
 import { artifactVerificationLabel } from '../../../utils/artifactVerification'
 import { downloadArtifact } from '../downloadArtifact'
+import { ArtifactKnowledgeArchiveControl } from './ArtifactKnowledgeArchiveControl'
 import { CxIcon } from './CxIcons'
 
 /** Right-side artifact preview panel — slides in when the user
@@ -508,6 +509,13 @@ function ChatArtifactPreviewContent({
         </div>
       )}
 
+      {artifactId != null && artifact.content_sha256 && (
+        <ArtifactKnowledgeArchiveControl
+          artifactId={artifactId}
+          contentSha256={artifact.content_sha256}
+        />
+      )}
+
       {artifact.verification && (
         <ArtifactVerificationPanel
           artifactId={artifactId}
@@ -751,6 +759,18 @@ function ArtifactVerificationPanel({
                           ? '需要修改后复核'
                           : '技术证据未满足'}
                   </div>
+                  {acceptance.business_automation.status !== 'not_configured' && (
+                    <div style={{ marginTop: 3 }}>
+                      结构校验 · {acceptance.business_automation.status === 'passed'
+                        ? '通过'
+                        : acceptance.business_automation.status === 'failed'
+                          ? '未通过'
+                          : '规则或指标不完整'}
+                      {' · '}
+                      {acceptance.business_automation.passed_count}/
+                      {acceptance.business_automation.check_count}
+                    </div>
+                  )}
                   {acceptance.reason && (
                     <div style={{ marginTop: 3 }}>
                       最近判断：{acceptance.reason}

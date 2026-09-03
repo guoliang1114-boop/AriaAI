@@ -390,6 +390,51 @@ def create_document_from_bytes(
     return doc
 
 
+def register_document_from_bytes(
+    *,
+    session: Session,
+    source: KnowledgeSource,
+    file_name: str,
+    content: bytes,
+    source_metadata: dict[str, Any] | None = None,
+) -> tuple[KnowledgeV1Document, bool]:
+    """Register bytes under a locked Source with rollback-safe storage."""
+
+    content_hash = sha256_bytes(content)
+    existing = session.exec(
+        select(KnowledgeV1Document).where(
+            KnowledgeV1Document.source_id == source.id,
+            KnowledgeV1Document.content_hash == content_hash,
+            KnowledgeV1Document.status != "deleted",
+        )
+    ).first()
+    if existing is not None:
+        return existing, False
+    file_type = normalize_file_type(file_name)
+    if file_type not in SUPPORTED_SOURCE_FILE_TYPES:
+        raise ValueError(f"Unsupported knowledge file type: {file_type}")
+    storage_key = (
+        f"knowledge/originals/source-{source.id}/"
+        f"{content_hash}-{uuid.uuid4().hex}.{file_type}"
+    )
+    _put_rollback_guarded_bytes(
+        session,
+        StorageService(UPLOADS_DIR),
+        storage_key,
+        content,
+    )
+    document = create_document_from_bytes(
+        session=session,
+        source=source,
+        file_name=file_name,
+        content=content,
+        relative_path=storage_key,
+        source_metadata=source_metadata,
+        commit=False,
+    )
+    return document, True
+
+
 def _set_status(session: Session, doc: KnowledgeV1Document, status: str, event_type: str, *, message: str = "") -> None:
     doc.status = status
     doc.updated_at = utc_now_naive()

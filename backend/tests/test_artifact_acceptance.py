@@ -18,6 +18,7 @@ from app.models.db import (
 from app.services.agent_harness.artifact_acceptance import (
     artifact_acceptance_projection,
     build_artifact_acceptance_contract,
+    default_deliverable_business_verifiers,
     registered_artifact_business_verifiers,
     review_artifact_acceptance,
     run_registered_artifact_business_verifiers,
@@ -96,6 +97,16 @@ def test_business_verifier_registry_is_declarative_and_fail_closed() -> None:
     assert result["passed_count"] == 1
     assert result["skipped_count"] == 1
     assert result["checks"][1]["code"] == "verifier_not_registered"
+
+    requirements = default_deliverable_business_verifiers(["pptx", "pdf"])
+    format_specific = run_registered_artifact_business_verifiers(
+        {"metrics": {"slide_count": 6}},
+        requirements,
+        file_type="pptx",
+    )
+    assert format_specific["status"] == "passed"
+    assert format_specific["check_count"] == 1
+    assert format_specific["not_applicable_count"] == 1
 
 
 def test_acceptance_contract_keeps_human_signoff_bounded() -> None:
@@ -228,4 +239,34 @@ def test_technical_pass_without_skill_checklist_is_ready_without_review(
                 reason="无需人工验收。",
             )
         assert unnecessary.value.status_code == 409
+    engine.dispose()
+
+
+def test_structural_business_rules_gate_the_exact_generated_file(
+    tmp_path: Path,
+) -> None:
+    engine = _engine()
+    path = tmp_path / "structured.md"
+    path.write_text("# Finding\n\nEvidence line\n", encoding="utf-8")
+
+    with Session(engine) as session:
+        artifact, _ = _artifact(session, path)
+        artifact.deliverable_business_verifiers_json = (
+            '[{"expected_min":3,"verifier_id":"min_line_count"}]'
+        )
+        session.add(artifact)
+        session.commit()
+        passed = artifact_acceptance_projection(session, artifact)
+        assert passed["business_automation"]["status"] == "passed"
+        assert passed["final_delivery_allowed"] is True
+
+        artifact.deliverable_business_verifiers_json = (
+            '[{"expected_min":4,"verifier_id":"min_line_count"}]'
+        )
+        session.add(artifact)
+        session.commit()
+        blocked = artifact_acceptance_projection(session, artifact)
+        assert blocked["business_automation"]["status"] == "failed"
+        assert blocked["delivery_status"] == "blocked"
+        assert blocked["final_delivery_allowed"] is False
     engine.dispose()

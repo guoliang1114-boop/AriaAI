@@ -531,6 +531,13 @@ def persist_run_artifacts(
                     deliverable.get("skill_release_sha256")
                     or existing.deliverable_skill_release_sha256
                 )
+                if deliverable:
+                    existing.deliverable_business_verifiers_json = json.dumps(
+                        deliverable.get("business_verifiers") or [],
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
                 if description:
                     existing.description = description
                 if mime_type:
@@ -566,6 +573,12 @@ def persist_run_artifacts(
                     ),
                     deliverable_skill_release_sha256=str(
                         deliverable.get("skill_release_sha256") or ""
+                    ),
+                    deliverable_business_verifiers_json=json.dumps(
+                        deliverable.get("business_verifiers") or [],
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
                     ),
                     saved_to_project_by_user_id=(
                         actor_user_id if isinstance(project_file_id, int) else None

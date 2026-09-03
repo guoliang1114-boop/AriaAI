@@ -42,12 +42,16 @@ def test_revision_045_adds_release_bound_deliverable_fields_idempotently() -> No
     engine.dispose()
 
 
-def test_revision_045_is_the_single_alembic_head() -> None:
+def test_revision_045_precedes_the_single_alembic_head() -> None:
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "alembic"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["045_v1_45"]
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert "045_v1_45" in {
+        item.revision for item in script.walk_revisions(base="base", head=heads[0])
+    }
     latest = script.get_revision("045_v1_45")
     assert latest is not None
     assert latest.down_revision == "044_v1_44"

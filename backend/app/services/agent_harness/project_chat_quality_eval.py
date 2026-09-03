@@ -54,6 +54,7 @@ from app.services.agent_harness.artifact_verification import (
 )
 from app.services.agent_harness.artifact_acceptance import (
     build_artifact_acceptance_contract,
+    default_deliverable_business_verifiers,
     registered_artifact_business_verifiers,
     run_registered_artifact_business_verifiers,
 )
@@ -1838,6 +1839,57 @@ def _skill_deliverable_contract_results() -> tuple[int, int, list[dict[str, Any]
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _skill_deliverable_business_verifier_results() -> tuple[
+    int, int, list[dict[str, Any]]
+]:
+    """Format-derived structural checks stay bounded and fail closed."""
+
+    requirements = default_deliverable_business_verifiers(["pptx", "pdf"])
+    passed = run_registered_artifact_business_verifiers(
+        {"metrics": {"slide_count": 4}},
+        requirements,
+        file_type="pptx",
+    )
+    failed = run_registered_artifact_business_verifiers(
+        {"metrics": {"slide_count": 2}},
+        requirements,
+        file_type="pptx",
+    )
+    unsupported = run_registered_artifact_business_verifiers(
+        {"metrics": {}},
+        requirements,
+        file_type="docx",
+    )
+    details = [
+        {
+            "case": "deliverable_formats_map_to_aria_owned_structural_rules",
+            "passed": requirements
+            == [
+                {"verifier_id": "min_slide_count", "expected_min": 3},
+                {"verifier_id": "min_page_count", "expected_min": 1},
+            ],
+        },
+        {
+            "case": "multi_format_contract_runs_only_the_actual_file_type_rule",
+            "passed": passed["status"] == "passed"
+            and passed["passed_count"] == 1
+            and passed["not_applicable_count"] == 1,
+        },
+        {
+            "case": "structural_threshold_failure_blocks_delivery",
+            "passed": failed["status"] == "failed"
+            and failed["failed_count"] == 1,
+        },
+        {
+            "case": "unmatched_artifact_type_fails_closed_without_code_execution",
+            "passed": unsupported["status"] == "partial"
+            and unsupported["checks"][0]["code"]
+            == "artifact_file_type_not_configured",
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1863,6 +1915,9 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "artifact_verification_accuracy": _artifact_verification_results(),
         "artifact_acceptance_safety_rate": _artifact_acceptance_results(),
         "skill_deliverable_contract_accuracy": _skill_deliverable_contract_results(),
+        "skill_deliverable_business_verifier_accuracy": (
+            _skill_deliverable_business_verifier_results()
+        ),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
         "question_answer_readiness_accuracy": _question_answer_readiness_results(),

@@ -122,6 +122,10 @@ export interface ContextSkillRuntimeContract {
     stage: string;
     save_targets: string[];
     requires_review: boolean;
+    business_verifiers: Array<{
+      verifier_id: string;
+      expected_min: number;
+    }>;
     contract_sha256: string;
     catalog_sha256: string;
     skill_release_sha256: string;

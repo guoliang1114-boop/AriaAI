@@ -253,6 +253,7 @@ jobs:
                 tests/test_artifact_acceptance.py \
                 tests/test_artifact_acceptance_migration.py \
                 tests/test_generated_file_deliverable_migration.py \
+                tests/test_artifact_knowledge_archive_migration.py \
                 tests/test_active_chat_run_lease.py \
                 tests/test_active_chat_run_lease_migration.py \
                 tests/test_agent_loop_durable_boundaries.py \

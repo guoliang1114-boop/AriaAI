@@ -4,9 +4,9 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -14,6 +14,16 @@ from sqlmodel import Session, select
 from app.config import UPLOADS_DIR
 from app.database import get_session
 from app.models.db import ArtifactVerification, GeneratedFile, ProjectFile, User
+from app.models.knowledge import (
+    ArtifactKnowledgeArchive,
+    KnowledgeJob,
+    KnowledgeSource,
+    KnowledgeV1Document,
+)
+from app.jobs.knowledge_jobs import (
+    enqueue_knowledge_job,
+    process_knowledge_job_by_id,
+)
 from app.routers.auth import get_current_user
 from app.routers.chat_security import require_conversation_access, require_project_access
 from app.services.upload_paths import normalize_relative_upload_path, resolve_upload_path
@@ -27,6 +37,15 @@ from app.services.agent_harness.artifact_acceptance import (
     review_artifact_acceptance,
 )
 from app.services.cache import projects_cache
+from app.services.knowledge_ingestion import (
+    SUPPORTED_SOURCE_FILE_TYPES,
+    normalize_file_type,
+    register_document_from_bytes,
+)
+from app.services.knowledge_permissions import (
+    can_access_source,
+    lock_and_require_source_write,
+)
 from app.services.project_contexts import mark_project_memory_stale
 from app.services.time_utils import utc_now_naive
 
@@ -53,6 +72,7 @@ class ArtifactOut(BaseModel):
     deliverable_contract_sha256: str = ""
     deliverable_catalog_sha256: str = ""
     deliverable_skill_release_sha256: str = ""
+    deliverable_business_verifiers_json: str = "[]"
     saved_to_project_by_user_id: Optional[int] = None
     saved_to_project_at: Optional[datetime] = None
     created_at: datetime
@@ -72,12 +92,96 @@ class ArtifactProjectSaveRequest(BaseModel):
     )
 
 
+class ArtifactKnowledgeArchiveRequest(BaseModel):
+    source_id: int = Field(ge=1)
+    confirm_archive: Literal[True]
+    expected_content_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+
+
 def _file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _verified_artifact_file(
+    session: Session,
+    artifact: GeneratedFile,
+    expected_sha256: str,
+) -> tuple[Path, ArtifactVerification, dict]:
+    expected_sha256 = str(expected_sha256 or "").lower()
+    if expected_sha256 != str(artifact.content_sha256 or "").lower():
+        raise HTTPException(409, "Artifact content changed; reload before saving")
+    verification = session.exec(
+        select(ArtifactVerification)
+        .where(ArtifactVerification.generated_file_id == artifact.id)
+        .order_by(
+            ArtifactVerification.created_at.desc(),
+            ArtifactVerification.id.desc(),
+        )
+    ).first()
+    evidence = (
+        artifact_verification_evidence_payload(verification)
+        if verification is not None
+        else {}
+    )
+    if (
+        not evidence
+        or evidence.get("content_sha256") != expected_sha256
+        or evidence.get("technical_status") != "passed"
+    ):
+        raise HTTPException(
+            409,
+            "Artifact technical verification must pass before this action",
+        )
+    file_path = resolve_upload_path(UPLOADS_DIR, artifact.path, must_exist=True)
+    if _file_sha256(file_path) != expected_sha256:
+        raise HTTPException(409, "Artifact bytes changed; regenerate or verify again")
+    return file_path, verification, evidence
+
+
+def _knowledge_archive_payload(
+    session: Session,
+    archive: ArtifactKnowledgeArchive,
+) -> dict:
+    document = (
+        session.get(KnowledgeV1Document, archive.knowledge_document_id)
+        if archive.knowledge_document_id is not None
+        else None
+    )
+    job = None
+    if document is not None:
+        job = session.exec(
+            select(KnowledgeJob)
+            .where(KnowledgeJob.document_id == document.id)
+            .order_by(KnowledgeJob.created_at.desc(), KnowledgeJob.id.desc())
+        ).first()
+    return {
+        "schema_version": 1,
+        "archive_id": int(archive.id or 0),
+        "artifact_id": int(archive.generated_file_id),
+        "source_id": archive.knowledge_source_id,
+        "source_name": archive.source_name,
+        "source_scope_type": archive.source_scope_type,
+        "source_scope_id": archive.source_scope_id,
+        "document_id": archive.knowledge_document_id,
+        "document_status": document.status if document is not None else "unavailable",
+        "job_id": job.id if job is not None else None,
+        "job_status": job.status if job is not None else None,
+        "content_sha256": archive.content_sha256,
+        "deliverable_contract_sha256": archive.deliverable_contract_sha256,
+        "requested_by_user_id": archive.requested_by_user_id,
+        "created_at": archive.created_at,
+        "writes_project_memory": False,
+        "writes_client_memory": False,
+        "sends_external_messages": False,
+    }
 
 
 def _authorize_artifact(
@@ -257,35 +361,11 @@ def save_artifact_to_project(
     if artifact.project_id is None:
         raise HTTPException(409, "Artifact is not bound to a project")
     expected_sha256 = body.expected_content_sha256.lower()
-    if expected_sha256 != str(artifact.content_sha256 or "").lower():
-        raise HTTPException(409, "Artifact content changed; reload before saving")
-
-    verification = session.exec(
-        select(ArtifactVerification)
-        .where(ArtifactVerification.generated_file_id == artifact_id)
-        .order_by(
-            ArtifactVerification.created_at.desc(),
-            ArtifactVerification.id.desc(),
-        )
-    ).first()
-    verification_evidence = (
-        artifact_verification_evidence_payload(verification)
-        if verification is not None
-        else {}
+    file_path, verification, _ = _verified_artifact_file(
+        session,
+        artifact,
+        expected_sha256,
     )
-    if (
-        not verification_evidence
-        or verification_evidence.get("content_sha256") != expected_sha256
-        or verification_evidence.get("technical_status") != "passed"
-    ):
-        raise HTTPException(
-            409,
-            "Artifact technical verification must pass before project save",
-        )
-
-    file_path = resolve_upload_path(UPLOADS_DIR, artifact.path, must_exist=True)
-    if _file_sha256(file_path) != expected_sha256:
-        raise HTTPException(409, "Artifact bytes changed; regenerate or verify again")
 
     project_file = None
     if artifact.project_file_id is not None:
@@ -357,6 +437,163 @@ def save_artifact_to_project(
         "invalidates_derived_project_memory": created,
         "writes_knowledge_base": False,
         "sends_external_messages": False,
+    }
+
+
+@router.get("/{artifact_id}/knowledge-archives")
+def list_artifact_knowledge_archives(
+    artifact_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    artifact = session.get(GeneratedFile, artifact_id)
+    if artifact is None:
+        raise HTTPException(404, "Artifact not found")
+    _authorize_artifact(session, artifact, current_user)
+    archives = session.exec(
+        select(ArtifactKnowledgeArchive)
+        .where(ArtifactKnowledgeArchive.generated_file_id == artifact_id)
+        .order_by(
+            ArtifactKnowledgeArchive.created_at.desc(),
+            ArtifactKnowledgeArchive.id.desc(),
+        )
+    ).all()
+    visible = []
+    for archive in archives:
+        source = (
+            session.get(KnowledgeSource, archive.knowledge_source_id)
+            if archive.knowledge_source_id is not None
+            else None
+        )
+        if source is not None and can_access_source(current_user, source, session):
+            visible.append(_knowledge_archive_payload(session, archive))
+    return visible
+
+
+@router.post("/{artifact_id}/archive-to-knowledge", status_code=202)
+def archive_artifact_to_knowledge(
+    artifact_id: int,
+    body: ArtifactKnowledgeArchiveRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Explicitly register and independently index a delivery-ready artifact."""
+
+    artifact = session.exec(
+        select(GeneratedFile)
+        .where(GeneratedFile.id == artifact_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if artifact is None:
+        raise HTTPException(404, "Artifact not found")
+    _authorize_artifact(session, artifact, current_user, require_write=True)
+    expected_sha256 = body.expected_content_sha256.lower()
+    file_path, verification, _ = _verified_artifact_file(
+        session,
+        artifact,
+        expected_sha256,
+    )
+    acceptance = artifact_acceptance_projection(session, artifact, verification)
+    if not acceptance["final_delivery_allowed"]:
+        raise HTTPException(
+            409,
+            "Artifact final delivery gate must be ready before knowledge archive",
+        )
+
+    source, actor = lock_and_require_source_write(
+        session,
+        body.source_id,
+        current_user,
+    )
+    if source.status != "active":
+        raise HTTPException(409, "Knowledge source is not active")
+    existing = session.exec(
+        select(ArtifactKnowledgeArchive)
+        .where(
+            ArtifactKnowledgeArchive.generated_file_id == artifact_id,
+            ArtifactKnowledgeArchive.knowledge_source_id == source.id,
+            ArtifactKnowledgeArchive.content_sha256 == expected_sha256,
+        )
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if existing is not None:
+        return {
+            **_knowledge_archive_payload(session, existing),
+            "archive_created": False,
+            "document_created": False,
+            "indexing_enqueued": False,
+        }
+
+    file_type = normalize_file_type(artifact.name)
+    if file_type not in SUPPORTED_SOURCE_FILE_TYPES:
+        raise HTTPException(
+            409,
+            f"Artifact type cannot be indexed in knowledge: {file_type}",
+        )
+    content = file_path.read_bytes()
+    document, document_created = register_document_from_bytes(
+        session=session,
+        source=source,
+        file_name=artifact.name,
+        content=content,
+        source_metadata={
+            "origin": "generated_artifact",
+            "generated_file_id": int(artifact.id),
+            "project_id": artifact.project_id,
+            "content_sha256": expected_sha256,
+            "deliverable_id": str(artifact.deliverable_id or "")[:80],
+            "deliverable_contract_sha256": str(
+                artifact.deliverable_contract_sha256 or ""
+            )[:64],
+            "deliverable_catalog_sha256": str(
+                artifact.deliverable_catalog_sha256 or ""
+            )[:64],
+            "skill_release_sha256": str(
+                artifact.deliverable_skill_release_sha256 or ""
+            )[:64],
+            "archive_authority": "explicit_user_action",
+        },
+    )
+    archive = ArtifactKnowledgeArchive(
+        generated_file_id=int(artifact.id),
+        knowledge_source_id=int(source.id),
+        knowledge_document_id=int(document.id),
+        content_sha256=expected_sha256,
+        deliverable_contract_sha256=str(
+            artifact.deliverable_contract_sha256 or ""
+        )[:64],
+        source_name=str(source.name or "")[:255],
+        source_scope_type=str(source.scope_type or "")[:50],
+        source_scope_id=source.scope_id,
+        requested_by_user_id=actor.id,
+    )
+    session.add(archive)
+    session.flush()
+    job = None
+    if document.status != "indexed":
+        job = enqueue_knowledge_job(
+            session,
+            job_type="index_document",
+            document_id=int(document.id),
+            source_id=int(source.id),
+            requested_by_user_id=int(actor.id),
+        )
+    session.commit()
+    session.refresh(archive)
+    if job is not None:
+        background_tasks.add_task(
+            process_knowledge_job_by_id,
+            int(job.id),
+            session.get_bind(),
+        )
+    return {
+        **_knowledge_archive_payload(session, archive),
+        "archive_created": True,
+        "document_created": document_created,
+        "indexing_enqueued": job is not None,
     }
 
 

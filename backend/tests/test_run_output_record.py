@@ -250,6 +250,9 @@ def test_persist_run_artifacts_binds_exact_skill_deliverable(tmp_path, monkeypat
         "stage": "diagnosis_and_analysis",
         "save_targets": ["project_documents", "knowledge_base"],
         "requires_review": True,
+        "business_verifiers": [
+            {"verifier_id": "min_line_count", "expected_min": 3}
+        ],
         "contract_sha256": "a" * 64,
         "catalog_sha256": "b" * 64,
         "skill_release_sha256": "c" * 64,

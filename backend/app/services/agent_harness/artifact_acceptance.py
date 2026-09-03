@@ -7,6 +7,7 @@ registered rule remain a human review responsibility.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -97,6 +98,40 @@ _BUSINESS_VERIFIERS: tuple[ArtifactBusinessVerifier, ...] = (
 _BUSINESS_VERIFIERS_BY_ID = {
     item.verifier_id: item for item in _BUSINESS_VERIFIERS
 }
+_DEFAULT_DELIVERABLE_BUSINESS_VERIFIERS = {
+    "pptx": ("min_slide_count", 3),
+    "xlsx": ("min_worksheet_count", 1),
+    "docx": ("min_paragraph_count", 3),
+    "pdf": ("min_page_count", 1),
+    "md": ("min_line_count", 3),
+    "markdown": ("min_line_count", 3),
+    "txt": ("min_line_count", 3),
+    "json": ("min_line_count", 1),
+    "csv": ("min_row_count", 2),
+    "html": ("min_line_count", 3),
+}
+
+
+def default_deliverable_business_verifiers(
+    formats: Iterable[str] | None,
+) -> list[dict[str, Any]]:
+    """Map declared output formats to bounded Aria-owned structural rules."""
+
+    requirements: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_format in list(formats or ())[:8]:
+        file_type = str(raw_format or "").strip().lower().lstrip(".")
+        requirement = _DEFAULT_DELIVERABLE_BUSINESS_VERIFIERS.get(file_type)
+        if requirement is None or requirement[0] in seen:
+            continue
+        seen.add(requirement[0])
+        requirements.append(
+            {
+                "verifier_id": requirement[0],
+                "expected_min": requirement[1],
+            }
+        )
+    return requirements
 
 
 def registered_artifact_business_verifiers() -> dict[str, Any]:
@@ -122,6 +157,8 @@ def registered_artifact_business_verifiers() -> dict[str, Any]:
 def run_registered_artifact_business_verifiers(
     verification: dict[str, Any],
     requirements: Iterable[dict[str, Any]] | None,
+    *,
+    file_type: str = "",
 ) -> dict[str, Any]:
     """Evaluate only whitelisted metric thresholds against bounded evidence."""
 
@@ -141,7 +178,15 @@ def run_registered_artifact_business_verifiers(
     metrics = verification.get("metrics")
     if not isinstance(metrics, dict):
         metrics = {}
+    normalized_file_type = str(file_type or "").strip().lower().lstrip(".")
+    normalized_file_type = {
+        "ppt": "pptx",
+        "doc": "docx",
+        "word": "docx",
+        "excel": "xlsx",
+    }.get(normalized_file_type, normalized_file_type)
     checks: list[dict[str, Any]] = []
+    known_not_applicable = 0
     for position, requirement in enumerate(raw_requirements):
         if not isinstance(requirement, dict):
             checks.append(
@@ -163,6 +208,12 @@ def run_registered_artifact_business_verifiers(
                     "code": "verifier_not_registered",
                 }
             )
+            continue
+        if (
+            normalized_file_type
+            and normalized_file_type not in verifier.supported_file_types
+        ):
+            known_not_applicable += 1
             continue
         try:
             expected_min = int(requirement.get("expected_min"))
@@ -204,6 +255,15 @@ def run_registered_artifact_business_verifiers(
             }
         )
 
+    if not checks and known_not_applicable:
+        checks.append(
+            {
+                "position": 0,
+                "status": "skipped",
+                "code": "artifact_file_type_not_configured",
+            }
+        )
+
     passed_count = sum(item["status"] == "passed" for item in checks)
     failed_count = sum(item["status"] == "failed" for item in checks)
     skipped_count = sum(item["status"] == "skipped" for item in checks)
@@ -216,6 +276,7 @@ def run_registered_artifact_business_verifiers(
         "passed_count": passed_count,
         "failed_count": failed_count,
         "skipped_count": skipped_count,
+        "not_applicable_count": known_not_applicable,
         "checks": checks,
     }
 
@@ -262,6 +323,25 @@ def _latest_verification(
     if for_update:
         statement = statement.with_for_update()
     return session.exec(statement).first()
+
+
+def _artifact_business_automation(
+    artifact: GeneratedFile,
+    verification: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        requirements = json.loads(
+            str(artifact.deliverable_business_verifiers_json or "[]")
+        )
+    except json.JSONDecodeError:
+        requirements = [{"verifier_id": "invalid_stored_contract"}]
+    if not isinstance(requirements, list):
+        requirements = [{"verifier_id": "invalid_stored_contract"}]
+    return run_registered_artifact_business_verifiers(
+        verification,
+        requirements,
+        file_type=artifact.file_type,
+    )
 
 
 def _review_history(
@@ -326,7 +406,11 @@ def artifact_acceptance_projection(
         raise HTTPException(status_code=409, detail="Artifact acceptance scope is inconsistent")
 
     evidence_status = str(reference["status"])
-    if evidence_status in {"failed", "partial"}:
+    business_automation = _artifact_business_automation(artifact, reference)
+    if (
+        evidence_status in {"failed", "partial"}
+        or business_automation["status"] in {"failed", "partial"}
+    ):
         review_status = "blocked"
         delivery_status = "blocked"
         allowed_decisions: list[str] = []
@@ -369,8 +453,7 @@ def artifact_acceptance_projection(
         "human_judgment_only": True,
         "acceptance_is_truth_verdict": False,
         "business_automation": {
-            "registry_version": BUSINESS_VERIFIER_REGISTRY_VERSION,
-            "status": "not_configured",
+            **business_automation,
             "registered_verifier_count": len(_BUSINESS_VERIFIERS),
             "skill_package_code_executable": False,
         },
@@ -428,6 +511,12 @@ def review_artifact_acceptance(
         raise HTTPException(status_code=409, detail="Artifact verification evidence is invalid")
     if reference["content_sha256"] != str(artifact.content_sha256 or "").lower():
         raise HTTPException(status_code=409, detail="Artifact verification is stale")
+    business_automation = _artifact_business_automation(artifact, reference)
+    if business_automation["status"] not in {"not_configured", "passed"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Artifact structural business checks must pass before review",
+        )
     if reference["status"] != "manual_required":
         raise HTTPException(
             status_code=409,

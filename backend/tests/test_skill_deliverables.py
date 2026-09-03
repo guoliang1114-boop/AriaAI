@@ -43,6 +43,7 @@ def test_all_builtin_skills_expose_stable_structured_deliverables() -> None:
         assert all(len(item["contract_sha256"]) == 64 for item in catalog["items"])
         assert all(item["memory_policy"] == "explicit_user_confirmation" for item in catalog["items"])
         assert all(item["requires_review"] is True for item in catalog["items"])
+        assert all(item["business_verifiers"] for item in catalog["items"])
         total_items += catalog["item_count"]
 
     assert total_items >= 300
@@ -74,6 +75,10 @@ def test_selection_is_bound_to_exact_catalog_and_item_contract() -> None:
     assert resolved["formats"] == ["pptx", "pdf"]
     assert reference["skill_release_sha256"] == "a" * 64
     assert reference["contract_sha256"] == item["contract_sha256"]
+    assert reference["business_verifiers"] == [
+        {"verifier_id": "min_slide_count", "expected_min": 3},
+        {"verifier_id": "min_page_count", "expected_min": 1},
+    ]
     rendered = format_skill_deliverable_for_prompt(resolved)
     assert "Executive deck" in rendered
     assert "Do not silently switch" in rendered
@@ -107,7 +112,9 @@ Run scripts/publish.py.
     catalog = build_skill_deliverable_catalog(_skill(prompt))
 
     assert catalog["item_count"] == 1
-    assert catalog["items"][0]["business_verifiers"] == []
+    assert catalog["items"][0]["business_verifiers"] == [
+        {"verifier_id": "min_line_count", "expected_min": 3}
+    ]
     assert "scripts/publish.py" not in str(catalog)
 
 

@@ -17,9 +17,15 @@ from app.models.db import (
     ProjectFile,
     User,
 )
+from app.models.knowledge import (
+    ArtifactKnowledgeArchive,
+    KnowledgeSource,
+    KnowledgeV1Document,
+)
 from app.routers import artifacts as artifacts_module
 from app.routers.artifacts import router
 from app.database import get_session
+from app.services import knowledge_ingestion as knowledge_ingestion_module
 from tests.test_database import create_test_engine, drop_all_tables
 from app.services.agent_harness.artifact_verification import persist_artifact_verification
 
@@ -34,7 +40,9 @@ class ArtifactsRouterTestCase(unittest.TestCase):
         self.uploads_dir = Path(self.tmpdir) / "uploads"
         self.uploads_dir.mkdir()
         self.original_uploads_dir = artifacts_module.UPLOADS_DIR
+        self.original_knowledge_uploads_dir = knowledge_ingestion_module.UPLOADS_DIR
         artifacts_module.UPLOADS_DIR = self.uploads_dir
+        knowledge_ingestion_module.UPLOADS_DIR = self.uploads_dir
 
         with Session(self.engine) as session:
             user = User(email="test@test.com", password_hash="h", display_name="T")
@@ -158,6 +166,7 @@ class ArtifactsRouterTestCase(unittest.TestCase):
 
     def tearDown(self):
         artifacts_module.UPLOADS_DIR = self.original_uploads_dir
+        knowledge_ingestion_module.UPLOADS_DIR = self.original_knowledge_uploads_dir
         SQLModel.metadata.drop_all(self.engine)
         self.engine.dispose()
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -272,6 +281,136 @@ class ArtifactsRouterTestCase(unittest.TestCase):
         )
 
         self.assertEqual(resp.status_code, 409)
+
+    def test_archive_delivery_ready_artifact_to_selected_knowledge_source(self):
+        with Session(self.engine) as session:
+            project = Project(name="Knowledge archive", client="Client")
+            session.add(project)
+            session.flush()
+            source = KnowledgeSource(
+                name="User source",
+                source_type="manual_upload",
+                scope_type="user",
+                owner_user_id=self.user_id,
+            )
+            session.add(source)
+            artifact = session.get(GeneratedFile, self.artifact_id)
+            artifact.project_id = project.id
+            session.add(artifact)
+            session.commit()
+            source_id = int(source.id)
+            digest = artifact.content_sha256
+
+        first = self.client.post(
+            f"/artifacts/{self.artifact_id}/archive-to-knowledge",
+            json={
+                "source_id": source_id,
+                "confirm_archive": True,
+                "expected_content_sha256": digest,
+            },
+        )
+        second = self.client.post(
+            f"/artifacts/{self.artifact_id}/archive-to-knowledge",
+            json={
+                "source_id": source_id,
+                "confirm_archive": True,
+                "expected_content_sha256": digest,
+            },
+        )
+        listed = self.client.get(
+            f"/artifacts/{self.artifact_id}/knowledge-archives"
+        )
+
+        self.assertEqual(first.status_code, 202, first.text)
+        self.assertEqual(second.status_code, 202, second.text)
+        self.assertTrue(first.json()["archive_created"])
+        self.assertFalse(second.json()["archive_created"])
+        self.assertFalse(first.json()["writes_project_memory"])
+        self.assertFalse(first.json()["writes_client_memory"])
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(len(listed.json()), 1)
+        with Session(self.engine) as session:
+            self.assertEqual(
+                len(session.exec(select(ArtifactKnowledgeArchive)).all()),
+                1,
+            )
+            documents = session.exec(select(KnowledgeV1Document)).all()
+            self.assertEqual(len(documents), 1)
+            self.assertEqual(documents[0].content_hash, digest)
+
+    def test_archive_to_knowledge_requires_final_delivery_gate(self):
+        with Session(self.engine) as session:
+            source = KnowledgeSource(
+                name="Private source",
+                source_type="manual_upload",
+                scope_type="user",
+                owner_user_id=self.user_id,
+            )
+            session.add(source)
+            session.commit()
+            source_id = int(source.id)
+            artifact = session.get(GeneratedFile, self.manual_artifact_id)
+            digest = artifact.content_sha256
+
+        response = self.client.post(
+            f"/artifacts/{self.manual_artifact_id}/archive-to-knowledge",
+            json={
+                "source_id": source_id,
+                "confirm_archive": True,
+                "expected_content_sha256": digest,
+            },
+        )
+
+        self.assertEqual(response.status_code, 409)
+
+    def test_archive_to_knowledge_rechecks_target_source_write_permission(self):
+        with Session(self.engine) as session:
+            source = KnowledgeSource(
+                name="Other user source",
+                source_type="manual_upload",
+                scope_type="user",
+                owner_user_id=self.other_user_id,
+            )
+            session.add(source)
+            session.commit()
+            source_id = int(source.id)
+            artifact = session.get(GeneratedFile, self.artifact_id)
+            digest = artifact.content_sha256
+
+        response = self.client.post(
+            f"/artifacts/{self.artifact_id}/archive-to-knowledge",
+            json={
+                "source_id": source_id,
+                "confirm_archive": True,
+                "expected_content_sha256": digest,
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_archive_to_knowledge_requires_explicit_confirmation(self):
+        with Session(self.engine) as session:
+            source = KnowledgeSource(
+                name="Confirmation source",
+                source_type="manual_upload",
+                scope_type="user",
+                owner_user_id=self.user_id,
+            )
+            session.add(source)
+            session.commit()
+            source_id = int(source.id)
+            artifact = session.get(GeneratedFile, self.artifact_id)
+            digest = artifact.content_sha256
+
+        response = self.client.post(
+            f"/artifacts/{self.artifact_id}/archive-to-knowledge",
+            json={
+                "source_id": source_id,
+                "expected_content_sha256": digest,
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
 
     def test_get_acceptance_marks_technical_pass_without_skill_checks_ready(self):
         resp = self.client.get(f"/artifacts/{self.artifact_id}/acceptance")

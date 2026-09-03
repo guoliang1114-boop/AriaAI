@@ -15,7 +15,7 @@ permissions:
 jobs:
   database-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Backup and test production PostgreSQL
@@ -25,10 +25,10 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
           port: ${{ secrets.SERVER_PORT || '22' }}
-          # The PostgreSQL suite currently takes about ten minutes on the
-          # production host. Keep this below the 30-minute job limit while
-          # leaving enough time for backup and postflight cleanup.
-          command_timeout: 25m
+          # The PostgreSQL suite currently takes about 25 minutes on the
+          # production host. Keep enough headroom for the verified backup,
+          # public-schema postflight, and abandoned-schema cleanup.
+          command_timeout: 35m
           script: |
             set -eu
 
@@ -357,6 +357,7 @@ jobs:
                         "tests/test_artifact_acceptance.py",
                         "tests/test_artifact_acceptance_migration.py",
                         "tests/test_generated_file_deliverable_migration.py",
+                        "tests/test_artifact_knowledge_archive_migration.py",
                         "tests/test_active_chat_run_lease.py",
                         "tests/test_active_chat_run_lease_migration.py",
                         "tests/test_active_chat_run_lease_postgres.py",

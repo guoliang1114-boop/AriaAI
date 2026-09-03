@@ -9,6 +9,10 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.services.agent_harness.artifact_acceptance import (
+    default_deliverable_business_verifiers,
+)
+
 
 SKILL_DELIVERABLE_CATALOG_SCHEMA_VERSION = 1
 MAX_DELIVERABLES_PER_SKILL = 24
@@ -164,7 +168,9 @@ def parse_skill_deliverable_catalog(prompt: str) -> list[dict[str, Any]]:
             "save_targets": _save_targets(formats, name),
             "memory_policy": "explicit_user_confirmation",
             "requires_review": True,
-            "business_verifiers": [],
+            "business_verifiers": default_deliverable_business_verifiers(
+                formats
+            ),
         }
         core["contract_sha256"] = _sha256(core)
         items.append(core)
@@ -287,6 +293,25 @@ def skill_deliverable_reference(value: dict[str, Any] | None) -> dict[str, Any]:
         if isinstance(raw_save_targets, (list, tuple))
         else []
     )
+    raw_business_verifiers = value.get("business_verifiers", [])
+    if raw_business_verifiers is None:
+        raw_business_verifiers = []
+    business_verifiers: list[dict[str, Any]] = []
+    if not isinstance(raw_business_verifiers, (list, tuple)):
+        return {}
+    for requirement in raw_business_verifiers[:16]:
+        if not isinstance(requirement, dict):
+            return {}
+        verifier_id = _single_line(requirement.get("verifier_id"), 80)
+        try:
+            expected_min = int(requirement.get("expected_min"))
+        except (TypeError, ValueError):
+            return {}
+        if not verifier_id or expected_min < 1 or expected_min > 1_000_000:
+            return {}
+        business_verifiers.append(
+            {"verifier_id": verifier_id, "expected_min": expected_min}
+        )
     return {
         "schema_version": SKILL_DELIVERABLE_CATALOG_SCHEMA_VERSION,
         "deliverable_id": deliverable_id,
@@ -296,6 +321,7 @@ def skill_deliverable_reference(value: dict[str, Any] | None) -> dict[str, Any]:
         "stage": _single_line(value.get("stage"), 48),
         "save_targets": save_targets,
         "requires_review": bool(value.get("requires_review", True)),
+        "business_verifiers": business_verifiers,
         "contract_sha256": contract_sha256,
         "catalog_sha256": catalog_sha256,
         "skill_release_sha256": skill_release_sha256,

@@ -985,6 +985,10 @@ export interface SkillDeliverableReference {
   stage: string
   save_targets: string[]
   requires_review: boolean
+  business_verifiers: Array<{
+    verifier_id: string
+    expected_min: number
+  }>
   contract_sha256: string
   catalog_sha256: string
   skill_release_sha256: string
@@ -1957,6 +1961,7 @@ export interface GeneratedArtifact {
   deliverable_contract_sha256?: string
   deliverable_catalog_sha256?: string
   deliverable_skill_release_sha256?: string
+  deliverable_business_verifiers_json?: string
   deliverable?: SkillDeliverableReference
   persistence_status?: "persisted" | "failed" | string
   recovery_verified?: boolean
@@ -1980,6 +1985,41 @@ export interface ArtifactProjectSaveResponse {
   invalidates_derived_project_memory: boolean
   writes_knowledge_base: false
   sends_external_messages: false
+}
+
+export interface KnowledgeSourceSummary {
+  id: number
+  name: string
+  source_type: string
+  scope_type: string
+  scope_id?: number | null
+  owner_user_id?: number | null
+  status: string
+  can_write?: boolean
+}
+
+export interface ArtifactKnowledgeArchive {
+  schema_version: 1
+  archive_id: number
+  artifact_id: number
+  source_id?: number | null
+  source_name: string
+  source_scope_type: string
+  source_scope_id?: number | null
+  document_id?: number | null
+  document_status: string
+  job_id?: number | null
+  job_status?: string | null
+  content_sha256: string
+  deliverable_contract_sha256: string
+  requested_by_user_id?: number | null
+  created_at: string
+  writes_project_memory: false
+  writes_client_memory: false
+  sends_external_messages: false
+  archive_created?: boolean
+  document_created?: boolean
+  indexing_enqueued?: boolean
 }
 
 export type ArtifactAcceptanceReviewStatus =
@@ -2033,6 +2073,20 @@ export interface ArtifactAcceptanceProjection {
   business_automation: {
     registry_version: number
     status: "not_configured" | "passed" | "failed" | "partial"
+    check_count: number
+    passed_count: number
+    failed_count: number
+    skipped_count: number
+    not_applicable_count?: number
+    checks: Array<{
+      position: number
+      verifier_id?: string
+      metric?: string
+      expected_min?: number
+      actual?: number
+      status: "passed" | "failed" | "skipped"
+      code?: string
+    }>
     registered_verifier_count: number
     skill_package_code_executable: false
   }

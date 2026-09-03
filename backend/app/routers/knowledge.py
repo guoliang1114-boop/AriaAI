@@ -372,7 +372,10 @@ def list_knowledge_sources(
         )
     ).all()
     return [
-        _source_to_dict(source)
+        {
+            **_source_to_dict(source),
+            "can_write": can_write_source(current_user, source, session),
+        }
         for source in sources
         if can_access_source(current_user, source, session)
     ]
