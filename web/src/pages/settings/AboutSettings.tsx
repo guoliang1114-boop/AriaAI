@@ -204,10 +204,6 @@ export function AboutSettings() {
     },
   ]
 
-  useEffect(() => {
-    void loadSystemInfo()
-  }, [])
-
   const loadSystemInfo = async () => {
     try {
       setLoading(true)
@@ -229,6 +225,10 @@ export function AboutSettings() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    void loadSystemInfo()
+  }, [])
 
   const copyVersionInfo = () => {
     const info = [
