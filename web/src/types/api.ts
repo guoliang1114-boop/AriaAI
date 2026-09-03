@@ -148,6 +148,7 @@ export interface MemoryReadAuthorityReport {
   ledger_value_count: number
   ready_slot_count: number
   stale_slot_count: number
+  stale_slots: string[]
   missing_slot_count: number
   missing_slots: string[]
   corrupt_slot_count: number
@@ -156,6 +157,12 @@ export interface MemoryReadAuthorityReport {
   aggregate_fallback_slots: string[]
   divergent_slot_count: number
   divergent_slots: string[]
+  divergent_slot_details: Array<{
+    slot_key: string
+    ledger_value_type: 'null' | 'boolean' | 'string' | 'array' | 'object' | 'number' | 'other'
+    aggregate_value_type: 'null' | 'boolean' | 'string' | 'array' | 'object' | 'number' | 'other'
+    aggregate_version_relation: 'behind' | 'equal' | 'ahead'
+  }>
   unexpected_slot_count: number
   aggregate_only_key_count: number
   aggregate_only_keys: string[]

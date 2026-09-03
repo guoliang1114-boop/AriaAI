@@ -391,6 +391,7 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             assert healthy["read_mode"] == "slot_ledger"
             assert healthy["ledger_value_count"] == len(PROJECT_MEMORY_SLOT_KEYS)
             assert healthy["aggregate_fallback_slot_count"] == 0
+            assert healthy["stale_slots"] == []
             assert healthy["business_slot_cutover_ready"] is True
             assert healthy["dual_write_consistent"] is True
             assert healthy["aggregate_container_retirement_ready"] is False
@@ -404,6 +405,14 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
                 aggregate,
             )
             assert divergent["divergent_slots"] == ["project_brief"]
+            assert divergent["divergent_slot_details"] == [
+                {
+                    "slot_key": "project_brief",
+                    "ledger_value_type": "string",
+                    "aggregate_value_type": "string",
+                    "aggregate_version_relation": "equal",
+                }
+            ]
             assert divergent["dual_write_consistent"] is False
             assert divergent["aggregate_only_unknown_key_count"] == 1
             assert "PRIVATE" not in json.dumps(divergent)
@@ -454,10 +463,30 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             assert fleet["corrupt_slot_count"] == 1
             assert fleet["corrupt_slots_by_key"] == {"financial_status": 1}
             assert fleet["safe_aggregate_only_keys_by_key"]["rebuild_log"] == 2
+            stale_fleet = summarize_memory_read_authority(
+                [
+                    {
+                        **healthy,
+                        "stale_slot_count": 1,
+                        "stale_slots": ["next_actions"],
+                    }
+                ]
+            )
+            assert stale_fleet["stale_slot_count"] == 1
+            assert stale_fleet["stale_slots_by_key"] == {"next_actions": 1}
             divergent_fleet = summarize_memory_read_authority([divergent])
             assert divergent_fleet["divergent_slots_by_key"] == {
                 "project_brief": 1
             }
+            assert divergent_fleet["divergence_profiles"] == [
+                {
+                    "slot_key": "project_brief",
+                    "ledger_value_type": "string",
+                    "aggregate_value_type": "string",
+                    "aggregate_version_relation": "equal",
+                    "count": 1,
+                }
+            ]
     finally:
         engine.dispose()
 

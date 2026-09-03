@@ -100,6 +100,32 @@ def _sha256_json(value: Any) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _json_value_type(value: Any) -> str:
+    """Return a content-free JSON type label for compatibility audits."""
+
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, Mapping):
+        return "object"
+    if isinstance(value, (int, float)):
+        return "number"
+    return "other"
+
+
+def _memory_version_relation(slot_version: int, aggregate_version: int) -> str:
+    if slot_version < aggregate_version:
+        return "behind"
+    if slot_version > aggregate_version:
+        return "ahead"
+    return "equal"
+
+
 def _iso(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -1165,6 +1191,14 @@ def build_memory_read_authority_report(
     missing_slots: list[str] = []
     corrupt_slots: list[str] = []
     divergent_slots: list[str] = []
+    divergent_slot_details: list[dict[str, Any]] = []
+    try:
+        current_aggregate_version = max(
+            0,
+            int(aggregate_payload.get("memory_version") or 0),
+        )
+    except (TypeError, ValueError):
+        current_aggregate_version = 0
     for slot_key in expected:
         row = row_by_key.get(slot_key)
         if row is None:
@@ -1192,6 +1226,21 @@ def build_memory_read_authority_report(
         )
         if _sha256_json(aggregate_value) != _sha256_json(value):
             divergent_slots.append(slot_key)
+            row_aggregate_version = max(
+                0,
+                int(row.aggregate_memory_version or 0),
+            )
+            divergent_slot_details.append(
+                {
+                    "slot_key": slot_key,
+                    "ledger_value_type": _json_value_type(value),
+                    "aggregate_value_type": _json_value_type(aggregate_value),
+                    "aggregate_version_relation": _memory_version_relation(
+                        row_aggregate_version,
+                        current_aggregate_version,
+                    ),
+                }
+            )
 
     fallback_set = set(missing_slots) | set(corrupt_slots)
     fallback_slots = [
@@ -1229,6 +1278,7 @@ def build_memory_read_authority_report(
         "ledger_value_count": len(ledger_slots),
         "ready_slot_count": len(ready_slots),
         "stale_slot_count": len(stale_slots),
+        "stale_slots": stale_slots,
         "missing_slot_count": len(missing_slots),
         "missing_slots": missing_slots,
         "corrupt_slot_count": len(corrupt_slots),
@@ -1237,6 +1287,7 @@ def build_memory_read_authority_report(
         "aggregate_fallback_slots": fallback_slots,
         "divergent_slot_count": len(divergent_slots),
         "divergent_slots": divergent_slots,
+        "divergent_slot_details": divergent_slot_details,
         "unexpected_slot_count": len(unexpected_slots),
         "aggregate_only_key_count": len(aggregate_only_keys),
         "aggregate_only_keys": safe_aggregate_only_keys,
@@ -1273,6 +1324,23 @@ def summarize_memory_read_authority(
         bool(item.get("business_slot_cutover_ready")) for item in items
     )
     consistent = sum(bool(item.get("dual_write_consistent")) for item in items)
+    divergence_profiles: dict[tuple[str, str, str, str], int] = {}
+    for item in items:
+        details = item.get("divergent_slot_details")
+        if not isinstance(details, list):
+            continue
+        for detail in details:
+            if not isinstance(detail, Mapping):
+                continue
+            profile = (
+                str(detail.get("slot_key") or ""),
+                str(detail.get("ledger_value_type") or "other"),
+                str(detail.get("aggregate_value_type") or "other"),
+                str(detail.get("aggregate_version_relation") or "equal"),
+            )
+            if not profile[0]:
+                continue
+            divergence_profiles[profile] = divergence_profiles.get(profile, 0) + 1
     return {
         "schema_version": 1,
         "entity_count": total,
@@ -1313,6 +1381,21 @@ def summarize_memory_read_authority(
             for item in items
         ),
         "divergent_slots_by_key": slot_counts("divergent_slots"),
+        "divergence_profiles": [
+            {
+                "slot_key": slot_key,
+                "ledger_value_type": ledger_type,
+                "aggregate_value_type": aggregate_type,
+                "aggregate_version_relation": version_relation,
+                "count": count,
+            }
+            for (
+                slot_key,
+                ledger_type,
+                aggregate_type,
+                version_relation,
+            ), count in sorted(divergence_profiles.items())
+        ],
         "corrupt_slot_count": sum(
             max(0, int(item.get("corrupt_slot_count") or 0))
             for item in items
