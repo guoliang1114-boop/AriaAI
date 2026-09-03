@@ -524,6 +524,16 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             ]
             assert divergent["dual_write_consistent"] is False
             assert divergent["aggregate_only_unknown_key_count"] == 1
+            unknown_fingerprint = hashlib.sha256(
+                b"aria.memory.aggregate-key.v1\0PRIVATE PERSON NAME"
+            ).hexdigest()
+            assert divergent["unknown_aggregate_key_profiles"] == [
+                {
+                    "key_sha256": unknown_fingerprint,
+                    "key_length": 19,
+                    "value_type": "string",
+                }
+            ]
             assert "PRIVATE" not in json.dumps(divergent)
 
             missing_row = session.exec(
@@ -596,6 +606,14 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
                     "count": 1,
                 }
             ]
+            assert divergent_fleet["unknown_aggregate_key_profiles"] == [
+                {
+                    "key_sha256": unknown_fingerprint,
+                    "key_length": 19,
+                    "value_type": "string",
+                    "count": 1,
+                }
+            ]
     finally:
         engine.dispose()
 
@@ -625,6 +643,15 @@ def test_client_read_authority_classifies_only_client_scoped_metadata():
             assert "_last_failure" in report["aggregate_only_keys"]
             assert "_client_promotion" not in report["aggregate_only_keys"]
             assert report["aggregate_only_unknown_key_count"] == 1
+            assert report["unknown_aggregate_key_profiles"] == [
+                {
+                    "key_sha256": hashlib.sha256(
+                        b"aria.memory.aggregate-key.v1\0_client_promotion"
+                    ).hexdigest(),
+                    "key_length": 17,
+                    "value_type": "object",
+                }
+            ]
             assert "PRIVATE" not in json.dumps(report)
     finally:
         engine.dispose()

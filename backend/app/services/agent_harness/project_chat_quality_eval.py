@@ -2244,6 +2244,9 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             )
         ],
     )
+    unknown_key_fingerprint = hashlib.sha256(
+        b"aria.memory.aggregate-key.v1\0_client_promotion"
+    ).hexdigest()
     serialized = json.dumps(
         [
             healthy,
@@ -2291,6 +2294,18 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             "passed": operation_state["native_cutover_ready"]
             and operation_state["missing_native_state_count"] == 0
             and operation_state["divergent_native_state_count"] == 0
+            and "PRIVATE" not in serialized,
+        },
+        {
+            "case": "unknown_aggregate_keys_emit_only_content_free_fingerprints",
+            "passed": wrong_scope_metadata["unknown_aggregate_key_profiles"]
+            == [
+                {
+                    "key_sha256": unknown_key_fingerprint,
+                    "key_length": 17,
+                    "value_type": "object",
+                }
+            ]
             and "PRIVATE" not in serialized,
         },
     ]

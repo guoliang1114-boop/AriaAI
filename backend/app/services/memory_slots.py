@@ -107,6 +107,12 @@ def _sha256_json(value: Any) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _aggregate_key_fingerprint(key: str) -> str:
+    return hashlib.sha256(
+        f"aria.memory.aggregate-key.v1\0{key}".encode("utf-8")
+    ).hexdigest()
+
+
 def _json_value_type(value: Any) -> str:
     """Return a content-free JSON type label for compatibility audits."""
 
@@ -1271,6 +1277,15 @@ def build_memory_read_authority_report(
     unknown_aggregate_only_key_count = sum(
         key not in safe_metadata_keys for key in aggregate_only_keys
     )
+    unknown_aggregate_key_profiles = [
+        {
+            "key_sha256": _aggregate_key_fingerprint(key),
+            "key_length": len(key),
+            "value_type": _json_value_type(aggregate_payload.get(key)),
+        }
+        for key in aggregate_only_keys
+        if key not in safe_metadata_keys
+    ]
     business_slot_cutover_ready = not fallback_slots
     dual_write_consistent = (
         business_slot_cutover_ready
@@ -1303,6 +1318,7 @@ def build_memory_read_authority_report(
         "aggregate_only_key_count": len(aggregate_only_keys),
         "aggregate_only_keys": recognized_aggregate_only_keys,
         "aggregate_only_unknown_key_count": unknown_aggregate_only_key_count,
+        "unknown_aggregate_key_profiles": unknown_aggregate_key_profiles,
         "business_slot_cutover_ready": business_slot_cutover_ready,
         "dual_write_consistent": dual_write_consistent,
         "aggregate_container_retirement_ready": (
@@ -1336,22 +1352,43 @@ def summarize_memory_read_authority(
     )
     consistent = sum(bool(item.get("dual_write_consistent")) for item in items)
     divergence_profiles: dict[tuple[str, str, str, str], int] = {}
+    unknown_key_profiles: dict[tuple[str, int, str], int] = {}
     for item in items:
         details = item.get("divergent_slot_details")
-        if not isinstance(details, list):
+        if isinstance(details, list):
+            for detail in details:
+                if not isinstance(detail, Mapping):
+                    continue
+                profile = (
+                    str(detail.get("slot_key") or ""),
+                    str(detail.get("ledger_value_type") or "other"),
+                    str(detail.get("aggregate_value_type") or "other"),
+                    str(detail.get("aggregate_version_relation") or "equal"),
+                )
+                if not profile[0]:
+                    continue
+                divergence_profiles[profile] = (
+                    divergence_profiles.get(profile, 0) + 1
+                )
+        unknown_details = item.get("unknown_aggregate_key_profiles")
+        if not isinstance(unknown_details, list):
             continue
-        for detail in details:
+        for detail in unknown_details:
             if not isinstance(detail, Mapping):
                 continue
-            profile = (
-                str(detail.get("slot_key") or ""),
-                str(detail.get("ledger_value_type") or "other"),
-                str(detail.get("aggregate_value_type") or "other"),
-                str(detail.get("aggregate_version_relation") or "equal"),
-            )
-            if not profile[0]:
+            fingerprint = str(detail.get("key_sha256") or "")
+            if not _SHA256_PATTERN.fullmatch(fingerprint):
                 continue
-            divergence_profiles[profile] = divergence_profiles.get(profile, 0) + 1
+            try:
+                key_length = max(0, int(detail.get("key_length") or 0))
+            except (TypeError, ValueError):
+                key_length = 0
+            profile = (
+                fingerprint,
+                key_length,
+                str(detail.get("value_type") or "other"),
+            )
+            unknown_key_profiles[profile] = unknown_key_profiles.get(profile, 0) + 1
     return {
         "schema_version": 1,
         "entity_count": total,
@@ -1425,6 +1462,17 @@ def summarize_memory_read_authority(
             max(0, int(item.get("aggregate_only_unknown_key_count") or 0)) > 0
             for item in items
         ),
+        "unknown_aggregate_key_profiles": [
+            {
+                "key_sha256": fingerprint,
+                "key_length": key_length,
+                "value_type": value_type,
+                "count": count,
+            }
+            for (fingerprint, key_length, value_type), count in sorted(
+                unknown_key_profiles.items()
+            )
+        ],
     }
 
 
