@@ -60,6 +60,16 @@ class ArtifactsRouterTestCase(unittest.TestCase):
                 size_bytes=100,
                 description="Test report",
             )
+            legacy_path = self.uploads_dir / "generated" / "legacy.md"
+            legacy_path.write_text("# Legacy Report\n")
+            legacy_gf = GeneratedFile(
+                conversation_id=conv.id,
+                name="legacy.md",
+                file_type="markdown",
+                path="generated/legacy.md",
+                size_bytes=16,
+                description="Legacy report without verification evidence",
+            )
             other_path = self.uploads_dir / "generated" / "other.md"
             other_path.write_text("# Other Report\n")
             other_gf = GeneratedFile(
@@ -71,15 +81,18 @@ class ArtifactsRouterTestCase(unittest.TestCase):
                 description="Other report",
             )
             session.add(gf)
+            session.add(legacy_gf)
             session.add(other_gf)
             session.commit()
             session.refresh(gf)
+            session.refresh(legacy_gf)
             session.refresh(other_gf)
             gf.content_sha256 = hashlib.sha256(report_path.read_bytes()).hexdigest()
             session.add(gf)
             verification = persist_artifact_verification(session, gf, report_path)
             session.commit()
             self.artifact_id = gf.id
+            self.legacy_artifact_id = legacy_gf.id
             self.other_artifact_id = other_gf.id
             self.verification_id = verification["verification_id"]
 
@@ -153,9 +166,15 @@ class ArtifactsRouterTestCase(unittest.TestCase):
 
     def test_get_artifact_verification_returns_404_for_legacy_artifact(self):
         resp = self.client.get(
-            f"/artifacts/{self.other_artifact_id}/verification"
+            f"/artifacts/{self.legacy_artifact_id}/verification"
         )
         self.assertEqual(resp.status_code, 404)
+
+    def test_get_artifact_verification_rejects_other_users_artifact(self):
+        resp = self.client.get(
+            f"/artifacts/{self.other_artifact_id}/verification"
+        )
+        self.assertEqual(resp.status_code, 403)
 
     def test_download_by_path_rejects_absolute_path(self):
         resp = self.client.get("/artifacts/download-by-path", params={"path": "/etc/passwd"})

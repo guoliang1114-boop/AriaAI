@@ -772,7 +772,7 @@ class BuildArtifactNoticeTests(unittest.TestCase):
         result = _build_artifact_notice(
             [{"name": "source.pdf", "recovery_verified": True}]
         )
-        self.assertIn("已核验原任务已有附件", result)
+        self.assertIn("已核对原任务已有附件", result)
         self.assertIn("本次未重复生成", result)
 
 
