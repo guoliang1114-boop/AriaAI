@@ -413,6 +413,7 @@ jobs:
                         "tests/test_memory_source_attributions.py",
                         "tests/test_memory_source_fingerprints.py",
                         "tests/test_memory_slots.py",
+                        "tests/test_memory_slot_normalization_migration.py",
                         "tests/test_knowledge_v005_api.py",
                         "tests/test_knowledge_v005_models.py",
                         "tests/test_knowledge_v005_permissions.py",

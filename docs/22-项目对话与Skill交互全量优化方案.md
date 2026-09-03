@@ -618,6 +618,12 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 项目和客户记忆界面显示槽位账本权威或兼容回退/双写差异数。部署与生产数据库 E2E 运行只读全库汇总，输出不含实体 ID、记忆值、证据正文或凭据。
 - 确定性门禁扩展为 124 个场景、35 项指标，新增 `memory_read_authority_accuracy`。本阶段无迁移，不自动删除聚合数据，不引入或连接 Codex。
 
+### Phase 4J：历史空槽位收敛（已实施）
+
+- 生产审计将 21 个差异全部定位为版本一致的 `null -> array`：18 个客户 `relationship_signals`、3 个项目 `client_stakeholders`，无缺失、无损坏、无回退。
+- 幂等迁移 `047_v1_47` 只修复「原聚合键缺失 + 槽位为合法 `null` + 版本一致」的历史占位，不覆盖显式空值、内容、异常摘要或版本冲突，不修改快照。
+- 迁移测试同时覆盖 SQLite 幂等性和隔离 PostgreSQL 真实方言；生产仍由部署工作流在已验证备份后执行。不运行或连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

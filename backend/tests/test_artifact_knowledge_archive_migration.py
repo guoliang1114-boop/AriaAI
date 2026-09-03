@@ -64,12 +64,12 @@ def test_revision_046_adds_archive_audit_and_business_rules_idempotently() -> No
     engine.dispose()
 
 
-def test_revision_046_is_the_single_alembic_head() -> None:
+def test_revision_046_precedes_the_single_alembic_head() -> None:
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "alembic"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["046_v1_46"]
-    latest = script.get_revision("046_v1_46")
-    assert latest is not None
-    assert latest.down_revision == "045_v1_45"
+    assert script.get_heads() == ["047_v1_47"]
+    revision = script.get_revision("046_v1_46")
+    assert revision is not None
+    assert revision.down_revision == "045_v1_45"

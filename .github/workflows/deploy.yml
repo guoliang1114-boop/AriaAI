@@ -291,6 +291,7 @@ jobs:
                 tests/test_memory_source_attributions.py \
                 tests/test_memory_source_fingerprints.py \
                 tests/test_memory_slots.py \
+                tests/test_memory_slot_normalization_migration.py \
                 tests/test_product_run_events.py \
                 tests/test_project_chat_quality_eval.py \
                 tests/test_project_memory_evidence.py \
