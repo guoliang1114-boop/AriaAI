@@ -490,6 +490,22 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             assert healthy["aggregate_container_retirement_ready"] is False
             assert "rebuild_log" in healthy["aggregate_only_keys"]
 
+            operational_metadata = get_project_memory_read_authority_report(
+                session,
+                project,
+                {
+                    **aggregate,
+                    "_client_promotion": {"PRIVATE": "VALUE"},
+                    "_last_failure": {"PRIVATE": "VALUE"},
+                },
+            )
+            assert operational_metadata["aggregate_only_unknown_key_count"] == 0
+            assert set(operational_metadata["aggregate_only_keys"]) >= {
+                "_client_promotion",
+                "_last_failure",
+            }
+            assert "PRIVATE" not in json.dumps(operational_metadata)
+
             aggregate["project_brief"] = "PRIVATE TAMPERED CONTENT"
             aggregate["PRIVATE PERSON NAME"] = "PRIVATE VALUE"
             divergent = get_project_memory_read_authority_report(
@@ -580,6 +596,36 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
                     "count": 1,
                 }
             ]
+    finally:
+        engine.dispose()
+
+
+def test_client_read_authority_classifies_only_client_scoped_metadata():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            client = ClientRecord(name="Acme")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            save_client_memory(session, client.id, _client_memory(), trigger="test")
+
+            client = session.get(ClientRecord, client.id)
+            aggregate = {
+                **get_client_memory_payload(client),
+                "_last_failure": {"PRIVATE": "VALUE"},
+                "_client_promotion": {"PRIVATE": "VALUE"},
+            }
+            report = get_client_memory_read_authority_report(
+                session,
+                client,
+                aggregate,
+            )
+
+            assert "_last_failure" in report["aggregate_only_keys"]
+            assert "_client_promotion" not in report["aggregate_only_keys"]
+            assert report["aggregate_only_unknown_key_count"] == 1
+            assert "PRIVATE" not in json.dumps(report)
     finally:
         engine.dispose()
 

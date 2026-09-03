@@ -74,6 +74,13 @@ SAFE_AGGREGATE_ONLY_KEYS = frozenset(
         "_rebuild_generation",
     }
 )
+PROJECT_SAFE_AGGREGATE_ONLY_KEYS = frozenset(
+    {
+        "_client_promotion",
+        "_last_failure",
+    }
+)
+CLIENT_SAFE_AGGREGATE_ONLY_KEYS = frozenset({"_last_failure"})
 PROJECT_EDITABLE_SLOT_KEYS = frozenset(
     {"key_risks", "open_questions", "stakeholder_notes"}
 )
@@ -1156,6 +1163,7 @@ def build_memory_read_authority_report(
     *,
     editable_slot_keys: Iterable[str] = (),
     slot_states: Iterable[Mapping[str, Any]] = (),
+    safe_aggregate_only_keys: Iterable[str] = (),
 ) -> dict[str, Any]:
     """Describe slot-ledger authority without returning memory content.
 
@@ -1167,6 +1175,9 @@ def build_memory_read_authority_report(
     expected = tuple(dict.fromkeys(str(key) for key in slot_keys if str(key)))
     expected_set = set(expected)
     editable = {str(key) for key in editable_slot_keys if str(key)}
+    safe_metadata_keys = SAFE_AGGREGATE_ONLY_KEYS | {
+        str(key) for key in safe_aggregate_only_keys if str(key)
+    }
     row_by_key = {
         str(row.slot_key): row
         for row in rows
@@ -1254,11 +1265,11 @@ def build_memory_read_authority_report(
         for key in aggregate_payload
         if str(key) not in expected_set and str(key) not in derived_detail_keys
     ]
-    safe_aggregate_only_keys = sorted(
-        key for key in aggregate_only_keys if key in SAFE_AGGREGATE_ONLY_KEYS
+    recognized_aggregate_only_keys = sorted(
+        key for key in aggregate_only_keys if key in safe_metadata_keys
     )
     unknown_aggregate_only_key_count = sum(
-        key not in SAFE_AGGREGATE_ONLY_KEYS for key in aggregate_only_keys
+        key not in safe_metadata_keys for key in aggregate_only_keys
     )
     business_slot_cutover_ready = not fallback_slots
     dual_write_consistent = (
@@ -1290,7 +1301,7 @@ def build_memory_read_authority_report(
         "divergent_slot_details": divergent_slot_details,
         "unexpected_slot_count": len(unexpected_slots),
         "aggregate_only_key_count": len(aggregate_only_keys),
-        "aggregate_only_keys": safe_aggregate_only_keys,
+        "aggregate_only_keys": recognized_aggregate_only_keys,
         "aggregate_only_unknown_key_count": unknown_aggregate_only_key_count,
         "business_slot_cutover_ready": business_slot_cutover_ready,
         "dual_write_consistent": dual_write_consistent,
@@ -1435,6 +1446,7 @@ def get_project_memory_read_authority_report(
         PROJECT_MEMORY_SLOT_KEYS,
         editable_slot_keys=PROJECT_EDITABLE_SLOT_KEYS,
         slot_states=slot_states,
+        safe_aggregate_only_keys=PROJECT_SAFE_AGGREGATE_ONLY_KEYS,
     )
 
 
@@ -1455,6 +1467,7 @@ def get_client_memory_read_authority_report(
         rows,
         CLIENT_MEMORY_SLOT_KEYS,
         slot_states=slot_states,
+        safe_aggregate_only_keys=CLIENT_SAFE_AGGREGATE_ONLY_KEYS,
     )
 
 

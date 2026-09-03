@@ -82,6 +82,7 @@ export function AboutSettings() {
             '记忆读取权威报告量化槽位账本覆盖、聚合 JSON 回退和双写差异；部署与生产 E2E 执行无正文全库审计。',
             '已验证备份后的幂等迁移仅将历史缺失数组字段的 null 槽位占位收敛为 []，不覆盖显式空值、内容、异常摘要或版本冲突。',
             '项目/客户记忆详情、项目简报、干系人分析和工作区项目组合已切换为有效槽位优先读取；缺失或损坏只回退单个槽位。',
+            '记忆审计按项目/客户作用域识别 Aria 运维元数据，值不外泄，错误作用域与未知键仍保持告警。',
           ]
         : [
             'Unified Product Run Event activity timeline across live and persisted Skill, step, tool, artifact, error, and confirmation states.',
@@ -97,6 +98,7 @@ export function AboutSettings() {
             'A content-free memory read-authority audit now quantifies slot-ledger coverage, aggregate JSON fallback, and dual-write divergence during deploys and production E2E.',
             'After a verified backup, an idempotent migration normalizes only legacy null placeholders for missing array fields to []; explicit nulls, content, invalid digests, and version conflicts remain untouched.',
             'Project/client memory details, briefings, stakeholder analysis, and workspace portfolios now prefer verified slot values with per-slot aggregate fallback.',
+            'Memory audits now classify Aria operational metadata by project/client scope without exposing values; wrong-scope and unknown keys remain warnings.',
           ],
     },
     {

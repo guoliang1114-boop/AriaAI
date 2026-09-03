@@ -2211,8 +2211,19 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
         healthy_rows,
         slot_keys,
     )
+    scoped_metadata = build_memory_read_authority_report(
+        {**payload, "_client_promotion": {"PRIVATE": "VALUE"}},
+        healthy_rows,
+        slot_keys,
+        safe_aggregate_only_keys=("_client_promotion",),
+    )
+    wrong_scope_metadata = build_memory_read_authority_report(
+        {**payload, "_client_promotion": {"PRIVATE": "VALUE"}},
+        healthy_rows,
+        slot_keys,
+    )
     serialized = json.dumps(
-        [healthy, missing, corrupt, divergent],
+        [healthy, missing, corrupt, divergent, scoped_metadata, wrong_scope_metadata],
         ensure_ascii=False,
     )
     details = [
@@ -2236,6 +2247,13 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             "case": "dual_write_divergence_is_visible_without_memory_content",
             "passed": divergent["divergent_slots"] == ["project_brief"]
             and not divergent["dual_write_consistent"]
+            and "PRIVATE" not in serialized,
+        },
+        {
+            "case": "aggregate_metadata_allowlist_is_scope_bound_and_content_free",
+            "passed": scoped_metadata["aggregate_only_unknown_key_count"] == 0
+            and "_client_promotion" in scoped_metadata["aggregate_only_keys"]
+            and wrong_scope_metadata["aggregate_only_unknown_key_count"] == 1
             and "PRIVATE" not in serialized,
         },
     ]
