@@ -85,6 +85,8 @@ PROJECT_EDITABLE_SLOT_KEYS = frozenset(
     {"key_risks", "open_questions", "stakeholder_notes"}
 )
 MAX_SLOT_EVIDENCE_REFS = 24
+MAX_UNKNOWN_AGGREGATE_KEY_PROFILES_PER_ENTITY = 64
+MAX_UNKNOWN_AGGREGATE_KEY_PROFILES_PER_REPORT = 128
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _PROJECT_MEMORY_TEXT_CHARS = 1200
 _PROJECT_FILE_SUMMARY_CHARS = 200
@@ -1277,14 +1279,28 @@ def build_memory_read_authority_report(
     unknown_aggregate_only_key_count = sum(
         key not in safe_metadata_keys for key in aggregate_only_keys
     )
-    unknown_aggregate_key_profiles = [
-        {
-            "key_sha256": _aggregate_key_fingerprint(key),
-            "key_length": len(key),
-            "value_type": _json_value_type(aggregate_payload.get(key)),
-        }
-        for key in aggregate_only_keys
-        if key not in safe_metadata_keys
+    unknown_aggregate_key_profiles = sorted(
+        [
+            {
+                "key_sha256": _aggregate_key_fingerprint(key),
+                "key_length": len(key),
+                "value_type": _json_value_type(aggregate_payload.get(key)),
+            }
+            for key in aggregate_only_keys
+            if key not in safe_metadata_keys
+        ],
+        key=lambda item: (
+            item["key_sha256"],
+            item["key_length"],
+            item["value_type"],
+        ),
+    )
+    unknown_profiles_truncated = (
+        len(unknown_aggregate_key_profiles)
+        > MAX_UNKNOWN_AGGREGATE_KEY_PROFILES_PER_ENTITY
+    )
+    unknown_aggregate_key_profiles = unknown_aggregate_key_profiles[
+        :MAX_UNKNOWN_AGGREGATE_KEY_PROFILES_PER_ENTITY
     ]
     business_slot_cutover_ready = not fallback_slots
     dual_write_consistent = (
@@ -1319,6 +1335,7 @@ def build_memory_read_authority_report(
         "aggregate_only_keys": recognized_aggregate_only_keys,
         "aggregate_only_unknown_key_count": unknown_aggregate_only_key_count,
         "unknown_aggregate_key_profiles": unknown_aggregate_key_profiles,
+        "unknown_aggregate_key_profiles_truncated": unknown_profiles_truncated,
         "business_slot_cutover_ready": business_slot_cutover_ready,
         "dual_write_consistent": dual_write_consistent,
         "aggregate_container_retirement_ready": (
@@ -1353,6 +1370,7 @@ def summarize_memory_read_authority(
     consistent = sum(bool(item.get("dual_write_consistent")) for item in items)
     divergence_profiles: dict[tuple[str, str, str, str], int] = {}
     unknown_key_profiles: dict[tuple[str, int, str], int] = {}
+    unknown_key_profiles_truncated = False
     for item in items:
         details = item.get("divergent_slot_details")
         if isinstance(details, list):
@@ -1371,6 +1389,9 @@ def summarize_memory_read_authority(
                     divergence_profiles.get(profile, 0) + 1
                 )
         unknown_details = item.get("unknown_aggregate_key_profiles")
+        unknown_key_profiles_truncated = unknown_key_profiles_truncated or bool(
+            item.get("unknown_aggregate_key_profiles_truncated")
+        )
         if not isinstance(unknown_details, list):
             continue
         for detail in unknown_details:
@@ -1471,8 +1492,13 @@ def summarize_memory_read_authority(
             }
             for (fingerprint, key_length, value_type), count in sorted(
                 unknown_key_profiles.items()
-            )
+            )[:MAX_UNKNOWN_AGGREGATE_KEY_PROFILES_PER_REPORT]
         ],
+        "unknown_aggregate_key_profiles_truncated": (
+            unknown_key_profiles_truncated
+            or len(unknown_key_profiles)
+            > MAX_UNKNOWN_AGGREGATE_KEY_PROFILES_PER_REPORT
+        ),
     }
 
 

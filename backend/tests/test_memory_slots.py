@@ -534,6 +534,7 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
                     "value_type": "string",
                 }
             ]
+            assert divergent["unknown_aggregate_key_profiles_truncated"] is False
             assert "PRIVATE" not in json.dumps(divergent)
 
             missing_row = session.exec(
@@ -614,6 +615,68 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
                     "count": 1,
                 }
             ]
+            assert (
+                divergent_fleet["unknown_aggregate_key_profiles_truncated"] is False
+            )
+    finally:
+        engine.dispose()
+
+
+def test_unknown_aggregate_key_profiles_are_bounded_and_content_free():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            save_project_memory(session, project.id, _project_memory(), trigger="test")
+
+            project = session.get(Project, project.id)
+            aggregate = {
+                **get_project_memory_payload(project),
+                **{f"PRIVATE KEY {index}": index for index in range(70)},
+            }
+            report = get_project_memory_read_authority_report(
+                session,
+                project,
+                aggregate,
+            )
+            fleet = summarize_memory_read_authority([report])
+
+            assert report["aggregate_only_unknown_key_count"] == 70
+            assert len(report["unknown_aggregate_key_profiles"]) == 64
+            assert report["unknown_aggregate_key_profiles_truncated"] is True
+            assert len(fleet["unknown_aggregate_key_profiles"]) == 64
+            assert fleet["unknown_aggregate_key_profiles_truncated"] is True
+            assert "PRIVATE" not in json.dumps(report)
+            assert "PRIVATE" not in json.dumps(fleet)
+
+            profiles = [
+                {
+                    "key_sha256": hashlib.sha256(
+                        f"aria.memory.aggregate-key.v1\0fleet-key-{index}".encode()
+                    ).hexdigest(),
+                    "key_length": len(f"fleet-key-{index}"),
+                    "value_type": "number",
+                }
+                for index in range(192)
+            ]
+            wide_fleet = summarize_memory_read_authority(
+                [
+                    {
+                        "aggregate_only_unknown_key_count": len(chunk),
+                        "unknown_aggregate_key_profiles": chunk,
+                    }
+                    for chunk in (
+                        profiles[:64],
+                        profiles[64:128],
+                        profiles[128:],
+                    )
+                ]
+            )
+            assert len(wide_fleet["unknown_aggregate_key_profiles"]) == 128
+            assert wide_fleet["unknown_aggregate_key_profiles_truncated"] is True
     finally:
         engine.dispose()
 
@@ -652,6 +715,7 @@ def test_client_read_authority_classifies_only_client_scoped_metadata():
                     "value_type": "object",
                 }
             ]
+            assert report["unknown_aggregate_key_profiles_truncated"] is False
             assert "PRIVATE" not in json.dumps(report)
     finally:
         engine.dispose()
