@@ -184,6 +184,95 @@ describe('ChatArtifactPreview', () => {
     expect(mockGet).toHaveBeenCalledWith('/artifacts/42/verification')
   })
 
+  it('saves a technically verified generated artifact to project documents explicitly', async () => {
+    const verification = {
+      schema_version: 1 as const,
+      verification_id: 9,
+      verifier_version: 1,
+      status: 'passed' as const,
+      technical_status: 'passed' as const,
+      skill_status: 'not_declared' as const,
+      content_sha256: 'a'.repeat(64),
+      evidence_sha256: 'b'.repeat(64),
+      automated_check_count: 5,
+      automated_passed_count: 5,
+      automated_failed_count: 0,
+      automated_skipped_count: 0,
+      skill_check_count: 0,
+      metrics: {},
+    }
+    mockGet.mockResolvedValue({
+      schema_version: 1,
+      artifact_id: 44,
+      verification_id: 9,
+      content_sha256: 'a'.repeat(64),
+      evidence_sha256: 'b'.repeat(64),
+      verification_plan_sha256: '',
+      verification_status: 'passed',
+      technical_status: 'passed',
+      review_status: 'not_required',
+      delivery_status: 'ready',
+      final_delivery_allowed: true,
+      revision: 0,
+      reason: '',
+      history: [],
+      history_limit: 20,
+      allowed_decisions: [],
+      human_judgment_only: true,
+      acceptance_is_truth_verdict: false,
+      business_automation: {
+        registry_version: 1,
+        status: 'not_configured',
+        registered_verifier_count: 8,
+        skill_package_code_executable: false,
+      },
+    })
+    mockPost.mockResolvedValue({
+      schema_version: 1,
+      artifact_id: 44,
+      project_id: 3,
+      project_file_id: 91,
+      target: 'project_documents',
+      created: true,
+      content_sha256: 'a'.repeat(64),
+      saved_by_user_id: 1,
+      saved_at: '2026-09-03T00:00:00',
+      delivery_status: 'ready',
+      final_delivery_allowed: true,
+      writes_memory: false,
+      invalidates_derived_project_memory: true,
+      writes_knowledge_base: false,
+      sends_external_messages: false,
+    })
+    const onSaved = vi.fn()
+
+    render(
+      <ChatArtifactPreview
+        artifact={{
+          id: 44,
+          project_id: 3,
+          name: 'verified.txt',
+          file_type: 'txt',
+          path: 'generated/verified.txt',
+          content_sha256: 'a'.repeat(64),
+          verification,
+        }}
+        projectId={3}
+        onClose={vi.fn()}
+        width={380}
+        onResize={vi.fn()}
+        onProjectDocumentSaved={onSaved}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '保存到项目文档' }))
+    await screen.findByRole('button', { name: '已保存到项目文档' })
+    expect(mockPost).toHaveBeenCalledWith('/artifacts/44/save-to-project', {
+      expected_content_sha256: 'a'.repeat(64),
+    })
+    expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+
   it('records a reasoned business acceptance from the verification panel', async () => {
     const verification = {
       schema_version: 1 as const,

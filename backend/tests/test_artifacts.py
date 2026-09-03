@@ -7,9 +7,16 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel
+from sqlmodel import Session, SQLModel, select
 
-from app.models.db import ArtifactVerification, GeneratedFile, User, Conversation
+from app.models.db import (
+    ArtifactVerification,
+    Conversation,
+    GeneratedFile,
+    Project,
+    ProjectFile,
+    User,
+)
 from app.routers import artifacts as artifacts_module
 from app.routers.artifacts import router
 from app.database import get_session
@@ -203,6 +210,68 @@ class ArtifactsRouterTestCase(unittest.TestCase):
             f"/artifacts/{self.other_artifact_id}/verification"
         )
         self.assertEqual(resp.status_code, 403)
+
+    def test_save_verified_artifact_to_project_is_explicit_bound_and_idempotent(self):
+        with Session(self.engine) as session:
+            project = Project(name="Artifact project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            artifact = session.get(GeneratedFile, self.artifact_id)
+            artifact.project_id = project.id
+            session.add(artifact)
+            session.commit()
+            project_id = int(project.id)
+            digest = artifact.content_sha256
+
+        first = self.client.post(
+            f"/artifacts/{self.artifact_id}/save-to-project",
+            json={"expected_content_sha256": digest},
+        )
+        second = self.client.post(
+            f"/artifacts/{self.artifact_id}/save-to-project",
+            json={"expected_content_sha256": digest},
+        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertTrue(first.json()["created"])
+        self.assertFalse(second.json()["created"])
+        self.assertFalse(first.json()["writes_memory"])
+        self.assertTrue(first.json()["invalidates_derived_project_memory"])
+        self.assertFalse(second.json()["invalidates_derived_project_memory"])
+        self.assertFalse(first.json()["writes_knowledge_base"])
+        self.assertEqual(first.json()["project_id"], project_id)
+        self.assertEqual(
+            first.json()["project_file_id"],
+            second.json()["project_file_id"],
+        )
+        with Session(self.engine) as session:
+            artifact = session.get(GeneratedFile, self.artifact_id)
+            project_files = session.exec(
+                select(ProjectFile).where(ProjectFile.project_id == project_id)
+            ).all()
+            self.assertEqual(len(project_files), 1)
+            self.assertEqual(artifact.project_file_id, project_files[0].id)
+            self.assertEqual(artifact.saved_to_project_by_user_id, self.user_id)
+            self.assertIsNotNone(artifact.saved_to_project_at)
+
+    def test_save_artifact_to_project_rejects_stale_content_identity(self):
+        with Session(self.engine) as session:
+            project = Project(name="Stale project", client="Client")
+            session.add(project)
+            session.commit()
+            artifact = session.get(GeneratedFile, self.artifact_id)
+            artifact.project_id = project.id
+            session.add(artifact)
+            session.commit()
+
+        resp = self.client.post(
+            f"/artifacts/{self.artifact_id}/save-to-project",
+            json={"expected_content_sha256": "f" * 64},
+        )
+
+        self.assertEqual(resp.status_code, 409)
 
     def test_get_acceptance_marks_technical_pass_without_skill_checks_ready(self):
         resp = self.client.get(f"/artifacts/{self.artifact_id}/acceptance")

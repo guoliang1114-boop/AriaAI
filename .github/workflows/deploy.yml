@@ -250,6 +250,9 @@ jobs:
                 tests/test_agent_harness_native.py \
                 tests/test_artifact_verification.py \
                 tests/test_artifact_verification_migration.py \
+                tests/test_artifact_acceptance.py \
+                tests/test_artifact_acceptance_migration.py \
+                tests/test_generated_file_deliverable_migration.py \
                 tests/test_active_chat_run_lease.py \
                 tests/test_active_chat_run_lease_migration.py \
                 tests/test_agent_loop_durable_boundaries.py \
@@ -317,6 +320,7 @@ jobs:
                 tests/test_hitas_project_scope_binding.py \
                 tests/test_skill_root_snapshots.py \
                 tests/test_skill_quality.py \
+                tests/test_skill_deliverables.py \
                 tests/test_skill_runtime_contract.py \
                 tests/test_structured_patch.py \
                 tests/test_tool_capability_manifest.py \

@@ -4,6 +4,7 @@ import { getApiBaseUrl } from '../../../config/api'
 import { MarkdownRenderer } from '../../../components/MarkdownRenderer'
 import type {
   ArtifactAcceptanceProjection,
+  ArtifactProjectSaveResponse,
   GeneratedArtifact,
 } from '../../../types/api'
 import type { ArtifactVerificationSummary } from '../../../types/productRunEvent'
@@ -48,6 +49,7 @@ interface PreviewProps {
    * across re-opens within the same session. */
   width: number
   onResize: (next: number) => void
+  onProjectDocumentSaved?: () => void | Promise<void>
 }
 
 const MIN_PREVIEW_WIDTH = 280
@@ -136,12 +138,16 @@ function ChatArtifactPreviewContent({
   onClose,
   width,
   onResize,
+  onProjectDocumentSaved,
 }: PreviewProps) {
   const ext = (artifact.file_type || artifact.name.split('.').pop() || '')
     .replace('.', '')
     .toUpperCase()
   const kind = getFileKind(ext)
-  const fileId = artifact.project_file_id ?? null
+  const [savedProjectFileId, setSavedProjectFileId] = useState<number | null>(
+    artifact.project_file_id ?? null,
+  )
+  const fileId = savedProjectFileId
   const artifactId = Number.isInteger(artifact.id) && Number(artifact.id) > 0
     ? Number(artifact.id)
     : null
@@ -157,6 +163,8 @@ function ChatArtifactPreviewContent({
   )
   const [blobError, setBlobError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
+  const [savingToProject, setSavingToProject] = useState(false)
+  const [projectSaveError, setProjectSaveError] = useState('')
   const [resizing, setResizing] = useState(false)
   const [hoverHandle, setHoverHandle] = useState(false)
 
@@ -265,6 +273,33 @@ function ChatArtifactPreviewContent({
     }
   }
 
+  const handleSaveToProject = async () => {
+    if (
+      savingToProject
+      || fileId != null
+      || artifactId == null
+      || !artifact.content_sha256
+    ) return
+    setSavingToProject(true)
+    setProjectSaveError('')
+    try {
+      const result = await api.post<ArtifactProjectSaveResponse>(
+        `/artifacts/${artifactId}/save-to-project`,
+        { expected_content_sha256: artifact.content_sha256 },
+      )
+      setDocError(null)
+      setBlobError(null)
+      setDocLoading(kind === 'md')
+      setBlobLoading(kind === 'pdf' || kind === 'image')
+      setSavedProjectFileId(result.project_file_id)
+      await onProjectDocumentSaved?.()
+    } catch (err) {
+      setProjectSaveError(err instanceof Error ? err.message : '保存到项目文档失败')
+    } finally {
+      setSavingToProject(false)
+    }
+  }
+
   const content = doc?.content ?? ''
   const sizeKb = artifact.size_bytes ? Math.round(artifact.size_bytes / 1024) : null
   const headerHint =
@@ -276,6 +311,15 @@ function ChatArtifactPreviewContent({
           ? '图片预览'
           : `${ext || '文件'} · 不支持预览`
   const downloadDisabled = downloading || !canDownload
+  const projectSaveDisabled = savingToProject
+    || fileId != null
+    || artifactId == null
+    || !artifact.content_sha256
+    || artifact.verification?.technical_status !== 'passed'
+  const deliverableName = artifact.deliverable?.name || artifact.deliverable_name || ''
+  const deliverableContract = artifact.deliverable?.contract_sha256
+    || artifact.deliverable_contract_sha256
+    || ''
 
   return (
     <aside
@@ -373,6 +417,32 @@ function ChatArtifactPreviewContent({
         </div>
         <button
           type="button"
+          onClick={() => { void handleSaveToProject() }}
+          disabled={projectSaveDisabled}
+          title={fileId != null
+            ? '已在项目文档中'
+            : artifact.verification?.technical_status !== 'passed'
+              ? '技术校验通过后才能保存到项目文档'
+              : '保存到项目文档（不会自动写记忆或知识库）'}
+          aria-label={fileId != null ? '已保存到项目文档' : '保存到项目文档'}
+          style={{
+            width: 28,
+            height: 28,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: fileId != null ? 'var(--good)' : 'var(--ink-mute)',
+            background: 'transparent',
+            border: 'none',
+            borderRadius: 'var(--r-sm)',
+            cursor: projectSaveDisabled ? 'not-allowed' : 'pointer',
+            opacity: projectSaveDisabled && fileId == null ? 0.4 : 1,
+          }}
+        >
+          <CxIcon name="save" size={14} stroke={1.6} />
+        </button>
+        <button
+          type="button"
           onClick={handleDownload}
           disabled={downloadDisabled}
           title={canDownload ? '下载' : '暂无可用的下载来源'}
@@ -415,6 +485,28 @@ function ChatArtifactPreviewContent({
           ×
         </button>
       </div>
+
+      {projectSaveError && (
+        <div role="alert" style={{ padding: '7px 16px', color: 'var(--bad)', fontSize: 11 }}>
+          {projectSaveError}
+        </div>
+      )}
+
+      {deliverableName && (
+        <div
+          aria-label="Skill 交付物合同"
+          style={{
+            padding: '8px 16px',
+            borderBottom: '1px solid var(--line-soft)',
+            background: 'var(--accent-bg)',
+            color: 'var(--accent-ink)',
+            fontSize: 11,
+          }}
+        >
+          Skill 交付物 · {deliverableName}
+          {deliverableContract ? ` · 合同 ${deliverableContract.slice(0, 8)}` : ''}
+        </div>
+      )}
 
       {artifact.verification && (
         <ArtifactVerificationPanel
@@ -504,11 +596,8 @@ function ArtifactVerificationPanel({
   useEffect(() => {
     let cancelled = false
     if (artifactId == null) {
-      setAcceptanceLoading(false)
       return
     }
-    setAcceptanceLoading(true)
-    setAcceptanceError('')
     void api.get<ArtifactAcceptanceProjection>(`/artifacts/${artifactId}/acceptance`)
       .then((data) => {
         if (!cancelled) setAcceptance(data)

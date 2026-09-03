@@ -35,6 +35,7 @@ import { CxPagination, CxSkeleton, CxTopProgress } from "../../components/codex"
 import { PageTitle } from "../../components/PageTitle";
 import type {
   Skill,
+  SkillDeliverableCatalog,
   SkillReleaseListResponse,
   SkillReleaseSummary,
   SkillRolloutListResponse,
@@ -1165,6 +1166,30 @@ export function SkillDetailPage() {
   const [governanceBusy, setGovernanceBusy] = useState(false);
   const [governanceActionError, setGovernanceActionError] = useState("");
   const [governanceReloadKey, setGovernanceReloadKey] = useState(0);
+  const [deliverableResult, setDeliverableResult] = useState<{
+    skillId: number;
+    catalog: SkillDeliverableCatalog | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!skill?.id) return;
+    let cancelled = false;
+    void api.get<SkillDeliverableCatalog>(`/skills/${skill.id}/deliverables`)
+      .then((catalog) => {
+        if (!cancelled) {
+          setDeliverableResult({
+            skillId: skill.id,
+            catalog: Array.isArray(catalog?.items) ? catalog : null,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setDeliverableResult({ skillId: skill.id, catalog: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [skill?.id]);
 
   useEffect(() => {
     if (!skill?.id) return;
@@ -1272,6 +1297,9 @@ export function SkillDetailPage() {
   const toolNames = useMemo(() => parseToolNames(skill?.tools_definition_json), [skill?.tools_definition_json]);
   const inputHints = useMemo(() => buildInputHints(skill, isZh), [isZh, skill]);
   const outputHints = useMemo(() => buildOutputHints(skill, isZh), [isZh, skill]);
+  const deliverableCatalog = deliverableResult?.skillId === skill?.id
+    ? deliverableResult?.catalog ?? null
+    : null;
   const usageSteps = useMemo(() => buildUsageSteps(skill, isZh), [isZh, skill]);
   const skillCategoryKey = skill ? getSkillCategoryKey(skill) : "other";
   const categoryLabel = skill ? getCategoryLabel(skillCategoryKey, isZh) : "";
@@ -1654,6 +1682,54 @@ export function SkillDetailPage() {
                 ))}
               </ul>
             </section>
+
+            {deliverableCatalog && deliverableCatalog.items.length > 0 && (
+              <section style={panelStyle}>
+                <div className="flex items-start justify-between" style={{ gap: 16 }}>
+                  <div>
+                    <h2 style={panelTitleStyle}>
+                      {isZh ? "可交付资产目录" : "Deliverable catalog"}
+                    </h2>
+                    <p style={{ margin: "-6px 0 14px", fontSize: 11.5, color: "var(--color-codex-ink-mute)" }}>
+                      {isZh
+                        ? "从当前固定发布中解析；项目对话可为下一轮锁定一个具体交付物。"
+                        : "Parsed from the active immutable release; lock one item for the next project-chat turn."}
+                    </p>
+                  </div>
+                  <span className="font-mono" style={{ fontSize: 10.5, color: "var(--color-codex-ink-faint)" }}>
+                    {deliverableCatalog.item_count} · {deliverableCatalog.catalog_sha256.slice(0, 8)}
+                  </span>
+                </div>
+                <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 8 }}>
+                  {deliverableCatalog.items.map((item) => (
+                    <div
+                      key={item.deliverable_id}
+                      style={{
+                        padding: "11px 12px",
+                        background: "var(--color-codex-bg-tint)",
+                        border: "1px solid var(--color-codex-line-soft)",
+                        borderRadius: "var(--codex-r-sm, 3px)",
+                      }}
+                    >
+                      <div className="flex items-start justify-between" style={{ gap: 10 }}>
+                        <strong style={{ fontSize: 12.5, fontWeight: 500, color: "var(--color-codex-ink)" }}>
+                          {item.name}
+                        </strong>
+                        <span className="font-mono" style={{ fontSize: 10, color: "var(--color-codex-accent)" }}>
+                          {item.default_format.toUpperCase()}
+                        </span>
+                      </div>
+                      <p style={{ margin: "5px 0 0", fontSize: 11.5, lineHeight: 1.5, color: "var(--color-codex-ink-mute)" }}>
+                        {item.when_to_use}
+                      </p>
+                      <p style={{ margin: "5px 0 0", fontSize: 11, lineHeight: 1.5, color: "var(--color-codex-ink-soft)" }}>
+                        {isZh ? "最低内容" : "Minimum"} · {item.minimum_content}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {/* Prompt template */}
             {(skill.system_prompt || skill.user_template) && (

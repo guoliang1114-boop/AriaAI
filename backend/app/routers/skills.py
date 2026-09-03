@@ -33,9 +33,14 @@ from app.services.agent_harness.skill_roots import (
 from app.services.agent_harness.skill_releases import (
     active_skill_view,
     release_summary,
+    resolve_skill_release,
     rollout_summary,
     skill_release_sha256,
     snapshot_skill_release,
+)
+from app.routers.chat_security import require_project_access
+from app.services.agent_harness.skill_deliverables import (
+    build_skill_deliverable_catalog,
 )
 from app.services.chat.turn_setup import recommend_turn_brief_template
 from app.services.consulting_capabilities import CONSULTING_CAPABILITIES, ConsultingCapability
@@ -635,6 +640,40 @@ def get_skill(skill_id: int, session: Session = Depends(get_session)):
     if not skill:
         raise HTTPException(404, "Skill not found")
     return skill
+
+
+@router.get("/{skill_id}/deliverables")
+def get_skill_deliverables(
+    skill_id: int,
+    project_id: Optional[int] = Query(default=None, ge=1),
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Return the structured catalog for the exact active Skill release."""
+
+    skill = session.get(Skill, skill_id)
+    if not skill:
+        raise HTTPException(404, "Skill not found")
+    assignment = None
+    if project_id is not None:
+        require_project_access(session, project_id, current_user)
+        runtime_skill, assignment = resolve_skill_release(
+            session,
+            skill,
+            project_id=project_id,
+            conversation_id=None,
+            owner_user_id=current_user.id,
+        )
+    else:
+        runtime_skill = active_skill_view(session, skill)
+    catalog = build_skill_deliverable_catalog(runtime_skill)
+    if assignment is not None:
+        catalog["release_assignment"] = {
+            "release_id": assignment.release_id,
+            "rollout_id": assignment.rollout_id,
+            "variant": assignment.variant,
+        }
+    return catalog
 
 
 @router.get("/{skill_id}/releases")

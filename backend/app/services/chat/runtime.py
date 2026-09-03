@@ -54,6 +54,11 @@ from app.services.agent_harness.skill_runtime_contract import (
     finalize_skill_runtime_contract,
     format_skill_runtime_contract_for_prompt,
 )
+from app.services.agent_harness.skill_deliverables import (
+    format_skill_deliverable_for_prompt,
+    resolve_selected_skill_deliverable,
+    skill_deliverable_reference,
+)
 from app.services.agent_harness.turn_interrupt import get_active_turn
 from app.services.agent_harness.durable_run_inputs import (
     DurableRunInputRejected,
@@ -1062,6 +1067,24 @@ def prepare_chat_runtime(
             if skill_release_assignment.bucket is not None
             else ""
         )
+    selected_skill_deliverable: dict[str, Any] = {}
+    selected_skill_deliverable_reference: dict[str, Any] = {}
+    if req.skill_deliverable is not None:
+        if effective_skill is None:
+            raise HTTPException(
+                status_code=409,
+                detail="A Skill deliverable requires an active Skill for this turn.",
+            )
+        selected_skill_deliverable = resolve_selected_skill_deliverable(
+            effective_skill,
+            req.skill_deliverable,
+        )
+        selected_skill_deliverable_reference = skill_deliverable_reference(
+            selected_skill_deliverable
+        )
+        prepare_metrics["skill_deliverable"] = dict(
+            selected_skill_deliverable_reference
+        )
 
     # 3. Persist user message and its auditable turn inputs. Build the current
     # project CAS before recovery so the v2 digest covers the exact world state
@@ -1119,6 +1142,7 @@ def prepare_chat_runtime(
             if req.project_question_reanswer is not None
             else None
         ),
+        skill_deliverable=(selected_skill_deliverable_reference or None),
     )
     if isinstance(metadata.get("turn_revision"), dict):
         prepare_metrics["turn_revision"] = dict(metadata["turn_revision"])
@@ -1242,6 +1266,9 @@ def prepare_chat_runtime(
     prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["context_mode"] = context_mode
     prepare_metrics["context_receipt_base"] = dict(chat_ctx.context_receipt or {})
+    if selected_skill_deliverable_reference:
+        receipt_skill = chat_ctx.context_receipt.setdefault("skill", {})
+        receipt_skill["deliverable"] = dict(selected_skill_deliverable_reference)
 
     # 6. Model & provider resolution
     step_started_at = time.perf_counter()
@@ -1342,8 +1369,15 @@ def prepare_chat_runtime(
         release_id=skill_release_assignment.release_id,
         granted_tools=runtime_tools,
     )
+    if skill_runtime_contract and selected_skill_deliverable_reference:
+        skill_runtime_contract["deliverable"] = dict(
+            selected_skill_deliverable_reference
+        )
     skill_runtime_boundary = format_skill_runtime_contract_for_prompt(
         skill_runtime_contract
+    )
+    skill_deliverable_prompt = format_skill_deliverable_for_prompt(
+        selected_skill_deliverable
     )
 
     # Inject the current user's explicit preferences after removing saved
@@ -1435,7 +1469,11 @@ def prepare_chat_runtime(
             "active_task_state": active_task_layer,
             "effective_skill": "\n\n".join(
                 part
-                for part in (chat_ctx.skill_prompt, skill_runtime_boundary)
+                for part in (
+                    chat_ctx.skill_prompt,
+                    skill_runtime_boundary,
+                    skill_deliverable_prompt,
+                )
                 if part
             ),
             "user_preferences": user_memory_section,
@@ -1458,6 +1496,10 @@ def prepare_chat_runtime(
         # retains it. The receipt below separately reports whether the entire
         # Skill body survived final context budgeting.
         system = f"{system.rstrip()}\n\n{skill_runtime_boundary}\n"
+    if skill_deliverable_prompt:
+        # The exact selected output contract remains adjacent to the runtime
+        # boundary so context compaction cannot silently switch deliverables.
+        system = f"{system.rstrip()}\n\n{skill_deliverable_prompt}\n"
     prepare_metrics["conversation_capsule"] = conversation_capsule_reference(
         conversation_capsule
     )

@@ -1796,6 +1796,12 @@ class GeneratedFile(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     conversation_id: int = Field(foreign_key="conversation.id", index=True)
     project_id: Optional[int] = Field(default=None, foreign_key="project.id")
+    project_file_id: Optional[int] = Field(
+        default=None,
+        foreign_key="projectfile.id",
+        ondelete="SET NULL",
+        index=True,
+    )
     
     name: str                       # 文件名
     file_type: str                  # pptx | docx | xlsx | pdf | md | txt | json
@@ -1810,6 +1816,21 @@ class GeneratedFile(SQLModel, table=True):
     source_tool: str = ""
     content_sha256: str = Field(default="", index=True)
     output_record_version: int = 1
+    # Exact release-bound Skill deliverable selected for the producing turn.
+    # Empty values preserve compatibility for artifacts generated without an
+    # explicit catalog selection.
+    deliverable_id: str = Field(default="", index=True)
+    deliverable_name: str = ""
+    deliverable_contract_sha256: str = Field(default="", index=True)
+    deliverable_catalog_sha256: str = Field(default="", index=True)
+    deliverable_skill_release_sha256: str = Field(default="", index=True)
+    saved_to_project_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    saved_to_project_at: Optional[datetime] = Field(default=None, index=True)
     
     created_at: datetime = Field(default_factory=utc_now_naive)
 

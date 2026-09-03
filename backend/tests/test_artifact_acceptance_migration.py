@@ -61,12 +61,12 @@ def test_revision_044_creates_acceptance_ledgers_idempotently() -> None:
     engine.dispose()
 
 
-def test_revision_044_is_the_single_alembic_head() -> None:
+def test_revision_044_precedes_the_single_alembic_head() -> None:
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "alembic"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["044_v1_44"]
-    latest = script.get_revision("044_v1_44")
-    assert latest is not None
-    assert latest.down_revision == "043_v1_43"
+    assert script.get_heads() == ["045_v1_45"]
+    revision = script.get_revision("044_v1_44")
+    assert revision is not None
+    assert revision.down_revision == "043_v1_43"

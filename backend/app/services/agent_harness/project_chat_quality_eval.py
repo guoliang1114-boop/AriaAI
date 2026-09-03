@@ -43,6 +43,12 @@ from app.services.agent_harness.skill_runtime_contract import (
     format_skill_runtime_contract_for_prompt,
     skill_runtime_contract_warnings,
 )
+from app.services.agent_harness.skill_deliverables import (
+    build_skill_deliverable_catalog,
+    format_skill_deliverable_for_prompt,
+    resolve_selected_skill_deliverable,
+    skill_deliverable_reference,
+)
 from app.services.agent_harness.artifact_verification import (
     build_artifact_verification_evidence,
 )
@@ -1768,6 +1774,70 @@ def _artifact_acceptance_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _skill_deliverable_contract_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Selected outputs must remain release-bound and action-safe."""
+
+    skill = SimpleNamespace(
+        id=17,
+        name="Digital Strategy",
+        package_version="2.1.0",
+        package_sha256="d" * 64,
+        system_prompt=(
+            "# Digital Strategy\n\n"
+            "### Deliverable Catalog\n"
+            "| Deliverable | When to use | Minimum content | Format |\n"
+            "|---|---|---|---|\n"
+            "| Executive deck | Board decision | Options and recommendation | PPTX / PDF |\n"
+            "| Action tracker | During execution | Owner, date, status | Excel workbook |"
+        ),
+    )
+    catalog = build_skill_deliverable_catalog(skill)
+    item = catalog["items"][0]
+    selection = {
+        "deliverable_id": item["deliverable_id"],
+        "catalog_sha256": catalog["catalog_sha256"],
+        "contract_sha256": item["contract_sha256"],
+    }
+    resolved = resolve_selected_skill_deliverable(skill, selection)
+    reference = skill_deliverable_reference(resolved)
+    rendered = format_skill_deliverable_for_prompt(resolved)
+    stale_rejected = False
+    try:
+        resolve_selected_skill_deliverable(
+            skill,
+            {**selection, "catalog_sha256": "e" * 64},
+        )
+    except Exception as error:
+        stale_rejected = int(getattr(error, "status_code", 0)) == 409
+    details = [
+        {
+            "case": "skill_deliverable_catalog_has_stable_item_and_catalog_hashes",
+            "passed": catalog["item_count"] == 2
+            and len(catalog["catalog_sha256"]) == 64
+            and all(len(candidate["contract_sha256"]) == 64 for candidate in catalog["items"]),
+        },
+        {
+            "case": "skill_deliverable_selection_binds_exact_release",
+            "passed": reference["deliverable_id"] == item["deliverable_id"]
+            and reference["skill_release_sha256"] == "d" * 64,
+        },
+        {
+            "case": "skill_deliverable_rejects_stale_catalog",
+            "passed": stale_rejected,
+        },
+        {
+            "case": "skill_deliverable_prompt_forbids_silent_switch",
+            "passed": "Do not silently switch" in rendered,
+        },
+        {
+            "case": "skill_deliverable_does_not_imply_archive_or_delivery_authority",
+            "passed": "remain separate Aria-authorized actions" in rendered
+            and resolved["memory_policy"] == "explicit_user_confirmation",
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1792,6 +1862,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "skill_runtime_contract_accuracy": _skill_runtime_contract_results(),
         "artifact_verification_accuracy": _artifact_verification_results(),
         "artifact_acceptance_safety_rate": _artifact_acceptance_results(),
+        "skill_deliverable_contract_accuracy": _skill_deliverable_contract_results(),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
         "question_answer_readiness_accuracy": _question_answer_readiness_results(),

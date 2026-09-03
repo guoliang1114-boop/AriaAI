@@ -298,6 +298,19 @@ class ContextReceiptTest(unittest.TestCase):
                     "verification_source_count": 1,
                     "verification_context_complete": True,
                     "verification_plan_sha256": "e" * 64,
+                    "deliverable": {
+                        "schema_version": 1,
+                        "deliverable_id": "executive-deck-1234567890",
+                        "name": "Executive deck",
+                        "formats": ["pptx", "pdf"],
+                        "default_format": "pptx",
+                        "stage": "executive_communication",
+                        "save_targets": ["project_documents"],
+                        "requires_review": True,
+                        "contract_sha256": "a" * 64,
+                        "catalog_sha256": "b" * 64,
+                        "skill_release_sha256": "d" * 64,
+                    },
                     "prompt": "must never leave backend",
                 },
             },
@@ -309,6 +322,8 @@ class ContextReceiptTest(unittest.TestCase):
         self.assertEqual(runtime["resource_names"], ["references/quality-checklist.md"])
         self.assertEqual(runtime["granted_tool_count"], 1)
         self.assertEqual(runtime["verification_plan_sha256"], "e" * 64)
+        self.assertEqual(runtime["deliverable"]["name"], "Executive deck")
+        self.assertEqual(runtime["deliverable"]["formats"], ["pptx", "pdf"])
         self.assertNotIn("prompt", runtime)
 
     def test_context_receipt_rejects_executable_package_scripts(self):

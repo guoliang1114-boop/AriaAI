@@ -563,6 +563,19 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 幂等迁移 `043_v1_43` 管理证据表、约束、外键和索引，并保持单一 Alembic head。部署门禁纳入迁移、纯逻辑验证、路由授权、级联删除和备份后生产隔离 schema E2E；确定性评测扩展为 95 个场景、28 项指标，新增 `artifact_verification_accuracy`。
 - 本阶段依据 OpenAI 官方 Skill 指南中“指令与资源渐进加载；仅在确定性行为或外部工具确有必要时使用代码”的产品边界设计验证层，具体实现为 Aria 原生代码，没有复用新的 Codex 源文件，也不引入 Codex runtime、App Server、SDK、协议、进程或通信。
 
+### Phase 4C：业务验收与最终交付闸门（已实施）
+
+- `manual_required` 制品现在可由当前会话所有者或项目可写成员接受或退回，理由必填；判断以 expected revision 防止并发覆盖，并同时写当前态和 append-only 历史。
+- 判断绑定精确技术 verification、文件字节、evidence SHA-256 和 Skill verification plan。`failed/partial` 不能被人工覆盖；接受只代表允许最终交付，不是真值认证，也不写记忆、不关问题、不发送外部消息。
+- Aria 自有声明式业务校验器只读取已验证的有界结构指标。未知规则失败关闭，Skill 包代码、脚本、宏、shell 和动态 callable 不可执行。幂等迁移 `044_v1_44` 保持单一 head。
+
+### Phase 4D：结构化交付物目录与对话选择（已实施）
+
+- 全部 48 个内置 Skill 的 311 个 Deliverable Catalog 条目由活动不可变发布确定性解析。每项包含稳定 ID、格式、阶段、最低内容、归档目标和合同 SHA-256，目录另有 catalog SHA-256 并绑定 release SHA-256。
+- 项目对话在明确指定 Skill 后提供一次性交付物选择。服务端不信任浏览器名称，而是用 `deliverable_id + catalog_sha256 + contract_sha256` 对本轮实际发布重新核对；任何发布或条目漂移返回 409。
+- 精确合同进入 Provider 指令边界、Message metadata、Context Receipt 和历史回执；生成文件进一步持久化交付物 ID、名称、合同、目录及 Skill 发布哈希。由此“用户选了什么、模型被要求生成什么、哪个真实文件被产出”形成同一可审计链。
+- 保存、知识归档、记忆更新、外部交付和业务验收继续是独立授权动作，不会因为目录声明而自动发生。当前已提供显式“保存到项目文档”：只接受技术校验通过且请求/数据库/真实字节 SHA-256 一致的制品，在锁内重做项目写授权并保存 `project_file_id`、操作者和时间；重试幂等，且响应声明不写知识库、记忆或外部消息。新增项目文档只会使已派生的项目记忆失效，不会自动重建或推广内容。幂等迁移 `045_v1_45` 保持唯一 head；确定性门禁为 104 个场景、30 项指标；实现完全是 Aria 原生 Python/FastAPI/React，不引入或连接 Codex 运行时。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

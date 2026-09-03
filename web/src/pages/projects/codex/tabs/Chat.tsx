@@ -41,6 +41,10 @@ import {
   ProjectSkillControl,
   type ProjectSkillSelection,
 } from '../ProjectSkillControl'
+import {
+  ProjectDeliverableControl,
+  type ProjectDeliverableSelection,
+} from '../ProjectDeliverableControl'
 import { ProjectTurnBriefControl } from '../ProjectTurnBriefControl'
 import { ConversationContinuityPanel } from '../ConversationContinuityPanel'
 import { ProjectInteractionMetricsPanel } from '../ProjectInteractionMetrics'
@@ -511,6 +515,7 @@ export function CxProjectChat({ projectId, detail, refetch }: ChatProps) {
             onClose={() => setOpenArtifact(null)}
             width={previewWidth}
             onResize={setPreviewWidth}
+            onProjectDocumentSaved={refetch}
           />
         )}
       </div>
@@ -913,6 +918,9 @@ function ThreadView({
   const [skillSelection, setSkillSelection] = useState<ProjectSkillSelection>(
     questionReanswerDraft ? { mode: 'off' } : { mode: 'auto' },
   )
+  const [deliverableSelection, setDeliverableSelection] = (
+    useState<ProjectDeliverableSelection | null>(null)
+  )
   const [selectedMentions, setSelectedMentions] = useState<SelectedProjectMention[]>([])
   const [turnBriefDraft, setTurnBriefDraft] = useState<ProjectTurnBriefDraft>(EMPTY_PROJECT_TURN_BRIEF)
   const [turnRevisionSource, setTurnRevisionSource] = useState<ProjectTurnRevisionSource | null>(null)
@@ -970,6 +978,7 @@ function ThreadView({
     setTurnSetupSuggestion(null)
     setTurnSetupLoading(false)
     setSkillSelection(selection)
+    setDeliverableSelection(null)
   }
 
   const selectSkillForNextTurn = (skillId: number, name: string) => {
@@ -1023,7 +1032,7 @@ function ThreadView({
       ? skills.find((skill) => skill.id === recommendedSkillId)
       : undefined
     if (recommendedSkill) {
-      setSkillSelection({ mode: 'explicit', skillId: recommendedSkill.id, name: recommendedSkill.name })
+      changeSkillSelection({ mode: 'explicit', skillId: recommendedSkill.id, name: recommendedSkill.name })
     }
     setTurnSetupTrace((current) => current ? { ...current, outcome: 'applied' } : null)
     setTurnSetupSuggestion(null)
@@ -1038,7 +1047,7 @@ function ThreadView({
   }
 
   const selectSuggestedSkill = (skillId: number, name: string) => {
-    setSkillSelection({ mode: 'explicit', skillId, name })
+    changeSkillSelection({ mode: 'explicit', skillId, name })
     setTurnSetupTrace((current) => current
       ? { ...current, outcome: 'applied', skill_id: skillId }
       : { outcome: 'applied', skill_id: skillId })
@@ -1057,7 +1066,7 @@ function ThreadView({
     setTurnSetupTrace(null)
     setTurnSetupLoading(false)
     setSelectedMentions(restored.selected)
-    setSkillSelection(selectedSkill
+    changeSkillSelection(selectedSkill
       ? { mode: 'explicit', skillId: selectedSkill.id, name: selectedSkill.name }
       : { mode: 'auto' })
     setComposerText(rebaseProjectMentionTokens(
@@ -1451,16 +1460,19 @@ function ThreadView({
           </div>
         )}
         <ProjectChatComposer
+          projectId={projectId}
           value={composerText}
           onChange={changeComposerText}
           onSend={async (text) => {
             const selectionForTurn = skillSelection
+            const deliverableForTurn = deliverableSelection
             const mentionContext = currentMentionContext
             const turnBrief = projectTurnBriefToInput(turnBriefDraft)
             const setupTraceForTurn = turnSetupTrace
             const questionReanswerForTurn = projectQuestionReanswer
             setComposerText('')
             setSkillSelection({ mode: 'auto' })
+            setDeliverableSelection(null)
             setSelectedMentions([])
             setTurnBriefDraft(EMPTY_PROJECT_TURN_BRIEF)
             setTurnRevisionSource(null)
@@ -1473,7 +1485,12 @@ function ThreadView({
                 text,
                 {
                   ...(selectionForTurn.mode === 'explicit'
-                    ? { skillId: selectionForTurn.skillId }
+                    ? {
+                      skillId: selectionForTurn.skillId,
+                      ...(deliverableForTurn?.skillId === selectionForTurn.skillId
+                        ? { skillDeliverable: deliverableForTurn.input }
+                        : {}),
+                    }
                     : selectionForTurn.mode === 'off'
                       ? { disableSkill: true }
                       : {}),
@@ -1537,6 +1554,8 @@ function ThreadView({
           skills={skills}
           skillSelection={skillSelection}
           onSkillSelectionChange={changeSkillSelection}
+          deliverableSelection={deliverableSelection}
+          onDeliverableSelectionChange={setDeliverableSelection}
           mentionOptions={mentionOptions}
           selectedMentions={selectedMentions}
           onSelectedMentionsChange={setSelectedMentions}
@@ -1707,6 +1726,7 @@ function ConversationMenu({ onRename, onDelete, onOpenInChat, deleting }: Conver
  * each explicit choice applies to the next turn, then returns to auto.
  * ──────────────────────────────────────────────────────────────── */
 export function ProjectChatComposer({
+  projectId,
   value,
   onChange,
   onSend,
@@ -1717,6 +1737,8 @@ export function ProjectChatComposer({
   skills,
   skillSelection,
   onSkillSelectionChange,
+  deliverableSelection,
+  onDeliverableSelectionChange,
   mentionOptions,
   selectedMentions,
   onSelectedMentionsChange,
@@ -1733,6 +1755,7 @@ export function ProjectChatComposer({
   onTurnSetupCandidateSelect,
   textareaRef,
 }: {
+  projectId: number
   value: string
   onChange: (next: string) => void
   onSend: (text: string) => void | Promise<void>
@@ -1743,6 +1766,8 @@ export function ProjectChatComposer({
   skills: SkillSummary[]
   skillSelection: ProjectSkillSelection
   onSkillSelectionChange: (selection: ProjectSkillSelection) => void
+  deliverableSelection: ProjectDeliverableSelection | null
+  onDeliverableSelectionChange: (selection: ProjectDeliverableSelection | null) => void
   mentionOptions: ProjectMentionOption[]
   selectedMentions: SelectedProjectMention[]
   onSelectedMentionsChange: (mentions: SelectedProjectMention[]) => void
@@ -2035,6 +2060,17 @@ export function ProjectChatComposer({
             onChange={onSkillSelectionChange}
             disabled={busy}
           />
+          {skillSelection.mode === 'explicit' && (
+            <ProjectDeliverableControl
+              key={skillSelection.skillId}
+              projectId={projectId}
+              skillId={skillSelection.skillId}
+              skillName={skillSelection.name}
+              selection={deliverableSelection}
+              onChange={onDeliverableSelectionChange}
+              disabled={busy}
+            />
+          )}
           <ProjectTurnBriefControl
             draft={turnBriefDraft}
             onChange={onTurnBriefDraftChange}

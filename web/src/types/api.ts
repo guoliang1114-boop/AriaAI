@@ -933,6 +933,63 @@ export interface Skill {
   updated_at?: string
 }
 
+export interface SkillDeliverableCatalogItem {
+  schema_version: 1
+  deliverable_id: string
+  name: string
+  when_to_use: string
+  minimum_content: string
+  format_label: string
+  formats: string[]
+  default_format: string
+  stage:
+    | 'diagnosis_and_analysis'
+    | 'solution_design'
+    | 'execution'
+    | 'executive_communication'
+    | 'evidence_and_archive'
+    | string
+  save_targets: string[]
+  memory_policy: 'explicit_user_confirmation'
+  requires_review: boolean
+  business_verifiers: Array<{
+    verifier_id: string
+    expected_min: number
+  }>
+  contract_sha256: string
+}
+
+export interface SkillDeliverableCatalog {
+  schema_version: 1
+  skill_id: number
+  skill_name: string
+  skill_version: string
+  skill_release_sha256: string
+  items: SkillDeliverableCatalogItem[]
+  catalog_sha256: string
+  item_count: number
+  source: 'immutable_skill_release_markdown'
+  release_assignment?: {
+    release_id?: number | null
+    rollout_id?: number | null
+    variant?: string
+  }
+}
+
+export interface SkillDeliverableReference {
+  schema_version: 1
+  deliverable_id: string
+  name: string
+  formats: string[]
+  default_format: string
+  stage: string
+  save_targets: string[]
+  requires_review: boolean
+  contract_sha256: string
+  catalog_sha256: string
+  skill_release_sha256: string
+}
+
 export interface SkillReleaseSummary {
   id: number
   skill_id?: number | null
@@ -1895,10 +1952,34 @@ export interface GeneratedArtifact {
   source_tool?: string
   content_sha256?: string
   output_record_version?: number
+  deliverable_id?: string
+  deliverable_name?: string
+  deliverable_contract_sha256?: string
+  deliverable_catalog_sha256?: string
+  deliverable_skill_release_sha256?: string
+  deliverable?: SkillDeliverableReference
   persistence_status?: "persisted" | "failed" | string
   recovery_verified?: boolean
   recovered_from_run_id?: string
   verification?: ArtifactVerificationSummary
+}
+
+export interface ArtifactProjectSaveResponse {
+  schema_version: 1
+  artifact_id: number
+  project_id: number
+  project_file_id: number
+  target: 'project_documents'
+  created: boolean
+  content_sha256: string
+  saved_by_user_id?: number | null
+  saved_at: string
+  delivery_status: ArtifactDeliveryStatus
+  final_delivery_allowed: boolean
+  writes_memory: false
+  invalidates_derived_project_memory: boolean
+  writes_knowledge_base: false
+  sends_external_messages: false
 }
 
 export type ArtifactAcceptanceReviewStatus =
@@ -1945,6 +2026,10 @@ export interface ArtifactAcceptanceProjection {
   allowed_decisions: Array<"accepted" | "rejected">
   human_judgment_only: true
   acceptance_is_truth_verdict: false
+  deliverable?: Pick<
+    SkillDeliverableReference,
+    'deliverable_id' | 'name' | 'contract_sha256' | 'catalog_sha256' | 'skill_release_sha256'
+  > | null
   business_automation: {
     registry_version: number
     status: "not_configured" | "passed" | "failed" | "partial"
@@ -2367,7 +2452,14 @@ export interface SendMessageRequest {
   turn_revision?: TurnRevisionInput
   turn_setup_trace?: TurnSetupTraceInput
   turn_recovery?: TurnRecoveryInput
+  skill_deliverable?: SkillDeliverableSelectionInput
   action_confirmations?: string[]
+}
+
+export interface SkillDeliverableSelectionInput {
+  deliverable_id: string
+  catalog_sha256: string
+  contract_sha256: string
 }
 
 export interface ChatModel {

@@ -17,6 +17,9 @@ from app.models.db import ArtifactVerification, ChatRun, ChatTrace, Conversation
 from app.services.agent_harness.artifact_verification import (
     persist_artifact_verification,
 )
+from app.services.agent_harness.skill_deliverables import (
+    skill_deliverable_reference,
+)
 from app.services.agent_harness.run_output_record import (
     RUN_OUTPUT_RECORD_VERSION,
     append_run_output_record,
@@ -201,6 +204,7 @@ def build_message_metadata(
     turn_setup_trace: Optional[dict] = None,
     turn_recovery: Optional[dict] = None,
     project_question_reanswer: Optional[dict] = None,
+    skill_deliverable: Optional[dict] = None,
 ) -> dict:
     metadata = {}
     if skill_id:
@@ -277,6 +281,8 @@ def build_message_metadata(
         # in the in-memory runtime context; the Assistant Message receives the
         # resolved no-content evidence manifest after generation.
         metadata["project_question_reanswer"] = dict(project_question_reanswer)
+    if skill_deliverable:
+        metadata["skill_deliverable"] = dict(skill_deliverable)
     return metadata
 
 
@@ -358,6 +364,7 @@ def persist_run_artifacts(
     skill_runtime_contract: Optional[dict] = None,
     skill_id: Optional[int] = None,
     skill_release_id: Optional[int] = None,
+    actor_user_id: Optional[int] = None,
 ) -> ArtifactPersistenceBatch:
     if not artifacts:
         return ArtifactPersistenceBatch([], normalize_run_output_records(run_outputs or []), [])
@@ -370,6 +377,11 @@ def persist_run_artifacts(
         for item in normalized_outputs
         if isinstance(item, dict) and item.get("output_id")
     }
+    deliverable = skill_deliverable_reference(
+        skill_runtime_contract.get("deliverable")
+        if isinstance(skill_runtime_contract, dict)
+        else None
+    )
     with Session(bind) as session:
         for artifact in artifacts:
             name = str(artifact.get("name") or "").strip()
@@ -487,6 +499,12 @@ def persist_run_artifacts(
 
             if existing:
                 existing.project_id = project_id if project_id is not None else existing.project_id
+                if isinstance(project_file_id, int):
+                    existing.project_file_id = project_file_id
+                    existing.saved_to_project_by_user_id = actor_user_id
+                    existing.saved_to_project_at = (
+                        existing.saved_to_project_at or utc_now_naive()
+                    )
                 existing.file_type = file_type or existing.file_type
                 existing.path = relative_path
                 existing.size_bytes = size_bytes
@@ -495,6 +513,24 @@ def persist_run_artifacts(
                 existing.source_tool = source_tool or existing.source_tool
                 existing.content_sha256 = content_sha256
                 existing.output_record_version = RUN_OUTPUT_RECORD_VERSION
+                existing.deliverable_id = str(
+                    deliverable.get("deliverable_id") or existing.deliverable_id
+                )
+                existing.deliverable_name = str(
+                    deliverable.get("name") or existing.deliverable_name
+                )
+                existing.deliverable_contract_sha256 = str(
+                    deliverable.get("contract_sha256")
+                    or existing.deliverable_contract_sha256
+                )
+                existing.deliverable_catalog_sha256 = str(
+                    deliverable.get("catalog_sha256")
+                    or existing.deliverable_catalog_sha256
+                )
+                existing.deliverable_skill_release_sha256 = str(
+                    deliverable.get("skill_release_sha256")
+                    or existing.deliverable_skill_release_sha256
+                )
                 if description:
                     existing.description = description
                 if mime_type:
@@ -506,6 +542,9 @@ def persist_run_artifacts(
                 record = GeneratedFile(
                     conversation_id=conv_id,
                     project_id=project_id,
+                    project_file_id=(
+                        project_file_id if isinstance(project_file_id, int) else None
+                    ),
                     name=name,
                     file_type=file_type,
                     path=relative_path,
@@ -517,6 +556,23 @@ def persist_run_artifacts(
                     source_tool=source_tool,
                     content_sha256=content_sha256,
                     output_record_version=RUN_OUTPUT_RECORD_VERSION,
+                    deliverable_id=str(deliverable.get("deliverable_id") or ""),
+                    deliverable_name=str(deliverable.get("name") or ""),
+                    deliverable_contract_sha256=str(
+                        deliverable.get("contract_sha256") or ""
+                    ),
+                    deliverable_catalog_sha256=str(
+                        deliverable.get("catalog_sha256") or ""
+                    ),
+                    deliverable_skill_release_sha256=str(
+                        deliverable.get("skill_release_sha256") or ""
+                    ),
+                    saved_to_project_by_user_id=(
+                        actor_user_id if isinstance(project_file_id, int) else None
+                    ),
+                    saved_to_project_at=(
+                        utc_now_naive() if isinstance(project_file_id, int) else None
+                    ),
                 )
                 session.add(record)
                 session.flush()
@@ -530,6 +586,8 @@ def persist_run_artifacts(
             artifact_payload["output_id"] = output_id
             artifact_payload["content_sha256"] = content_sha256
             artifact_payload["persistence_status"] = "persisted"
+            if deliverable:
+                artifact_payload["deliverable"] = dict(deliverable)
             artifact_payload["verification"] = persist_artifact_verification(
                 session,
                 record,

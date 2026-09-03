@@ -113,6 +113,19 @@ export interface ContextSkillRuntimeContract {
   verification_source_count: number;
   verification_context_complete: boolean;
   verification_plan_sha256?: string;
+  deliverable?: {
+    schema_version: 1;
+    deliverable_id: string;
+    name: string;
+    formats: string[];
+    default_format: string;
+    stage: string;
+    save_targets: string[];
+    requires_review: boolean;
+    contract_sha256: string;
+    catalog_sha256: string;
+    skill_release_sha256: string;
+  };
 }
 export type ContextWarningCode =
   | "project_memory_missing"

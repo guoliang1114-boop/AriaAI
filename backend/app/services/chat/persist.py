@@ -772,6 +772,7 @@ async def run_persist(
             skill_runtime_contract=getattr(runtime, "skill_runtime_contract", None),
             skill_id=getattr(runtime, "skill_id", None),
             skill_release_id=getattr(runtime, "skill_release_id", None),
+            actor_user_id=getattr(runtime, "actor_user_id", None),
         )
         state.artifacts = artifact_batch.artifacts
         state.replace_run_output_records(artifact_batch.run_outputs)

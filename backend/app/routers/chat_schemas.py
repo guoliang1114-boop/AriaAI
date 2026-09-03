@@ -71,6 +71,22 @@ class ProjectQuestionReanswerInput(BaseModel):
     )
 
 
+class SkillDeliverableSelectionInput(BaseModel):
+    """One exact catalog item selected from an immutable Skill release."""
+
+    deliverable_id: str = Field(min_length=3, max_length=80)
+    catalog_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    contract_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+
+
 class SendMessageRequest(BaseModel):
     conversation_id: Optional[int] = None
     content: str
@@ -89,6 +105,7 @@ class SendMessageRequest(BaseModel):
     turn_setup_trace: Optional[TurnSetupTraceInput] = None
     turn_recovery: Optional[TurnRecoveryInput] = None
     project_question_reanswer: Optional[ProjectQuestionReanswerInput] = None
+    skill_deliverable: Optional[SkillDeliverableSelectionInput] = None
     action_confirmations: List[str] = []
 
 

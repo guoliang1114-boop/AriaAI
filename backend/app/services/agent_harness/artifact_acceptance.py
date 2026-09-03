@@ -374,6 +374,23 @@ def artifact_acceptance_projection(
             "registered_verifier_count": len(_BUSINESS_VERIFIERS),
             "skill_package_code_executable": False,
         },
+        "deliverable": (
+            {
+                "deliverable_id": str(artifact.deliverable_id or ""),
+                "name": str(artifact.deliverable_name or ""),
+                "contract_sha256": str(
+                    artifact.deliverable_contract_sha256 or ""
+                ),
+                "catalog_sha256": str(
+                    artifact.deliverable_catalog_sha256 or ""
+                ),
+                "skill_release_sha256": str(
+                    artifact.deliverable_skill_release_sha256 or ""
+                ),
+            }
+            if artifact.deliverable_id
+            else None
+        ),
     }
 
 

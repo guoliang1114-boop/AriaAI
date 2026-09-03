@@ -834,6 +834,17 @@ function PersistentContextReceipt({
                 : '未声明包级完成校验，系统不会宣称已经通过 Skill 验证'}
             {' · 包内脚本不会自动执行'}
           </div>
+          {skillRuntime.deliverable && (
+            <div style={{ color: 'var(--accent-ink)' }}>
+              本轮交付物 · {skillRuntime.deliverable.name}
+              {skillRuntime.deliverable.default_format
+                ? ` · ${skillRuntime.deliverable.default_format.toUpperCase()}`
+                : ''}
+              {skillRuntime.deliverable.contract_sha256
+                ? ` · 合同 ${skillRuntime.deliverable.contract_sha256.slice(0, 8)}`
+                : ''}
+            </div>
+          )}
           {skillRuntime.resource_names.length > 0 && (
             <div title={skillRuntime.resource_names.join(' · ')}>
               已加载资源 · {skillRuntime.resource_names.join(' · ')}

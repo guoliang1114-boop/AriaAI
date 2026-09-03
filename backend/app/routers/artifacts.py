@@ -1,7 +1,9 @@
 """Artifacts router — download and list generated files (GeneratedFile model)."""
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,7 +13,7 @@ from sqlmodel import Session, select
 
 from app.config import UPLOADS_DIR
 from app.database import get_session
-from app.models.db import ArtifactVerification, GeneratedFile, User
+from app.models.db import ArtifactVerification, GeneratedFile, ProjectFile, User
 from app.routers.auth import get_current_user
 from app.routers.chat_security import require_conversation_access, require_project_access
 from app.services.upload_paths import normalize_relative_upload_path, resolve_upload_path
@@ -24,6 +26,9 @@ from app.services.agent_harness.artifact_acceptance import (
     registered_artifact_business_verifiers,
     review_artifact_acceptance,
 )
+from app.services.cache import projects_cache
+from app.services.project_contexts import mark_project_memory_stale
+from app.services.time_utils import utc_now_naive
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 
@@ -32,6 +37,7 @@ class ArtifactOut(BaseModel):
     id: int
     conversation_id: int
     project_id: Optional[int]
+    project_file_id: Optional[int] = None
     name: str
     file_type: str
     path: str
@@ -42,6 +48,13 @@ class ArtifactOut(BaseModel):
     source_tool: str = ""
     content_sha256: str = ""
     output_record_version: int = 1
+    deliverable_id: str = ""
+    deliverable_name: str = ""
+    deliverable_contract_sha256: str = ""
+    deliverable_catalog_sha256: str = ""
+    deliverable_skill_release_sha256: str = ""
+    saved_to_project_by_user_id: Optional[int] = None
+    saved_to_project_at: Optional[datetime] = None
     created_at: datetime
 
 
@@ -49,6 +62,22 @@ class ArtifactAcceptanceRequest(BaseModel):
     decision: str = Field(min_length=1, max_length=40)
     expected_revision: int = Field(ge=0)
     reason: str = Field(min_length=1, max_length=600)
+
+
+class ArtifactProjectSaveRequest(BaseModel):
+    expected_content_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _authorize_artifact(
@@ -205,6 +234,130 @@ def download_artifact(
         media_type=media_type,
         filename=artifact.name,
     )
+
+
+@router.post("/{artifact_id}/save-to-project")
+def save_artifact_to_project(
+    artifact_id: int,
+    body: ArtifactProjectSaveRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Explicitly expose one verified generated file in project documents."""
+
+    artifact = session.exec(
+        select(GeneratedFile)
+        .where(GeneratedFile.id == artifact_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if artifact is None:
+        raise HTTPException(404, "Artifact not found")
+    _authorize_artifact(session, artifact, current_user, require_write=True)
+    if artifact.project_id is None:
+        raise HTTPException(409, "Artifact is not bound to a project")
+    expected_sha256 = body.expected_content_sha256.lower()
+    if expected_sha256 != str(artifact.content_sha256 or "").lower():
+        raise HTTPException(409, "Artifact content changed; reload before saving")
+
+    verification = session.exec(
+        select(ArtifactVerification)
+        .where(ArtifactVerification.generated_file_id == artifact_id)
+        .order_by(
+            ArtifactVerification.created_at.desc(),
+            ArtifactVerification.id.desc(),
+        )
+    ).first()
+    verification_evidence = (
+        artifact_verification_evidence_payload(verification)
+        if verification is not None
+        else {}
+    )
+    if (
+        not verification_evidence
+        or verification_evidence.get("content_sha256") != expected_sha256
+        or verification_evidence.get("technical_status") != "passed"
+    ):
+        raise HTTPException(
+            409,
+            "Artifact technical verification must pass before project save",
+        )
+
+    file_path = resolve_upload_path(UPLOADS_DIR, artifact.path, must_exist=True)
+    if _file_sha256(file_path) != expected_sha256:
+        raise HTTPException(409, "Artifact bytes changed; regenerate or verify again")
+
+    project_file = None
+    if artifact.project_file_id is not None:
+        candidate = session.get(ProjectFile, artifact.project_file_id)
+        if (
+            candidate is not None
+            and candidate.project_id == artifact.project_id
+            and candidate.path == artifact.path
+            and candidate.deleted_at is None
+        ):
+            project_file = candidate
+    if project_file is None:
+        project_file = session.exec(
+            select(ProjectFile).where(
+                ProjectFile.project_id == artifact.project_id,
+                ProjectFile.path == artifact.path,
+                ProjectFile.deleted_at.is_(None),
+            )
+        ).first()
+
+    created = project_file is None
+    if project_file is None:
+        project_file = ProjectFile(
+            project_id=int(artifact.project_id),
+            name=artifact.name,
+            file_type=artifact.file_type,
+            path=artifact.path,
+            size_bytes=file_path.stat().st_size,
+            summary=str(artifact.description or "")[:2000],
+            origin="ai_generated",
+        )
+        session.add(project_file)
+        session.flush()
+
+    now = utc_now_naive()
+    artifact.project_file_id = project_file.id
+    if artifact.saved_to_project_at is None:
+        artifact.saved_to_project_by_user_id = current_user.id
+        artifact.saved_to_project_at = now
+    session.add(artifact)
+    if created:
+        # Registering a new source does not rewrite memory, but any existing
+        # derived memory must no longer claim to cover the complete project.
+        mark_project_memory_stale(
+            session,
+            int(artifact.project_id),
+            trigger="generated_artifact_saved_to_project",
+            commit=False,
+        )
+    session.commit()
+    if created:
+        projects_cache.delete(f"detail:{artifact.project_id}")
+        projects_cache.delete_prefix("list:")
+    session.refresh(project_file)
+    acceptance = artifact_acceptance_projection(session, artifact, verification)
+    return {
+        "schema_version": 1,
+        "artifact_id": int(artifact.id),
+        "project_id": int(artifact.project_id),
+        "project_file_id": int(project_file.id),
+        "target": "project_documents",
+        "created": created,
+        "content_sha256": expected_sha256,
+        "saved_by_user_id": artifact.saved_to_project_by_user_id,
+        "saved_at": artifact.saved_to_project_at,
+        "delivery_status": acceptance["delivery_status"],
+        "final_delivery_allowed": acceptance["final_delivery_allowed"],
+        "writes_memory": False,
+        "invalidates_derived_project_memory": created,
+        "writes_knowledge_base": False,
+        "sends_external_messages": False,
+    }
 
 
 @router.get("/{artifact_id}/verification")

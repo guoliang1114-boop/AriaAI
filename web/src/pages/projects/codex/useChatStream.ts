@@ -10,6 +10,7 @@ import type {
   ProjectQuestionReanswerEvidenceManifest,
   ProjectQuestionReanswerInput,
   Reference,
+  SkillDeliverableSelectionInput,
   TurnBriefInput,
   TurnRecoveryInput,
   TurnRevisionInput,
@@ -75,6 +76,7 @@ export interface ProjectChatTurnControl {
   turnSetupTrace?: TurnSetupTraceInput
   turnRecovery?: TurnRecoveryInput
   projectQuestionReanswer?: ProjectQuestionReanswerInput
+  skillDeliverable?: SkillDeliverableSelectionInput
 }
 
 interface UseChatStreamArgs {
@@ -308,6 +310,9 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           ...(turnControl.projectQuestionReanswer
             ? { project_question_reanswer: turnControl.projectQuestionReanswer }
             : {}),
+          ...(turnControl.skillDeliverable
+            ? { skill_deliverable: turnControl.skillDeliverable }
+            : {}),
         }),
         created_at: new Date().toISOString(),
       }
@@ -356,6 +361,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
             turn_setup_trace: turnControl.turnSetupTrace,
             turn_recovery: turnControl.turnRecovery,
             project_question_reanswer: turnControl.projectQuestionReanswer,
+            skill_deliverable: turnControl.skillDeliverable,
           }),
           signal: controller.signal,
         })

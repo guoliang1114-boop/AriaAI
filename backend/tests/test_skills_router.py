@@ -104,6 +104,28 @@ class SkillsCrudTestCase(unittest.TestCase):
         resp = self.client.get("/skills/99999")
         self.assertEqual(resp.status_code, 404)
 
+    def test_get_structured_deliverable_catalog(self):
+        with Session(self.engine) as session:
+            skill = session.get(Skill, self.skill_id)
+            skill.system_prompt = """# Skill
+
+### Deliverable Catalog
+| Deliverable | When to use | Minimum content | Format |
+|---|---|---|---|
+| Executive deck | Board decision | Options and recommendation | PPTX / PDF |
+"""
+            session.add(skill)
+            session.commit()
+
+        resp = self.client.get(f"/skills/{self.skill_id}/deliverables")
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["item_count"], 1)
+        self.assertEqual(data["items"][0]["name"], "Executive deck")
+        self.assertEqual(data["items"][0]["formats"], ["pptx", "pdf"])
+        self.assertEqual(len(data["catalog_sha256"]), 64)
+
     def test_create_skill(self):
         resp = self.client.post("/skills", json={
             "name": "New Skill",

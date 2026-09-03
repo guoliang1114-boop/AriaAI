@@ -31,6 +31,9 @@ from app.services.agent_harness.run_display import DisplayMode, resolve_run_disp
 from app.services.agent_harness.artifact_verification import (
     normalize_artifact_verification_reference,
 )
+from app.services.agent_harness.skill_deliverables import (
+    skill_deliverable_reference,
+)
 
 # ----------------------------------------------------------------------
 # Event type constants
@@ -566,6 +569,20 @@ def _normalize_skill_runtime_contract(value: dict) -> dict[str, Any]:
                 "context_receipt.skill.runtime verification plan is inconsistent"
             )
         normalized["verification_plan_sha256"] = verification_plan_sha256
+    deliverable = value.get("deliverable")
+    if isinstance(deliverable, dict):
+        reference = skill_deliverable_reference(deliverable)
+        if (
+            not reference
+            or (
+                release_sha256
+                and reference["skill_release_sha256"] != release_sha256
+            )
+        ):
+            raise ValueError(
+                "context_receipt.skill.runtime.deliverable is invalid"
+            )
+        normalized["deliverable"] = reference
     return normalized
 
 

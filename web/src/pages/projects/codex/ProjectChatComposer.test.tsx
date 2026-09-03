@@ -30,6 +30,7 @@ function ComposerHarness() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   return (
     <ProjectChatComposer
+      projectId={26}
       value={value}
       onChange={setValue}
       onSend={vi.fn()}
@@ -40,6 +41,8 @@ function ComposerHarness() {
       skills={skills}
       skillSelection={skillSelection}
       onSkillSelectionChange={setSkillSelection}
+      deliverableSelection={null}
+      onDeliverableSelectionChange={vi.fn()}
       mentionOptions={buildProjectMentionOptions(skills, mentionables)}
       selectedMentions={selectedMentions}
       onSelectedMentionsChange={setSelectedMentions}

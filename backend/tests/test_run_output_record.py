@@ -231,3 +231,45 @@ def test_persist_run_artifacts_rejects_file_type_mismatch(tmp_path, monkeypatch)
     assert batch.artifacts == []
     assert batch.failures[0]["failure"]["code"] == "ARTIFACT_TYPE_MISMATCH"
     engine.dispose()
+
+
+def test_persist_run_artifacts_binds_exact_skill_deliverable(tmp_path, monkeypatch) -> None:
+    engine = _sqlite_engine()
+    conversation_id = _seed_conversation(engine)
+    uploads = tmp_path / "uploads"
+    path = uploads / "generated" / "findings.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("# Findings\n\nEvidence-bound output.", encoding="utf-8")
+    monkeypatch.setattr("app.services.chat_store.UPLOADS_DIR", uploads)
+    deliverable = {
+        "schema_version": 1,
+        "deliverable_id": "findings-memo-1234567890",
+        "name": "Findings memo",
+        "formats": ["md"],
+        "default_format": "md",
+        "stage": "diagnosis_and_analysis",
+        "save_targets": ["project_documents", "knowledge_base"],
+        "requires_review": True,
+        "contract_sha256": "a" * 64,
+        "catalog_sha256": "b" * 64,
+        "skill_release_sha256": "c" * 64,
+    }
+
+    batch = persist_run_artifacts(
+        engine,
+        conversation_id,
+        [{"name": "findings.md", "file_type": "md", "path": "generated/findings.md"}],
+        run_id="run_deliverable",
+        skill_runtime_contract={"deliverable": deliverable},
+    )
+
+    assert batch.failures == []
+    assert batch.artifacts[0]["deliverable"] == deliverable
+    with Session(engine) as session:
+        saved = session.exec(select(GeneratedFile)).one()
+        assert saved.deliverable_id == deliverable["deliverable_id"]
+        assert saved.deliverable_name == "Findings memo"
+        assert saved.deliverable_contract_sha256 == "a" * 64
+        assert saved.deliverable_catalog_sha256 == "b" * 64
+        assert saved.deliverable_skill_release_sha256 == "c" * 64
+    engine.dispose()
