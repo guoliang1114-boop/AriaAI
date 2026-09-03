@@ -89,6 +89,68 @@ def test_grounded_grader_accepts_equivalent_fact_order_but_rejects_full_width_ci
     assert result["citation_format_mismatch_count"] == 1
 
 
+def test_grounded_grader_applies_line_citation_to_semicolon_separated_facts():
+    case = {
+        "id": "same_bullet",
+        "evidence": (("E1", "每周五书面更新。"),),
+        "claims": (
+            {"variants": ("每周五",), "citation": "E1"},
+            {"variants": ("书面进度更新",), "citation": "E1"},
+        ),
+        "forbidden": (),
+    }
+
+    result = grade_grounded_answer(
+        case,
+        "- 沟通频率为每周五；沟通形式为书面进度更新 [E1]",
+    )
+
+    assert result["present_claim_count"] == 2
+    assert result["correctly_cited_claim_count"] == 2
+
+
+def test_grounded_grader_does_not_borrow_citation_across_sentences():
+    case = {
+        "id": "wrong_sentence_citations",
+        "evidence": (("E1", "甲事实。"), ("E2", "乙事实。")),
+        "claims": (
+            {"variants": ("甲事实",), "citation": "E1"},
+            {"variants": ("乙事实",), "citation": "E2"},
+        ),
+        "forbidden": (),
+    }
+
+    result = grade_grounded_answer(case, "甲事实 [E2]。乙事实 [E1]")
+
+    assert result["present_claim_count"] == 2
+    assert result["correctly_cited_claim_count"] == 0
+
+
+def test_grounded_grader_accepts_cited_qualified_provenance_abstention():
+    case = {
+        "id": "qualified_provenance",
+        "evidence": (("E1", "记忆没有稳定来源。"),),
+        "claims": (
+            {
+                "variants": ("未得到可靠来源确认",),
+                "citation": "E1",
+                "qualified_abstention_equivalent": True,
+            },
+        ),
+        "must_abstain": True,
+        "forbidden": ("预算上限已确认",),
+    }
+
+    result = grade_grounded_answer(
+        case,
+        "- 现有记忆缺少稳定 source ID，因此无法确认其可靠性 [E1]",
+    )
+
+    assert result["present_claim_count"] == 1
+    assert result["correctly_cited_claim_count"] == 1
+    assert result["claims"][0]["matched_variant"] == "qualified_abstention"
+
+
 def test_forbidden_weekday_does_not_false_match_once_per_week():
     case = {
         "id": "weekday_boundary",

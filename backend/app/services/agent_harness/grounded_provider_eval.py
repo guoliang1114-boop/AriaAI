@@ -175,6 +175,7 @@ _CASES: tuple[dict[str, Any], ...] = (
                     "无法证实",
                 ),
                 "citation": "E1",
+                "qualified_abstention_equivalent": True,
             },
         ),
         "must_abstain": True,
@@ -203,6 +204,16 @@ _ABSTENTION_MARKERS = (
     "not provided",
     "cannot determine",
 )
+_PROVENANCE_QUALIFICATION_MARKERS = (
+    "可靠",
+    "来源",
+    "证据",
+    "确认",
+    "证实",
+    "核验",
+    "sourceid",
+    "source id",
+)
 
 
 def _normalize(value: str) -> str:
@@ -220,14 +231,26 @@ def _claim_match(answer: str, variants: tuple[str, ...]) -> tuple[bool, int, str
 
 
 def _claim_has_citation(answer: str, variants: tuple[str, ...], citation: str) -> bool:
-    segments = re.split(r"[。；;\n]", answer)
-    for segment in segments:
-        normalized_segment = _normalize(segment)
-        if f"[{citation}]" not in segment:
+    # A citation at the end of a bullet clause supports facts separated by a
+    # semicolon inside that clause. Preserve full-stop boundaries so citations
+    # from a different sentence cannot be borrowed by an unrelated claim.
+    for clause in re.split(r"[。\n]", answer):
+        normalized_clause = _normalize(clause)
+        if f"[{citation}]" not in clause:
             continue
-        if any(_normalize(variant) in normalized_segment for variant in variants):
+        if any(_normalize(variant) in normalized_clause for variant in variants):
             return True
     return False
+
+
+def _is_qualified_abstention(answer: str) -> bool:
+    normalized_answer = _normalize(answer)
+    has_abstention = any(marker in answer.lower() for marker in _ABSTENTION_MARKERS)
+    has_provenance_context = any(
+        _normalize(marker) in normalized_answer
+        for marker in _PROVENANCE_QUALIFICATION_MARKERS
+    )
+    return has_abstention and has_provenance_context
 
 
 def _contains_forbidden_fact(normalized_answer: str, term: str) -> bool:
@@ -255,19 +278,35 @@ def _render_case_prompt(case: dict[str, Any]) -> str:
         "必须逐项覆盖的事实类型：",
         *required_facts,
         "完整性规则：最终回答必须逐项覆盖每个 [R*]，不得用相邻指标替代；缺失项也必须单独说明证据不足。",
-        "输出格式：每个有证据支持的事实单独一条项目符号，并在同一行句末写唯一对应的 ASCII [E*]；证据缺失的事实明确拒答。",
+        "输出格式：严格按 [R*] 顺序逐项输出，每个事实类型单独一条项目符号，并在同一行句末写唯一对应的 ASCII [E*]；证据缺失的事实明确拒答。",
     ]
     return "\n".join(blocks)
 
 
 def grade_grounded_answer(case: dict[str, Any], answer: str) -> dict[str, Any]:
+    normalized_answer = _normalize(answer)
+    valid_keys = {key for key, _ in case["evidence"]}
+    observed_keys = list(
+        dict.fromkeys(f"E{item}" for item in _CITATION_PATTERN.findall(answer))
+    )
+    loosely_observed_keys = list(
+        dict.fromkeys(f"E{item}" for item in _LOOSE_CITATION_PATTERN.findall(answer))
+    )
+    abstained = any(marker in answer.lower() for marker in _ABSTENTION_MARKERS)
     claims = []
     for claim in case.get("claims") or ():
         present, _, matched = _claim_match(answer, claim["variants"])
-        cited = present and _claim_has_citation(
-            answer,
-            claim["variants"],
-            claim["citation"],
+        qualified_abstention = bool(
+            not present
+            and claim.get("qualified_abstention_equivalent")
+            and _is_qualified_abstention(answer)
+        )
+        if qualified_abstention:
+            present = True
+            matched = "qualified_abstention"
+        cited = present and (
+            _claim_has_citation(answer, claim["variants"], claim["citation"])
+            or (qualified_abstention and claim["citation"] in observed_keys)
         )
         claims.append(
             {
@@ -277,19 +316,12 @@ def grade_grounded_answer(case: dict[str, Any], answer: str) -> dict[str, Any]:
                 "matched_variant": matched,
             }
         )
-    normalized_answer = _normalize(answer)
     forbidden_hits = [
         term for term in case.get("forbidden") or ()
         if _contains_forbidden_fact(normalized_answer, term)
     ]
-    valid_keys = {key for key, _ in case["evidence"]}
-    observed_keys = list(dict.fromkeys(f"E{item}" for item in _CITATION_PATTERN.findall(answer)))
-    loosely_observed_keys = list(
-        dict.fromkeys(f"E{item}" for item in _LOOSE_CITATION_PATTERN.findall(answer))
-    )
     invalid_citations = [key for key in observed_keys if key not in valid_keys]
     must_abstain = bool(case.get("must_abstain", False))
-    abstained = any(marker in answer.lower() for marker in _ABSTENTION_MARKERS)
     return {
         "case_id": case["id"],
         "answer_sha256": hashlib.sha256(answer.encode("utf-8")).hexdigest(),
