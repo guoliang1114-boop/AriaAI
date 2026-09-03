@@ -44,9 +44,22 @@ def test_skill_runtime_contract_binds_selected_release_resources_and_policy_tool
     assert contract["policy_filtered_tool_count"] == 1
     assert contract["verification_status"] == "available"
     assert contract["verification_step_count"] == 2
+    assert len(contract["verification_plan_sha256"]) == 64
     assert contract["instruction_complete"] is True
     assert contract["verification_context_complete"] is True
     assert contract["scripts_executable"] is False
+
+    changed = build_skill_runtime_contract(
+        SimpleNamespace(
+            **{
+                **skill.__dict__,
+                "system_prompt": skill.system_prompt.replace("Check totals", "Check citations"),
+            }
+        ),
+        release_id=17,
+        granted_tools=[{"name": "read_project"}],
+    )
+    assert changed["verification_plan_sha256"] != contract["verification_plan_sha256"]
 
 
 def test_skill_runtime_contract_does_not_treat_mentioned_scripts_as_executable():

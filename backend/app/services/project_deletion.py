@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlmodel import Session, select
 
 from app.models.db import (
+    ArtifactVerification,
     ChatRun,
     ChatTrace,
     Conversation,
@@ -162,6 +163,13 @@ def delete_project_cascade(
             session.exec(select(GeneratedFile).where(GeneratedFile.conversation_id.in_(conversation_ids))).all()
         )
     generated_file_ids = [file.id for file in generated_files if file.id is not None]
+    for verification in session.exec(
+        select(ArtifactVerification).where(
+            ArtifactVerification.generated_file_id.in_(generated_file_ids)
+        )
+    ).all() if generated_file_ids else []:
+        session.delete(verification)
+    session.flush()
     for tool_call in session.exec(
         select(ToolCall).where(ToolCall.conversation_id.in_(conversation_ids))
     ).all() if conversation_ids else []:

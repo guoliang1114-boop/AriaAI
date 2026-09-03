@@ -1,5 +1,7 @@
 // API Response Types
 
+import type { ArtifactVerificationSummary } from './productRunEvent'
+
 // Auth
 export interface User {
   id: number
@@ -1896,6 +1898,7 @@ export interface GeneratedArtifact {
   persistence_status?: "persisted" | "failed" | string
   recovery_verified?: boolean
   recovered_from_run_id?: string
+  verification?: ArtifactVerificationSummary
 }
 
 export interface MemoryCandidate {

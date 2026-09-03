@@ -223,6 +223,23 @@ describe("reduceRunActivity", () => {
         artifact_type: "pptx",
         download_url: "/files/57",
         source_tool: "generate_ppt_from_skill",
+        verification: {
+          schema_version: 1,
+          verification_id: 91,
+          verifier_version: 1,
+          status: "manual_required",
+          technical_status: "passed",
+          skill_status: "manual_required",
+          content_sha256: "a".repeat(64),
+          evidence_sha256: "b".repeat(64),
+          automated_check_count: 5,
+          automated_passed_count: 5,
+          automated_failed_count: 0,
+          automated_skipped_count: 0,
+          skill_check_count: 4,
+          metrics: { slide_count: 12 },
+          verification_plan_sha256: "c".repeat(64),
+        },
       },
       { type: "message_persisted", run_id: "r", message_id: 100 },
       { type: "run_done", run_id: "r", final_status: "waiting_confirmation" },
@@ -240,6 +257,8 @@ describe("reduceRunActivity", () => {
       download_url: "/files/57",
       source_tool: "generate_ppt_from_skill",
     });
+    expect(t.artifacts[0].verification?.status).toBe("manual_required");
+    expect(t.artifacts[0].verification?.metrics.slide_count).toBe(12);
     expect(t.message_id).toBe(100);
     expect(t.final_status).toBe("waiting_confirmation");
   });

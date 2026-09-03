@@ -8,6 +8,7 @@
  */
 import type {
   ArtifactType,
+  ArtifactVerificationSummary,
   ContextReceiptEvent,
   ProductRunEvent,
   RunDisplayMode,
@@ -43,6 +44,7 @@ export interface ActivityArtifact {
   source_tool?: string;
   output_id?: string;
   content_sha256?: string;
+  verification?: ArtifactVerificationSummary;
 }
 
 export interface ActivityMemoryCandidate {
@@ -275,6 +277,7 @@ export function reduceRunActivity(
             source_tool: event.source_tool,
             output_id: event.output_id,
             content_sha256: event.content_sha256,
+            verification: event.verification,
           },
         ],
       };

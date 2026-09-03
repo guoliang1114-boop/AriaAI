@@ -5,7 +5,14 @@ from pathlib import Path
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import Conversation, GeneratedFile, Project, ProjectFile, User
+from app.models.db import (
+    ArtifactVerification,
+    Conversation,
+    GeneratedFile,
+    Project,
+    ProjectFile,
+    User,
+)
 from app.services.agent_harness.run_output_record import (
     RunOutputStatus,
     build_artifact_output_record,
@@ -110,6 +117,7 @@ def test_persist_run_artifacts_requires_real_file_and_records_digest(tmp_path, m
     assert batch.artifacts[0]["path"] == "generated/deck.pptx"
     assert batch.artifacts[0]["persistence_status"] == "persisted"
     assert len(batch.artifacts[0]["content_sha256"]) == 64
+    assert batch.artifacts[0]["verification"]["status"] == "failed"
     assert batch.run_outputs[0]["status"] == RunOutputStatus.PERSISTED.value
     with Session(engine) as session:
         saved = session.exec(select(GeneratedFile)).one()
@@ -118,6 +126,9 @@ def test_persist_run_artifacts_requires_real_file_and_records_digest(tmp_path, m
         assert saved.source_tool == "generate_ppt_from_skill"
         assert saved.size_bytes == len(b"real ppt bytes")
         assert saved.content_sha256 == batch.artifacts[0]["content_sha256"]
+        verification = session.exec(select(ArtifactVerification)).one()
+        assert verification.generated_file_id == saved.id
+        assert verification.status == "failed"
     engine.dispose()
 
 

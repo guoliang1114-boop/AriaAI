@@ -554,6 +554,15 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 确定性发布门禁由 85 个场景/26 项指标扩展为 90 个场景/27 项指标，新增 `skill_runtime_contract_accuracy`，固定精确发布身份、按需资源、权限交集、脚本不可执行、验证声明和无正文回执五条不变量。本阶段复用现有 `SkillRelease`、`ChatRun`、Message metadata 与 Context Receipt，不新增数据库迁移。
 - 本阶段参考 OpenAI Codex `codex-rs/skills/src/selection.rs`、`codex-rs/ext/skills/src/host_prompt.rs` 和 `fragments.rs` 在 commit `5e26f7621c1c470fe62350d61c9eb4d6c772a0da` 的“轻量发现、本轮命中后再加载、显式加载结果”边界，并重写为 Aria 原生 Python/React、数据库发布快照与业务授权。Aria 生产运行时不导入、运行或连接 Codex。
 
+### Phase 4B：Skill 交付物验证与证据账本（已实施）
+
+- `Skill Runtime Contract v1` 对识别出的验收步骤及验收资源生成内容安全的 `verification_plan_sha256`，使后续证据能证明“针对哪一版清单”，但不暴露清单正文。
+- 制品只有在 `UPLOADS_DIR`、项目文件归属、真实大小与内容 SHA-256 校验后才进入验证。Aria 自有校验器再检查存在/非空/扩展名/字节身份，以及 OpenXML、PDF、常见图片、Markdown/文本/JSON/CSV/HTML 的格式完整性；检查有资源上限，不执行宏、嵌入代码、Skill script、包内工具或外部命令。
+- `ArtifactVerification` 按 `GeneratedFile + content SHA-256 + verifier version + Skill release SHA-256` 建立幂等不可变记录，保存受控检查码、计数、格式指标和 evidence SHA-256，不保存文件路径、文件正文、Prompt、工具输入/输出或隐藏推理。授权读取沿用附件所属 Conversation/Project ACL。
+- 结果分为 `passed / failed / partial / manual_required`。Skill 业务清单默认只能成为人工验收要求；上下文被压缩则是 `context_incomplete`，技术失败附件不能满足交付契约。事件、消息、恢复交付、活动时间线和两套附件卡片共享同一摘要，旧附件无证据时继续兼容但不会伪造状态。
+- 幂等迁移 `043_v1_43` 管理证据表、约束、外键和索引，并保持单一 Alembic head。部署门禁纳入迁移、纯逻辑验证、路由授权、级联删除和备份后生产隔离 schema E2E；确定性评测扩展为 95 个场景、28 项指标，新增 `artifact_verification_accuracy`。
+- 本阶段依据 OpenAI 官方 Skill 指南中“指令与资源渐进加载；仅在确定性行为或外部工具确有必要时使用代码”的产品边界设计验证层，具体实现为 Aria 原生代码，没有复用新的 Codex 源文件，也不引入 Codex runtime、App Server、SDK、协议、进程或通信。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

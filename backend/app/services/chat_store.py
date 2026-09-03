@@ -13,7 +13,10 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.config import CHAT_RETENTION_DAYS, CONVERSATION_CACHE_TTL, UPLOADS_DIR
-from app.models.db import ChatRun, ChatTrace, Conversation, ConversationState, GeneratedFile, MemoryCandidate, Message, PendingToolAction, ProjectFile, TaskRun, ToolCall
+from app.models.db import ArtifactVerification, ChatRun, ChatTrace, Conversation, ConversationState, GeneratedFile, MemoryCandidate, Message, PendingToolAction, ProjectFile, TaskRun, ToolCall
+from app.services.agent_harness.artifact_verification import (
+    persist_artifact_verification,
+)
 from app.services.agent_harness.run_output_record import (
     RUN_OUTPUT_RECORD_VERSION,
     append_run_output_record,
@@ -352,6 +355,9 @@ def persist_run_artifacts(
     *,
     run_id: str = "",
     run_outputs: Optional[list[dict]] = None,
+    skill_runtime_contract: Optional[dict] = None,
+    skill_id: Optional[int] = None,
+    skill_release_id: Optional[int] = None,
 ) -> ArtifactPersistenceBatch:
     if not artifacts:
         return ArtifactPersistenceBatch([], normalize_run_output_records(run_outputs or []), [])
@@ -524,6 +530,14 @@ def persist_run_artifacts(
             artifact_payload["output_id"] = output_id
             artifact_payload["content_sha256"] = content_sha256
             artifact_payload["persistence_status"] = "persisted"
+            artifact_payload["verification"] = persist_artifact_verification(
+                session,
+                record,
+                full_path,
+                skill_runtime_contract=skill_runtime_contract,
+                skill_id=skill_id,
+                skill_release_id=skill_release_id,
+            )
             if description:
                 artifact_payload["description"] = description
             normalized_artifacts.append(artifact_payload)
@@ -653,7 +667,20 @@ def delete_conversation_with_messages(session: Session, conv_id: int, *, clear_c
     for task in session.exec(select(TaskRun).where(TaskRun.conversation_id == conv_id)).all():
         task.conversation_id = None
         session.add(task)
-    for artifact in session.exec(select(GeneratedFile).where(GeneratedFile.conversation_id == conv_id)).all():
+    generated_files = session.exec(
+        select(GeneratedFile).where(GeneratedFile.conversation_id == conv_id)
+    ).all()
+    generated_file_ids = [
+        artifact.id for artifact in generated_files if artifact.id is not None
+    ]
+    for verification in session.exec(
+        select(ArtifactVerification).where(
+            ArtifactVerification.generated_file_id.in_(generated_file_ids)
+        )
+    ).all() if generated_file_ids else []:
+        session.delete(verification)
+    session.flush()
+    for artifact in generated_files:
         session.delete(artifact)
     for tool_call in session.exec(select(ToolCall).where(ToolCall.conversation_id == conv_id)).all():
         session.delete(tool_call)

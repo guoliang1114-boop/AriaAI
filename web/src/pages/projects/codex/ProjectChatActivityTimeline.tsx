@@ -107,6 +107,12 @@ export function ProjectChatActivityTimeline({
     () => timeline.steps.filter((step) => step.status === 'completed').length,
     [timeline.steps],
   )
+  const failedArtifactVerifications = timeline.artifacts.filter(
+    (artifact) => artifact.verification?.status === 'failed',
+  ).length
+  const pendingArtifactVerifications = timeline.artifacts.filter(
+    (artifact) => ['partial', 'manual_required'].includes(artifact.verification?.status || ''),
+  ).length
   if (!shouldRender) return null
 
   const finalLabel = timeline.final_status
@@ -232,6 +238,8 @@ export function ProjectChatActivityTimeline({
           {(timeline.artifacts.length > 0 || timeline.memory_candidates.length > 0) && (
             <div style={{ marginTop: 8, color: 'var(--ink-mute)', fontSize: 10.5 }}>
               {timeline.artifacts.length > 0 ? `${timeline.artifacts.length} 个交付物` : ''}
+              {failedArtifactVerifications > 0 ? ` · ${failedArtifactVerifications} 个校验失败` : ''}
+              {pendingArtifactVerifications > 0 ? ` · ${pendingArtifactVerifications} 个待核验` : ''}
               {timeline.artifacts.length > 0 && timeline.memory_candidates.length > 0 ? ' · ' : ''}
               {timeline.memory_candidates.length > 0
                 ? `${timeline.memory_candidates.length} 条记忆候选`

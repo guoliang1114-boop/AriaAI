@@ -253,7 +253,7 @@ def test_revision_042_is_the_single_alembic_head() -> None:
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["042_v1_42"]
+    assert script.get_heads() == ["043_v1_43"]
     revision = script.get_revision("041_v1_41")
     assert revision is not None
     assert revision.down_revision == "040_v1_40"

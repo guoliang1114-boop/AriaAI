@@ -57,6 +57,7 @@ import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../uti
 import { describeRunSkill, normalizeRunSkill, type ActiveRunSkill } from '../../utils/chatRunSkill'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
 import { formatDateOnly, formatDatePartsKey, formatTimeOnly, parseAppDateTime } from '../../utils/timezone'
+import { artifactVerificationLabel } from '../../utils/artifactVerification'
 
 const PAGE_SIZE = 20
 let nextOptimisticId = -1
@@ -972,6 +973,7 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
   const isZh = i18n.language.startsWith('zh')
   const toast = useToast()
   const [downloading, setDownloading] = useState(false)
+  const verificationLabel = artifactVerificationLabel(artifact.verification)
 
   const handleDownload = async () => {
     setDownloading(true)
@@ -1048,6 +1050,19 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
               {artifact.file_type.toUpperCase()}
             </span>
             {artifact.description ? <span className="truncate">{artifact.description}</span> : null}
+            {verificationLabel ? (
+              <span
+                style={{
+                  color: artifact.verification?.status === 'failed'
+                    ? 'var(--color-codex-bad)'
+                    : artifact.verification?.status === 'passed'
+                      ? 'var(--color-codex-good)'
+                      : 'var(--color-codex-warn)',
+                }}
+              >
+                {verificationLabel}
+              </span>
+            ) : null}
           </div>
         </div>
         <button

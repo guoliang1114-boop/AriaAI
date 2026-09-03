@@ -28,6 +28,9 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from app.services.agent_harness.run_display import DisplayMode, resolve_run_display_mode
+from app.services.agent_harness.artifact_verification import (
+    normalize_artifact_verification_reference,
+)
 
 # ----------------------------------------------------------------------
 # Event type constants
@@ -550,6 +553,19 @@ def _normalize_skill_runtime_contract(value: dict) -> dict[str, Any]:
                 "context_receipt.skill.runtime.release_sha256 is invalid"
             )
         normalized["release_sha256"] = release_sha256
+    verification_plan_sha256 = str(
+        value.get("verification_plan_sha256") or ""
+    ).strip().lower()
+    if verification_plan_sha256:
+        if not re.fullmatch(r"[0-9a-f]{64}", verification_plan_sha256):
+            raise ValueError(
+                "context_receipt.skill.runtime.verification_plan_sha256 is invalid"
+            )
+        if normalized["verification_status"] != "available":
+            raise ValueError(
+                "context_receipt.skill.runtime verification plan is inconsistent"
+            )
+        normalized["verification_plan_sha256"] = verification_plan_sha256
     return normalized
 
 
@@ -1091,6 +1107,7 @@ def artifact_ready(
     source_tool: str | None = None,
     output_id: str | None = None,
     content_sha256: str | None = None,
+    verification: dict[str, Any] | None = None,
 ) -> dict:
     event: dict[str, Any] = {
         "type": EventType.ARTIFACT_READY,
@@ -1119,6 +1136,20 @@ def artifact_ready(
         if len(normalized_digest) != 64 or any(char not in "0123456789abcdef" for char in normalized_digest):
             raise ValueError("artifact_ready.content_sha256 must be a SHA-256 digest")
         event["content_sha256"] = normalized_digest
+    if verification is not None:
+        normalized_verification = normalize_artifact_verification_reference(
+            verification
+        )
+        if not normalized_verification:
+            raise ValueError("artifact_ready.verification is invalid")
+        if (
+            "content_sha256" in event
+            and normalized_verification["content_sha256"] != event["content_sha256"]
+        ):
+            raise ValueError(
+                "artifact_ready.verification content digest must match artifact"
+            )
+        event["verification"] = normalized_verification
     return event
 
 

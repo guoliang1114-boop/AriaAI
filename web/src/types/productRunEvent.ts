@@ -112,6 +112,7 @@ export interface ContextSkillRuntimeContract {
   verification_step_count: number;
   verification_source_count: number;
   verification_context_complete: boolean;
+  verification_plan_sha256?: string;
 }
 export type ContextWarningCode =
   | "project_memory_missing"
@@ -313,6 +314,40 @@ export interface ArtifactReadyEvent {
   source_tool?: string;
   output_id?: string;
   content_sha256?: string;
+  verification?: ArtifactVerificationSummary;
+}
+
+export type ArtifactVerificationStatus = "passed" | "failed" | "partial" | "manual_required";
+export type ArtifactTechnicalStatus = "passed" | "failed" | "unsupported";
+export type ArtifactSkillVerificationStatus = "not_declared" | "manual_required" | "context_incomplete";
+
+export interface ArtifactVerificationSummary {
+  schema_version: 1;
+  verification_id: number;
+  verifier_version: number;
+  status: ArtifactVerificationStatus;
+  technical_status: ArtifactTechnicalStatus;
+  skill_status: ArtifactSkillVerificationStatus;
+  content_sha256: string;
+  evidence_sha256: string;
+  automated_check_count: number;
+  automated_passed_count: number;
+  automated_failed_count: number;
+  automated_skipped_count: number;
+  skill_check_count: number;
+  metrics: Partial<Record<
+    | "slide_count"
+    | "paragraph_count"
+    | "worksheet_count"
+    | "page_count"
+    | "line_count"
+    | "row_count"
+    | "width_px"
+    | "height_px",
+    number
+  >>;
+  verification_plan_sha256?: string;
+  skill_release_sha256?: string;
 }
 
 export interface MemoryCandidateReadyEvent {

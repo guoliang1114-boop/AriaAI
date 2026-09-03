@@ -11,10 +11,13 @@ from sqlmodel import Session, select
 
 from app.config import UPLOADS_DIR
 from app.database import get_session
-from app.models.db import GeneratedFile, User
+from app.models.db import ArtifactVerification, GeneratedFile, User
 from app.routers.auth import get_current_user
 from app.routers.chat_security import require_conversation_access, require_project_access
 from app.services.upload_paths import normalize_relative_upload_path, resolve_upload_path
+from app.services.agent_harness.artifact_verification import (
+    artifact_verification_evidence_payload,
+)
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 
@@ -172,6 +175,34 @@ def download_artifact(
     )
 
 
+@router.get("/{artifact_id}/verification")
+def get_artifact_verification(
+    artifact_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Return bounded verification evidence after normal artifact authorization."""
+
+    artifact = session.get(GeneratedFile, artifact_id)
+    if not artifact:
+        raise HTTPException(404, "Artifact not found")
+    _authorize_artifact(session, artifact, current_user)
+    verification = session.exec(
+        select(ArtifactVerification)
+        .where(ArtifactVerification.generated_file_id == artifact_id)
+        .order_by(
+            ArtifactVerification.created_at.desc(),
+            ArtifactVerification.id.desc(),
+        )
+    ).first()
+    if verification is None:
+        raise HTTPException(404, "Artifact verification not found")
+    payload = artifact_verification_evidence_payload(verification)
+    if not payload:
+        raise HTTPException(409, "Artifact verification evidence is invalid")
+    return payload
+
+
 @router.delete("/{artifact_id}")
 def delete_artifact(
     artifact_id: int,
@@ -190,6 +221,13 @@ def delete_artifact(
         if file_path.exists():
             file_path.unlink()
     
+    for verification in session.exec(
+        select(ArtifactVerification).where(
+            ArtifactVerification.generated_file_id == artifact_id
+        )
+    ).all():
+        session.delete(verification)
+    session.flush()
     session.delete(artifact)
     session.commit()
     return {"ok": True}

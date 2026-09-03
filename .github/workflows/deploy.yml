@@ -248,6 +248,8 @@ jobs:
             trap 'rm -f "$TEST_DATABASE_PATH" "$TEST_DATABASE_PATH-shm" "$TEST_DATABASE_PATH-wal"' EXIT
             "$PYTHON" -m pytest -q \
                 tests/test_agent_harness_native.py \
+                tests/test_artifact_verification.py \
+                tests/test_artifact_verification_migration.py \
                 tests/test_active_chat_run_lease.py \
                 tests/test_active_chat_run_lease_migration.py \
                 tests/test_agent_loop_durable_boundaries.py \
@@ -315,6 +317,7 @@ jobs:
                 tests/test_hitas_project_scope_binding.py \
                 tests/test_skill_root_snapshots.py \
                 tests/test_skill_quality.py \
+                tests/test_skill_runtime_contract.py \
                 tests/test_structured_patch.py \
                 tests/test_tool_capability_manifest.py \
                 tests/test_tool_execution_record.py \

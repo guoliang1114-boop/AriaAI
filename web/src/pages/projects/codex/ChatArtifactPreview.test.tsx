@@ -102,4 +102,49 @@ describe('ChatArtifactPreview', () => {
       fileName: '已核验的旧报告.pdf',
     }))
   })
+
+  it('loads bounded verification evidence only when the user expands it', async () => {
+    const verification = {
+      schema_version: 1 as const,
+      verification_id: 7,
+      verifier_version: 1,
+      status: 'passed' as const,
+      technical_status: 'passed' as const,
+      skill_status: 'not_declared' as const,
+      content_sha256: 'a'.repeat(64),
+      evidence_sha256: 'b'.repeat(64),
+      automated_check_count: 5,
+      automated_passed_count: 5,
+      automated_failed_count: 0,
+      automated_skipped_count: 0,
+      skill_check_count: 0,
+      metrics: {},
+    }
+    mockGet.mockResolvedValue({
+      ...verification,
+      checks: [{ check_id: 'file_exists', status: 'passed' }],
+      created_at: '2026-09-03T00:00:00',
+    })
+
+    render(
+      <ChatArtifactPreview
+        artifact={{
+          id: 42,
+          name: 'evidence.txt',
+          file_type: 'txt',
+          path: 'generated/evidence.txt',
+          verification,
+        }}
+        projectId={3}
+        onClose={vi.fn()}
+        width={380}
+        onResize={vi.fn()}
+      />,
+    )
+
+    expect(mockGet).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /技术校验通过 5\/5/ }))
+    await screen.findByText('文件存在 · 通过')
+    expect(mockGet).toHaveBeenCalledWith('/artifacts/42/verification')
+  })
 })

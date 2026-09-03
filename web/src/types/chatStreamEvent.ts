@@ -235,6 +235,10 @@ function normalizeContextSkillRuntime(value: unknown): ContextSkillRuntimeContra
     && /^[a-f0-9]{64}$/u.test(runtime.release_sha256)
     ? runtime.release_sha256
     : undefined
+  const verificationPlanSha = typeof runtime.verification_plan_sha256 === 'string'
+    && /^[a-f0-9]{64}$/u.test(runtime.verification_plan_sha256)
+    ? runtime.verification_plan_sha256
+    : undefined
   return {
     schema_version: 1,
     load_status: runtime.load_status as ContextSkillRuntimeContract['load_status'],
@@ -261,6 +265,7 @@ function normalizeContextSkillRuntime(value: unknown): ContextSkillRuntimeContra
     verification_step_count: nonNegativeInt(runtime.verification_step_count),
     verification_source_count: nonNegativeInt(runtime.verification_source_count),
     verification_context_complete: Boolean(runtime.verification_context_complete),
+    verification_plan_sha256: verificationPlanSha,
   }
 }
 

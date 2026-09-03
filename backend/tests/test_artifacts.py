@@ -2,17 +2,19 @@
 import unittest
 import tempfile
 import shutil
+import hashlib
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel
 
-from app.models.db import GeneratedFile, User, Conversation
+from app.models.db import ArtifactVerification, GeneratedFile, User, Conversation
 from app.routers import artifacts as artifacts_module
 from app.routers.artifacts import router
 from app.database import get_session
 from tests.test_database import create_test_engine, drop_all_tables
+from app.services.agent_harness.artifact_verification import persist_artifact_verification
 
 
 class ArtifactsRouterTestCase(unittest.TestCase):
@@ -73,8 +75,13 @@ class ArtifactsRouterTestCase(unittest.TestCase):
             session.commit()
             session.refresh(gf)
             session.refresh(other_gf)
+            gf.content_sha256 = hashlib.sha256(report_path.read_bytes()).hexdigest()
+            session.add(gf)
+            verification = persist_artifact_verification(session, gf, report_path)
+            session.commit()
             self.artifact_id = gf.id
             self.other_artifact_id = other_gf.id
+            self.verification_id = verification["verification_id"]
 
         app = FastAPI()
         app.include_router(router)
@@ -134,6 +141,22 @@ class ArtifactsRouterTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn(b"Test Report", resp.content)
 
+    def test_get_artifact_verification_returns_bounded_evidence(self):
+        resp = self.client.get(f"/artifacts/{self.artifact_id}/verification")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["verification_id"], self.verification_id)
+        self.assertEqual(data["status"], "passed")
+        self.assertTrue(data["checks"])
+        self.assertNotIn(str(self.uploads_dir), str(data))
+        self.assertNotIn("Test Report", str(data))
+
+    def test_get_artifact_verification_returns_404_for_legacy_artifact(self):
+        resp = self.client.get(
+            f"/artifacts/{self.other_artifact_id}/verification"
+        )
+        self.assertEqual(resp.status_code, 404)
+
     def test_download_by_path_rejects_absolute_path(self):
         resp = self.client.get("/artifacts/download-by-path", params={"path": "/etc/passwd"})
         self.assertEqual(resp.status_code, 400)
@@ -174,6 +197,8 @@ class ArtifactsRouterTestCase(unittest.TestCase):
         self.assertIn(resp.status_code, [200, 204])
         resp2 = self.client.get(f"/artifacts/{self.artifact_id}")
         self.assertEqual(resp2.status_code, 404)
+        with Session(self.engine) as session:
+            self.assertIsNone(session.get(ArtifactVerification, self.verification_id))
 
     def test_delete_nonexistent_artifact(self):
         resp = self.client.delete("/artifacts/99999")

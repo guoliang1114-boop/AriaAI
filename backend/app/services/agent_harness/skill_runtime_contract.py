@@ -13,6 +13,7 @@ read a Codex skill, execute package scripts, or use a Codex process/protocol.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from typing import Any, Iterable
@@ -81,11 +82,11 @@ def _loaded_resource_names(prompt: str) -> tuple[str, ...]:
     return tuple(names)
 
 
-def _verification_section_steps(prompt: str) -> tuple[int, bool]:
-    """Count bounded checklist/bullet items under declared verification headings."""
+def _verification_section_steps(prompt: str) -> tuple[tuple[str, ...], bool]:
+    """Return bounded normalized items under declared verification headings."""
 
     lines = (prompt or "").splitlines()
-    step_count = 0
+    steps: list[str] = []
     declared = False
     active_level: int | None = None
     for line in lines:
@@ -102,8 +103,28 @@ def _verification_section_steps(prompt: str) -> tuple[int, bool]:
         if active_level is None:
             continue
         if _CHECKBOX_RE.match(line) or _BULLET_RE.match(line):
-            step_count = min(99, step_count + 1)
-    return step_count, declared
+            normalized = _single_line(
+                re.sub(r"^\s*[-*+]\s+(?:\[[ xX]\]\s+)?", "", line),
+                limit=240,
+            )
+            if normalized and normalized not in steps and len(steps) < 99:
+                steps.append(normalized)
+    return tuple(steps), declared
+
+
+def _verification_plan_sha256(
+    steps: tuple[str, ...],
+    resources: tuple[str, ...],
+) -> str:
+    if not steps and not resources:
+        return ""
+    payload = json.dumps(
+        {"schema_version": 1, "steps": list(steps), "resources": list(resources)},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def build_skill_runtime_contract(
@@ -147,6 +168,10 @@ def build_skill_runtime_contract(
     )
     instruction_loaded = bool(prompt.strip())
     verification_available = inline_verification or bool(verification_resources)
+    verification_plan_sha256 = _verification_plan_sha256(
+        verification_steps,
+        verification_resources,
+    )
     release_sha256 = str(getattr(skill, "package_sha256", "") or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{64}", release_sha256):
         release_sha256 = ""
@@ -177,12 +202,14 @@ def build_skill_runtime_contract(
             0, len(declared_tool_names) - granted_declared_count
         ),
         "verification_status": "available" if verification_available else "not_declared",
-        "verification_step_count": verification_steps,
+        "verification_step_count": len(verification_steps),
         "verification_source_count": (
             len(verification_resources) + int(inline_verification)
         ),
         "verification_context_complete": instruction_loaded and verification_available,
     }
+    if verification_plan_sha256:
+        contract["verification_plan_sha256"] = verification_plan_sha256
     if release_id is not None and int(release_id) > 0:
         contract["release_id"] = str(int(release_id))
     return contract

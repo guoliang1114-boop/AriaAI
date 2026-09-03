@@ -581,7 +581,7 @@ Model Layer（外部推理服务）
 | `tool_progress` | 可展示工具进度 | `run_id`, `step_index`, `title`, `status` | `detail`, `progress` | `status` 枚举：`pending`, `running`, `completed`, `failed`；归属于当前步骤 |
 | `task_update` | 长任务进度更新 | `run_id`, `task_id`, `status` | `progress_pct`, `current_step`, `total_steps`, `step_title` | `progress_pct` 为 0–100 整数；在 `task` mode 下作为时间线步骤渲染 |
 | `confirmation_required` | 需要用户确认 | `run_id`, `action`, `impact` | `params_snapshot`, `deadline` | `action` 必须人类可读，`params_snapshot` 用于确认后冻结执行 |
-| `artifact_ready` | 已验证交付物可用 | `run_id`, `artifact_id`, `artifact_type` | `download_url`, `preview_url`, `source_tool`, `output_id`, `content_sha256` | 只允许真实持久化后发送；`artifact_type` 枚举：`pptx`, `docx`, `xlsx`, `pdf`, `markdown` |
+| `artifact_ready` | 交付物已持久化并附验证状态 | `run_id`, `artifact_id`, `artifact_type` | `download_url`, `preview_url`, `source_tool`, `output_id`, `content_sha256`, `verification` | 只允许真实持久化后发送；`verification` 是无正文摘要，区分技术通过、技术失败、部分校验与待业务验收；`artifact_type` 枚举：`pptx`, `docx`, `xlsx`, `pdf`, `markdown` |
 | `memory_candidate_ready` | 来源关联候选进入审核 | `run_id`, `candidate_id`, `scope`, `candidate_type`, `status` | `content_sha256` | `status` 首次固定为 `pending_review`；事件和 Run Output 不包含候选正文 |
 | `message_persisted` | assistant message 已保存 | `run_id`, `message_id` | `parent_run_id` | 用于 streaming 气泡替换为持久化消息 |
 | `run_done` | run 完成 | `run_id`, `final_status` | `message_id`, `artifact_ids` | `final_status` 必须与 run status 一致 |
@@ -919,6 +919,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 补充进展（2026-09-02）：Phase 3Y 将已核验整改附件和新的 Assistant 回答建立精确绑定，而不回写历史消息。准备与发送采用双重验证：开放问题/记忆新鲜度、项目范围、附件与审核 revision、当前源内容摘要必须全部匹配；模型上下文最多注入 8 条不可信来源，Turn 强制 answer-only、无 Skill、无工具、无写入。新回答只持久化实际输出的 `[A*]` 引用和无正文 manifest，问题准备度以 `evidence_sha256 + attachment_id + review_revision` 与当前证据池对齐；后续审核或来源变化会让旧回答降级并提示重新分析。确定性门禁扩展为 82 个场景、25 项指标，新增 `question_reanswer_grounding_safety_rate`。本阶段复用 Message metadata 与 `042_v1_42` 证据账本，不新增数据库迁移；不引入 Codex 运行时、SDK、协议或通信。
 
 补充进展（2026-09-03）：Phase 4A 为每个 Skill Turn 增加 `Skill Runtime Contract v1`。它绑定不可变发布身份，只清点实际冻结到本轮 Prompt 的 bundled resources，将 Skill 声明工具与 Aria 策略授权工具求交集，并固定包内脚本不可自动执行；验证清单只表示“已声明”，不伪造实际校验结果。Context Receipt 和项目对话历史展示同一份无正文回执，确定性门禁扩展为 90 个场景、27 项指标。本阶段不新增数据库迁移，也不引入 Codex 运行时、SDK、协议或通信。
+
+补充进展（2026-09-03）：Phase 4B 将 Skill 验收声明与真实交付物验证连接起来。运行合同以 SHA-256 绑定精确验收计划；Persistence Harness 在 `GeneratedFile` 落库事务内执行 Aria 自有的只读文件身份和格式完整性检查，并将结果按文件字节、校验器版本与 Skill 发布写入不可变 `ArtifactVerification`。自动化层绝不执行 Skill script、宏或代码，也不把语义/业务验收冒充为自动通过；此类步骤保持 `manual_required`，上下文不完整保持 `partial`，技术失败不能满足交付契约。Product Run Event、消息 metadata、恢复与前端卡片共享无正文摘要，授权 API 仅返回有界检查码。幂等迁移 `043_v1_43` 保持单一 head；确定性门禁扩展为 95 个场景、28 项指标。不引入 Codex 运行时、SDK、协议、进程或通信。
 
 补充进展（2026-09-02）：Phase 3Z 把证据绑定回答推进到可核验的人工采用。问题页先准备包含问题/槽位版本、Message 身份、回答正文摘要、解决摘要、当前证据与裁决身份、准备度的冻结 snapshot；确认关单时在项目写锁内重新授权和重算，任一漂移返回 409。确认后的无正文采用 envelope 写入既有 append-only resolution event note，历史纯文本 note 保持兼容。回答不可用/正文变化以及整改附件或裁决变化会让旧解决项自动进入待复核。项目对话在重答成功后可带持久 Message ID 返回问题页并重新分析、预选，但不自动采用。确定性门禁扩展为 85 个场景、26 项指标，新增 `question_answer_adoption_safety_rate`；不新增数据库迁移，不引入 Codex 运行时、SDK、协议或通信。
 

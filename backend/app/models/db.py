@@ -1814,6 +1814,87 @@ class GeneratedFile(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now_naive)
 
 
+class ArtifactVerification(SQLModel, table=True):
+    """Immutable evidence for one artifact-content verification pass."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "generated_file_id",
+            "content_sha256",
+            "verifier_version",
+            "skill_release_sha256",
+            name="uq_artifactverification_content_verifier_skill",
+        ),
+        CheckConstraint(
+            "status IN ('passed', 'failed', 'partial', 'manual_required')",
+            name="ck_artifactverification_status",
+        ),
+        CheckConstraint(
+            "technical_status IN ('passed', 'failed', 'unsupported')",
+            name="ck_artifactverification_technical_status",
+        ),
+        CheckConstraint(
+            "skill_status IN ('not_declared', 'manual_required', 'context_incomplete')",
+            name="ck_artifactverification_skill_status",
+        ),
+        CheckConstraint(
+            "verifier_version >= 1 "
+            "AND length(content_sha256) = 64 "
+            "AND length(evidence_sha256) = 64 "
+            "AND length(skill_release_sha256) IN (0, 64)",
+            name="ck_artifactverification_identity",
+        ),
+        CheckConstraint(
+            "automated_check_count >= 0 "
+            "AND automated_passed_count >= 0 "
+            "AND automated_failed_count >= 0 "
+            "AND automated_skipped_count >= 0 "
+            "AND skill_check_count >= 0 "
+            "AND automated_check_count = automated_passed_count "
+            "+ automated_failed_count + automated_skipped_count",
+            name="ck_artifactverification_counts",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    generated_file_id: int = Field(
+        foreign_key="generatedfile.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    run_id: str = Field(default="", index=True)
+    output_id: str = Field(default="", index=True)
+    skill_id: Optional[int] = Field(
+        default=None,
+        foreign_key="skill.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    skill_release_id: Optional[int] = Field(
+        default=None,
+        foreign_key="skillrelease.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    skill_release_sha256: str = Field(default="", index=True)
+    content_sha256: str = Field(index=True)
+    evidence_sha256: str = Field(index=True)
+    status: str = Field(index=True)
+    technical_status: str = Field(index=True)
+    skill_status: str = Field(index=True)
+    verifier_version: int = 1
+    automated_check_count: int = 0
+    automated_passed_count: int = 0
+    automated_failed_count: int = 0
+    automated_skipped_count: int = 0
+    skill_check_count: int = 0
+    evidence_json: str = Field(
+        default="{}",
+        sa_column=Column(Text, nullable=False, default="{}"),
+    )
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
 # ── Scheduled Tasks ───────────────────────────────────────────────────────────
 
 class ScheduledTask(SQLModel, table=True):

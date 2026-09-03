@@ -31,6 +31,9 @@ from sqlmodel import Session, select
 from app.config import UPLOADS_DIR
 from app.models.db import GeneratedFile, ProjectFile
 from app.services.agent_harness.approval_envelope import RECOVERY_HITAS_ACTION_TYPE
+from app.services.agent_harness.artifact_verification import (
+    latest_artifact_verification_reference,
+)
 from app.services.agent_harness.run_effect_record import (
     RecoveryEffectDecision,
     decide_recovery_effect,
@@ -262,6 +265,13 @@ def _verified_recovery_artifact(
             }
             if isinstance(project_file_id, int) and not isinstance(project_file_id, bool):
                 payload["project_file_id"] = project_file_id
+            verification = latest_artifact_verification_reference(
+                session,
+                generated_file_id=int(record.id or 0),
+                content_sha256=content_sha256,
+            )
+            if verification:
+                payload["verification"] = verification
             return payload
     except Exception:
         logger.warning(

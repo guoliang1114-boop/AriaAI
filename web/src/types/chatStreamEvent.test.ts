@@ -113,6 +113,7 @@ describe('chat receipt normalization', () => {
           verification_step_count: 7,
           verification_source_count: 1,
           verification_context_complete: true,
+          verification_plan_sha256: 'd'.repeat(64),
           prompt: 'private instructions',
         },
       },
@@ -147,6 +148,7 @@ describe('chat receipt normalization', () => {
           resource_count: 1,
           granted_tool_count: 1,
           verification_step_count: 7,
+          verification_plan_sha256: 'd'.repeat(64),
         },
       },
     })

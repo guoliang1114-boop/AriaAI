@@ -56,13 +56,25 @@ def _build_artifact_notice(artifacts: list[dict]) -> str:
         isinstance(item, dict) and bool(item.get("recovery_verified"))
         for item in artifacts
     )
+    verification_statuses = {
+        str(item.get("verification", {}).get("status") or "")
+        for item in artifacts
+        if isinstance(item, dict) and isinstance(item.get("verification"), dict)
+    }
+    verification_notice = ""
+    if "failed" in verification_statuses:
+        verification_notice = "\n\n附件技术校验未通过，请勿作为最终交付。"
+    elif "partial" in verification_statuses:
+        verification_notice = "\n\n附件已完成基础校验，但仍有无法自动判定的检查。"
+    elif "manual_required" in verification_statuses:
+        verification_notice = "\n\n附件技术完整性校验已通过；Skill 业务验收项仍需人工确认。"
     if recovery_only:
         if not names:
-            return "\u5df2\u6838\u9a8c\u539f\u4efb\u52a1\u5df2\u6709\u9644\u4ef6\uff0c\u672c\u6b21\u672a\u91cd\u590d\u751f\u6210\uff1b\u53ef\u5728\u672c\u6761\u56de\u590d\u4e2d\u7684\u4e0b\u8f7d\u5361\u7247\u91cc\u76f4\u63a5\u4e0b\u8f7d\u3002"
-        return f"\u5df2\u6838\u9a8c\u539f\u4efb\u52a1\u5df2\u6709\u9644\u4ef6\uff1a{names}\u3002\u672c\u6b21\u672a\u91cd\u590d\u751f\u6210\uff0c\u53ef\u5728\u672c\u6761\u56de\u590d\u4e2d\u7684\u4e0b\u8f7d\u5361\u7247\u91cc\u76f4\u63a5\u4e0b\u8f7d\u3002"
+            return "\u5df2\u6838\u5bf9\u539f\u4efb\u52a1\u5df2\u6709\u9644\u4ef6\uff0c\u672c\u6b21\u672a\u91cd\u590d\u751f\u6210\uff1b\u53ef\u5728\u672c\u6761\u56de\u590d\u4e2d\u7684\u4e0b\u8f7d\u5361\u7247\u91cc\u76f4\u63a5\u4e0b\u8f7d\u3002" + verification_notice
+        return f"\u5df2\u6838\u5bf9\u539f\u4efb\u52a1\u5df2\u6709\u9644\u4ef6\uff1a{names}\u3002\u672c\u6b21\u672a\u91cd\u590d\u751f\u6210\uff0c\u53ef\u5728\u672c\u6761\u56de\u590d\u4e2d\u7684\u4e0b\u8f7d\u5361\u7247\u91cc\u76f4\u63a5\u4e0b\u8f7d\u3002{verification_notice}"
     if not names:
-        return "\u5df2\u751f\u6210\u9644\u4ef6\uff0c\u53ef\u5728\u672c\u6761\u56de\u590d\u4e2d\u7684\u4e0b\u8f7d\u5361\u7247\u91cc\u76f4\u63a5\u4e0b\u8f7d\u3002"
-    return f"\u5df2\u751f\u6210\u9644\u4ef6\uff1a{names}\u3002\u53ef\u5728\u672c\u6761\u56de\u590d\u4e2d\u7684\u4e0b\u8f7d\u5361\u7247\u91cc\u76f4\u63a5\u4e0b\u8f7d\u3002"
+        return "\u5df2\u751f\u6210\u9644\u4ef6\uff0c\u53ef\u5728\u672c\u6761\u56de\u590d\u4e2d\u7684\u4e0b\u8f7d\u5361\u7247\u91cc\u76f4\u63a5\u4e0b\u8f7d\u3002" + verification_notice
+    return f"\u5df2\u751f\u6210\u9644\u4ef6\uff1a{names}\u3002\u53ef\u5728\u672c\u6761\u56de\u590d\u4e2d\u7684\u4e0b\u8f7d\u5361\u7247\u91cc\u76f4\u63a5\u4e0b\u8f7d\u3002{verification_notice}"
 
 
 def _is_digital_strategy_runtime(runtime: ChatRuntime) -> bool:

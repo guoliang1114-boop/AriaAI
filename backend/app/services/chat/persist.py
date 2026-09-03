@@ -170,13 +170,28 @@ def _delivery_satisfied(state: ChatSessionState, contract: ArtifactContract | No
     if not contract or not contract.delivery_required:
         return True
     output_kind = (contract.output_kind or "").lower()
-    if output_kind == "md" and state.pending_markdown_saves:
+    delivered_artifacts = state.delivered_artifacts()
+    has_authoritative_artifact_evidence = any(
+        artifact.get("persistence_status") == "persisted"
+        or bool(artifact.get("recovery_verified"))
+        for artifact in delivered_artifacts
+    )
+    if (
+        output_kind == "md"
+        and state.pending_markdown_saves
+        and not has_authoritative_artifact_evidence
+    ):
         return True
-    for artifact in state.delivered_artifacts():
+    for artifact in delivered_artifacts:
+        verification = artifact.get("verification")
+        if isinstance(verification, dict) and verification.get("status") == "failed":
+            continue
         file_type = str(artifact.get("file_type") or artifact.get("output_kind") or "").lower().lstrip(".")
         file_name = str(artifact.get("file_name") or artifact.get("name") or "").lower()
         if file_type == output_kind or (output_kind and file_name.endswith(f".{output_kind}")):
             return True
+    if has_authoritative_artifact_evidence:
+        return False
     for event in state.tool_call_events:
         if not tool_event_is_completed(event):
             continue
@@ -754,6 +769,9 @@ async def run_persist(
             req.project_id,
             run_id=state.run_id,
             run_outputs=state.run_outputs,
+            skill_runtime_contract=getattr(runtime, "skill_runtime_contract", None),
+            skill_id=getattr(runtime, "skill_id", None),
+            skill_release_id=getattr(runtime, "skill_release_id", None),
         )
         state.artifacts = artifact_batch.artifacts
         state.replace_run_output_records(artifact_batch.run_outputs)
@@ -764,6 +782,21 @@ async def run_persist(
                 stage="persist",
                 output_id=str(failure.get("output_id") or "") if isinstance(failure, dict) else "",
                 failure_code=str(failure_payload.get("code") or "") if isinstance(failure_payload, dict) else "",
+            )
+        for artifact in state.artifacts:
+            verification = artifact.get("verification")
+            if not isinstance(verification, dict):
+                continue
+            state.record_trace_event(
+                "artifact_verified",
+                stage="persist",
+                artifact_id=artifact.get("id"),
+                output_id=str(artifact.get("output_id") or ""),
+                verification_id=verification.get("verification_id"),
+                verification_status=str(verification.get("status") or ""),
+                technical_status=str(verification.get("technical_status") or ""),
+                skill_status=str(verification.get("skill_status") or ""),
+                evidence_sha256=str(verification.get("evidence_sha256") or ""),
             )
 
     delivered_artifacts = state.delivered_artifacts()
@@ -802,6 +835,11 @@ async def run_persist(
                     source_tool=str(artifact.get("source_tool") or "") or None,
                     output_id=str(artifact.get("output_id") or "") or None,
                     content_sha256=str(artifact.get("content_sha256") or "") or None,
+                    verification=(
+                        artifact.get("verification")
+                        if isinstance(artifact.get("verification"), dict)
+                        else None
+                    ),
                 )
             )
 

@@ -297,6 +297,7 @@ class ContextReceiptTest(unittest.TestCase):
                     "verification_step_count": 6,
                     "verification_source_count": 1,
                     "verification_context_complete": True,
+                    "verification_plan_sha256": "e" * 64,
                     "prompt": "must never leave backend",
                 },
             },
@@ -307,6 +308,7 @@ class ContextReceiptTest(unittest.TestCase):
         self.assertEqual(runtime["release_id"], "19")
         self.assertEqual(runtime["resource_names"], ["references/quality-checklist.md"])
         self.assertEqual(runtime["granted_tool_count"], 1)
+        self.assertEqual(runtime["verification_plan_sha256"], "e" * 64)
         self.assertNotIn("prompt", runtime)
 
     def test_context_receipt_rejects_executable_package_scripts(self):
@@ -558,6 +560,25 @@ class ArtifactReadyTest(unittest.TestCase):
             source_tool="generate_ppt_from_skill",
             output_id="out_artifact_57",
             content_sha256="a" * 64,
+            verification={
+                "schema_version": 1,
+                "verification_id": 91,
+                "verifier_version": 1,
+                "status": "manual_required",
+                "technical_status": "passed",
+                "skill_status": "manual_required",
+                "content_sha256": "a" * 64,
+                "evidence_sha256": "b" * 64,
+                "automated_check_count": 5,
+                "automated_passed_count": 5,
+                "automated_failed_count": 0,
+                "automated_skipped_count": 0,
+                "skill_check_count": 4,
+                "metrics": {"slide_count": 12},
+                "verification_plan_sha256": "c" * 64,
+                "skill_release_sha256": "d" * 64,
+                "private_path": "/private/report.pptx",
+            },
         )
         self.assertEqual(event["artifact_id"], "57")
         self.assertEqual(event["artifact_type"], "pptx")
@@ -565,6 +586,10 @@ class ArtifactReadyTest(unittest.TestCase):
         self.assertEqual(event["source_tool"], "generate_ppt_from_skill")
         self.assertEqual(event["output_id"], "out_artifact_57")
         self.assertEqual(event["content_sha256"], "a" * 64)
+        self.assertEqual(event["verification"]["verification_id"], 91)
+        self.assertEqual(event["verification"]["metrics"], {"slide_count": 12})
+        self.assertEqual(event["verification"]["skill_release_sha256"], "d" * 64)
+        self.assertNotIn("private_path", event["verification"])
 
     def test_invalid_artifact_type_rejected(self):
         with self.assertRaises(ValueError):
@@ -573,6 +598,40 @@ class ArtifactReadyTest(unittest.TestCase):
     def test_invalid_content_digest_rejected(self):
         with self.assertRaises(ValueError):
             artifact_ready(make_run_id(), 1, ArtifactType.PDF, content_sha256="short")
+
+    def test_invalid_verification_rejected(self):
+        with self.assertRaisesRegex(ValueError, "verification is invalid"):
+            artifact_ready(
+                make_run_id(),
+                1,
+                ArtifactType.PDF,
+                verification={"status": "passed"},
+            )
+
+    def test_verification_digest_must_match_artifact_digest(self):
+        with self.assertRaisesRegex(ValueError, "must match artifact"):
+            artifact_ready(
+                make_run_id(),
+                1,
+                ArtifactType.PDF,
+                content_sha256="a" * 64,
+                verification={
+                    "schema_version": 1,
+                    "verification_id": 1,
+                    "verifier_version": 1,
+                    "status": "passed",
+                    "technical_status": "passed",
+                    "skill_status": "not_declared",
+                    "content_sha256": "b" * 64,
+                    "evidence_sha256": "c" * 64,
+                    "automated_check_count": 5,
+                    "automated_passed_count": 5,
+                    "automated_failed_count": 0,
+                    "automated_skipped_count": 0,
+                    "skill_check_count": 0,
+                    "metrics": {},
+                },
+            )
 
 
 class MemoryCandidateReadyTest(unittest.TestCase):

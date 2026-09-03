@@ -31,6 +31,7 @@ import {
 } from './turnBrief'
 import { PROJECT_TURN_REVISION_FIELD_LABELS } from './ProjectTurnSetupControl'
 import { formatUpdatedRelative } from './useProjectsApi'
+import { artifactVerificationLabel } from '../../../utils/artifactVerification'
 
 /** Project-chat-tab message bubble.
  *
@@ -1019,6 +1020,7 @@ function ArtifactCard({
   // fallback instead of becoming an inert card.
   const actionable = !!onClick && (artifact.project_file_id != null || hasGeneratedDownload)
   const actionLabel = artifact.project_file_id != null ? '预览 →' : '下载 →'
+  const verificationLabel = artifactVerificationLabel(artifact.verification)
 
   const body = (
     <>
@@ -1058,6 +1060,21 @@ function ArtifactCard({
           {sizeKb != null && <span className="num">{sizeKb} KB · </span>}
           {artifact.description || 'Aria 生成的产出'}
         </div>
+        {verificationLabel && (
+          <div
+            style={{
+              fontSize: 10.5,
+              marginTop: 3,
+              color: artifact.verification?.status === 'failed'
+                ? 'var(--bad)'
+                : artifact.verification?.status === 'passed'
+                  ? 'var(--good)'
+                  : 'var(--warn)',
+            }}
+          >
+            {verificationLabel}
+          </div>
+        )}
       </div>
       {actionable && (
         <span

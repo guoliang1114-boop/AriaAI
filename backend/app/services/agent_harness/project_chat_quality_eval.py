@@ -8,6 +8,9 @@ constraint retention visible in CI.
 from __future__ import annotations
 
 import json
+import hashlib
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -39,6 +42,9 @@ from app.services.agent_harness.skill_runtime_contract import (
     finalize_skill_runtime_contract,
     format_skill_runtime_contract_for_prompt,
     skill_runtime_contract_warnings,
+)
+from app.services.agent_harness.artifact_verification import (
+    build_artifact_verification_evidence,
 )
 from app.services.agent_harness.project_world_state import (
     WORLD_STATE_CATEGORIES,
@@ -1617,6 +1623,7 @@ def _skill_runtime_contract_results() -> tuple[int, int, list[dict[str, Any]]]:
             "case": "skill_runtime_surfaces_verification_and_degraded_loads",
             "passed": contract["verification_status"] == "available"
             and contract["verification_step_count"] == 2
+            and len(contract["verification_plan_sha256"]) == 64
             and skill_runtime_contract_warnings(degraded)
             == [
                 "skill_instructions_missing",
@@ -1633,6 +1640,81 @@ def _skill_runtime_contract_results() -> tuple[int, int, list[dict[str, Any]]]:
             and compacted["verification_context_complete"] is False
             and "skill_instructions_compacted"
             in skill_runtime_contract_warnings(compacted),
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
+def _artifact_verification_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Artifact claims must stay byte-bound, bounded, and automation-honest."""
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        text_path = root / "delivery.txt"
+        text_path.write_text("deterministic delivery", encoding="utf-8")
+        text_digest = hashlib.sha256(text_path.read_bytes()).hexdigest()
+        passed = build_artifact_verification_evidence(
+            text_path,
+            file_type="txt",
+            expected_content_sha256=text_digest,
+        )
+        manual = build_artifact_verification_evidence(
+            text_path,
+            file_type="txt",
+            expected_content_sha256=text_digest,
+            skill_runtime_contract={
+                "verification_status": "available",
+                "verification_context_complete": True,
+                "verification_step_count": 3,
+                "verification_plan_sha256": "a" * 64,
+                "release_sha256": "b" * 64,
+            },
+        )
+        partial = build_artifact_verification_evidence(
+            text_path,
+            file_type="txt",
+            expected_content_sha256=text_digest,
+            skill_runtime_contract={
+                "verification_status": "available",
+                "verification_context_complete": False,
+                "verification_step_count": 3,
+            },
+        )
+        json_path = root / "delivery.json"
+        json_path.write_text('{"incomplete":', encoding="utf-8")
+        failed = build_artifact_verification_evidence(
+            json_path,
+            file_type="json",
+            expected_content_sha256=hashlib.sha256(json_path.read_bytes()).hexdigest(),
+        )
+        serialized = json.dumps([passed, manual, partial, failed], ensure_ascii=False)
+    details = [
+        {
+            "case": "artifact_verification_binds_exact_file_bytes",
+            "passed": passed["status"] == "passed"
+            and passed["content_sha256"] == text_digest,
+        },
+        {
+            "case": "artifact_verification_fails_invalid_known_formats",
+            "passed": failed["status"] == "failed"
+            and failed["technical_status"] == "failed",
+        },
+        {
+            "case": "artifact_verification_keeps_skill_checks_manual",
+            "passed": manual["status"] == "manual_required"
+            and manual["skill_status"] == "manual_required"
+            and manual["skill_check_count"] == 3
+            and manual["skill_release_sha256"] == "b" * 64,
+        },
+        {
+            "case": "artifact_verification_discloses_compacted_skill_context",
+            "passed": partial["status"] == "partial"
+            and partial["skill_status"] == "context_incomplete",
+        },
+        {
+            "case": "artifact_verification_evidence_excludes_paths_and_content",
+            "passed": str(root) not in serialized
+            and "deterministic delivery" not in serialized,
         },
     ]
     return sum(int(item["passed"]) for item in details), len(details), details
@@ -1660,6 +1742,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "skill_quality_attribution_accuracy": _skill_run_quality_results(),
         "skill_release_governance_accuracy": _skill_release_governance_results(),
         "skill_runtime_contract_accuracy": _skill_runtime_contract_results(),
+        "artifact_verification_accuracy": _artifact_verification_results(),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
         "question_answer_readiness_accuracy": _question_answer_readiness_results(),

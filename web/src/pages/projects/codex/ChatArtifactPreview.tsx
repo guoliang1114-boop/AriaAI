@@ -3,6 +3,8 @@ import { api } from '../../../api/client'
 import { getApiBaseUrl } from '../../../config/api'
 import { MarkdownRenderer } from '../../../components/MarkdownRenderer'
 import type { GeneratedArtifact } from '../../../types/api'
+import type { ArtifactVerificationSummary } from '../../../types/productRunEvent'
+import { artifactVerificationLabel } from '../../../utils/artifactVerification'
 import { downloadArtifact } from '../downloadArtifact'
 import { CxIcon } from './CxIcons'
 
@@ -55,6 +57,25 @@ interface DocumentPayload {
   summary: string | null
   uploaded_at: string | null
 }
+
+interface ArtifactVerificationEvidence extends ArtifactVerificationSummary {
+  checks: Array<{ check_id: string; status: 'passed' | 'failed' | 'skipped'; code?: string }>
+  created_at: string
+}
+
+const VERIFICATION_CHECK_LABELS: Record<string, string> = {
+  file_exists: '文件存在',
+  file_non_empty: '文件非空',
+  content_sha256_match: '文件字节身份',
+  file_extension_match: '文件类型',
+  format_integrity: '格式完整性',
+}
+
+const VERIFICATION_STATUS_LABELS = {
+  passed: '通过',
+  failed: '失败',
+  skipped: '未自动检查',
+} as const
 
 function fileDownloadUrl(projectId: number, fileId: number): string {
   const base = getApiBaseUrl().replace(/\/$/, '')
@@ -392,6 +413,13 @@ function ChatArtifactPreviewContent({
         </button>
       </div>
 
+      {artifact.verification && (
+        <ArtifactVerificationPanel
+          artifactId={artifactId}
+          verification={artifact.verification}
+        />
+      )}
+
       {/* Body — dispatch on kind. Every kind is single-pane now;
        * the multi-tab strip was removed to keep the preview pure. */}
       <div
@@ -450,6 +478,97 @@ function ChatArtifactPreviewContent({
         )}
       </div>
     </aside>
+  )
+}
+
+function ArtifactVerificationPanel({
+  artifactId,
+  verification,
+}: {
+  artifactId: number | null
+  verification: ArtifactVerificationSummary
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [evidence, setEvidence] = useState<ArtifactVerificationEvidence | null>(null)
+  const [error, setError] = useState('')
+  const color = verification.status === 'failed'
+    ? 'var(--bad)'
+    : verification.status === 'passed'
+      ? 'var(--good)'
+      : 'var(--warn)'
+
+  const toggle = async () => {
+    const next = !expanded
+    setExpanded(next)
+    if (!next || evidence || loading || artifactId == null) return
+    setLoading(true)
+    setError('')
+    try {
+      setEvidence(
+        await api.get<ArtifactVerificationEvidence>(
+          `/artifacts/${artifactId}/verification`,
+        ),
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '验证证据加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div
+      style={{
+        padding: '8px 16px',
+        borderBottom: '1px solid var(--line-soft)',
+        background: 'var(--bg-tint)',
+        fontSize: 10.5,
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => void toggle()}
+        aria-expanded={expanded}
+        style={{
+          width: '100%',
+          padding: 0,
+          textAlign: 'left',
+          color,
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+        }}
+      >
+        {artifactVerificationLabel(verification)}
+        <span style={{ float: 'right', color: 'var(--ink-faint)' }}>
+          {expanded ? '收起 ▴' : '证据 ▾'}
+        </span>
+      </button>
+      {expanded && (
+        <div style={{ marginTop: 7, color: 'var(--ink-mute)', lineHeight: 1.6 }}>
+          <div className="num">Evidence {verification.evidence_sha256.slice(0, 12)}</div>
+          {artifactId == null ? (
+            <div>当前卡片没有可查询的制品记录。</div>
+          ) : loading ? (
+            <div>正在读取验证证据…</div>
+          ) : error ? (
+            <div style={{ color: 'var(--bad)' }}>{error}</div>
+          ) : evidence ? (
+            <ul style={{ margin: '5px 0 0', paddingLeft: 16 }}>
+              {evidence.checks.map((check) => (
+                <li key={check.check_id}>
+                  {VERIFICATION_CHECK_LABELS[check.check_id] || check.check_id}
+                  {' · '}
+                  {VERIFICATION_STATUS_LABELS[check.status]}
+                  {check.code ? ` · ${check.code}` : ''}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
+    </div>
   )
 }
 
