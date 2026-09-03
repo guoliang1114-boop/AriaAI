@@ -97,6 +97,8 @@ from app.services.memory_slots import (
     PROJECT_MEMORY_SLOT_KEYS,
     get_client_memory_slot_states,
     get_project_memory_slot_states,
+    load_client_memory_slot_values,
+    load_project_memory_slot_values,
 )
 from app.services.project_deletion import delete_project_cascade
 from app.services.project_details import build_project_detail
@@ -1189,9 +1191,21 @@ def _list_project_communication_sources(session: Session, project: Project, limi
 
 def _build_project_briefing(session: Session, project_id: int) -> dict:
     project = get_project_or_404(session, project_id)
-    memory = get_project_memory_payload(project)
+    memory = load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
     client = _find_client_record_for_project(session, project)
-    client_memory = get_client_memory_payload(client) if client else {}
+    client_memory = (
+        load_client_memory_slot_values(
+            session,
+            client,
+            get_client_memory_payload(client),
+        )
+        if client
+        else {}
+    )
     stakeholders = (
         list_client_stakeholder_dicts(session, int(client.id), limit=8)
         if client is not None and client.id is not None
@@ -1490,7 +1504,11 @@ async def _generate_memory_summary_cache(
         trusted_system=trusted_system,
     )
     current_prompt = build_project_memory_view_prompt(
-        get_project_memory_payload(current_project),
+        load_project_memory_slot_values(
+            session,
+            current_project,
+            get_project_memory_payload(current_project),
+        ),
         current_project.name,
         summary_type,
         language,
@@ -1578,7 +1596,11 @@ async def _run_project_memory_summary_warm_job(
     del trigger
     with Session(engine) as session:
         project = get_project_or_404(session, project_id)
-        memory_payload = get_project_memory_payload(project)
+        memory_payload = load_project_memory_slot_values(
+            session,
+            project,
+            get_project_memory_payload(project),
+        )
         if int(memory_payload.get("memory_version", 0) or 0) <= 0 or project.memory_stale:
             return
 
@@ -1994,7 +2016,11 @@ async def _ensure_project_memory(
                     trusted_system=trusted_system,
                 )
         project = get_project_or_404(session, project_id)
-    return project, memory_payload
+    return project, load_project_memory_slot_values(
+        session,
+        project,
+        memory_payload,
+    )
 
 
 def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str:

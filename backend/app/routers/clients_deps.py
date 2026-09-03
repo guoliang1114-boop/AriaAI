@@ -46,7 +46,11 @@ from app.services.memory_rebuilds import (
     begin_memory_prompt_snapshot,
     plan_client_memory_rebuild,
 )
-from app.services.memory_slots import CLIENT_MEMORY_SLOT_KEYS, get_client_memory_slot_states
+from app.services.memory_slots import (
+    CLIENT_MEMORY_SLOT_KEYS,
+    get_client_memory_slot_states,
+    load_client_memory_slot_values,
+)
 from app.services.project_contexts import normalize_summary_language
 from app.services.project_llm import complete_with_selected_model
 from app.services.time_utils import utc_now_naive
@@ -966,7 +970,11 @@ async def _generate_client_memory_summary_cache(
             "client summary conflict: client was removed during generation"
         )
     current_prompt = build_client_memory_summary_prompt(
-        get_client_memory_payload(current_client),
+        load_client_memory_slot_values(
+            session,
+            current_client,
+            get_client_memory_payload(current_client),
+        ),
         current_client.name,
         summary_type=summary_type,
         language=language,
@@ -1045,7 +1053,11 @@ async def _run_client_memory_summary_warm_job(
         client = session.get(ClientRecord, client_id)
         if not client:
             return
-        memory_payload = get_client_memory_payload(client)
+        memory_payload = load_client_memory_slot_values(
+            session,
+            client,
+            get_client_memory_payload(client),
+        )
         if int(memory_payload.get("memory_version", 0) or 0) <= 0:
             return
 

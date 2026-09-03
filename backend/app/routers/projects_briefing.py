@@ -60,6 +60,10 @@ from app.services.client_contexts import (
 )
 from app.services.client_permissions import lock_and_require_client_access
 from app.services.memory_operations import classify_memory_failure
+from app.services.memory_slots import (
+    load_client_memory_slot_values,
+    load_project_memory_slot_values,
+)
 from app.services.project_core import (
     get_project_or_404,
     lock_and_require_project_write as lock_project_write,
@@ -103,6 +107,7 @@ _PROJECT_STAKEHOLDER_ANALYSIS_FIELDS = (
 
 
 def _project_stakeholder_analysis_baseline(
+    session: Session,
     project: Project,
     client: ClientRecord,
     stakeholder: ClientStakeholder,
@@ -117,7 +122,11 @@ def _project_stakeholder_analysis_baseline(
                 "client": project.client,
                 "status": project.status,
                 "description": project.description,
-                "memory": get_project_memory_payload(project),
+                "memory": load_project_memory_slot_values(
+                    session,
+                    project,
+                    get_project_memory_payload(project),
+                ),
                 "memory_updated_at": (
                     project.memory_updated_at.isoformat()
                     if project.memory_updated_at
@@ -130,7 +139,11 @@ def _project_stakeholder_analysis_baseline(
                 "industry": client.industry,
                 "contact": client.contact,
                 "notes": client.notes,
-                "memory": get_client_memory_payload(client),
+                "memory": load_client_memory_slot_values(
+                    session,
+                    client,
+                    get_client_memory_payload(client),
+                ),
                 "memory_updated_at": (
                     client.client_memory_updated_at.isoformat()
                     if client.client_memory_updated_at
@@ -922,9 +935,18 @@ async def analyze_project_stakeholder(
         raise HTTPException(status_code=404, detail="Stakeholder not found")
     analysis_client_id = int(client.id)
 
-    project_memory = get_project_memory_payload(project)
-    client_memory = get_client_memory_payload(client)
+    project_memory = load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
+    client_memory = load_client_memory_slot_values(
+        session,
+        client,
+        get_client_memory_payload(client),
+    )
     source_baseline = _project_stakeholder_analysis_baseline(
+        session,
         project,
         client,
         stakeholder,
@@ -993,7 +1015,15 @@ async def analyze_project_stakeholder(
             status_code=409,
             detail="Project, client, or stakeholder changed during analysis; retry with current data.",
         )
-    if _project_stakeholder_analysis_baseline(project, client, stakeholder) != source_baseline:
+    if (
+        _project_stakeholder_analysis_baseline(
+            session,
+            project,
+            client,
+            stakeholder,
+        )
+        != source_baseline
+    ):
         session.rollback()
         raise HTTPException(
             status_code=409,

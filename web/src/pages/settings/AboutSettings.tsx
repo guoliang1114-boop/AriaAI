@@ -81,6 +81,7 @@ export function AboutSettings() {
             '项目问答新增逐项完整性、当前直接证据优先和未核验记忆限定规则；真实模型门禁记录首答质量，并对缺项或引用错误执行有界定向修复。',
             '记忆读取权威报告量化槽位账本覆盖、聚合 JSON 回退和双写差异；部署与生产 E2E 执行无正文全库审计。',
             '已验证备份后的幂等迁移仅将历史缺失数组字段的 null 槽位占位收敛为 []，不覆盖显式空值、内容、异常摘要或版本冲突。',
+            '项目/客户记忆详情、项目简报、干系人分析和工作区项目组合已切换为有效槽位优先读取；缺失或损坏只回退单个槽位。',
           ]
         : [
             'Unified Product Run Event activity timeline across live and persisted Skill, step, tool, artifact, error, and confirmation states.',
@@ -95,6 +96,7 @@ export function AboutSettings() {
             'Project Q&A now enforces per-dimension completeness, current direct-evidence priority, and qualified unresolved memory; the real-provider gate records first-pass quality and applies bounded targeted repair for omissions or citation errors.',
             'A content-free memory read-authority audit now quantifies slot-ledger coverage, aggregate JSON fallback, and dual-write divergence during deploys and production E2E.',
             'After a verified backup, an idempotent migration normalizes only legacy null placeholders for missing array fields to []; explicit nulls, content, invalid digests, and version conflicts remain untouched.',
+            'Project/client memory details, briefings, stakeholder analysis, and workspace portfolios now prefer verified slot values with per-slot aggregate fallback.',
           ],
     },
     {

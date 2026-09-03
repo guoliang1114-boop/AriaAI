@@ -1,6 +1,7 @@
 """Integration tests for clients router — CRUD endpoints with TestClient."""
 from __future__ import annotations
 
+import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -27,6 +28,7 @@ from app.routers import clients_stakeholders as clients_stakeholders_module
 from app.routers.auth import get_current_user
 from app.routers.clients import router
 from app.services.cache import clients_cache
+from app.services.client_contexts import save_client_memory
 from tests.test_database import create_test_engine, drop_all_tables
 
 
@@ -589,6 +591,60 @@ class ClientsStakeholderTestCase(unittest.TestCase):
             403,
         )
 
+    def test_stakeholder_analysis_prompt_prefers_verified_client_slot(self):
+        created = self.client.post(
+            f"/clients/{self.client_id}/stakeholders",
+            json={"name": "Alice", "role": "CFO"},
+        )
+        stakeholder_id = created.json()["id"]
+        with Session(self.engine) as session:
+            save_client_memory(
+                session,
+                self.client_id,
+                {
+                    "client_profile": "Authoritative client slot",
+                    "decision_patterns": [],
+                    "key_contacts": [],
+                    "structured_stakeholders": [],
+                    "lessons_learned": [],
+                    "relationship_signals": [],
+                    "project_history": [],
+                    "sensitive_topics": [],
+                },
+                trigger="test",
+            )
+            client = session.get(ClientRecord, self.client_id)
+            raw = json.loads(client.client_memory_json)
+            raw["client_profile"] = "Divergent aggregate client"
+            client.client_memory_json = json.dumps(raw)
+            session.add(client)
+            session.commit()
+
+        complete = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "personality_profile": "Profile",
+                    "decision_style": "Style",
+                    "communication_strategy": "Strategy",
+                    "trust_signals": "Signals",
+                }
+            )
+        )
+        with patch.object(
+            clients_stakeholders_module,
+            "complete_with_selected_model",
+            new=complete,
+        ):
+            response = self.client.post(
+                f"/clients/{self.client_id}/stakeholders/{stakeholder_id}/analyze",
+                json={},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        prompt = complete.await_args.kwargs["messages"][0]["content"]
+        self.assertIn("Authoritative client slot", prompt)
+        self.assertNotIn("Divergent aggregate client", prompt)
+
     def test_editor_can_update_stakeholder(self):
         created = self.client.post(
             f"/clients/{self.client_id}/stakeholders",
@@ -651,6 +707,38 @@ class ClientsMemoryTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIn("memory", data)
+
+    def test_get_client_memory_prefers_verified_slot_value(self):
+        with Session(self.engine) as session:
+            save_client_memory(
+                session,
+                self.client_id,
+                {
+                    "client_profile": "Authoritative slot profile",
+                    "decision_patterns": [],
+                    "key_contacts": [],
+                    "structured_stakeholders": [],
+                    "lessons_learned": [],
+                    "relationship_signals": [],
+                    "project_history": [],
+                    "sensitive_topics": [],
+                },
+                trigger="test",
+            )
+            client = session.get(ClientRecord, self.client_id)
+            raw = json.loads(client.client_memory_json)
+            raw["client_profile"] = "Divergent aggregate profile"
+            client.client_memory_json = json.dumps(raw)
+            session.add(client)
+            session.commit()
+
+        resp = self.client.get(f"/clients/{self.client_id}/memory")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json()["memory"]["client_profile"],
+            "Authoritative slot profile",
+        )
 
     def test_get_client_memory_status(self):
         resp = self.client.get(f"/clients/{self.client_id}/memory/status")

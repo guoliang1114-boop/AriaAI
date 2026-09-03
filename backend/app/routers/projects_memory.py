@@ -41,6 +41,7 @@ from app.services.memory_facts import get_project_memory_fact_states
 from app.services.memory_slots import (
     get_project_memory_read_authority_report,
     get_project_memory_slot_states,
+    load_project_memory_slot_values,
 )
 from app.services.memory_rebuilds import latest_memory_rebuild_metadata
 from app.services.time_utils import utc_now_naive
@@ -264,7 +265,11 @@ async def generate_project_context(
                     actor_user_id=actor_user_id,
                 )
                 current_prompt = build_project_summary_from_memory_prompt(
-                    get_project_memory_payload(current_project),
+                    load_project_memory_slot_values(
+                        write_session,
+                        current_project,
+                        get_project_memory_payload(current_project),
+                    ),
                     current_project.name,
                     body.language if body else None,
                 )
@@ -308,9 +313,14 @@ async def generate_project_context(
 @router.get("/{project_id}/memory")
 def get_project_memory(project_id: int, session: Session = Depends(get_session)):
     project = get_project_or_404(session, project_id)
+    memory = load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
     return {
         "project_id": project_id,
-        "memory": get_project_memory_payload(project),
+        "memory": memory,
         "memory_version": project.memory_version,
         "memory_stale": project.memory_stale,
         "memory_updated_at": project.memory_updated_at,
@@ -610,7 +620,11 @@ async def warm_project_memory_summaries_batch(
             skipped.append({"project_id": project_id, "reason": "not_found"})
 
     for project in projects_to_process:
-        memory_payload = get_project_memory_payload(project)
+        memory_payload = load_project_memory_slot_values(
+            session,
+            project,
+            get_project_memory_payload(project),
+        )
         if int(memory_payload.get("memory_version", 0) or 0) <= 0:
             skipped.append({"project_id": project.id, "reason": "memory_missing"})
             continue
@@ -848,7 +862,11 @@ async def run_project_memory_jobs_now(
             "memory_version": saved_memory.get("memory_version", 0),
         }
 
-    memory_payload = get_project_memory_payload(project)
+    memory_payload = load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
     warmed = await _warm_project_memory_summary_caches(
         session,
         project,
@@ -898,7 +916,11 @@ async def summarize_project_memory(
             actor_user_id=actor_user_id,
         )
     else:
-        memory_payload = get_project_memory_payload(project)
+        memory_payload = load_project_memory_slot_values(
+            session,
+            project,
+            get_project_memory_payload(project),
+        )
 
     summary_type = (body.summary_type or "overview").strip() or "overview"
     normalized_language = normalize_summary_language(body.language)
@@ -1048,7 +1070,11 @@ async def summarize_project_memory(
                             actor_user_id=actor_user_id,
                         )
                         current_prompt = build_project_memory_view_prompt(
-                            get_project_memory_payload(current_project),
+                            load_project_memory_slot_values(
+                                write_session,
+                                current_project,
+                                get_project_memory_payload(current_project),
+                            ),
                             current_project.name,
                             summary_type,
                             body.language,
@@ -1151,7 +1177,11 @@ async def summarize_project_memory(
             actor_user_id=actor_user_id,
         )
         current_prompt = build_project_memory_view_prompt(
-            get_project_memory_payload(current_project),
+            load_project_memory_slot_values(
+                session,
+                current_project,
+                get_project_memory_payload(current_project),
+            ),
             current_project.name,
             summary_type,
             body.language,
@@ -1188,7 +1218,11 @@ def get_project_memory_summaries(
     session: Session = Depends(get_session),
 ):
     project = get_project_or_404(session, project_id)
-    memory_payload = get_project_memory_payload(project)
+    memory_payload = load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
     memory_version = int(memory_payload.get("memory_version", 0) or 0)
     normalized_language = normalize_summary_language(language)
 
@@ -1238,7 +1272,11 @@ async def generate_project_memory_summaries(
             actor_user_id=actor_user_id,
         )
     else:
-        memory_payload = get_project_memory_payload(project)
+        memory_payload = load_project_memory_slot_values(
+            session,
+            project,
+            get_project_memory_payload(project),
+        )
 
     memory_version = int(memory_payload.get("memory_version", 0) or 0)
     normalized_language = normalize_summary_language(body.language)
@@ -1335,7 +1373,11 @@ async def generate_project_memory_summaries(
             actor_user_id=actor_user_id,
         )
         current_prompt = build_project_memory_multi_summary_prompt(
-            get_project_memory_payload(current_project),
+            load_project_memory_slot_values(
+                session,
+                current_project,
+                get_project_memory_payload(current_project),
+            ),
             current_project.name,
             summary_types=summary_types,
             language=body.language,
@@ -1355,7 +1397,11 @@ async def generate_project_memory_summaries(
                 actor_user_id=actor_user_id,
             )
             current_prompt = build_project_memory_multi_summary_prompt(
-                get_project_memory_payload(current_project),
+                load_project_memory_slot_values(
+                    session,
+                    current_project,
+                    get_project_memory_payload(current_project),
+                ),
                 current_project.name,
                 summary_types=summary_types,
                 language=body.language,
@@ -1385,7 +1431,11 @@ async def generate_project_memory_summaries(
                 actor_user_id=actor_user_id,
             )
             current_prompt = build_project_memory_multi_summary_prompt(
-                get_project_memory_payload(current_project),
+                load_project_memory_slot_values(
+                    session,
+                    current_project,
+                    get_project_memory_payload(current_project),
+                ),
                 current_project.name,
                 summary_types=summary_types,
                 language=body.language,
@@ -1418,7 +1468,11 @@ def get_project_memory_summary(
     session: Session = Depends(get_session),
 ):
     project = get_project_or_404(session, project_id)
-    memory_payload = get_project_memory_payload(project)
+    memory_payload = load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
     memory_version = int(memory_payload.get("memory_version", 0) or 0)
     normalized_language = normalize_summary_language(language)
 
@@ -1495,7 +1549,11 @@ def get_project_memory_snapshot_diff(project_id: int, snapshot_id: int, session:
     except ValueError:
         raise HTTPException(status_code=422, detail="Memory snapshot is corrupted")
 
-    current_memory = get_project_memory_payload(project)
+    current_memory = load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
     diff = build_memory_snapshot_diff(
         snapshot_memory,
         current_memory,

@@ -1473,6 +1473,58 @@ def load_project_memory_slot_view(
     )
 
 
+def load_project_memory_slot_values(
+    session: Session,
+    project: Project,
+    aggregate_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Return the verified slot-ledger value projection for one project.
+
+    Read-only product surfaces that do not expose freshness metadata use this
+    lighter projection. A corrupt or absent slot safely falls back to the
+    compatibility aggregate; a verified slot remains authoritative when the
+    aggregate copy has diverged.
+    """
+
+    views = load_project_memory_slot_value_views(
+        session,
+        {int(project.id or 0): aggregate_payload},
+    )
+    return views.get(int(project.id or 0), dict(aggregate_payload))
+
+
+def load_project_memory_slot_value_views(
+    session: Session,
+    aggregate_payloads: Mapping[int, dict[str, Any]],
+) -> dict[int, dict[str, Any]]:
+    """Batch-load verified project slot values without per-project queries."""
+
+    project_ids = sorted(
+        int(project_id)
+        for project_id in aggregate_payloads
+        if int(project_id) > 0
+    )
+    rows_by_project: dict[int, list[ProjectMemorySlot]] = {
+        project_id: [] for project_id in project_ids
+    }
+    if project_ids:
+        rows = session.exec(
+            select(ProjectMemorySlot).where(
+                ProjectMemorySlot.project_id.in_(project_ids)
+            )
+        ).all()
+        for row in rows:
+            rows_by_project.setdefault(int(row.project_id), []).append(row)
+
+    return {
+        int(project_id): _overlay_slot_rows(
+            dict(payload),
+            rows_by_project.get(int(project_id), ()),
+        )[0]
+        for project_id, payload in aggregate_payloads.items()
+    }
+
+
 def load_client_memory_slot_view(
     session: Session,
     client: ClientRecord,
@@ -1486,3 +1538,18 @@ def load_client_memory_slot_view(
         rows,
         build_client_slot_evidence_refs(session, client, aggregate_payload),
     )
+
+
+def load_client_memory_slot_values(
+    session: Session,
+    client: ClientRecord,
+    aggregate_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Return verified client slot values with aggregate fallback."""
+
+    rows = session.exec(
+        select(ClientMemorySlot).where(
+            ClientMemorySlot.client_id == int(client.id or 0)
+        )
+    ).all()
+    return _overlay_slot_rows(aggregate_payload, rows)[0]

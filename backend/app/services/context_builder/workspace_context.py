@@ -11,6 +11,7 @@ from app.services.project_clients import (
     list_projects_for_client,
 )
 from app.services.project_contexts import get_project_memory_payload
+from app.services.memory_slots import load_project_memory_slot_value_views
 from app.services.time_utils import utc_now_naive
 from app.services.context_builder.memory_formatters import (
     _format_project_memory_for_prompt,
@@ -132,8 +133,20 @@ def build_lightweight_workspace_context(
         "## Project Memory Index",
     ]
 
+    memory_by_project = load_project_memory_slot_value_views(
+        session,
+        {
+            int(project.id): get_project_memory_payload(project)
+            for project in all_projects
+            if project.id is not None
+        },
+    )
+
     for index, project in enumerate(all_projects, start=1):
-        memory = get_project_memory_payload(project)
+        memory = memory_by_project.get(
+            int(project.id or 0),
+            get_project_memory_payload(project),
+        )
         line = f"- {project.name} | client={project.client} | status={project.status}"
         if project.contract_amount:
             line += f" | amount={project.contract_amount:,.0f}"
@@ -212,8 +225,20 @@ def build_client_project_portfolio_context(
         "",
     ]
 
+    memory_by_project = load_project_memory_slot_value_views(
+        session,
+        {
+            int(project.id): get_project_memory_payload(project)
+            for project in projects
+            if project.id is not None
+        },
+    )
+
     for index, project in enumerate(projects, start=1):
-        memory = get_project_memory_payload(project)
+        memory = memory_by_project.get(
+            int(project.id or 0),
+            get_project_memory_payload(project),
+        )
         lines.append(f"## {index}. {project.name}")
         lines.append(f"- Project ID: {project.id}")
         lines.append(f"- Client: {project.client}")
@@ -296,8 +321,20 @@ def build_workspace_project_inventory_context(
         "",
     ]
 
+    memory_by_project = load_project_memory_slot_value_views(
+        session,
+        {
+            int(project.id): get_project_memory_payload(project)
+            for project in projects
+            if project.id is not None
+        },
+    )
+
     for index, project in enumerate(projects, start=1):
-        memory = get_project_memory_payload(project)
+        memory = memory_by_project.get(
+            int(project.id or 0),
+            get_project_memory_payload(project),
+        )
         lines.append(f"## {index}. {project.name}")
         lines.append(f"- Project ID: {project.id}")
         lines.append(f"- Client: {project.client}")

@@ -6,6 +6,7 @@ import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -36,7 +37,10 @@ from app.services.memory_slots import (
     get_client_memory_slot_states,
     get_project_memory_read_authority_report,
     get_project_memory_slot_states,
+    load_client_memory_slot_values,
     load_client_memory_slot_view,
+    load_project_memory_slot_value_views,
+    load_project_memory_slot_values,
     load_project_memory_slot_view,
     project_memory_slots_for_trigger,
     summarize_memory_read_authority,
@@ -366,6 +370,95 @@ def test_slot_view_prefers_verified_slot_value_over_aggregate_json():
 
             assert view["project_brief"] == "Current project brief"
             assert states["project_brief"]["status"] == "ready"
+    finally:
+        engine.dispose()
+
+
+def test_read_only_value_views_use_verified_slots_and_safe_fallbacks():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            first = Project(name="First", client="Acme")
+            second = Project(
+                name="Second",
+                client="Acme",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Aggregate-only second brief",
+                        "key_risks": ["Aggregate-only second risk"],
+                    }
+                ),
+            )
+            client = ClientRecord(name="Acme")
+            session.add(first)
+            session.add(second)
+            session.add(client)
+            session.commit()
+            session.refresh(first)
+            session.refresh(second)
+            session.refresh(client)
+
+            save_project_memory(session, first.id, _project_memory(), trigger="test")
+            save_client_memory(session, client.id, _client_memory(), trigger="test")
+
+            first = session.get(Project, first.id)
+            first_payload = get_project_memory_payload(first)
+            first_payload["project_brief"] = "Divergent aggregate brief"
+            first_payload["financial_status"] = "Aggregate fallback financial"
+            second_payload = get_project_memory_payload(second)
+            client = session.get(ClientRecord, client.id)
+            client_payload = get_client_memory_payload(client)
+            client_payload["client_profile"] = "Divergent aggregate profile"
+
+            corrupt = session.exec(
+                select(ProjectMemorySlot).where(
+                    ProjectMemorySlot.project_id == first.id,
+                    ProjectMemorySlot.slot_key == "financial_status",
+                )
+            ).one()
+            corrupt.value_json = '"corrupt without digest update"'
+            session.add(corrupt)
+            session.commit()
+
+            single = load_project_memory_slot_values(session, first, first_payload)
+            statements: list[str] = []
+
+            @event.listens_for(engine, "before_cursor_execute")
+            def capture_statement(
+                _connection,
+                _cursor,
+                statement,
+                _parameters,
+                _context,
+                _executemany,
+            ):
+                statements.append(str(statement))
+
+            batched = load_project_memory_slot_value_views(
+                session,
+                {
+                    int(first.id): first_payload,
+                    int(second.id): second_payload,
+                },
+            )
+            client_view = load_client_memory_slot_values(
+                session,
+                client,
+                client_payload,
+            )
+
+            assert single["project_brief"] == "Current project brief"
+            assert single["financial_status"] == "Aggregate fallback financial"
+            assert batched[int(first.id)] == single
+            assert (
+                batched[int(second.id)]["project_brief"]
+                == "Aggregate-only second brief"
+            )
+            assert client_view["client_profile"] == "Enterprise account"
+            assert sum(
+                "projectmemoryslot" in statement.lower()
+                for statement in statements
+            ) == 1
     finally:
         engine.dispose()
 

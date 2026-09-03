@@ -17,6 +17,7 @@ from app.services.context_builder import (
     is_client_project_portfolio_query,
     is_workspace_project_inventory_query,
 )
+from app.services.project_contexts import save_project_memory
 
 from tests.test_database import create_test_engine, drop_all_tables
 
@@ -91,6 +92,54 @@ class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
         self.assertIn("7. - Project", chat_context.project_context)
         self.assertIn("Memory brief 7", chat_context.project_context)
         self.assertNotIn("Recent project snapshot", chat_context.project_context)
+
+    def test_workspace_inventory_prefers_verified_slot_values(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Ledger Project",
+                client="Client",
+                status="active",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            save_project_memory(
+                session,
+                project.id,
+                {
+                    "project_brief": "Authoritative slot brief",
+                    "current_stage": "delivery",
+                    "current_objective": "Ship safely",
+                    "recent_progress": [],
+                    "key_risks": {"ai": ["Authoritative slot risk"], "pinned": []},
+                    "open_questions": {"ai": [], "pinned": []},
+                    "next_actions": [],
+                    "important_documents": [],
+                    "financial_status": "",
+                    "delivery_signals": [],
+                    "stakeholder_notes": {"ai": [], "pinned": []},
+                    "client_stakeholders": [],
+                },
+                trigger="test",
+            )
+
+            project = session.get(Project, project.id)
+            raw = json.loads(project.context_memory_json)
+            raw["project_brief"] = "Divergent aggregate brief"
+            raw["key_risks"] = {"ai": ["Divergent aggregate risk"], "pinned": []}
+            project.context_memory_json = json.dumps(raw)
+            session.add(project)
+            session.commit()
+
+            chat_context = build_chat_context(
+                session,
+                content="总结全部项目情况及风险",
+            )
+
+        self.assertIn("Authoritative slot brief", chat_context.project_context)
+        self.assertIn("Authoritative slot risk", chat_context.project_context)
+        self.assertNotIn("Divergent aggregate brief", chat_context.project_context)
+        self.assertNotIn("Divergent aggregate risk", chat_context.project_context)
 
     def test_client_name_project_review_uses_client_portfolio_context(self):
         with Session(self.engine) as session:

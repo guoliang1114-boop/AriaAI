@@ -43,6 +43,7 @@ from app.services.memory_slots import (
     CLIENT_MEMORY_SLOT_KEYS,
     get_client_memory_read_authority_report,
     get_client_memory_slot_states,
+    load_client_memory_slot_values,
 )
 from app.services.memory_rebuilds import (
     MemoryRebuildConflict,
@@ -440,7 +441,11 @@ async def warm_client_memory_summaries_batch(
             skipped.append({"client_id": client_id, "reason": "not_found"})
 
     for client in [client_lookup[client_id] for client_id in requested_ids if client_id in client_lookup]:
-        memory_payload = get_client_memory_payload(client)
+        memory_payload = load_client_memory_slot_values(
+            session,
+            client,
+            get_client_memory_payload(client),
+        )
         memory_version = int(memory_payload.get("memory_version", 0) or 0)
         if memory_version <= 0:
             skipped.append({"client_id": client.id, "reason": "memory_missing"})
@@ -523,9 +528,14 @@ def get_client_memory(
     current_user: User = Depends(get_current_user),
 ):
     client = require_client_access(session, client_id, current_user)
+    memory = load_client_memory_slot_values(
+        session,
+        client,
+        get_client_memory_payload(client),
+    )
     return ClientMemoryResponse(
         client_id=client_id,
-        memory=get_client_memory_payload(client),
+        memory=memory,
         memory_version=client.client_memory_version,
         memory_stale=client.client_memory_stale,
         memory_updated_at=client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else None,
@@ -675,7 +685,11 @@ def get_client_memory_snapshot_diff(
     except ValueError:
         raise HTTPException(status_code=422, detail="Client memory snapshot is corrupted")
 
-    current_memory = get_client_memory_payload(client)
+    current_memory = load_client_memory_slot_values(
+        session,
+        client,
+        get_client_memory_payload(client),
+    )
     diff = build_memory_snapshot_diff(
         snapshot_memory,
         current_memory,
@@ -956,7 +970,11 @@ async def summarize_client_memory(
         require_write=True,
     )
 
-    memory = get_client_memory_payload(client)
+    memory = load_client_memory_slot_values(
+        session,
+        client,
+        get_client_memory_payload(client),
+    )
     if (client.client_memory_version or 0) == 0 or client.client_memory_stale:
         memory = await _rebuild_client_memory(
             session,

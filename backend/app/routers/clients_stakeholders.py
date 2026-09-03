@@ -22,6 +22,7 @@ from app.services.client_permissions import (
     lock_and_require_client_access,
     require_client_access,
 )
+from app.services.memory_slots import load_client_memory_slot_values
 from app.services.project_contexts import mark_project_memories_stale_by_client_id
 from app.services.project_clients import list_projects_for_client
 from app.services.project_llm import complete_with_selected_model
@@ -67,7 +68,11 @@ def _stakeholder_analysis_sources(
     client: ClientRecord,
     stakeholder: ClientStakeholder,
 ) -> tuple[dict, list[dict], tuple[int, ...], str]:
-    client_memory = get_client_memory_payload(client)
+    client_memory = load_client_memory_slot_values(
+        session,
+        client,
+        get_client_memory_payload(client),
+    )
     linked_projects = sorted(
         list_projects_for_client(session, client),
         key=lambda project: project.updated_at,

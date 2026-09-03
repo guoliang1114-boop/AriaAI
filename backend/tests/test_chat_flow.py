@@ -1131,6 +1131,47 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertFalse(status_after.json()["memory_stale"])
         self.assertEqual(status_after.json()["memory_version"], 1)
 
+    def test_get_project_memory_prefers_verified_slot_value(self):
+        with Session(self.engine) as session:
+            project = Project(name="Ledger Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+            project_contexts_module.save_project_memory(
+                session,
+                project_id,
+                {
+                    "project_brief": "Authoritative slot brief",
+                    "current_stage": "delivery",
+                    "current_objective": "Ship safely",
+                    "recent_progress": [],
+                    "key_risks": {"ai": [], "pinned": []},
+                    "open_questions": {"ai": [], "pinned": []},
+                    "next_actions": [],
+                    "important_documents": [],
+                    "financial_status": "",
+                    "delivery_signals": [],
+                    "stakeholder_notes": {"ai": [], "pinned": []},
+                    "client_stakeholders": [],
+                },
+                trigger="test",
+            )
+            project = session.get(Project, project_id)
+            raw = json.loads(project.context_memory_json)
+            raw["project_brief"] = "Divergent aggregate brief"
+            project.context_memory_json = json.dumps(raw)
+            session.add(project)
+            session.commit()
+
+        response = self.client.get(f"/projects/{project_id}/memory")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["memory"]["project_brief"],
+            "Authoritative slot brief",
+        )
+
     def test_project_memory_batch_rebuild_only_updates_requested_projects(self):
         with Session(self.engine) as session:
             project_a = Project(name="Memory A", client="Client", description="Alpha project")
@@ -2372,6 +2413,31 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
             project_id = project.id
+            project_contexts_module.save_project_memory(
+                session,
+                project_id,
+                {
+                    "project_brief": "Alpha brief",
+                    "current_stage": "delivery",
+                    "current_objective": "",
+                    "recent_progress": [],
+                    "key_risks": {"ai": ["Authoritative slot risk"], "pinned": []},
+                    "open_questions": {"ai": [], "pinned": []},
+                    "next_actions": ["Confirm scope"],
+                    "important_documents": [],
+                    "financial_status": "",
+                    "delivery_signals": [],
+                    "stakeholder_notes": {"ai": [], "pinned": []},
+                    "client_stakeholders": [],
+                },
+                trigger="test",
+            )
+            project = session.get(Project, project_id)
+            raw = json.loads(project.context_memory_json)
+            raw["key_risks"] = {"ai": ["Divergent aggregate risk"], "pinned": []}
+            project.context_memory_json = json.dumps(raw)
+            session.add(project)
+            session.commit()
 
         with patch_project_llm(stream=fake_stream):
             resp = self.client.post(
@@ -2389,6 +2455,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertIn('"type": "done"', resp.text)
         self.assertIn("- chunk 1 chunk 2", resp.text)
         self.assertIn("Write the answer in English", captured["prompt"])
+        self.assertIn("Authoritative slot risk", captured["prompt"])
+        self.assertNotIn("Divergent aggregate risk", captured["prompt"])
         resp.close()
 
     def test_memory_summarize_uses_cached_summary_without_calling_llm(self):
@@ -2785,6 +2853,54 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
             project_id = project.id
+            project_contexts_module.save_project_memory(
+                session,
+                project_id,
+                {
+                    "project_brief": "Second phase rollout",
+                    "current_stage": "delivering",
+                    "current_objective": "Align on launch scope",
+                    "recent_progress": [],
+                    "key_risks": {"ai": ["Security review is still open"], "pinned": []},
+                    "open_questions": {"ai": ["Who signs off UAT?"], "pinned": []},
+                    "next_actions": ["Send revised timeline"],
+                    "important_documents": [],
+                    "financial_status": "",
+                    "delivery_signals": [],
+                    "stakeholder_notes": {"ai": [], "pinned": []},
+                    "client_stakeholders": [],
+                },
+                trigger="test",
+            )
+            client_contexts_module.save_client_memory(
+                session,
+                client.id,
+                {
+                    "client_profile": "",
+                    "decision_patterns": ["CEO needs quantified upside"],
+                    "key_contacts": [],
+                    "structured_stakeholders": [],
+                    "lessons_learned": ["Lock change requests before kickoff"],
+                    "relationship_signals": [],
+                    "project_history": [],
+                    "sensitive_topics": ["Avoid price details in steering meeting"],
+                },
+                trigger="test",
+            )
+            project = session.get(Project, project_id)
+            project_raw = json.loads(project.context_memory_json)
+            project_raw["current_objective"] = "Divergent aggregate objective"
+            project_raw["open_questions"] = {
+                "ai": ["Divergent aggregate question"],
+                "pinned": [],
+            }
+            project.context_memory_json = json.dumps(project_raw)
+            client = session.get(ClientRecord, client.id)
+            client_raw = json.loads(client.client_memory_json)
+            client_raw["decision_patterns"] = ["Divergent aggregate decision pattern"]
+            client.client_memory_json = json.dumps(client_raw)
+            session.add(project)
+            session.add(client)
             session.add(Milestone(project_id=project_id, title="UAT signoff", priority="high", due_date="2026-04-25"))
             session.add(ProjectTodo(project_id=project_id, content="Prepare steering deck", due_date="2026-04-24"))
             conversation = Conversation(project_id=project_id, title="Steering prep")
@@ -2809,6 +2925,12 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertIn("Align on launch scope", body["meeting_card"]["say"])
         self.assertIn("Who signs off UAT?", body["meeting_card"]["confirm"])
         self.assertIn("CEO needs quantified upside", body["meeting_card"]["experience"])
+        self.assertNotIn("Divergent aggregate objective", body["meeting_card"]["say"])
+        self.assertNotIn("Divergent aggregate question", body["meeting_card"]["confirm"])
+        self.assertNotIn(
+            "Divergent aggregate decision pattern",
+            body["meeting_card"]["experience"],
+        )
         self.assertEqual(body["stakeholders"][0]["name"], "Jane")
         self.assertEqual(body["signals"]["upcoming_milestones"][0]["title"], "UAT signoff")
         self.assertEqual(body["signals"]["communication_sources"][0]["type"], "markdown_note")
@@ -2976,6 +3098,101 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(stakeholder.note, "Manual edit wins")
         self.assertEqual(stakeholder.personality_profile, "")
         self.assertEqual(history, [])
+
+    def test_project_stakeholder_analysis_prompt_prefers_verified_slot_values(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Ledger Client", client_memory_stale=False)
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            project = Project(
+                name="Ledger Project",
+                client=client.name,
+                client_id=client.id,
+                status="delivering",
+                memory_stale=False,
+            )
+            stakeholder = ClientStakeholder(
+                client_id=client.id,
+                name="Finance Sponsor",
+                role="CFO",
+            )
+            session.add(project)
+            session.add(stakeholder)
+            session.commit()
+            session.refresh(project)
+            session.refresh(stakeholder)
+            project_id = project.id
+            stakeholder_id = stakeholder.id
+
+            project_contexts_module.save_project_memory(
+                session,
+                project_id,
+                {
+                    "project_brief": "Authoritative project slot",
+                    "current_stage": "delivery",
+                    "current_objective": "",
+                    "recent_progress": [],
+                    "key_risks": {"ai": [], "pinned": []},
+                    "open_questions": {"ai": [], "pinned": []},
+                    "next_actions": [],
+                    "important_documents": [],
+                    "financial_status": "",
+                    "delivery_signals": [],
+                    "stakeholder_notes": {"ai": [], "pinned": []},
+                    "client_stakeholders": [],
+                },
+                trigger="test",
+            )
+            client_contexts_module.save_client_memory(
+                session,
+                client.id,
+                {
+                    "client_profile": "Authoritative client slot",
+                    "decision_patterns": [],
+                    "key_contacts": [],
+                    "structured_stakeholders": [],
+                    "lessons_learned": [],
+                    "relationship_signals": [],
+                    "project_history": [],
+                    "sensitive_topics": [],
+                },
+                trigger="test",
+            )
+            project = session.get(Project, project_id)
+            project_raw = json.loads(project.context_memory_json)
+            project_raw["project_brief"] = "Divergent aggregate project"
+            project.context_memory_json = json.dumps(project_raw)
+            client = session.get(ClientRecord, client.id)
+            client_raw = json.loads(client.client_memory_json)
+            client_raw["client_profile"] = "Divergent aggregate client"
+            client.client_memory_json = json.dumps(client_raw)
+            session.add(project)
+            session.add(client)
+            session.commit()
+
+        complete = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "personality_profile": "Profile",
+                    "decision_style": "Style",
+                    "communication_strategy": "Strategy",
+                    "trust_signals": "Signals",
+                }
+            )
+        )
+        with patch_project_llm(complete=complete):
+            response = self.client.post(
+                f"/projects/{project_id}/stakeholders/{stakeholder_id}/analyze",
+                json={},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        prompt = complete.await_args.kwargs["messages"][0]["content"]
+        self.assertIn("Authoritative project slot", prompt)
+        self.assertIn("Authoritative client slot", prompt)
+        self.assertNotIn("Divergent aggregate project", prompt)
+        self.assertNotIn("Divergent aggregate client", prompt)
 
     def test_project_memory_snapshots_are_listed_and_can_rollback(self):
         with Session(self.engine) as session:
@@ -3747,6 +3964,21 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(conv)
             return conv.id
+
+    def _create_project_conversation(
+        self,
+        title: str = "Existing Project Chat",
+    ) -> tuple[int, int]:
+        with Session(self.engine) as session:
+            project = Project(name=f"{title} Project", client="Client")
+            session.add(project)
+            session.flush()
+            conv = Conversation(project_id=project.id, title=title)
+            session.add(conv)
+            session.commit()
+            session.refresh(project)
+            session.refresh(conv)
+            return int(project.id), int(conv.id)
 
     @contextmanager
     def _materialized_upload(self, relative_path: str, content: bytes = b"test artifact"):
@@ -5729,7 +5961,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertEqual(metadata["phase_error"]["phase"], "agent_loop")
 
     def test_stream_chat_events_persists_p0_durable_task_errors(self):
-        conv_id = self._create_conversation()
+        project_id, conv_id = self._create_project_conversation()
         runtime = ChatRuntime(
             conv_id=conv_id,
             selected_model="claude-sonnet-4-6",
@@ -5740,7 +5972,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             tools=None,
             max_tokens=1024,
             temperature=0.7,
-            project_id=1,
+            project_id=project_id,
         )
         runtime.intent_task_route = SimpleNamespace(
             task_type="generate_client_ppt",
@@ -5751,7 +5983,10 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             plan_steps=["step"],
         )
         runtime.intent_prepared_async = True
-        req = chat_router_module.SendMessageRequest(content="生成一份项目任务", project_id=1)
+        req = chat_router_module.SendMessageRequest(
+            content="生成一份项目任务",
+            project_id=project_id,
+        )
 
         with patch("app.services.chat.durable_task.create_task_run", side_effect=RuntimeError("task db failed")):
             events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
@@ -5834,7 +6069,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
 
     def test_stream_chat_events_suppresses_mixed_p1_tool_use_json(self):
         """If tool_use JSON leaks into P1 text, execute it without showing raw JSON to the user."""
-        conv_id = self._create_conversation()
+        project_id, conv_id = self._create_project_conversation()
         create_tool_json = (
             '{"type":"tool_use","id":"tool-write","name":"update_project_markdown_document",'
             '"input":{"mode":"create","file_name":"first-meeting.md","content":"# First meeting"}}'
@@ -5852,7 +6087,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         )
         runtime = ChatRuntime(
             conv_id=conv_id,
-            project_id=27,
+            project_id=project_id,
             selected_model="claude-sonnet-4-6",
             llm=llm,
             system="system",
@@ -5901,7 +6136,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
 
     def test_stream_chat_events_ignores_unrequested_markdown_write_for_direct_risk_answer(self):
         """Direct advisory answers must not become project document writes."""
-        conv_id = self._create_conversation()
+        project_id, conv_id = self._create_project_conversation()
         llm = FakeStreamingLLM(
             [
                 [
@@ -5914,7 +6149,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         )
         runtime = ChatRuntime(
             conv_id=conv_id,
-            project_id=26,
+            project_id=project_id,
             selected_model="glm-5.1",
             llm=llm,
             system="system",
@@ -5927,7 +6162,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         )
         req = chat_router_module.SendMessageRequest(
             content="请基于当前项目的结构化记忆，识别最重要的项目风险和阻塞点，并给出建议的缓解动作。",
-            project_id=26,
+            project_id=project_id,
         )
 
         execute_mock = AsyncMock()
@@ -6698,6 +6933,51 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         self.assertFalse(fresh_resp.json()["cached"])
         self.assertEqual(fresh_resp.json()["summary_type"], "lessons")
         self.assertEqual(mocked_complete.await_count, 1)
+
+    def test_client_memory_summary_prompt_prefers_verified_slot_value(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Summary Ledger Client")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+            client_contexts_module.save_client_memory(
+                session,
+                client_id,
+                {
+                    "client_profile": "Authoritative client summary slot",
+                    "decision_patterns": [],
+                    "key_contacts": [],
+                    "structured_stakeholders": [],
+                    "lessons_learned": [],
+                    "relationship_signals": [],
+                    "project_history": [],
+                    "sensitive_topics": [],
+                },
+                trigger="test",
+            )
+            client = session.get(ClientRecord, client_id)
+            raw = json.loads(client.client_memory_json)
+            raw["client_profile"] = "Divergent aggregate summary profile"
+            client.client_memory_json = json.dumps(raw)
+            session.add(client)
+            session.commit()
+
+        complete = AsyncMock(return_value="- current summary")
+        with patch.object(
+            clients_router_module,
+            "complete_with_selected_model",
+            new=complete,
+        ):
+            response = self.client.post(
+                f"/clients/{client_id}/memory/summarize",
+                json={"summary_type": "overview", "force_refresh": True},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        prompt = complete.await_args.kwargs["messages"][0]["content"]
+        self.assertIn("Authoritative client summary slot", prompt)
+        self.assertNotIn("Divergent aggregate summary profile", prompt)
 
     def test_client_memory_summary_cache_endpoint_does_not_generate(self):
         with Session(self.engine) as session:
