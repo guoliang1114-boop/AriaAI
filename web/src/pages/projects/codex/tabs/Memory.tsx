@@ -22,6 +22,7 @@ import {
 import { EDITABLE_SLOT_KEYS } from '../projectActionMutations'
 import { formatUpdatedRelative } from '../useProjectsApi'
 import { formatMemoryRebuildSummary } from '../../../../utils/memoryRebuild'
+import { memoryProvenanceHealth } from '../../../../utils/memoryProvenance'
 
 interface MemoryProps {
   projectId: number
@@ -375,6 +376,24 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
     }
     return result
   }, [factLedger])
+  const provenanceHealth = useMemo(
+    () => memoryProvenanceHealth(factLedger),
+    [factLedger],
+  )
+  const provenanceAttention = useMemo(
+    () => [
+      provenanceHealth.indirect > 0
+        ? `${provenanceHealth.indirect} 条范围来源`
+        : '',
+      provenanceHealth.unresolved > 0
+        ? `${provenanceHealth.unresolved} 条待补证`
+        : '',
+      provenanceHealth.stale > 0
+        ? `${provenanceHealth.stale} 条陈旧`
+        : '',
+    ].filter(Boolean),
+    [provenanceHealth],
+  )
 
   useEffect(() => {
     void loadMemoryCandidates()
@@ -528,6 +547,14 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
                     : stale
                       ? '需刷新'
                       : '已同步'}
+                </CxStatus>
+              )}
+              {provenanceHealth.total > 0 && (
+                <CxStatus tone={provenanceHealth.needsAttention ? 'warn' : 'good'}>
+                  来源可核验 {provenanceHealth.verified}/{provenanceHealth.total}
+                  {provenanceAttention.length > 0
+                    ? ` · ${provenanceAttention.join(' · ')}`
+                    : ''}
                 </CxStatus>
               )}
               {project.memory_rebuild_status && project.memory_rebuild_status !== 'idle' && (

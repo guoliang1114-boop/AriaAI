@@ -601,6 +601,14 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 每轮持久化 `Prompt Layer Manifest v1`，只含有序相对路径、层 SHA-256 和整体 SHA-256；用户侧回答诊断只展示是否存在、是否完整、层数和跨轮版本变化，不返回任一 Prompt 或业务正文。
 - `assert_chat_runtime_configuration` 在启动与部署测试中检查 Mode 全覆盖、17 个工具注册/Manifest 一致性、操作枚举与权限映射、工具池、Prompt 文件及工具说明 YAML。任何缺失或漂移失败关闭。确定性门禁为 116 个场景、33 项指标，新增 `chat_runtime_configuration_integrity_rate`；无数据库迁移，无新增 Codex 源码复用，不运行或连接 Codex。
 
+### Phase 4H：回答完整性、来源优先级与溯源校准（已实施）
+
+- 文件化回答纪律新增多维度覆盖清单：用户说“分别”或要求多个指标时，每一项都必须单独回答，相邻指标不能替代。
+- 证据冲突时优先使用当前、直连原始来源；陈旧或间接记忆只可作为限定上下文。`scoped`/`legacy`/`unresolved` 事实不得被描述为已核验事实。
+- 真实 Provider 门禁由 4 个扩展为 6 个合成项目问答，新增陈旧/当前来源冲突和未解析记忆用例。事实完整率、引用覆盖率、拒答、来源优先和溯源校准阈值为 1.0，不支持主张率为 0。
+- 确定性门禁扩展为 120 个场景、34 项指标，新增 `grounded_answer_contract_accuracy`。项目记忆页显示来源可核验比例、范围来源和待补证数，对话回执对非直接来源给出警示。
+- 本阶段无数据库迁移，不运行、导入或连接 Codex；项目、记忆、Skill、权限与审计仍全部属于 Aria。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

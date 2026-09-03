@@ -2232,7 +2232,10 @@ function ProjectContextReceiptSummary({
       : '',
     historyLabel,
   ].filter(Boolean)
-  const hasWarning = receipt.warnings.some((warning) =>
+  const hasUnverifiedMemory = (receipt.memory.layers || []).some(
+    (layer) => (layer.scoped_fact_count ?? 0) > 0 || (layer.unresolved_fact_count ?? 0) > 0,
+  )
+  const hasWarning = hasUnverifiedMemory || receipt.warnings.some((warning) =>
     [
       'project_memory_missing',
       'project_memory_stale',

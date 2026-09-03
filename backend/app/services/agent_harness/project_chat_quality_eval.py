@@ -41,6 +41,7 @@ from app.services.agent_harness.project_memory_evidence import (
     build_project_memory_evidence,
     select_project_memory_slots,
 )
+from app.services.agent_harness.grounded_provider_eval import grade_grounded_answer
 from app.services.agent_harness.knowledge_evidence import (
     build_knowledge_evidence_manifest,
     resolve_knowledge_citations,
@@ -2062,6 +2063,96 @@ def _runtime_configuration_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _grounded_answer_contract_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Grounded answers preserve coverage, citations, and source authority."""
+
+    financial_case = {
+        "id": "financial_dimensions",
+        "evidence": (
+            ("E1", "合同总额 120 万元，未收款 40 万元。"),
+            ("E2", "下一笔款项于 2026-09-15 到期。"),
+        ),
+        "claims": (
+            {"variants": ("合同总额120万元",), "citation": "E1"},
+            {"variants": ("未收款40万元",), "citation": "E1"},
+            {"variants": ("2026-09-15",), "citation": "E2"},
+        ),
+        "forbidden": (),
+    }
+    complete_financial = grade_grounded_answer(
+        financial_case,
+        "- 合同总额 120 万元 [E1]\n"
+        "- 未收款 40 万元 [E1]\n"
+        "- 下一笔款项于 2026-09-15 到期 [E2]",
+    )
+    incomplete_financial = grade_grounded_answer(
+        financial_case,
+        "- 合同总额 120 万元 [E1]\n"
+        "- 下一笔款项于 2026-09-15 到期 [E2]",
+    )
+
+    priority_case = {
+        "id": "current_direct_priority",
+        "evidence": (
+            ("E1", "[STALE][PROVENANCE:SCOPED] 旧记忆记录每周一召开。"),
+            ("E2", "[CURRENT][PROVENANCE:DIRECT] 从 2026-09-01 起改为每周五。"),
+        ),
+        "claims": (
+            {"variants": ("每周五",), "citation": "E2"},
+            {"variants": ("2026-09-01",), "citation": "E2"},
+        ),
+        "forbidden": ("当前每周一",),
+    }
+    current_direct = grade_grounded_answer(
+        priority_case,
+        "- 当前每周五召开 [E2]\n- 从 2026-09-01 起生效 [E2]",
+    )
+
+    unresolved_case = {
+        "id": "unresolved_provenance",
+        "evidence": (("E1", "[PROVENANCE:UNRESOLVED] 预算上限 300 万元。"),),
+        "claims": (
+            {
+                "variants": ("未得到可靠来源确认",),
+                "citation": "E1",
+            },
+        ),
+        "must_abstain": True,
+        "forbidden": ("预算上限已确认",),
+    }
+    unresolved = grade_grounded_answer(
+        unresolved_case,
+        "- 预算上限未得到可靠来源确认，无法作为已核验事实 [E1]",
+    )
+
+    details = [
+        {
+            "case": "multi_dimension_answer_requires_every_requested_fact_and_citation",
+            "passed": complete_financial["present_claim_count"] == 3
+            and complete_financial["correctly_cited_claim_count"] == 3,
+        },
+        {
+            "case": "one_omitted_dimension_is_detected_even_when_adjacent_facts_are_correct",
+            "passed": incomplete_financial["present_claim_count"] == 2
+            and incomplete_financial["correctly_cited_claim_count"] == 2
+            and incomplete_financial["required_claim_count"] == 3,
+        },
+        {
+            "case": "current_direct_evidence_displaces_stale_scoped_memory",
+            "passed": current_direct["present_claim_count"] == 2
+            and current_direct["correctly_cited_claim_count"] == 2
+            and not current_direct["forbidden_hits"],
+        },
+        {
+            "case": "unresolved_memory_requires_qualification_and_abstention",
+            "passed": unresolved["correctly_cited_claim_count"] == 1
+            and unresolved["passed_abstention"]
+            and not unresolved["forbidden_hits"],
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -2096,6 +2187,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "chat_runtime_configuration_integrity_rate": (
             _runtime_configuration_results()
         ),
+        "grounded_answer_contract_accuracy": _grounded_answer_contract_results(),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
         "question_answer_readiness_accuracy": _question_answer_readiness_results(),

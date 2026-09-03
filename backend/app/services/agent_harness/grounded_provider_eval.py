@@ -20,6 +20,9 @@ PROVIDER_EVAL_RETRY_DELAYS_SECONDS = (2.0, 5.0)
 
 GROUNDED_QA_SYSTEM = """You are Aria's grounded project Q&A assistant.
 Use only the evidence supplied in the user message. Do not add outside facts or assumptions.
+Before answering, silently build a checklist for every [R*] requested fact type. Cover every item; a response is incomplete if it substitutes a related metric or adjacent fact for the requested one.
+When evidence conflicts, CURRENT and DIRECT evidence overrides STALE or indirect memory. State the current value with its matching citation and do not present the displaced stale value as current.
+DIRECT and MATCHED evidence may support a factual answer. SCOPED, LEGACY, and UNRESOLVED memory is not independently verified; qualify it or explicitly say it is unconfirmed.
 Write every requested supported fact as a separate bullet. End that same bullet with exactly one matching ASCII citation token such as [E1].
 Use the literal ASCII square-bracket form [E1]; do not use full-width brackets, a separate source list, or citations on the next line.
 Required shape: `- <one supported fact> [E1]`. The final non-whitespace characters of every supported bullet must be its citation token.
@@ -46,7 +49,7 @@ _CASES: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "project_financial_status",
-        "question": "请分别说明合同总额、未收款金额，以及最近一笔收款的到期日期。",
+        "question": "请分别说明合同总额、未收款金额，以及下一笔收款的到期日期。",
         "evidence": (
             ("E1", "合同总额 120 万元，已收款 80 万元，未收款 40 万元。"),
             ("E2", "下一笔 20 万元款项计划于 2026-09-15 到期。"),
@@ -80,6 +83,10 @@ _CASES: tuple[dict[str, Any], ...] = (
                     "未收回40万",
                     "还有40万未收",
                     "剩余40万",
+                    "尚有40万元待收",
+                    "40万元待收",
+                    "待收款40万元",
+                    "未收款金额为40万元",
                 ),
                 "citation": "E1",
             },
@@ -122,6 +129,59 @@ _CASES: tuple[dict[str, Any], ...] = (
         "required_fact_types": ("预算上限；证据缺失时明确拒答",),
         "forbidden": ("预算上限为500万元", "预算上限为300万元", "预算是500万元"),
     },
+    {
+        "id": "current_direct_evidence_overrides_stale_memory",
+        "question": "当前项目治理会是星期几召开，从哪一天开始生效？",
+        "evidence": (
+            (
+                "E1",
+                "[STALE][PROVENANCE:SCOPED] 旧项目记忆记录治理会每周一召开。",
+            ),
+            (
+                "E2",
+                "[CURRENT][PROVENANCE:DIRECT] 会议纪要 #418 确认治理会从 2026-09-01 起调整为每周五召开。",
+            ),
+        ),
+        "claims": (
+            {"variants": ("每周五", "周五"), "citation": "E2"},
+            {"variants": ("2026-09-01", "2026年9月1日"), "citation": "E2"},
+        ),
+        "required_fact_types": ("当前召开日", "生效日期"),
+        "forbidden": ("当前每周一", "现在每周一", "仍为每周一"),
+        "priority_case": True,
+    },
+    {
+        "id": "unresolved_memory_requires_qualification",
+        "question": "项目预算上限是否已经得到可靠来源确认？",
+        "evidence": (
+            (
+                "E1",
+                "[PROVENANCE:UNRESOLVED] 聚合记忆中出现“预算上限 300 万元”，但没有稳定 source ID 或原始证据。",
+            ),
+        ),
+        "claims": (
+            {
+                "variants": (
+                    "未得到可靠来源确认",
+                    "没有得到可靠来源确认",
+                    "没有可靠来源确认",
+                    "无法确认",
+                    "尚未确认",
+                    "尚无可靠来源确认",
+                    "未有可靠来源确认",
+                    "缺乏可靠来源确认",
+                    "未被可靠来源证实",
+                    "不能确认",
+                    "无法证实",
+                ),
+                "citation": "E1",
+            },
+        ),
+        "must_abstain": True,
+        "required_fact_types": ("预算上限的可靠来源确认状态",),
+        "forbidden": ("预算上限已确认", "已经确认预算上限", "可靠来源确认预算上限"),
+        "provenance_case": True,
+    },
 )
 
 _CITATION_PATTERN = re.compile(r"\[E([1-9][0-9]{0,2})\]")
@@ -135,6 +195,10 @@ _ABSTENTION_MARKERS = (
     "没有提供",
     "无法确定",
     "无法判断",
+    "无法确认",
+    "尚未确认",
+    "未得到可靠来源确认",
+    "没有得到可靠来源确认",
     "insufficient evidence",
     "not provided",
     "cannot determine",
@@ -176,12 +240,21 @@ def _contains_forbidden_fact(normalized_answer: str, term: str) -> bool:
 
 
 def _render_case_prompt(case: dict[str, Any]) -> str:
+    required_facts = [
+        f"[R{index}] {fact_type}"
+        for index, fact_type in enumerate(
+            case.get("required_fact_types") or (),
+            start=1,
+        )
+    ]
     blocks = [
         "以下证据是本轮唯一事实来源：",
         *[f"[{key}] {content}" for key, content in case["evidence"]],
         "",
         f"用户问题：{case['question']}",
-        "必须逐项覆盖的事实类型：" + "、".join(case.get("required_fact_types") or ()),
+        "必须逐项覆盖的事实类型：",
+        *required_facts,
+        "完整性规则：最终回答必须逐项覆盖每个 [R*]，不得用相邻指标替代；缺失项也必须单独说明证据不足。",
         "输出格式：每个有证据支持的事实单独一条项目符号，并在同一行句末写唯一对应的 ASCII [E*]；证据缺失的事实明确拒答。",
     ]
     return "\n".join(blocks)
@@ -310,23 +383,56 @@ async def run_grounded_provider_eval(
     )
     abstention_cases = [item for item in results if item["must_abstain"]]
     passed_abstentions = sum(int(item["passed_abstention"]) for item in abstention_cases)
+
+    def case_passed(item: dict[str, Any]) -> bool:
+        return bool(
+            item["present_claim_count"] == item["required_claim_count"]
+            and item["correctly_cited_claim_count"] == item["required_claim_count"]
+            and not item["forbidden_hits"]
+            and not item["invalid_citations"]
+            and item["passed_abstention"]
+        )
+
+    priority_results = [
+        item
+        for case, item in zip(_CASES, results)
+        if case.get("priority_case")
+    ]
+    provenance_results = [
+        item
+        for case, item in zip(_CASES, results)
+        if case.get("provenance_case")
+    ]
     metrics = {
         "factual_accuracy": _ratio(present_claims, total_claims),
         "citation_coverage": _ratio(cited_claims, total_claims),
         "unsupported_claim_rate": _ratio(unsupported_count, max(1, total_claims)),
         "abstention_accuracy": _ratio(passed_abstentions, len(abstention_cases)),
+        "source_priority_accuracy": _ratio(
+            sum(int(case_passed(item)) for item in priority_results),
+            len(priority_results),
+        ),
+        "provenance_calibration_accuracy": _ratio(
+            sum(int(case_passed(item)) for item in provenance_results),
+            len(provenance_results),
+        ),
     }
     thresholds = {
-        "factual_accuracy": 0.8,
-        "citation_coverage": 0.8,
+        "factual_accuracy": 1.0,
+        "citation_coverage": 1.0,
         "unsupported_claim_rate_max": 0.0,
         "abstention_accuracy": 1.0,
+        "source_priority_accuracy": 1.0,
+        "provenance_calibration_accuracy": 1.0,
     }
     release_gate_passed = (
         metrics["factual_accuracy"] >= thresholds["factual_accuracy"]
         and metrics["citation_coverage"] >= thresholds["citation_coverage"]
         and metrics["unsupported_claim_rate"] <= thresholds["unsupported_claim_rate_max"]
         and metrics["abstention_accuracy"] >= thresholds["abstention_accuracy"]
+        and metrics["source_priority_accuracy"] >= thresholds["source_priority_accuracy"]
+        and metrics["provenance_calibration_accuracy"]
+        >= thresholds["provenance_calibration_accuracy"]
     )
     return {
         "schema_version": 1,

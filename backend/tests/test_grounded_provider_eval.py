@@ -10,17 +10,28 @@ from app.services.agent_harness.grounded_provider_eval import (
 async def _passing_provider(_system: str, prompt: str, _max_tokens: int) -> str:
     if "Atlas" in prompt:
         return (
-            "核心风险是数据迁移依赖 Atlas 供应商且接口未完成 [E1]，"
-            "第二次演练延迟 7 天 [E2]。下一步应在 2026-09-05 前指定对账签字负责人 [E3]。"
+            "- 核心风险是数据迁移依赖 Atlas 供应商且接口未完成 [E1]\n"
+            "- 第二次演练延迟 7 天 [E2]\n"
+            "- 下一步应在 2026-09-05 前指定对账签字负责人 [E3]"
         )
     if "合同总额" in prompt:
         return (
-            "合同总额 120 万元，未收款 40 万元 [E1]。"
-            "最近节点是 2026-09-15 到期的 20 万元款项 [E2]。"
+            "- 合同总额 120 万元 [E1]\n"
+            "- 未收款 40 万元 [E1]\n"
+            "- 最近节点是 2026-09-15 到期的 20 万元款项 [E2]"
         )
     if "李敏" in prompt:
-        return "李敏是客户 CFO 和最终决策人 [E1]；应当每周五发送书面进度更新 [E2]。"
-    return "提供的证据未提供预算上限，因此无法确定，不能猜测。"
+        return (
+            "- 李敏是最终决策人 [E1]\n"
+            "- 李敏担任客户 CFO [E1]\n"
+            "- 沟通频率为每周五 [E2]\n"
+            "- 沟通形式为书面进度更新 [E2]"
+        )
+    if "会议纪要 #418" in prompt:
+        return "- 当前治理会每周五召开 [E2]\n- 该调整从 2026-09-01 起生效 [E2]"
+    if "PROVENANCE:UNRESOLVED" in prompt:
+        return "- 预算上限尚未得到可靠来源确认，当前只能视为未核验记忆 [E1]"
+    return "- 提供的证据未提供预算上限，因此无法确定，不能猜测。"
 
 
 def test_grounded_provider_release_gate_passes_with_supported_answers():
@@ -38,7 +49,12 @@ def test_grounded_provider_release_gate_passes_with_supported_answers():
         "citation_coverage": 1.0,
         "unsupported_claim_rate": 0.0,
         "abstention_accuracy": 1.0,
+        "source_priority_accuracy": 1.0,
+        "provenance_calibration_accuracy": 1.0,
     }
+    assert report["case_count"] == 6
+    assert report["thresholds"]["factual_accuracy"] == 1.0
+    assert report["thresholds"]["citation_coverage"] == 1.0
     assert "Atlas" not in str(report)
 
 
@@ -109,7 +125,7 @@ def test_grounded_provider_eval_retries_transient_overload_only():
 
     assert report["release_gate_passed"] is True
     assert report["cases"][0]["provider_retry_count"] == 1
-    assert attempts == 5
+    assert attempts == 7
 
 
 def test_grounded_provider_eval_does_not_retry_non_transient_errors():
@@ -135,3 +151,36 @@ def test_grounded_provider_eval_does_not_retry_non_transient_errors():
             raise AssertionError("expected provider configuration error")
 
     assert attempts == 1
+
+
+def test_grounded_provider_gate_rejects_one_missing_requested_dimension():
+    async def incomplete_provider(system: str, prompt: str, max_tokens: int) -> str:
+        if "合同总额" in prompt:
+            return (
+                "- 合同总额 120 万元 [E1]\n"
+                "- 最近节点是 2026-09-15 到期的 20 万元款项 [E2]"
+            )
+        return await _passing_provider(system, prompt, max_tokens)
+
+    report = asyncio.run(
+        run_grounded_provider_eval(
+            incomplete_provider,
+            provider="test",
+            model="test-model",
+        )
+    )
+
+    assert report["release_gate_passed"] is False
+    assert report["metrics"]["factual_accuracy"] < 1.0
+    assert report["failures"] == [
+        {
+            "case_id": "project_financial_status",
+            "missing_claims": 1,
+            "uncited_claims": 1,
+            "forbidden_hits": [],
+            "invalid_citations": [],
+            "observed_citation_count": 2,
+            "citation_format_mismatch_count": 0,
+            "abstention_failed": False,
+        }
+    ]
