@@ -80,21 +80,49 @@ class ArtifactsRouterTestCase(unittest.TestCase):
                 size_bytes=30,
                 description="Other report",
             )
+            manual_path = self.uploads_dir / "generated" / "manual.md"
+            manual_path.write_text("# Manual acceptance\n")
+            manual_gf = GeneratedFile(
+                conversation_id=conv.id,
+                name="manual.md",
+                file_type="markdown",
+                path="generated/manual.md",
+                size_bytes=manual_path.stat().st_size,
+                description="Report with Skill business checks",
+            )
             session.add(gf)
             session.add(legacy_gf)
             session.add(other_gf)
+            session.add(manual_gf)
             session.commit()
             session.refresh(gf)
             session.refresh(legacy_gf)
             session.refresh(other_gf)
+            session.refresh(manual_gf)
             gf.content_sha256 = hashlib.sha256(report_path.read_bytes()).hexdigest()
+            manual_gf.content_sha256 = hashlib.sha256(manual_path.read_bytes()).hexdigest()
             session.add(gf)
+            session.add(manual_gf)
             verification = persist_artifact_verification(session, gf, report_path)
+            manual_verification = persist_artifact_verification(
+                session,
+                manual_gf,
+                manual_path,
+                skill_runtime_contract={
+                    "verification_status": "available",
+                    "verification_context_complete": True,
+                    "verification_step_count": 2,
+                    "verification_plan_sha256": "a" * 64,
+                    "release_sha256": "b" * 64,
+                },
+            )
             session.commit()
             self.artifact_id = gf.id
+            self.manual_artifact_id = manual_gf.id
             self.legacy_artifact_id = legacy_gf.id
             self.other_artifact_id = other_gf.id
             self.verification_id = verification["verification_id"]
+            self.manual_verification_id = manual_verification["verification_id"]
 
         app = FastAPI()
         app.include_router(router)
@@ -175,6 +203,53 @@ class ArtifactsRouterTestCase(unittest.TestCase):
             f"/artifacts/{self.other_artifact_id}/verification"
         )
         self.assertEqual(resp.status_code, 403)
+
+    def test_get_acceptance_marks_technical_pass_without_skill_checks_ready(self):
+        resp = self.client.get(f"/artifacts/{self.artifact_id}/acceptance")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["review_status"], "not_required")
+        self.assertEqual(data["delivery_status"], "ready")
+        self.assertTrue(data["final_delivery_allowed"])
+
+    def test_manual_acceptance_is_revisioned_and_audited(self):
+        pending = self.client.get(
+            f"/artifacts/{self.manual_artifact_id}/acceptance"
+        )
+        self.assertEqual(pending.status_code, 200)
+        self.assertEqual(pending.json()["review_status"], "pending")
+
+        accepted = self.client.post(
+            f"/artifacts/{self.manual_artifact_id}/acceptance",
+            json={
+                "decision": "accepted",
+                "expected_revision": 0,
+                "reason": "已核对客户口径和结论。",
+            },
+        )
+        self.assertEqual(accepted.status_code, 200)
+        self.assertEqual(accepted.json()["review_status"], "accepted")
+        self.assertEqual(accepted.json()["revision"], 1)
+        self.assertTrue(accepted.json()["final_delivery_allowed"])
+
+        stale = self.client.post(
+            f"/artifacts/{self.manual_artifact_id}/acceptance",
+            json={
+                "decision": "rejected",
+                "expected_revision": 0,
+                "reason": "使用过期版本。",
+            },
+        )
+        self.assertEqual(stale.status_code, 409)
+
+    def test_acceptance_registry_and_contract_are_content_free(self):
+        registry = self.client.get("/artifacts/verification/business-verifiers")
+        contract = self.client.get("/artifacts/acceptance/contract")
+        self.assertEqual(registry.status_code, 200)
+        self.assertEqual(contract.status_code, 200)
+        self.assertFalse(registry.json()["skill_package_code_executable"])
+        self.assertTrue(contract.json()["events_are_append_only"])
+        self.assertNotIn(str(self.uploads_dir), str(registry.json()))
 
     def test_download_by_path_rejects_absolute_path(self):
         resp = self.client.get("/artifacts/download-by-path", params={"path": "/etc/passwd"})

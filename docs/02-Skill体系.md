@@ -253,5 +253,5 @@ skills/
    - 状态：已完成。包含不可变发布历史、项目级稳定分桶、管理员暂停/恢复/推广/回滚、并发陈旧保护和失败率自动止损。
 3. 为其余核心 Skill 增加 golden examples。
 4. 增加 `verification_steps`，让交付物生成后可自动校验。
-   - 状态：第二阶段已完成。运行时从冻结发布中识别质量/验收/完成清单，并以 `verification_plan_sha256` 绑定精确清单；交付物持久化后由 Aria 自有只读校验器核对真实文件、非空、扩展名、内容 SHA-256 和已支持格式完整性，结果进入不可变 `ArtifactVerification` 证据账本。Skill 的语义/业务验收项仍明确标记为 `manual_required`，包内脚本、宏和代码不会被执行。
+   - 状态：第三阶段已完成。运行时从冻结发布中识别质量/验收/完成清单，并以 `verification_plan_sha256` 绑定精确清单；交付物持久化后由 Aria 自有只读校验器核对真实文件、非空、扩展名、内容 SHA-256 和已支持格式完整性，结果进入不可变 `ArtifactVerification` 证据账本。Skill 的语义/业务验收项保持 `manual_required`，但现在可以由有写权限成员填写理由后接受或退回；最终交付门禁绑定精确文件、技术证据和验收计划，并保留 expected revision 与 append-only 审计。包内脚本、宏和代码不会被执行。
 5. 设计 Skill 导入/导出格式，统一 DB Skill 与文件包 Skill 的同步方式。

@@ -922,6 +922,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-09-03）：Phase 4B 将 Skill 验收声明与真实交付物验证连接起来。运行合同以 SHA-256 绑定精确验收计划；Persistence Harness 在 `GeneratedFile` 落库事务内执行 Aria 自有的只读文件身份和格式完整性检查，并将结果按文件字节、校验器版本与 Skill 发布写入不可变 `ArtifactVerification`。自动化层绝不执行 Skill script、宏或代码，也不把语义/业务验收冒充为自动通过；此类步骤保持 `manual_required`，上下文不完整保持 `partial`，技术失败不能满足交付契约。Product Run Event、消息 metadata、恢复与前端卡片共享无正文摘要，授权 API 仅返回有界检查码。幂等迁移 `043_v1_43` 保持单一 head；确定性门禁扩展为 95 个场景、28 项指标。不引入 Codex 运行时、SDK、协议、进程或通信。
 
+补充进展（2026-09-03）：Phase 4C 为 `manual_required` 制品增加业务验收和最终交付门禁。验收绑定精确技术证据、文件字节和 Skill 验收计划，以 expected revision 处理并发，并写入当前态与 append-only 审计事件；接受/退回必须填写理由。技术失败、格式不支持或 Skill 上下文不完整不能被人工覆盖。Aria 自有声明式校验器注册表只支持有界结构指标，未知规则失败关闭，且不会执行 Skill 包代码、宏、shell 或动态 callable。预览面板可查看证据、验收、退回和历史。幂等迁移 `044_v1_44` 保持单一 head；确定性门禁为 99 个场景、29 项指标。不引入 Codex 运行时、SDK、协议、进程或通信。
+
 补充进展（2026-09-02）：Phase 3Z 把证据绑定回答推进到可核验的人工采用。问题页先准备包含问题/槽位版本、Message 身份、回答正文摘要、解决摘要、当前证据与裁决身份、准备度的冻结 snapshot；确认关单时在项目写锁内重新授权和重算，任一漂移返回 409。确认后的无正文采用 envelope 写入既有 append-only resolution event note，历史纯文本 note 保持兼容。回答不可用/正文变化以及整改附件或裁决变化会让旧解决项自动进入待复核。项目对话在重答成功后可带持久 Message ID 返回问题页并重新分析、预选，但不自动采用。确定性门禁扩展为 85 个场景、26 项指标，新增 `question_answer_adoption_safety_rate`；不新增数据库迁移，不引入 Codex 运行时、SDK、协议或通信。
 
 范围：

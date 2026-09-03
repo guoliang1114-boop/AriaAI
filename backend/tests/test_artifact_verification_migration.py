@@ -53,12 +53,11 @@ def test_revision_043_creates_artifact_verification_idempotently() -> None:
     engine.dispose()
 
 
-def test_revision_043_is_the_single_alembic_head() -> None:
+def test_revision_043_remains_in_the_linear_alembic_chain() -> None:
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "alembic"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["043_v1_43"]
-    latest = script.get_revision("043_v1_43")
-    assert latest is not None
-    assert latest.down_revision == "042_v1_42"
+    revision = script.get_revision("043_v1_43")
+    assert revision is not None
+    assert revision.down_revision == "042_v1_42"

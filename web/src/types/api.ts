@@ -1901,6 +1901,58 @@ export interface GeneratedArtifact {
   verification?: ArtifactVerificationSummary
 }
 
+export type ArtifactAcceptanceReviewStatus =
+  | "blocked"
+  | "not_required"
+  | "pending"
+  | "accepted"
+  | "rejected"
+
+export type ArtifactDeliveryStatus =
+  | "blocked"
+  | "review_required"
+  | "changes_required"
+  | "ready"
+
+export interface ArtifactAcceptanceHistoryEvent {
+  id: number
+  revision: number
+  previous_status: "pending" | "accepted" | "rejected"
+  status: "accepted" | "rejected"
+  actor_user_id?: number | null
+  reason: string
+  created_at: string
+}
+
+export interface ArtifactAcceptanceProjection {
+  schema_version: 1
+  artifact_id: number
+  verification_id: number
+  content_sha256: string
+  evidence_sha256: string
+  verification_plan_sha256: string
+  verification_status: ArtifactVerificationSummary["status"]
+  technical_status: ArtifactVerificationSummary["technical_status"]
+  review_status: ArtifactAcceptanceReviewStatus
+  delivery_status: ArtifactDeliveryStatus
+  final_delivery_allowed: boolean
+  revision: number
+  reason: string
+  reviewed_by_user_id?: number | null
+  reviewed_at?: string | null
+  history: ArtifactAcceptanceHistoryEvent[]
+  history_limit: number
+  allowed_decisions: Array<"accepted" | "rejected">
+  human_judgment_only: true
+  acceptance_is_truth_verdict: false
+  business_automation: {
+    registry_version: number
+    status: "not_configured" | "passed" | "failed" | "partial"
+    registered_verifier_count: number
+    skill_package_code_executable: false
+  }
+}
+
 export interface MemoryCandidate {
   schema_version: number
   id: number

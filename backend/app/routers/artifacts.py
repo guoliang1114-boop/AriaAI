@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.config import UPLOADS_DIR
@@ -17,6 +17,12 @@ from app.routers.chat_security import require_conversation_access, require_proje
 from app.services.upload_paths import normalize_relative_upload_path, resolve_upload_path
 from app.services.agent_harness.artifact_verification import (
     artifact_verification_evidence_payload,
+)
+from app.services.agent_harness.artifact_acceptance import (
+    artifact_acceptance_projection,
+    build_artifact_acceptance_contract,
+    registered_artifact_business_verifiers,
+    review_artifact_acceptance,
 )
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
@@ -37,6 +43,12 @@ class ArtifactOut(BaseModel):
     content_sha256: str = ""
     output_record_version: int = 1
     created_at: datetime
+
+
+class ArtifactAcceptanceRequest(BaseModel):
+    decision: str = Field(min_length=1, max_length=40)
+    expected_revision: int = Field(ge=0)
+    reason: str = Field(min_length=1, max_length=600)
 
 
 def _authorize_artifact(
@@ -126,6 +138,26 @@ def download_by_path(
     return FileResponse(path=file_path, media_type=media_type, filename=file_path.name)
 
 
+@router.get("/verification/business-verifiers")
+def get_artifact_business_verifier_registry(
+    current_user: User = Depends(get_current_user),
+):
+    """List safe Aria-owned declarative artifact verifiers."""
+
+    del current_user
+    return registered_artifact_business_verifiers()
+
+
+@router.get("/acceptance/contract")
+def get_artifact_acceptance_contract(
+    current_user: User = Depends(get_current_user),
+):
+    """Return the content-free human sign-off safety contract."""
+
+    del current_user
+    return build_artifact_acceptance_contract()
+
+
 @router.get("/{artifact_id}")
 def get_artifact(
     artifact_id: int,
@@ -201,6 +233,51 @@ def get_artifact_verification(
     if not payload:
         raise HTTPException(409, "Artifact verification evidence is invalid")
     return payload
+
+
+@router.get("/{artifact_id}/acceptance")
+def get_artifact_acceptance(
+    artifact_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Return the delivery gate combining evidence and human sign-off."""
+
+    artifact = session.get(GeneratedFile, artifact_id)
+    if not artifact:
+        raise HTTPException(404, "Artifact not found")
+    _authorize_artifact(session, artifact, current_user)
+    return artifact_acceptance_projection(session, artifact)
+
+
+@router.post("/{artifact_id}/acceptance")
+def decide_artifact_acceptance(
+    artifact_id: int,
+    body: ArtifactAcceptanceRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Accept or reject one exact artifact verification with CAS and audit."""
+
+    artifact = session.exec(
+        select(GeneratedFile)
+        .where(GeneratedFile.id == artifact_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).first()
+    if not artifact:
+        raise HTTPException(404, "Artifact not found")
+    _authorize_artifact(session, artifact, current_user, require_write=True)
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return review_artifact_acceptance(
+        session,
+        artifact=artifact,
+        actor_user_id=int(current_user.id),
+        decision=body.decision,
+        expected_revision=body.expected_revision,
+        reason=body.reason,
+    )
 
 
 @router.delete("/{artifact_id}")

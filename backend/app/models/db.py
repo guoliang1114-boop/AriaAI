@@ -1895,6 +1895,115 @@ class ArtifactVerification(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now_naive, index=True)
 
 
+class ArtifactAcceptanceReview(SQLModel, table=True):
+    """Current human sign-off for one immutable artifact verification."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "verification_id",
+            name="uq_artifactacceptancereview_verification",
+        ),
+        CheckConstraint(
+            "status IN ('accepted', 'rejected')",
+            name="ck_artifactacceptancereview_status",
+        ),
+        CheckConstraint(
+            "revision >= 1 "
+            "AND length(content_sha256) = 64 "
+            "AND length(evidence_sha256) = 64 "
+            "AND length(verification_plan_sha256) IN (0, 64)",
+            name="ck_artifactacceptancereview_identity",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    generated_file_id: int = Field(
+        foreign_key="generatedfile.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    verification_id: int = Field(
+        foreign_key="artifactverification.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    run_id: str = Field(default="", index=True)
+    output_id: str = Field(default="", index=True)
+    content_sha256: str = Field(index=True)
+    evidence_sha256: str = Field(index=True)
+    verification_plan_sha256: str = Field(default="", index=True)
+    status: str = Field(index=True)
+    revision: int = Field(default=1)
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    reviewed_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    reviewed_at: datetime = Field(default_factory=utc_now_naive, index=True)
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
+class ArtifactAcceptanceReviewEvent(SQLModel, table=True):
+    """Append-only audit history for artifact delivery sign-off decisions."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "review_id",
+            "revision",
+            name="uq_artifactacceptancereviewevent_revision",
+        ),
+        CheckConstraint(
+            "previous_status IN ('pending', 'accepted', 'rejected')",
+            name="ck_artifactacceptancereviewevent_previous",
+        ),
+        CheckConstraint(
+            "status IN ('accepted', 'rejected')",
+            name="ck_artifactacceptancereviewevent_status",
+        ),
+        CheckConstraint(
+            "revision >= 1 "
+            "AND length(content_sha256) = 64 "
+            "AND length(evidence_sha256) = 64 "
+            "AND length(verification_plan_sha256) IN (0, 64)",
+            name="ck_artifactacceptancereviewevent_identity",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    review_id: int = Field(
+        foreign_key="artifactacceptancereview.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    generated_file_id: int = Field(
+        foreign_key="generatedfile.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    verification_id: int = Field(
+        foreign_key="artifactverification.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    revision: int
+    previous_status: str
+    status: str = Field(index=True)
+    content_sha256: str = Field(index=True)
+    evidence_sha256: str = Field(index=True)
+    verification_plan_sha256: str = Field(default="", index=True)
+    actor_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
 # ── Scheduled Tasks ───────────────────────────────────────────────────────────
 
 class ScheduledTask(SQLModel, table=True):

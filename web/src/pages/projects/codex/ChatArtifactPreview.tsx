@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react'
 import { api } from '../../../api/client'
 import { getApiBaseUrl } from '../../../config/api'
 import { MarkdownRenderer } from '../../../components/MarkdownRenderer'
-import type { GeneratedArtifact } from '../../../types/api'
+import type {
+  ArtifactAcceptanceProjection,
+  GeneratedArtifact,
+} from '../../../types/api'
 import type { ArtifactVerificationSummary } from '../../../types/productRunEvent'
 import { artifactVerificationLabel } from '../../../utils/artifactVerification'
 import { downloadArtifact } from '../downloadArtifact'
@@ -116,7 +119,7 @@ export function ChatArtifactPreview({
   projectId,
   ...props
 }: PreviewProps) {
-  const previewKey = `${projectId}:${artifact.project_file_id ?? artifact.name}:${artifact.file_type}`
+  const previewKey = `${projectId}:${artifact.id ?? artifact.project_file_id ?? artifact.name}:${artifact.file_type}`
   return (
     <ChatArtifactPreviewContent
       key={previewKey}
@@ -492,10 +495,52 @@ function ArtifactVerificationPanel({
   const [loading, setLoading] = useState(false)
   const [evidence, setEvidence] = useState<ArtifactVerificationEvidence | null>(null)
   const [error, setError] = useState('')
-  const color = verification.status === 'failed'
-    ? 'var(--bad)'
-    : verification.status === 'passed'
-      ? 'var(--good)'
+  const [acceptance, setAcceptance] = useState<ArtifactAcceptanceProjection | null>(null)
+  const [acceptanceLoading, setAcceptanceLoading] = useState(artifactId != null)
+  const [acceptanceError, setAcceptanceError] = useState('')
+  const [decisionReason, setDecisionReason] = useState('')
+  const [decisionBusy, setDecisionBusy] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    if (artifactId == null) {
+      setAcceptanceLoading(false)
+      return
+    }
+    setAcceptanceLoading(true)
+    setAcceptanceError('')
+    void api.get<ArtifactAcceptanceProjection>(`/artifacts/${artifactId}/acceptance`)
+      .then((data) => {
+        if (!cancelled) setAcceptance(data)
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAcceptanceError(err instanceof Error ? err.message : '交付门禁加载失败')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAcceptanceLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [artifactId, verification.verification_id])
+
+  const gateLabel = acceptance?.delivery_status === 'ready'
+    ? acceptance.review_status === 'accepted'
+      ? '业务验收通过 · 可最终交付'
+      : artifactVerificationLabel(verification)
+    : acceptance?.delivery_status === 'changes_required'
+      ? '业务验收未通过 · 需要修改'
+      : acceptance?.delivery_status === 'blocked'
+        ? '交付门禁阻塞'
+        : artifactVerificationLabel(verification)
+  const color = acceptance?.delivery_status === 'ready'
+    ? 'var(--good)'
+    : acceptance?.delivery_status === 'changes_required'
+      || acceptance?.delivery_status === 'blocked'
+      || verification.status === 'failed'
+      ? 'var(--bad)'
       : 'var(--warn)'
 
   const toggle = async () => {
@@ -514,6 +559,40 @@ function ArtifactVerificationPanel({
       setError(err instanceof Error ? err.message : '验证证据加载失败')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const decide = async (decision: 'accepted' | 'rejected') => {
+    const reason = decisionReason.trim()
+    if (
+      artifactId == null
+      || !acceptance
+      || decisionBusy
+      || !acceptance.allowed_decisions.includes(decision)
+    ) return
+    if (!reason) {
+      setAcceptanceError('请填写本次验收判断依据。')
+      return
+    }
+    setDecisionBusy(true)
+    setAcceptanceError('')
+    try {
+      const next = await api.post<ArtifactAcceptanceProjection>(
+        `/artifacts/${artifactId}/acceptance`,
+        {
+          decision,
+          expected_revision: acceptance.revision,
+          reason,
+        },
+      )
+      setAcceptance(next)
+      setDecisionReason('')
+    } catch (err) {
+      setAcceptanceError(
+        err instanceof Error ? err.message : '验收状态已变化，请刷新后重试',
+      )
+    } finally {
+      setDecisionBusy(false)
     }
   }
 
@@ -540,7 +619,7 @@ function ArtifactVerificationPanel({
           cursor: 'pointer',
         }}
       >
-        {artifactVerificationLabel(verification)}
+        {acceptanceLoading ? `${gateLabel} · 正在核对门禁` : gateLabel}
         <span style={{ float: 'right', color: 'var(--ink-faint)' }}>
           {expanded ? '收起 ▴' : '证据 ▾'}
         </span>
@@ -555,17 +634,114 @@ function ArtifactVerificationPanel({
           ) : error ? (
             <div style={{ color: 'var(--bad)' }}>{error}</div>
           ) : evidence ? (
-            <ul style={{ margin: '5px 0 0', paddingLeft: 16 }}>
-              {evidence.checks.map((check) => (
-                <li key={check.check_id}>
-                  {VERIFICATION_CHECK_LABELS[check.check_id] || check.check_id}
-                  {' · '}
-                  {VERIFICATION_STATUS_LABELS[check.status]}
-                  {check.code ? ` · ${check.code}` : ''}
-                </li>
-              ))}
-            </ul>
-          ) : null}
+            <>
+              <ul style={{ margin: '5px 0 0', paddingLeft: 16 }}>
+                {evidence.checks.map((check) => (
+                  <li key={check.check_id}>
+                    {VERIFICATION_CHECK_LABELS[check.check_id] || check.check_id}
+                    {' · '}
+                    {VERIFICATION_STATUS_LABELS[check.status]}
+                    {check.code ? ` · ${check.code}` : ''}
+                  </li>
+                ))}
+              </ul>
+              {acceptance && (
+                <div
+                  style={{
+                    marginTop: 9,
+                    paddingTop: 8,
+                    borderTop: '1px solid var(--line-soft)',
+                  }}
+                >
+                  <div style={{ color }}>
+                    交付门禁 · {acceptance.delivery_status === 'ready'
+                      ? '可以最终交付'
+                      : acceptance.delivery_status === 'review_required'
+                        ? '等待业务验收'
+                        : acceptance.delivery_status === 'changes_required'
+                          ? '需要修改后复核'
+                          : '技术证据未满足'}
+                  </div>
+                  {acceptance.reason && (
+                    <div style={{ marginTop: 3 }}>
+                      最近判断：{acceptance.reason}
+                    </div>
+                  )}
+                  {acceptance.allowed_decisions.length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <textarea
+                        value={decisionReason}
+                        onChange={(event) => setDecisionReason(event.target.value)}
+                        maxLength={600}
+                        aria-label="业务验收依据"
+                        placeholder="填写核对范围、判断依据或需要修改的内容"
+                        style={{
+                          width: '100%',
+                          minHeight: 58,
+                          resize: 'vertical',
+                          padding: '7px 8px',
+                          color: 'var(--ink)',
+                          background: 'var(--bg-elev)',
+                          border: '1px solid var(--line)',
+                          borderRadius: 'var(--r-sm)',
+                          font: 'inherit',
+                        }}
+                      />
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                        <button
+                          type="button"
+                          disabled={decisionBusy}
+                          onClick={() => void decide('accepted')}
+                          style={{
+                            padding: '5px 9px',
+                            color: 'var(--good)',
+                            background: 'transparent',
+                            border: '1px solid var(--line)',
+                            borderRadius: 'var(--r-sm)',
+                            cursor: decisionBusy ? 'wait' : 'pointer',
+                          }}
+                        >
+                          验收通过
+                        </button>
+                        <button
+                          type="button"
+                          disabled={decisionBusy}
+                          onClick={() => void decide('rejected')}
+                          style={{
+                            padding: '5px 9px',
+                            color: 'var(--bad)',
+                            background: 'transparent',
+                            border: '1px solid var(--line)',
+                            borderRadius: 'var(--r-sm)',
+                            cursor: decisionBusy ? 'wait' : 'pointer',
+                          }}
+                        >
+                          退回修改
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {acceptance.history.length > 0 && (
+                    <details style={{ marginTop: 8 }}>
+                      <summary style={{ cursor: 'pointer' }}>
+                        验收记录 {acceptance.history.length} 条
+                      </summary>
+                      <ul style={{ margin: '5px 0 0', paddingLeft: 16 }}>
+                        {acceptance.history.slice(0, 5).map((item) => (
+                          <li key={item.id}>
+                            r{item.revision} · {item.status === 'accepted' ? '通过' : '退回'} · {item.reason}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
+            </>
+            ) : null}
+          {acceptanceError && (
+            <div style={{ marginTop: 6, color: 'var(--bad)' }}>{acceptanceError}</div>
+          )}
         </div>
       )}
     </div>

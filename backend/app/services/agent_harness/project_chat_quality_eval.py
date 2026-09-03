@@ -46,6 +46,11 @@ from app.services.agent_harness.skill_runtime_contract import (
 from app.services.agent_harness.artifact_verification import (
     build_artifact_verification_evidence,
 )
+from app.services.agent_harness.artifact_acceptance import (
+    build_artifact_acceptance_contract,
+    registered_artifact_business_verifiers,
+    run_registered_artifact_business_verifiers,
+)
 from app.services.agent_harness.project_world_state import (
     WORLD_STATE_CATEGORIES,
     WORLD_STATE_SCHEMA_VERSION,
@@ -1720,6 +1725,49 @@ def _artifact_verification_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _artifact_acceptance_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Delivery sign-off must be bounded, fail-closed, and auditable."""
+
+    contract = build_artifact_acceptance_contract()
+    registry = registered_artifact_business_verifiers()
+    deterministic = run_registered_artifact_business_verifiers(
+        {"metrics": {"slide_count": 12}},
+        [{"verifier_id": "min_slide_count", "expected_min": 10}],
+    )
+    blocked = run_registered_artifact_business_verifiers(
+        {"metrics": {"slide_count": 12}},
+        [{"verifier_id": "run_skill_script", "expected_min": 1}],
+    )
+    details = [
+        {
+            "case": "artifact_acceptance_cannot_override_failed_or_partial_evidence",
+            "passed": contract["failed_or_partial_evidence_can_be_accepted"] is False,
+        },
+        {
+            "case": "artifact_acceptance_uses_revisioned_append_only_human_audit",
+            "passed": contract["uses_optimistic_revision"] is True
+            and contract["events_are_append_only"] is True
+            and contract["human_judgment_only"] is True
+            and contract["acceptance_is_truth_verdict"] is False,
+        },
+        {
+            "case": "artifact_business_registry_runs_bounded_declarative_rules",
+            "passed": registry["execution_boundary"]
+            == "aria_owned_declarative_rules_only"
+            and deterministic["status"] == "passed"
+            and deterministic["passed_count"] == 1,
+        },
+        {
+            "case": "artifact_business_registry_rejects_package_execution",
+            "passed": registry["skill_package_code_executable"] is False
+            and contract["executes_skill_package_code"] is False
+            and blocked["status"] == "partial"
+            and blocked["checks"][0]["code"] == "verifier_not_registered",
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -1743,6 +1791,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "skill_release_governance_accuracy": _skill_release_governance_results(),
         "skill_runtime_contract_accuracy": _skill_runtime_contract_results(),
         "artifact_verification_accuracy": _artifact_verification_results(),
+        "artifact_acceptance_safety_rate": _artifact_acceptance_results(),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
         "question_answer_readiness_accuracy": _question_answer_readiness_results(),

@@ -4,10 +4,14 @@ import type { GeneratedArtifact } from '../../../types/api'
 import { ChatArtifactPreview } from './ChatArtifactPreview'
 
 const mockGet = vi.fn()
+const mockPost = vi.fn()
 const mockDownloadArtifact = vi.fn()
 
 vi.mock('../../../api/client', () => ({
-  api: { get: (...args: unknown[]) => mockGet(...args) },
+  api: {
+    get: (...args: unknown[]) => mockGet(...args),
+    post: (...args: unknown[]) => mockPost(...args),
+  },
 }))
 
 vi.mock('../../../components/MarkdownRenderer', () => ({
@@ -38,6 +42,7 @@ function artifact(fileId: number, name: string): GeneratedArtifact {
 describe('ChatArtifactPreview', () => {
   beforeEach(() => {
     mockGet.mockReset()
+    mockPost.mockReset()
     mockDownloadArtifact.mockReset()
   })
 
@@ -120,10 +125,40 @@ describe('ChatArtifactPreview', () => {
       skill_check_count: 0,
       metrics: {},
     }
-    mockGet.mockResolvedValue({
-      ...verification,
-      checks: [{ check_id: 'file_exists', status: 'passed' }],
-      created_at: '2026-09-03T00:00:00',
+    mockGet.mockImplementation((url: string) => {
+      if (url.endsWith('/acceptance')) {
+        return Promise.resolve({
+          schema_version: 1,
+          artifact_id: 42,
+          verification_id: 7,
+          content_sha256: 'a'.repeat(64),
+          evidence_sha256: 'b'.repeat(64),
+          verification_plan_sha256: '',
+          verification_status: 'passed',
+          technical_status: 'passed',
+          review_status: 'not_required',
+          delivery_status: 'ready',
+          final_delivery_allowed: true,
+          revision: 0,
+          reason: '',
+          history: [],
+          history_limit: 20,
+          allowed_decisions: [],
+          human_judgment_only: true,
+          acceptance_is_truth_verdict: false,
+          business_automation: {
+            registry_version: 1,
+            status: 'not_configured',
+            registered_verifier_count: 8,
+            skill_package_code_executable: false,
+          },
+        })
+      }
+      return Promise.resolve({
+        ...verification,
+        checks: [{ check_id: 'file_exists', status: 'passed' }],
+        created_at: '2026-09-03T00:00:00',
+      })
     })
 
     render(
@@ -142,9 +177,108 @@ describe('ChatArtifactPreview', () => {
       />,
     )
 
-    expect(mockGet).not.toHaveBeenCalled()
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/artifacts/42/acceptance'))
+    expect(mockGet).not.toHaveBeenCalledWith('/artifacts/42/verification')
     fireEvent.click(screen.getByRole('button', { name: /技术校验通过 5\/5/ }))
     await screen.findByText('文件存在 · 通过')
     expect(mockGet).toHaveBeenCalledWith('/artifacts/42/verification')
+  })
+
+  it('records a reasoned business acceptance from the verification panel', async () => {
+    const verification = {
+      schema_version: 1 as const,
+      verification_id: 8,
+      verifier_version: 1,
+      status: 'manual_required' as const,
+      technical_status: 'passed' as const,
+      skill_status: 'manual_required' as const,
+      content_sha256: 'c'.repeat(64),
+      evidence_sha256: 'd'.repeat(64),
+      automated_check_count: 5,
+      automated_passed_count: 5,
+      automated_failed_count: 0,
+      automated_skipped_count: 0,
+      skill_check_count: 3,
+      metrics: {},
+    }
+    const pending = {
+      schema_version: 1 as const,
+      artifact_id: 43,
+      verification_id: 8,
+      content_sha256: 'c'.repeat(64),
+      evidence_sha256: 'd'.repeat(64),
+      verification_plan_sha256: 'e'.repeat(64),
+      verification_status: 'manual_required' as const,
+      technical_status: 'passed' as const,
+      review_status: 'pending' as const,
+      delivery_status: 'review_required' as const,
+      final_delivery_allowed: false,
+      revision: 0,
+      reason: '',
+      history: [],
+      history_limit: 20,
+      allowed_decisions: ['accepted' as const, 'rejected' as const],
+      human_judgment_only: true as const,
+      acceptance_is_truth_verdict: false as const,
+      business_automation: {
+        registry_version: 1,
+        status: 'not_configured' as const,
+        registered_verifier_count: 8,
+        skill_package_code_executable: false as const,
+      },
+    }
+    mockGet.mockImplementation((url: string) => Promise.resolve(
+      url.endsWith('/acceptance')
+        ? pending
+        : { ...verification, checks: [], created_at: '2026-09-03T00:00:00' },
+    ))
+    mockPost.mockResolvedValue({
+      ...pending,
+      review_status: 'accepted',
+      delivery_status: 'ready',
+      final_delivery_allowed: true,
+      revision: 1,
+      reason: '已逐项核对。',
+      history: [{
+        id: 1,
+        revision: 1,
+        previous_status: 'pending',
+        status: 'accepted',
+        actor_user_id: 1,
+        reason: '已逐项核对。',
+        created_at: '2026-09-03T00:00:00',
+      }],
+    })
+
+    render(
+      <ChatArtifactPreview
+        artifact={{
+          id: 43,
+          name: 'manual.txt',
+          file_type: 'txt',
+          path: 'generated/manual.txt',
+          verification,
+        }}
+        projectId={3}
+        onClose={vi.fn()}
+        width={380}
+        onResize={vi.fn()}
+      />,
+    )
+
+    await screen.findByRole('button', { name: /3 项待业务验收/ })
+    fireEvent.click(screen.getByRole('button', { name: /3 项待业务验收/ }))
+    await screen.findByText(/等待业务验收/)
+    fireEvent.change(screen.getByLabelText('业务验收依据'), {
+      target: { value: '已逐项核对。' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '验收通过' }))
+
+    await screen.findByRole('button', { name: /业务验收通过 · 可最终交付/ })
+    expect(mockPost).toHaveBeenCalledWith('/artifacts/43/acceptance', {
+      decision: 'accepted',
+      expected_revision: 0,
+      reason: '已逐项核对。',
+    })
   })
 })
