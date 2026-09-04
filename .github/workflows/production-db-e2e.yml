@@ -417,6 +417,7 @@ jobs:
                         "tests/test_memory_operation_state.py",
                         "tests/test_memory_operation_state_migration.py",
                         "tests/test_memory_rebuild_history_migration.py",
+                        "tests/test_memory_operation_state_retirement_migration.py",
                         "tests/test_memory_legacy_quarantine.py",
                         "tests/test_memory_legacy_quarantine_migration.py",
                         "tests/test_knowledge_v005_api.py",

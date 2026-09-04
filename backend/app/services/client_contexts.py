@@ -23,7 +23,7 @@ from app.services.memory_operation_state import (
     get_client_memory_rebuild_log,
     set_client_memory_failure,
     set_client_memory_rebuild_log,
-    strip_native_memory_envelope,
+    strip_native_memory_state,
 )
 from app.services.memory_slots import (
     CLIENT_MEMORY_SLOT_KEYS,
@@ -48,10 +48,6 @@ SUPPORTED_CLIENT_MEMORY_SUMMARY_TYPES = {
     "relationship",
     "delivery",
 }
-
-# Compatibility key for the cancel epoch. The native owner column is
-# authoritative; this copy remains during the aggregate-JSON cutover.
-CLIENT_MEMORY_REBUILD_GENERATION_KEY = "_rebuild_generation"
 
 CORE_CLIENT_MEMORY_SUMMARY_TYPES = [
     "overview",
@@ -96,7 +92,7 @@ def get_client_memory_payload(client: ClientRecord) -> dict[str, Any]:
     except json.JSONDecodeError:
         parsed = {}
 
-    parsed.pop(CLIENT_MEMORY_REBUILD_GENERATION_KEY, None)
+    parsed = strip_native_memory_state(parsed)
 
     return {
         **base,
@@ -742,7 +738,7 @@ def save_client_memory(
     )
     memory["stale"] = client.client_memory_stale
     client.client_memory_json = json.dumps(
-        strip_native_memory_envelope(memory),
+        strip_native_memory_state(memory),
         ensure_ascii=False,
     )
     session.add(client)

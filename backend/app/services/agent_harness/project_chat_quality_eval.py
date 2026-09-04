@@ -2257,15 +2257,7 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             Project(
                 name="Operation state",
                 client="Client",
-                context_memory_json=json.dumps(
-                    {
-                        "_client_promotion": {
-                            "status": "completed",
-                            "private": "VALUE",
-                        },
-                        "rebuild_log": [{"version": 1, "private": "VALUE"}],
-                    }
-                ),
+                context_memory_json="{}",
                 client_memory_promotion_json=json.dumps(
                     {"status": "completed", "private": "VALUE"}
                 ),
@@ -2277,18 +2269,28 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
         [
             ClientRecord(
                 name="Operation state",
-                client_memory_json=json.dumps(
-                    {
-                        "_rebuild_generation": "PRIVATE-EPOCH",
-                        "rebuild_log": [{"version": 2, "private": "VALUE"}],
-                    }
-                ),
+                client_memory_json="{}",
                 client_memory_rebuild_generation="PRIVATE-EPOCH",
                 client_memory_rebuild_log_json=json.dumps(
                     [{"version": 2, "private": "VALUE"}]
                 ),
             )
         ],
+    )
+    legacy_operation_state = build_memory_operation_authority_report(
+        [
+            Project(
+                name="Legacy operation state",
+                client="Client",
+                context_memory_json=json.dumps(
+                    {"_client_promotion": {"status": "completed", "private": "VALUE"}}
+                ),
+                client_memory_promotion_json=json.dumps(
+                    {"status": "completed", "private": "VALUE"}
+                ),
+            )
+        ],
+        [],
     )
     legacy_quarantine = build_memory_legacy_quarantine_report(
         [
@@ -2325,6 +2327,7 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             scoped_metadata,
             wrong_scope_metadata,
             operation_state,
+            legacy_operation_state,
             legacy_quarantine,
             filtered_project_memory,
             filtered_client_memory,
@@ -2364,8 +2367,21 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
         {
             "case": "native_operation_state_cutover_is_content_free",
             "passed": operation_state["native_cutover_ready"]
+            and operation_state["legacy_aggregate_retirement_ready"]
             and operation_state["missing_native_state_count"] == 0
             and operation_state["divergent_native_state_count"] == 0
+            and operation_state["legacy_aggregate_state_count"] == 0
+            and "PRIVATE" not in serialized,
+        },
+        {
+            "case": "legacy_operation_state_residue_is_content_free_and_blocks_retirement",
+            "passed": legacy_operation_state["native_cutover_ready"]
+            and not legacy_operation_state["legacy_aggregate_retirement_ready"]
+            and legacy_operation_state["legacy_aggregate_state_count"] == 1
+            and legacy_operation_state["project"][
+                "legacy_aggregate_state_by_kind"
+            ]["client_promotion"]
+            == 1
             and "PRIVATE" not in serialized,
         },
         {

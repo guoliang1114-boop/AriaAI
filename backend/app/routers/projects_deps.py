@@ -684,7 +684,7 @@ async def _auto_promote_archived_project_to_client_memory(
         "last_attempt_at": utc_now_naive().isoformat(),
         "trigger": "project_archived_auto_promoted",
     }
-    raw_project_memory["_client_promotion"] = promotion
+    raw_project_memory.pop("_client_promotion", None)
     set_project_client_promotion(project, promotion)
     last_failure = get_project_memory_failure(project)
     if isinstance(last_failure, dict) and last_failure.get("stage") == "client_promotion":
@@ -1029,7 +1029,7 @@ def _set_project_memory_failure(
         "retry_count": retry_count,
         "failed_at": failed_at.isoformat(),
     }
-    memory["_last_failure"] = failure
+    memory.pop("_last_failure", None)
     set_project_memory_failure(current, failure)
     current.context_memory_json = json.dumps(memory, ensure_ascii=False)
     if mark_rebuild_failed:

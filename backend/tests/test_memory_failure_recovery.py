@@ -558,14 +558,13 @@ async def test_client_run_now_persists_failed_owner_after_removed_job():
         with pytest.raises(RuntimeError, match="truncated client memory payload"):
             await clients_memory.run_client_memory_jobs_now(52, session, actor)
 
-    failure = json.loads(client.client_memory_json)["_last_failure"]
-    native_failure = json.loads(client.client_memory_last_failure_json)
+    assert "_last_failure" not in json.loads(client.client_memory_json)
+    failure = json.loads(client.client_memory_last_failure_json)
     assert client.client_memory_rebuild_status == "failed"
     assert client.client_memory_rebuild_failed_at is not None
     assert failure["stage"] == "rebuild"
     assert failure["message"] == "truncated client memory payload"
     assert failure["retry_count"] == 0
-    assert native_failure == failure
     assert session.rollback_count == 2
     assert session.commit_count == 1
 
@@ -678,21 +677,19 @@ async def test_archive_promotion_failure_is_persisted_without_failing_project_pa
             User(id=1, email="owner@example.com", display_name="Owner", is_admin=True),
         )
 
-    promotion = json.loads(project.context_memory_json)["_client_promotion"]
+    assert "_client_promotion" not in json.loads(project.context_memory_json)
+    assert "_last_failure" not in json.loads(project.context_memory_json)
+    promotion = json.loads(project.client_memory_promotion_json)
     assert result.status == "archived"
     assert promotion["status"] == "failed"
     assert promotion["attempt_count"] == 1
     assert promotion["message"] == "provider unavailable"
     assert promotion["failed_at"]
-    visible_failure = json.loads(project.context_memory_json)["_last_failure"]
-    native_promotion = json.loads(project.client_memory_promotion_json)
-    native_failure = json.loads(project.memory_last_failure_json)
-    assert visible_failure["category"] == "unknown"
-    assert visible_failure["stage"] == "client_promotion"
+    failure = json.loads(project.memory_last_failure_json)
+    assert failure["category"] == "unknown"
+    assert failure["stage"] == "client_promotion"
     # retry_count counts retries already attempted; the initial attempt is 0.
-    assert visible_failure["retry_count"] == 0
-    assert native_promotion == promotion
-    assert native_failure == visible_failure
+    assert failure["retry_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -813,11 +810,13 @@ def test_provider_failure_receipt_rechecks_exact_source_authorization(
             saved = verify.get(Project, project_id)
             memory = json.loads(saved.context_memory_json)
         if expected_recorded:
-            assert memory["_client_promotion"]["status"] == "failed"
-            assert memory["_client_promotion"]["message"] == "provider unavailable"
-            assert memory["_last_failure"]["stage"] == "client_promotion"
-            assert json.loads(saved.client_memory_promotion_json) == memory["_client_promotion"]
-            assert json.loads(saved.memory_last_failure_json) == memory["_last_failure"]
+            promotion = json.loads(saved.client_memory_promotion_json)
+            failure = json.loads(saved.memory_last_failure_json)
+            assert promotion["status"] == "failed"
+            assert promotion["message"] == "provider unavailable"
+            assert failure["stage"] == "client_promotion"
+            assert "_client_promotion" not in memory
+            assert "_last_failure" not in memory
         else:
             assert "_client_promotion" not in memory
             assert "_last_failure" not in memory
@@ -949,12 +948,14 @@ async def test_archive_promotion_missing_client_is_recorded_instead_of_silently_
             User(id=1, email="owner@example.com", display_name="Owner", is_admin=True),
         )
 
-    promotion = json.loads(project.context_memory_json)["_client_promotion"]
+    assert "_client_promotion" not in json.loads(project.context_memory_json)
+    assert "_last_failure" not in json.loads(project.context_memory_json)
+    promotion = json.loads(project.client_memory_promotion_json)
     assert result.status == "archived"
     assert promotion["status"] == "failed"
     assert promotion["attempt_count"] == 1
     assert "no client record" in promotion["message"].lower()
-    assert json.loads(project.context_memory_json)["_last_failure"]["category"] == "data"
+    assert json.loads(project.memory_last_failure_json)["category"] == "data"
 
 
 @pytest.mark.asyncio
@@ -964,13 +965,12 @@ async def test_failed_archive_promotion_retries_but_completed_receipt_is_idempot
         name="Retry archive promotion",
         client="Acme",
         status="archived",
-        context_memory_json=json.dumps(
+        context_memory_json="{}",
+        client_memory_promotion_json=json.dumps(
             {
-                "_client_promotion": {
-                    "status": "failed",
-                    "attempt_count": 1,
-                    "message": "temporary failure",
-                }
+                "status": "failed",
+                "attempt_count": 1,
+                "message": "temporary failure",
             }
         ),
     )
@@ -996,11 +996,9 @@ async def test_failed_archive_promotion_retries_but_completed_receipt_is_idempot
     promote.assert_awaited_once()
     assert promote.await_args.kwargs["previous_status"] is None
 
-    project.context_memory_json = json.dumps(
+    project.client_memory_promotion_json = json.dumps(
         {
-            "_client_promotion": {
-                "promoted_at": "2026-08-28T10:00:00",
-            }
+            "promoted_at": "2026-08-28T10:00:00",
         }
     )
     promote.reset_mock()
@@ -1025,19 +1023,18 @@ async def test_failed_archive_promotion_retries_but_completed_receipt_is_idempot
 
 
 def test_losing_archive_promotion_cannot_overwrite_completed_receipt():
-    completed_memory = {
-        "_client_promotion": {
-            "status": "completed",
-            "attempt_count": 1,
-            "promoted_at": "2026-08-28T10:00:00",
-        }
+    completed_promotion = {
+        "status": "completed",
+        "attempt_count": 1,
+        "promoted_at": "2026-08-28T10:00:00",
     }
     project = Project(
         id=641,
         name="Concurrent archive promotion",
         client="Acme",
         status="archived",
-        context_memory_json=json.dumps(completed_memory),
+        context_memory_json="{}",
+        client_memory_promotion_json=json.dumps(completed_promotion),
     )
     session = _OwnerSession(project)
 
@@ -1048,7 +1045,8 @@ def test_losing_archive_promotion_cannot_overwrite_completed_receipt():
         actor_user_id=1,
     )
 
-    assert json.loads(project.context_memory_json) == completed_memory
+    assert json.loads(project.context_memory_json) == {}
+    assert json.loads(project.client_memory_promotion_json) == completed_promotion
     assert session.rollback_count == 1
     assert session.commit_count == 0
     assert session.added == []

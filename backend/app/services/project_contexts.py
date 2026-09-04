@@ -23,7 +23,7 @@ from app.services.memory_operation_state import (
     get_project_memory_rebuild_log,
     set_project_memory_failure,
     set_project_memory_rebuild_log,
-    strip_native_memory_envelope,
+    strip_native_memory_state,
 )
 from app.services.memory_slots import (
     PROJECT_MEMORY_SLOT_KEYS,
@@ -236,6 +236,7 @@ def get_project_memory_payload(project: Project) -> dict[str, Any]:
             parsed = {}
     except json.JSONDecodeError:
         parsed = {}
+    parsed = strip_native_memory_state(parsed)
     payload = {
         **base,
         **parsed,
@@ -1243,8 +1244,6 @@ def save_project_memory(
         slot = _normalize_editable_slot(memory.get(slot_name))
         slot["pinned"] = [item for item in slot["pinned"] if item not in removed]
         memory[slot_name] = slot
-    if isinstance(existing_raw_memory.get("_client_promotion"), dict):
-        memory["_client_promotion"] = dict(existing_raw_memory["_client_promotion"])
     source_attributions = normalize_model_source_attributions(
         memory.pop(MODEL_SOURCE_ATTRIBUTIONS_KEY, []),
         selected_slots,
@@ -1359,7 +1358,7 @@ def save_project_memory(
     )
     memory["stale"] = project.memory_stale
     project.context_memory_json = json.dumps(
-        strip_native_memory_envelope(memory),
+        strip_native_memory_state(memory),
         ensure_ascii=False,
     )
     session.add(project)

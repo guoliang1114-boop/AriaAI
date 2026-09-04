@@ -3362,18 +3362,23 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 client="Client",
                 memory_version=3,
                 memory_stale=True,
-                context_memory_json=json.dumps(
+                context_memory_json="{}",
+                memory_last_failure_json=json.dumps(
                     {
-                        "_last_failure": {
-                            "stage": "summary_warm",
-                            "message": "Rate limit exceeded",
-                            "retry_count": 2,
-                            "failed_at": "2026-04-19T10:00:00",
-                        },
-                        "rebuild_log": [
-                            {"at": "2026-04-18T09:00:00", "trigger": "manual", "version": 3}
-                        ],
+                        "stage": "summary_warm",
+                        "message": "Rate limit exceeded",
+                        "retry_count": 2,
+                        "failed_at": "2026-04-19T10:00:00",
                     }
+                ),
+                memory_rebuild_log_json=json.dumps(
+                    [
+                        {
+                            "at": "2026-04-18T09:00:00",
+                            "trigger": "manual",
+                            "version": 3,
+                        }
+                    ]
                 ),
             )
             session.add(project)
@@ -6287,32 +6292,48 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                 name="Ops Project",
                 client="Acme",
                 memory_version=2,
-                context_memory_json=json.dumps(
+                context_memory_json="{}",
+                memory_last_failure_json=json.dumps(
                     {
-                        "_last_failure": {
-                            "stage": "summary_warm",
-                            "message": "Rate limit exceeded",
-                            "retry_count": 1,
-                            "failed_at": "2026-04-20T10:00:00",
-                        },
-                        "rebuild_log": [{"at": "2026-04-19T09:00:00", "trigger": "manual", "version": 2}],
+                        "stage": "summary_warm",
+                        "message": "Rate limit exceeded",
+                        "retry_count": 1,
+                        "failed_at": "2026-04-20T10:00:00",
                     },
+                    ensure_ascii=False,
+                ),
+                memory_rebuild_log_json=json.dumps(
+                    [
+                        {
+                            "at": "2026-04-19T09:00:00",
+                            "trigger": "manual",
+                            "version": 2,
+                        }
+                    ],
                     ensure_ascii=False,
                 ),
             )
             client = ClientRecord(
                 name="Ops Client",
                 client_memory_version=3,
-                client_memory_json=json.dumps(
+                client_memory_json="{}",
+                client_memory_last_failure_json=json.dumps(
                     {
-                        "_last_failure": {
-                            "stage": "rebuild",
-                            "message": "Client not found in source data",
-                            "retry_count": 0,
-                            "failed_at": "2026-04-20T11:00:00",
-                        },
-                        "rebuild_log": [{"at": "2026-04-19T12:00:00", "trigger": "manual", "version": 3}],
+                        "stage": "rebuild",
+                        "message": "Client not found in source data",
+                        "retry_count": 0,
+                        "failed_at": "2026-04-20T11:00:00",
                     },
+                    ensure_ascii=False,
+                ),
+                client_memory_rebuild_log_json=json.dumps(
+                    [
+                        {
+                            "at": "2026-04-19T12:00:00",
+                            "trigger": "manual",
+                            "version": 3,
+                        }
+                    ],
                     ensure_ascii=False,
                 ),
             )
@@ -6659,18 +6680,23 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                 industry="Manufacturing",
                 client_memory_version=4,
                 client_memory_stale=False,
-                client_memory_json=json.dumps(
+                client_memory_json="{}",
+                client_memory_last_failure_json=json.dumps(
                     {
-                        "_last_failure": {
-                            "stage": "rebuild",
-                            "message": "Temporary model timeout",
-                            "retry_count": 1,
-                            "failed_at": "2026-04-19T11:00:00",
-                        },
-                        "rebuild_log": [
-                            {"at": "2026-04-18T12:30:00", "trigger": "client_manual", "version": 4}
-                        ],
+                        "stage": "rebuild",
+                        "message": "Temporary model timeout",
+                        "retry_count": 1,
+                        "failed_at": "2026-04-19T11:00:00",
                     }
+                ),
+                client_memory_rebuild_log_json=json.dumps(
+                    [
+                        {
+                            "at": "2026-04-18T12:30:00",
+                            "trigger": "client_manual",
+                            "version": 4,
+                        }
+                    ]
                 ),
             )
             session.add(client)

@@ -1,8 +1,8 @@
 """Native operational state for project and client memory workflows.
 
-The aggregate memory JSON remains a compatibility projection during the
-cutover.  Operational receipts are read from dedicated owner columns first;
-legacy aggregate keys are used only when a row has not been backfilled yet.
+Operational receipts and rebuild history are owned exclusively by dedicated
+project/client columns.  Legacy aggregate keys are inspected only by the
+content-free cutover audit and are never used as runtime state.
 """
 from __future__ import annotations
 
@@ -12,8 +12,16 @@ from typing import Any, Iterable
 from app.models.db import ClientRecord, Project
 
 
-NATIVE_MEMORY_ENVELOPE_KEYS = frozenset(
-    {"memory_version", "last_updated_at", "stale", "rebuild_log"}
+NATIVE_MEMORY_STATE_KEYS = frozenset(
+    {
+        "memory_version",
+        "last_updated_at",
+        "stale",
+        "rebuild_log",
+        "_last_failure",
+        "_client_promotion",
+        "_rebuild_generation",
+    }
 )
 
 
@@ -49,25 +57,25 @@ def _legacy_list(raw_memory: str | None, key: str) -> list[Any]:
     return list(value) if isinstance(value, list) else []
 
 
-def strip_native_memory_envelope(memory: dict[str, Any]) -> dict[str, Any]:
-    """Remove owner-native metadata from the persisted aggregate projection.
+def strip_native_memory_state(memory: dict[str, Any]) -> dict[str, Any]:
+    """Remove owner-native state from a persisted/public aggregate projection.
 
     Public memory payloads continue to expose these fields by hydrating them
-    from the owner row. Historical snapshots are not rewritten.
+    from the owner row when they are part of the public contract. Private
+    workflow receipts stay private. Historical snapshots are not rewritten.
     """
 
     return {
         str(key): value
         for key, value in memory.items()
-        if str(key) not in NATIVE_MEMORY_ENVELOPE_KEYS
+        if str(key) not in NATIVE_MEMORY_STATE_KEYS
     }
 
 
 def get_project_memory_rebuild_log(project: Project | None) -> list[Any]:
     if project is None:
         return []
-    native = _parse_list(project.memory_rebuild_log_json)
-    return native or _legacy_list(project.context_memory_json, "rebuild_log")
+    return _parse_list(project.memory_rebuild_log_json)
 
 
 def set_project_memory_rebuild_log(
@@ -80,8 +88,7 @@ def set_project_memory_rebuild_log(
 def get_client_memory_rebuild_log(client: ClientRecord | None) -> list[Any]:
     if client is None:
         return []
-    native = _parse_list(client.client_memory_rebuild_log_json)
-    return native or _legacy_list(client.client_memory_json, "rebuild_log")
+    return _parse_list(client.client_memory_rebuild_log_json)
 
 
 def set_client_memory_rebuild_log(
@@ -94,8 +101,7 @@ def set_client_memory_rebuild_log(
 def get_project_memory_failure(project: Project | None) -> dict[str, Any]:
     if project is None:
         return {}
-    native = _parse_object(project.memory_last_failure_json)
-    return native or _legacy_object(project.context_memory_json, "_last_failure")
+    return _parse_object(project.memory_last_failure_json)
 
 
 def set_project_memory_failure(project: Project, failure: dict[str, Any] | None) -> None:
@@ -107,8 +113,7 @@ def set_project_memory_failure(project: Project, failure: dict[str, Any] | None)
 def get_project_client_promotion(project: Project | None) -> dict[str, Any]:
     if project is None:
         return {}
-    native = _parse_object(project.client_memory_promotion_json)
-    return native or _legacy_object(project.context_memory_json, "_client_promotion")
+    return _parse_object(project.client_memory_promotion_json)
 
 
 def set_project_client_promotion(
@@ -123,8 +128,7 @@ def set_project_client_promotion(
 def get_client_memory_failure(client: ClientRecord | None) -> dict[str, Any]:
     if client is None:
         return {}
-    native = _parse_object(client.client_memory_last_failure_json)
-    return native or _legacy_object(client.client_memory_json, "_last_failure")
+    return _parse_object(client.client_memory_last_failure_json)
 
 
 def set_client_memory_failure(
@@ -139,13 +143,7 @@ def set_client_memory_failure(
 def get_client_memory_rebuild_generation(client: ClientRecord | None) -> str:
     if client is None:
         return ""
-    native = str(client.client_memory_rebuild_generation or "").strip()
-    if native:
-        return native
-    # The legacy value is a string rather than an object, so inspect the
-    # aggregate directly while keeping malformed payloads fail-closed.
-    memory = _parse_object(client.client_memory_json)
-    return str(memory.get("_rebuild_generation") or "").strip()
+    return str(client.client_memory_rebuild_generation or "").strip()
 
 
 def set_client_memory_rebuild_generation(
@@ -177,8 +175,18 @@ def build_memory_operation_authority_report(
     }
     client_divergent = dict.fromkeys(client_missing, 0)
     client_native = dict.fromkeys(client_missing, 0)
+    project_legacy = dict.fromkeys(project_missing, 0)
+    client_legacy = dict.fromkeys(client_missing, 0)
 
     for project in project_rows:
+        legacy_memory = _parse_object(project.context_memory_json)
+        legacy_keys = {
+            "last_failure": "_last_failure",
+            "client_promotion": "_client_promotion",
+            "rebuild_history": "rebuild_log",
+        }
+        for kind, aggregate_key in legacy_keys.items():
+            project_legacy[kind] += int(aggregate_key in legacy_memory)
         pairs = {
             "last_failure": (
                 _parse_object(project.memory_last_failure_json),
@@ -203,6 +211,13 @@ def build_memory_operation_authority_report(
         legacy_failure = _legacy_object(client.client_memory_json, "_last_failure")
         native_generation = str(client.client_memory_rebuild_generation or "").strip()
         legacy_memory = _parse_object(client.client_memory_json)
+        legacy_keys = {
+            "last_failure": "_last_failure",
+            "rebuild_generation": "_rebuild_generation",
+            "rebuild_history": "rebuild_log",
+        }
+        for kind, aggregate_key in legacy_keys.items():
+            client_legacy[kind] += int(aggregate_key in legacy_memory)
         legacy_generation = str(legacy_memory.get("_rebuild_generation") or "").strip()
         pairs = {
             "last_failure": (native_failure, legacy_failure),
@@ -219,22 +234,30 @@ def build_memory_operation_authority_report(
 
     missing_count = sum(project_missing.values()) + sum(client_missing.values())
     divergent_count = sum(project_divergent.values()) + sum(client_divergent.values())
+    legacy_count = sum(project_legacy.values()) + sum(client_legacy.values())
+    native_cutover_ready = missing_count == 0 and divergent_count == 0
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "content_included": False,
-        "native_cutover_ready": missing_count == 0 and divergent_count == 0,
+        "native_cutover_ready": native_cutover_ready,
+        "legacy_aggregate_retirement_ready": (
+            native_cutover_ready and legacy_count == 0
+        ),
         "missing_native_state_count": missing_count,
         "divergent_native_state_count": divergent_count,
+        "legacy_aggregate_state_count": legacy_count,
         "project": {
             "entity_count": len(project_rows),
             "native_state_by_kind": project_native,
             "missing_native_state_by_kind": project_missing,
             "divergent_native_state_by_kind": project_divergent,
+            "legacy_aggregate_state_by_kind": project_legacy,
         },
         "client": {
             "entity_count": len(client_rows),
             "native_state_by_kind": client_native,
             "missing_native_state_by_kind": client_missing,
             "divergent_native_state_by_kind": client_divergent,
+            "legacy_aggregate_state_by_kind": client_legacy,
         },
     }

@@ -204,8 +204,8 @@ def _record_client_promotion_failure(
         "retry_count": previous_attempts,
         "failed_at": failed_at,
     }
-    memory[_CLIENT_PROMOTION_KEY] = promotion
-    memory["_last_failure"] = failure
+    memory.pop(_CLIENT_PROMOTION_KEY, None)
+    memory.pop("_last_failure", None)
     set_project_client_promotion(project, promotion)
     set_project_memory_failure(project, failure)
     project.context_memory_json = json.dumps(memory, ensure_ascii=False)

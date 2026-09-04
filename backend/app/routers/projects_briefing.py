@@ -395,7 +395,7 @@ def _record_authorized_project_memory_failure(
         "retry_count": 0,
         "failed_at": failed_at.isoformat(),
     }
-    memory["_last_failure"] = failure
+    memory.pop("_last_failure", None)
     set_project_memory_failure(current, failure)
     current.context_memory_json = json.dumps(memory, ensure_ascii=False)
     session.add(current)

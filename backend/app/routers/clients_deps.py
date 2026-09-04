@@ -26,7 +26,6 @@ from app.services.cache import clients_cache
 from app.services import scheduler as scheduler_service
 from app.services.client_identity import lock_client_identity_values, resolve_client_identity
 from app.services.client_contexts import (
-    CLIENT_MEMORY_REBUILD_GENERATION_KEY,
     CORE_CLIENT_MEMORY_SUMMARY_TYPES,
     EXTENDED_CLIENT_MEMORY_SUMMARY_TYPES,
     build_client_memory_data,
@@ -424,7 +423,7 @@ def _rotate_client_memory_rebuild_generation(client: ClientRecord) -> str:
 
     generation = uuid.uuid4().hex
     memory = _get_raw_client_memory(client)
-    memory[CLIENT_MEMORY_REBUILD_GENERATION_KEY] = generation
+    memory.pop("_rebuild_generation", None)
     client.client_memory_json = json.dumps(memory, ensure_ascii=False)
     set_client_memory_rebuild_generation(client, generation)
     return generation
@@ -505,7 +504,7 @@ def _set_client_memory_failure(
         "retry_count": retry_count,
         "failed_at": failed_at.isoformat(),
     }
-    memory["_last_failure"] = failure
+    memory.pop("_last_failure", None)
     set_client_memory_failure(current, failure)
     current.client_memory_json = json.dumps(memory, ensure_ascii=False)
     if mark_rebuild_failed:

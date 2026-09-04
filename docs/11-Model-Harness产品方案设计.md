@@ -944,6 +944,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-09-05）：Phase 4Q 通过 `050_v1_50` 将项目/客户重建历史迁入 owner 私有原生列，并停止在当前聚合 JSON 持久化已经由 owner 权威管理的 `memory_version`、`last_updated_at`、`stale` 与 `rebuild_log`。API 保持原字段，历史快照不批量改写；迁移遇到原生/旧历史分歧、异常数组或非法 JSON 时保留旧值。`Memory Read Authority Report v2` 改以真实存储而不是 API 水合视图统计剩余依赖，operation-state 审计增加重建历史覆盖/缺失/分歧。确定性门禁为 130 个场景、35 项指标，不引入或连接 Codex。
 
+补充进展（2026-09-05）：Phase 4R 通过 `051_v1_51` 将失败回执、项目到客户晋升回执、客户重建取消代次和重建历史切为 owner 原生列单读单写。迁移仅清理类型合法且已无损回填或与原生值一致的聚合副本，冲突、异常或非法 JSON 原样保留；所有新写和公共投影统一剥离私有运维键。operation-state v3 新增 legacy 聚合残留计数与独立退役准备度，且不输出运维正文。确定性门禁为 131 个场景、35 项指标，不引入或连接 Codex。
+
 补充进展（2026-09-03）：Phase 4B 将 Skill 验收声明与真实交付物验证连接起来。运行合同以 SHA-256 绑定精确验收计划；Persistence Harness 在 `GeneratedFile` 落库事务内执行 Aria 自有的只读文件身份和格式完整性检查，并将结果按文件字节、校验器版本与 Skill 发布写入不可变 `ArtifactVerification`。自动化层绝不执行 Skill script、宏或代码，也不把语义/业务验收冒充为自动通过；此类步骤保持 `manual_required`，上下文不完整保持 `partial`，技术失败不能满足交付契约。Product Run Event、消息 metadata、恢复与前端卡片共享无正文摘要，授权 API 仅返回有界检查码。幂等迁移 `043_v1_43` 保持单一 head；确定性门禁扩展为 95 个场景、28 项指标。不引入 Codex 运行时、SDK、协议、进程或通信。
 
 补充进展（2026-09-03）：Phase 4C 为 `manual_required` 制品增加业务验收和最终交付门禁。验收绑定精确技术证据、文件字节和 Skill 验收计划，以 expected revision 处理并发，并写入当前态与 append-only 审计事件；接受/退回必须填写理由。技术失败、格式不支持或 Skill 上下文不完整不能被人工覆盖。Aria 自有声明式校验器注册表只支持有界结构指标，未知规则失败关闭，且不会执行 Skill 包代码、宏、shell 或动态 callable。预览面板可查看证据、验收、退回和历史。幂等迁移 `044_v1_44` 保持单一 head；确定性门禁为 99 个场景、29 项指标。不引入 Codex 运行时、SDK、协议、进程或通信。

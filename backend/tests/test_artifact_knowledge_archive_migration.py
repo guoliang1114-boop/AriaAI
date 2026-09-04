@@ -69,7 +69,7 @@ def test_revision_046_precedes_the_single_alembic_head() -> None:
     config.set_main_option("script_location", str(ROOT / "alembic"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["050_v1_50"]
+    assert script.get_heads() == ["051_v1_51"]
     revision = script.get_revision("046_v1_46")
     assert revision is not None
     assert revision.down_revision == "045_v1_45"
