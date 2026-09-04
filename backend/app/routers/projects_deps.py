@@ -149,6 +149,7 @@ from app.services.project_notes import build_project_note_polish_messages, save_
 from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
 from app.services.memory_operation_state import (
+    get_project_memory_rebuild_log,
     get_project_memory_failure,
     set_project_client_promotion,
     set_project_memory_failure,
@@ -1044,9 +1045,7 @@ def _get_project_memory_failure(project: Project) -> dict | None:
 
 
 def _get_project_memory_successes(project: Project) -> list[dict]:
-    rebuild_log = _get_raw_project_memory(project).get("rebuild_log")
-    if not isinstance(rebuild_log, list):
-        return []
+    rebuild_log = get_project_memory_rebuild_log(project)
 
     successes: list[dict] = []
     for item in rebuild_log:

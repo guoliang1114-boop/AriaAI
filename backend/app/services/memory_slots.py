@@ -1172,6 +1172,8 @@ def build_memory_read_authority_report(
     editable_slot_keys: Iterable[str] = (),
     slot_states: Iterable[Mapping[str, Any]] = (),
     safe_aggregate_only_keys: Iterable[str] = (),
+    aggregate_storage_payload: Mapping[str, Any] | None = None,
+    aggregate_storage_valid: bool = True,
 ) -> dict[str, Any]:
     """Describe slot-ledger authority without returning memory content.
 
@@ -1267,10 +1269,15 @@ def build_memory_read_authority_report(
         for slot_key in expected
         if slot_key in fallback_set
     ]
+    storage_payload = (
+        aggregate_payload
+        if aggregate_storage_payload is None
+        else aggregate_storage_payload
+    )
     derived_detail_keys = {f"{slot_key}_detail" for slot_key in editable}
     aggregate_only_keys = [
         str(key)
-        for key in aggregate_payload
+        for key in storage_payload
         if str(key) not in expected_set and str(key) not in derived_detail_keys
     ]
     recognized_aggregate_only_keys = sorted(
@@ -1284,7 +1291,7 @@ def build_memory_read_authority_report(
             {
                 "key_sha256": _aggregate_key_fingerprint(key),
                 "key_length": len(key),
-                "value_type": _json_value_type(aggregate_payload.get(key)),
+                "value_type": _json_value_type(storage_payload.get(key)),
             }
             for key in aggregate_only_keys
             if key not in safe_metadata_keys
@@ -1309,7 +1316,7 @@ def build_memory_read_authority_report(
         and not unexpected_slots
     )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "read_mode": (
             "slot_ledger"
             if business_slot_cutover_ready
@@ -1334,12 +1341,15 @@ def build_memory_read_authority_report(
         "aggregate_only_key_count": len(aggregate_only_keys),
         "aggregate_only_keys": recognized_aggregate_only_keys,
         "aggregate_only_unknown_key_count": unknown_aggregate_only_key_count,
+        "aggregate_storage_valid": bool(aggregate_storage_valid),
         "unknown_aggregate_key_profiles": unknown_aggregate_key_profiles,
         "unknown_aggregate_key_profiles_truncated": unknown_profiles_truncated,
         "business_slot_cutover_ready": business_slot_cutover_ready,
         "dual_write_consistent": dual_write_consistent,
         "aggregate_container_retirement_ready": (
-            dual_write_consistent and not aggregate_only_keys
+            bool(aggregate_storage_valid)
+            and dual_write_consistent
+            and not aggregate_only_keys
         ),
     }
 
@@ -1411,7 +1421,7 @@ def summarize_memory_read_authority(
             )
             unknown_key_profiles[profile] = unknown_key_profiles.get(profile, 0) + 1
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "entity_count": total,
         "slot_ledger_entity_count": sum(
             item.get("read_mode") == "slot_ledger" for item in items
@@ -1478,6 +1488,9 @@ def summarize_memory_read_authority(
             max(0, int(item.get("aggregate_only_key_count") or 0))
             for item in items
         ),
+        "invalid_aggregate_storage_entity_count": sum(
+            not bool(item.get("aggregate_storage_valid", True)) for item in items
+        ),
         "safe_aggregate_only_keys_by_key": slot_counts("aggregate_only_keys"),
         "entities_with_unknown_aggregate_keys": sum(
             max(0, int(item.get("aggregate_only_unknown_key_count") or 0)) > 0
@@ -1508,12 +1521,27 @@ def get_project_memory_read_authority_report(
     aggregate_payload: Mapping[str, Any],
     *,
     slot_states: Iterable[Mapping[str, Any]] = (),
+    aggregate_storage_payload: Mapping[str, Any] | None = None,
+    aggregate_storage_valid: bool | None = None,
 ) -> dict[str, Any]:
     rows = session.exec(
         select(ProjectMemorySlot).where(
             ProjectMemorySlot.project_id == int(project.id or 0)
         )
     ).all()
+    if aggregate_storage_payload is None:
+        try:
+            parsed_storage = json.loads(project.context_memory_json or "{}")
+        except (json.JSONDecodeError, TypeError):
+            parsed_storage = {}
+            storage_valid = False
+        else:
+            storage_valid = isinstance(parsed_storage, dict)
+        aggregate_storage_payload = (
+            parsed_storage if isinstance(parsed_storage, dict) else {}
+        )
+        if aggregate_storage_valid is None:
+            aggregate_storage_valid = storage_valid
     return build_memory_read_authority_report(
         aggregate_payload,
         rows,
@@ -1521,6 +1549,10 @@ def get_project_memory_read_authority_report(
         editable_slot_keys=PROJECT_EDITABLE_SLOT_KEYS,
         slot_states=slot_states,
         safe_aggregate_only_keys=PROJECT_SAFE_AGGREGATE_ONLY_KEYS,
+        aggregate_storage_payload=aggregate_storage_payload,
+        aggregate_storage_valid=(
+            True if aggregate_storage_valid is None else aggregate_storage_valid
+        ),
     )
 
 
@@ -1530,18 +1562,37 @@ def get_client_memory_read_authority_report(
     aggregate_payload: Mapping[str, Any],
     *,
     slot_states: Iterable[Mapping[str, Any]] = (),
+    aggregate_storage_payload: Mapping[str, Any] | None = None,
+    aggregate_storage_valid: bool | None = None,
 ) -> dict[str, Any]:
     rows = session.exec(
         select(ClientMemorySlot).where(
             ClientMemorySlot.client_id == int(client.id or 0)
         )
     ).all()
+    if aggregate_storage_payload is None:
+        try:
+            parsed_storage = json.loads(client.client_memory_json or "{}")
+        except (json.JSONDecodeError, TypeError):
+            parsed_storage = {}
+            storage_valid = False
+        else:
+            storage_valid = isinstance(parsed_storage, dict)
+        aggregate_storage_payload = (
+            parsed_storage if isinstance(parsed_storage, dict) else {}
+        )
+        if aggregate_storage_valid is None:
+            aggregate_storage_valid = storage_valid
     return build_memory_read_authority_report(
         aggregate_payload,
         rows,
         CLIENT_MEMORY_SLOT_KEYS,
         slot_states=slot_states,
         safe_aggregate_only_keys=CLIENT_SAFE_AGGREGATE_ONLY_KEYS,
+        aggregate_storage_payload=aggregate_storage_payload,
+        aggregate_storage_valid=(
+            True if aggregate_storage_valid is None else aggregate_storage_valid
+        ),
     )
 
 

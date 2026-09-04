@@ -827,6 +827,10 @@ Skill 运行契约同步也移除了旧的 `type=legacy` 假工具占位符。�
 - 重答完成后项目对话提供“返回问题并核验采用”，携带服务端持久化 Message ID；问题页定位该问题、自动重新分析证据并预选新回答，仍要求用户填写摘要和第二次确认。
 - 最小机制参考 Codex commit `986ff1cc7ced0081ec5014b700a376333d87f869` 的 `codex-rs/protocol/src/approvals.rs`（review lifecycle 绑定稳定 target item）与 `codex-rs/rollout/src/policy.rs`（耐久 terminal item 是权威状态），重写为 Aria 原生项目问题/证据/ACL/事件合同。确定性发布门禁扩展为 85 个场景、26 项指标，新增 `question_answer_adoption_safety_rate`。没有 Codex runtime、App Server、SDK、协议、进程或通信；无数据库迁移。
 
+### Phase 4Q：重建历史原生化与聚合 envelope 退出（已实施）
+
+继续沿用 Codex world-state 机制中“权威状态与兼容展示分离”的边界，但实现完全属于 Aria。`050_v1_50` 把项目/客户重建历史移入 owner 私有列，当前聚合 JSON 不再持久化已由 owner 管理的版本、更新时间、陈旧状态和重建历史；API 在读取时水合原合同，历史快照保留原貌。迁移仅在旧历史可验证且与原生值不冲突时清理兼容键，降级不覆盖新值。内容安全审计改为检查真实存储，并增加重建历史原生覆盖度；不增加 Codex runtime、SDK、协议、进程或通信。
+
 ## 8. 许可证与升级流程
 
 Aria 主项目继续使用 MIT License；从 Codex 改编的具体文件同时受 Apache License 2.0 的适用要求约束。

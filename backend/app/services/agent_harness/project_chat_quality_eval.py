@@ -2258,18 +2258,35 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
                 name="Operation state",
                 client="Client",
                 context_memory_json=json.dumps(
-                    {"_client_promotion": {"status": "completed", "private": "VALUE"}}
+                    {
+                        "_client_promotion": {
+                            "status": "completed",
+                            "private": "VALUE",
+                        },
+                        "rebuild_log": [{"version": 1, "private": "VALUE"}],
+                    }
                 ),
                 client_memory_promotion_json=json.dumps(
                     {"status": "completed", "private": "VALUE"}
+                ),
+                memory_rebuild_log_json=json.dumps(
+                    [{"version": 1, "private": "VALUE"}]
                 ),
             )
         ],
         [
             ClientRecord(
                 name="Operation state",
-                client_memory_json=json.dumps({"_rebuild_generation": "PRIVATE-EPOCH"}),
+                client_memory_json=json.dumps(
+                    {
+                        "_rebuild_generation": "PRIVATE-EPOCH",
+                        "rebuild_log": [{"version": 2, "private": "VALUE"}],
+                    }
+                ),
                 client_memory_rebuild_generation="PRIVATE-EPOCH",
+                client_memory_rebuild_log_json=json.dumps(
+                    [{"version": 2, "private": "VALUE"}]
+                ),
             )
         ],
     )
@@ -2349,6 +2366,26 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             "passed": operation_state["native_cutover_ready"]
             and operation_state["missing_native_state_count"] == 0
             and operation_state["divergent_native_state_count"] == 0
+            and "PRIVATE" not in serialized,
+        },
+        {
+            "case": "native_rebuild_history_cutover_is_content_free",
+            "passed": operation_state["project"]["native_state_by_kind"][
+                "rebuild_history"
+            ]
+            == 1
+            and operation_state["client"]["native_state_by_kind"][
+                "rebuild_history"
+            ]
+            == 1
+            and operation_state["project"]["divergent_native_state_by_kind"][
+                "rebuild_history"
+            ]
+            == 0
+            and operation_state["client"]["divergent_native_state_by_kind"][
+                "rebuild_history"
+            ]
+            == 0
             and "PRIVATE" not in serialized,
         },
         {

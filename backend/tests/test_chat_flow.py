@@ -3623,7 +3623,9 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             self.assertIsNotNone(refreshed_client)
             self.assertEqual(refreshed_client.client_memory_version, 1)
             self.assertFalse(refreshed_client.client_memory_stale)
-            payload = json.loads(refreshed_client.client_memory_json)
+            payload = client_contexts_module.get_client_memory_payload(
+                refreshed_client
+            )
             self.assertIn(project_id, payload["source_project_ids"])
             self.assertEqual(payload["rebuild_log"][-1]["trigger"], "project_archived_auto_promoted")
 

@@ -6,13 +6,18 @@ from app.models.db import ClientRecord, Project
 from app.services.memory_operation_state import (
     build_memory_operation_authority_report,
     get_client_memory_failure,
+    get_client_memory_rebuild_log,
     get_client_memory_rebuild_generation,
     get_project_client_promotion,
     get_project_memory_failure,
+    get_project_memory_rebuild_log,
     set_client_memory_failure,
+    set_client_memory_rebuild_log,
     set_client_memory_rebuild_generation,
     set_project_client_promotion,
     set_project_memory_failure,
+    set_project_memory_rebuild_log,
+    strip_native_memory_envelope,
 )
 
 
@@ -106,16 +111,75 @@ def test_client_operation_state_falls_back_and_setters_can_clear() -> None:
     assert client.client_memory_rebuild_generation == ""
 
 
+def test_native_rebuild_history_precedes_legacy_and_stays_private() -> None:
+    project = Project(
+        name="Project",
+        client="Client",
+        context_memory_json=json.dumps(
+            {"rebuild_log": [{"version": 1, "private": "legacy"}]}
+        ),
+        memory_rebuild_log_json=json.dumps(
+            [{"version": 2, "private": "native"}]
+        ),
+    )
+    client = ClientRecord(
+        name="Client",
+        client_memory_json=json.dumps(
+            {"rebuild_log": [{"version": 3, "private": "legacy"}]}
+        ),
+        client_memory_rebuild_log_json=json.dumps(
+            [{"version": 4, "private": "native"}]
+        ),
+    )
+
+    assert get_project_memory_rebuild_log(project)[0]["version"] == 2
+    assert get_client_memory_rebuild_log(client)[0]["version"] == 4
+    assert "memory_rebuild_log_json" not in project.model_dump()
+    assert "client_memory_rebuild_log_json" not in client.model_dump()
+
+    set_project_memory_rebuild_log(project, [{"version": 5}])
+    set_client_memory_rebuild_log(client, [{"version": 6}])
+    assert get_project_memory_rebuild_log(project) == [{"version": 5}]
+    assert get_client_memory_rebuild_log(client) == [{"version": 6}]
+
+
+def test_native_memory_envelope_is_removed_without_touching_business_metadata() -> None:
+    stripped = strip_native_memory_envelope(
+        {
+            "project_brief": "private business content",
+            "memory_version": 8,
+            "last_updated_at": "2026-09-05T12:00:00",
+            "stale": False,
+            "rebuild_log": [{"version": 8}],
+            "_coverage": {"source": "private"},
+        }
+    )
+
+    assert stripped == {
+        "project_brief": "private business content",
+        "_coverage": {"source": "private"},
+    }
+
+
 def test_operation_authority_report_is_content_free_and_detects_cutover_gaps() -> None:
     projects = [
         Project(
             name="Ready",
             client="Client",
             context_memory_json=json.dumps(
-                {"_client_promotion": {"status": "completed", "private": "legacy"}}
+                {
+                    "_client_promotion": {
+                        "status": "completed",
+                        "private": "legacy",
+                    },
+                    "rebuild_log": [{"version": 1, "private": "legacy"}],
+                }
             ),
             client_memory_promotion_json=json.dumps(
                 {"status": "completed", "private": "legacy"}
+            ),
+            memory_rebuild_log_json=json.dumps(
+                [{"version": 1, "private": "legacy"}]
             ),
         ),
         Project(
@@ -141,6 +205,7 @@ def test_operation_authority_report_is_content_free_and_detects_cutover_gaps() -
     assert report["missing_native_state_count"] == 1
     assert report["divergent_native_state_count"] == 1
     assert report["project"]["native_state_by_kind"]["client_promotion"] == 1
+    assert report["project"]["native_state_by_kind"]["rebuild_history"] == 1
     assert report["client"]["native_state_by_kind"]["rebuild_generation"] == 1
     assert "private failure" not in serialized
     assert "legacy-secret" not in serialized

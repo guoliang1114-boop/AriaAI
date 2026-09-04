@@ -163,6 +163,59 @@ def _fact_value_sha256(value):
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def test_native_rebuild_history_survives_payloads_without_legacy_envelope():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pilot", client="Acme")
+            client = ClientRecord(name="Acme")
+            session.add(project)
+            session.add(client)
+            session.commit()
+            session.refresh(project)
+            session.refresh(client)
+
+            save_project_memory(
+                session,
+                int(project.id),
+                _project_memory(),
+                trigger="first_project",
+            )
+            save_project_memory(
+                session,
+                int(project.id),
+                _project_memory(project_brief="Rollback-style payload"),
+                trigger="second_project",
+            )
+            save_client_memory(
+                session,
+                int(client.id),
+                _client_memory(),
+                trigger="first_client",
+            )
+            save_client_memory(
+                session,
+                int(client.id),
+                _client_memory(client_profile="Rollback-style payload"),
+                trigger="second_client",
+            )
+
+            project = session.get(Project, project.id)
+            client = session.get(ClientRecord, client.id)
+            assert [
+                item["trigger"]
+                for item in json.loads(project.memory_rebuild_log_json)
+            ] == ["first_project", "second_project"]
+            assert [
+                item["trigger"]
+                for item in json.loads(client.client_memory_rebuild_log_json)
+            ] == ["first_client", "second_client"]
+            assert "rebuild_log" not in json.loads(project.context_memory_json)
+            assert "rebuild_log" not in json.loads(client.client_memory_json)
+    finally:
+        engine.dispose()
+
+
 def test_full_memory_parsers_drop_unrequested_root_keys():
     project = Project(name="Pilot", client="Acme")
     client = ClientRecord(name="Acme")
@@ -594,6 +647,15 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
 
             project = session.get(Project, project.id)
             aggregate = get_project_memory_payload(project)
+            stored_project_memory = json.loads(project.context_memory_json)
+            assert not {
+                "memory_version",
+                "last_updated_at",
+                "stale",
+                "rebuild_log",
+            }.intersection(stored_project_memory)
+            assert json.loads(project.memory_rebuild_log_json)[-1]["trigger"] == "test"
+            assert aggregate["rebuild_log"][-1]["trigger"] == "test"
             healthy = get_project_memory_read_authority_report(
                 session,
                 project,
@@ -607,13 +669,23 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             assert healthy["business_slot_cutover_ready"] is True
             assert healthy["dual_write_consistent"] is True
             assert healthy["aggregate_container_retirement_ready"] is False
-            assert "rebuild_log" in healthy["aggregate_only_keys"]
+            assert healthy["schema_version"] == 2
+            assert "rebuild_log" not in healthy["aggregate_only_keys"]
+            assert set(healthy["aggregate_only_keys"]) == {
+                "_accepted_memory_candidates",
+                "_coverage",
+            }
 
             operational_metadata = get_project_memory_read_authority_report(
                 session,
                 project,
                 {
                     **aggregate,
+                    "_client_promotion": {"PRIVATE": "VALUE"},
+                    "_last_failure": {"PRIVATE": "VALUE"},
+                },
+                aggregate_storage_payload={
+                    **json.loads(project.context_memory_json),
                     "_client_promotion": {"PRIVATE": "VALUE"},
                     "_last_failure": {"PRIVATE": "VALUE"},
                 },
@@ -625,12 +697,31 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             }
             assert "PRIVATE" not in json.dumps(operational_metadata)
 
+            original_storage = project.context_memory_json
+            project.context_memory_json = "PRIVATE MALFORMED STORAGE"
+            session.add(project)
+            session.flush()
+            malformed_storage = get_project_memory_read_authority_report(
+                session,
+                project,
+                aggregate,
+            )
+            assert malformed_storage["aggregate_storage_valid"] is False
+            assert malformed_storage["aggregate_container_retirement_ready"] is False
+            assert "PRIVATE" not in json.dumps(malformed_storage)
+            malformed_fleet = summarize_memory_read_authority([malformed_storage])
+            assert malformed_fleet["invalid_aggregate_storage_entity_count"] == 1
+            project.context_memory_json = original_storage
+            session.add(project)
+            session.flush()
+
             aggregate["project_brief"] = "PRIVATE TAMPERED CONTENT"
             aggregate["PRIVATE PERSON NAME"] = "PRIVATE VALUE"
             divergent = get_project_memory_read_authority_report(
                 session,
                 project,
                 aggregate,
+                aggregate_storage_payload=aggregate,
             )
             assert divergent["divergent_slots"] == ["project_brief"]
             assert divergent["divergent_slot_details"] == [
@@ -701,7 +792,7 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             assert fleet["missing_slots_by_key"] == {"key_risks": 1}
             assert fleet["corrupt_slot_count"] == 1
             assert fleet["corrupt_slots_by_key"] == {"financial_status": 1}
-            assert fleet["safe_aggregate_only_keys_by_key"]["rebuild_log"] == 2
+            assert "rebuild_log" not in fleet["safe_aggregate_only_keys_by_key"]
             stale_fleet = summarize_memory_read_authority(
                 [
                     {
@@ -760,6 +851,7 @@ def test_unknown_aggregate_key_profiles_are_bounded_and_content_free():
                 session,
                 project,
                 aggregate,
+                aggregate_storage_payload=aggregate,
             )
             fleet = summarize_memory_read_authority([report])
 
@@ -820,6 +912,7 @@ def test_client_read_authority_classifies_only_client_scoped_metadata():
                 session,
                 client,
                 aggregate,
+                aggregate_storage_payload=aggregate,
             )
 
             assert "_last_failure" in report["aggregate_only_keys"]
@@ -851,6 +944,16 @@ def test_client_memory_read_authority_report_uses_all_expected_slots():
             save_client_memory(session, client.id, _client_memory(), trigger="test")
 
             client = session.get(ClientRecord, client.id)
+            stored_client_memory = json.loads(client.client_memory_json)
+            assert not {
+                "memory_version",
+                "last_updated_at",
+                "stale",
+                "rebuild_log",
+            }.intersection(stored_client_memory)
+            assert json.loads(client.client_memory_rebuild_log_json)[-1][
+                "trigger"
+            ] == "test"
             report = get_client_memory_read_authority_report(
                 session,
                 client,

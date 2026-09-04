@@ -19,7 +19,12 @@ from app.services.memory_rebuilds import (
     assert_memory_rebuild_baseline,
 )
 from app.services.memory_source_tags import strip_memory_source_tags
-from app.services.memory_operation_state import set_client_memory_failure
+from app.services.memory_operation_state import (
+    get_client_memory_rebuild_log,
+    set_client_memory_failure,
+    set_client_memory_rebuild_log,
+    strip_native_memory_envelope,
+)
 from app.services.memory_slots import (
     CLIENT_MEMORY_SLOT_KEYS,
     build_client_slot_evidence_refs,
@@ -76,7 +81,7 @@ def _default_client_memory(client: ClientRecord) -> dict[str, Any]:
         "memory_version": client.client_memory_version,
         "last_updated_at": client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else "",
         "stale": client.client_memory_stale,
-        "rebuild_log": [],
+        "rebuild_log": get_client_memory_rebuild_log(client),
         "source_project_ids": [],
         "_accepted_memory_candidates": {},
     }
@@ -99,6 +104,7 @@ def get_client_memory_payload(client: ClientRecord) -> dict[str, Any]:
         "memory_version": client.client_memory_version,
         "last_updated_at": client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else "",
         "stale": client.client_memory_stale,
+        "rebuild_log": get_client_memory_rebuild_log(client),
     }
 
 
@@ -615,9 +621,7 @@ def save_client_memory(
     client.client_memory_updated_at = utc_now_naive()
     memory["memory_version"] = client.client_memory_version
     memory["last_updated_at"] = client.client_memory_updated_at.isoformat()
-    rebuild_log = memory.get("rebuild_log", [])
-    if not isinstance(rebuild_log, list):
-        rebuild_log = []
+    rebuild_log = get_client_memory_rebuild_log(client)
     log_entry: dict[str, Any] = {
         "at": client.client_memory_updated_at.isoformat(),
         "trigger": trigger,
@@ -629,6 +633,7 @@ def save_client_memory(
         log_entry["fallback_reason"] = fallback_reason
     rebuild_log.append(log_entry)
     memory["rebuild_log"] = rebuild_log[-10:]
+    set_client_memory_rebuild_log(client, memory["rebuild_log"])
 
     existing_source_ids = memory.get("source_project_ids", [])
     if not isinstance(existing_source_ids, list):
@@ -736,7 +741,10 @@ def save_client_memory(
         or any(state["status"] != "ready" for state in current_states)
     )
     memory["stale"] = client.client_memory_stale
-    client.client_memory_json = json.dumps(memory, ensure_ascii=False)
+    client.client_memory_json = json.dumps(
+        strip_native_memory_envelope(memory),
+        ensure_ascii=False,
+    )
     session.add(client)
     session.add(
         ClientMemorySnapshot(

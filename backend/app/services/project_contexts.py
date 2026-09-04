@@ -19,7 +19,12 @@ from app.services.memory_rebuilds import (
     assert_memory_rebuild_baseline,
 )
 from app.services.memory_source_tags import strip_memory_source_tags
-from app.services.memory_operation_state import set_project_memory_failure
+from app.services.memory_operation_state import (
+    get_project_memory_rebuild_log,
+    set_project_memory_failure,
+    set_project_memory_rebuild_log,
+    strip_native_memory_envelope,
+)
 from app.services.memory_slots import (
     PROJECT_MEMORY_SLOT_KEYS,
     build_project_slot_evidence_refs,
@@ -133,7 +138,7 @@ def _default_project_memory(project: Project) -> dict[str, Any]:
         "memory_version": project.memory_version,
         "last_updated_at": project.memory_updated_at.isoformat() if project.memory_updated_at else "",
         "stale": project.memory_stale,
-        "rebuild_log": [],
+        "rebuild_log": get_project_memory_rebuild_log(project),
         "_coverage": {},
         ACCEPTED_MEMORY_CANDIDATES_KEY: {},
     }
@@ -237,6 +242,7 @@ def get_project_memory_payload(project: Project) -> dict[str, Any]:
         "memory_version": project.memory_version,
         "last_updated_at": project.memory_updated_at.isoformat() if project.memory_updated_at else "",
         "stale": project.memory_stale,
+        "rebuild_log": get_project_memory_rebuild_log(project),
     }
     for slot_name in EDITABLE_MEMORY_SLOTS:
         raw_value = payload.get(slot_name)
@@ -1076,7 +1082,7 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
     else:
         memory["important_documents"] = []
 
-    memory["rebuild_log"] = existing_raw.get("rebuild_log", []) if isinstance(existing_raw.get("rebuild_log"), list) else []
+    memory["rebuild_log"] = get_project_memory_rebuild_log(project)
     memory["_coverage"] = existing_raw.get("_coverage", {}) if isinstance(existing_raw.get("_coverage"), dict) else {}
     memory[MODEL_SOURCE_ATTRIBUTIONS_KEY] = bind_model_source_attributions(
         parsed.get(MODEL_SOURCE_ATTRIBUTIONS_KEY),
@@ -1164,7 +1170,7 @@ def parse_project_memory_patch(
             raise MemoryPatchValidationError(f"unknown project memory slot: {key}")
 
     _merge_accepted_memory_candidates(memory, existing)
-    memory["rebuild_log"] = existing.get("rebuild_log", []) if isinstance(existing.get("rebuild_log"), list) else []
+    memory["rebuild_log"] = get_project_memory_rebuild_log(project)
     memory["_coverage"] = existing.get("_coverage", {}) if isinstance(existing.get("_coverage"), dict) else {}
     memory[MODEL_SOURCE_ATTRIBUTIONS_KEY] = bind_model_source_attributions(
         parsed.get(MODEL_SOURCE_ATTRIBUTIONS_KEY),
@@ -1288,9 +1294,7 @@ def save_project_memory(
 
     project.memory_version = (project.memory_version or 0) + 1
     project.memory_updated_at = utc_now_naive()
-    rebuild_log = memory.get("rebuild_log", [])
-    if not isinstance(rebuild_log, list):
-        rebuild_log = []
+    rebuild_log = get_project_memory_rebuild_log(project)
     log_entry: dict[str, Any] = {
         "at": project.memory_updated_at.isoformat(),
         "trigger": trigger,
@@ -1302,6 +1306,7 @@ def save_project_memory(
         log_entry["fallback_reason"] = fallback_reason
     rebuild_log.append(log_entry)
     memory["rebuild_log"] = rebuild_log[-10:]
+    set_project_memory_rebuild_log(project, memory["rebuild_log"])
     existing_coverage = (
         dict(memory.get("_coverage", {}))
         if isinstance(memory.get("_coverage"), dict)
@@ -1353,7 +1358,10 @@ def save_project_memory(
         or any(state["status"] != "ready" for state in current_states)
     )
     memory["stale"] = project.memory_stale
-    project.context_memory_json = json.dumps(memory, ensure_ascii=False)
+    project.context_memory_json = json.dumps(
+        strip_native_memory_envelope(memory),
+        ensure_ascii=False,
+    )
     session.add(project)
     session.add(
         ProjectMemorySnapshot(

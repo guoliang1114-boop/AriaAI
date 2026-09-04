@@ -47,6 +47,7 @@ from app.services.memory_rebuilds import (
     plan_client_memory_rebuild,
 )
 from app.services.memory_operation_state import (
+    get_client_memory_rebuild_log,
     get_client_memory_failure,
     get_client_memory_rebuild_generation,
     set_client_memory_failure,
@@ -520,9 +521,7 @@ def _get_client_memory_failure(client: ClientRecord) -> dict | None:
 
 
 def _get_client_memory_successes(client: ClientRecord) -> list[dict]:
-    rebuild_log = _get_raw_client_memory(client).get("rebuild_log")
-    if not isinstance(rebuild_log, list):
-        return []
+    rebuild_log = get_client_memory_rebuild_log(client)
 
     successes: list[dict] = []
     for item in rebuild_log:

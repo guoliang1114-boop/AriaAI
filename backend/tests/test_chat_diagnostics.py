@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import SQLModel, Session
 
-from app.models.db import ChatTrace, Conversation, Message, User
+from app.models.db import ChatTrace, Conversation, Message, Project, User
 from app.routers import chat as chat_router_module
 from app.routers import chat_diagnostics as chat_diagnostics_router_module
 from app.services import chat_diagnostics as cd
@@ -228,6 +228,7 @@ class ChatTraceDiagnosticsRouteTestCase(unittest.TestCase):
         base_manifest = self._context_manifest(messages=2)
         target_manifest = self._context_manifest(messages=12, compacted=True)
         with Session(self.engine) as session:
+            session.add(Project(id=91, name="Trace project", client="Client"))
             conv = Conversation(title="Trace comparison", owner_user_id=self.admin_id)
             session.add(conv)
             session.flush()

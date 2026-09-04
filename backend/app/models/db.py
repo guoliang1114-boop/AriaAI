@@ -27,6 +27,11 @@ class ClientRecord(SQLModel, table=True):
     client_memory_updated_at: Optional[datetime] = None
     client_memory_rebuild_status: str = "idle"
     client_memory_rebuild_failed_at: Optional[datetime] = None
+    client_memory_rebuild_log_json: str = Field(
+        default="[]",
+        exclude=True,
+        sa_column=Column(Text, nullable=False, default="[]"),
+    )
     client_memory_last_failure_json: str = Field(
         default="",
         exclude=True,
@@ -102,6 +107,11 @@ class Project(SQLModel, table=True):
     memory_updated_at: Optional[datetime] = None
     memory_rebuild_status: str = "idle"
     memory_rebuild_failed_at: Optional[datetime] = None
+    memory_rebuild_log_json: str = Field(
+        default="[]",
+        exclude=True,
+        sa_column=Column(Text, nullable=False, default="[]"),
+    )
     memory_last_failure_json: str = Field(
         default="",
         exclude=True,
