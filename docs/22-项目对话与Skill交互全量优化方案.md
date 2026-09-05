@@ -682,6 +682,13 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 运行期采用 owner 原生列优先、旧聚合有界回退的发布窗口。`Memory Projection Authority Report v1` 只输出固定 kind 和原生、缺失、分歧、异常、legacy 残留计数，不返回覆盖值、项目 ID、客户 ID 或正文；后续只有生产报告证明全量原生覆盖且 legacy 为零，才可移除回退。
 - 数据库备份仍是生产迁移硬前置条件；确定性门禁为 132 个场景、35 项指标。全部实现属于 Aria Python/SQLModel/Alembic 与现有 ACL/HITAS，不运行、导入或连接 Codex。
 
+### Phase 4T：投影元数据原生单读与旧回退退役（已实施）
+
+- 4S 生产审计确认 34 个项目、18 个客户的投影元数据原生存储无缺失、分歧、异常或 legacy 残留后，项目 `_coverage` 与客户 `source_project_ids` 运行期读取正式改为 owner 原生列单一权威。即使聚合 JSON 被异常写回旧键，公共 API、证据范围和重建逻辑也不会读取或复活该副本。
+- 原生空对象/空列表是合法权威空值；非法原生 JSON 失败关闭为空投影，不能触发旧数据回退。旧聚合解析只服务于无正文审计，不进入产品行为、Provider 输入或权限裁决。
+- `Memory Projection Authority Report v2` 显式输出 `runtime_read_mode=native_only` 和 `legacy_runtime_fallback_enabled=false`，并继续统计 legacy、缺失、分歧及异常，以便任何异常回流可见且阻止后续容器退役。
+- 本阶段不修改数据库结构，唯一 Alembic head 保持 `052_v1_52`。确定性门禁为 133 个场景、35 项指标；不运行、导入或连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

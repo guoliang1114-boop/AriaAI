@@ -839,6 +839,10 @@ Skill 运行契约同步也移除了旧的 `type=legacy` 假工具占位符。�
 
 `052_v1_52` 将项目 `_coverage` 与客户 `source_project_ids` 从兼容聚合迁入 owner 私有列。两者会影响重建覆盖展示、证据来源集合和晋升并发校验，因此不作为可直接删除的聊天文本，而作为 Aria 原生投影状态治理。API 继续水合原字段，新快照显式保留对应值以支持历史差异和回滚；当前聚合停止新写，读取暂以原生为先并只对未迁移记录有界回退。迁移遇到异常类型、非法 JSON 或原生/旧值分歧时不清理旧键，无正文 projection-state 报告独立量化切换与退役准备度。实现不增加 Codex runtime、SDK、协议、进程、账号或通信。
 
+### Phase 4T：投影元数据原生单读与兼容回退退役（已实施）
+
+4S 发布后的生产审计确认全部 34 个项目和 18 个客户均无原生缺失、分歧、异常或 legacy 投影残留，因此运行期 `_coverage` / `source_project_ids` 已正式切为 owner 原生列单读。空值与非法原生 JSON 安全返回空投影，不再读取聚合副本；聚合扫描仅存在于无正文 `Memory Projection Authority Report v2`，用于发现未来异常回流。公共 API、快照、差异和回滚合同不变，本阶段无数据库结构变更，Alembic head 保持 `052_v1_52`。实现完全属于 Aria，不增加 Codex runtime、SDK、协议、进程、账号或通信。
+
 ## 8. 许可证与升级流程
 
 Aria 主项目继续使用 MIT License；从 Codex 改编的具体文件同时受 Apache License 2.0 的适用要求约束。

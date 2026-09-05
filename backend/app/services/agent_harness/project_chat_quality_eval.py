@@ -112,6 +112,8 @@ from app.services.memory_slots import (
 from app.services.memory_operation_state import build_memory_operation_authority_report
 from app.services.memory_projection_state import (
     build_memory_projection_authority_report,
+    get_client_memory_source_project_ids,
+    get_project_memory_coverage,
 )
 from app.services.memory_legacy_quarantine import (
     FLATTENED_STRUCTURED_STAKEHOLDER_KEYS,
@@ -2325,6 +2327,17 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
         ],
         [],
     )
+    legacy_only_project = Project(
+        name="Legacy-only projection state",
+        client="Client",
+        context_memory_json=json.dumps(
+            {"_coverage": {"private": "LEGACY-VALUE"}}
+        ),
+    )
+    legacy_only_client = ClientRecord(
+        name="Legacy-only projection state",
+        client_memory_json=json.dumps({"source_project_ids": [7]}),
+    )
     legacy_quarantine = build_memory_legacy_quarantine_report(
         [
             ClientRecord(
@@ -2441,13 +2454,21 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
         },
         {
             "case": "native_projection_metadata_is_content_free_and_legacy_residue_blocks_retirement",
-            "passed": projection_state["native_cutover_ready"]
+            "passed": projection_state["schema_version"] == 2
+            and projection_state["native_cutover_ready"]
             and projection_state["legacy_aggregate_retirement_ready"]
             and projection_state["legacy_aggregate_projection_count"] == 0
             and legacy_projection_state["native_cutover_ready"]
             and not legacy_projection_state["legacy_aggregate_retirement_ready"]
             and legacy_projection_state["legacy_aggregate_projection_count"] == 1
             and "PRIVATE" not in serialized,
+        },
+        {
+            "case": "projection_metadata_runtime_is_native_only_after_verified_cutover",
+            "passed": projection_state["runtime_read_mode"] == "native_only"
+            and not projection_state["legacy_runtime_fallback_enabled"]
+            and get_project_memory_coverage(legacy_only_project) == {}
+            and get_client_memory_source_project_ids(legacy_only_client) == [],
         },
         {
             "case": "legacy_memory_quarantine_audit_is_content_free",

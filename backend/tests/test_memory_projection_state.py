@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from app.models.db import ClientRecord, Project
+from app.services.client_contexts import get_client_memory_payload
 from app.services.memory_projection_state import (
     build_memory_projection_authority_report,
     get_client_memory_source_project_ids,
@@ -10,9 +11,10 @@ from app.services.memory_projection_state import (
     set_client_memory_source_project_ids,
     set_project_memory_coverage,
 )
+from app.services.project_contexts import get_project_memory_payload
 
 
-def test_projection_state_prefers_native_and_falls_back_to_valid_legacy() -> None:
+def test_projection_state_reads_native_only_and_never_revives_legacy() -> None:
     native_project = Project(
         name="Native",
         client="Client",
@@ -33,11 +35,24 @@ def test_projection_state_prefers_native_and_falls_back_to_valid_legacy() -> Non
         name="Legacy",
         client_memory_json=json.dumps({"source_project_ids": ["4", 4, 5]}),
     )
+    invalid_native_project = Project(
+        name="Invalid native",
+        client="Client",
+        context_memory_json=json.dumps({"_coverage": {"source": "legacy"}}),
+        memory_coverage_json="not-json",
+    )
+    invalid_native_client = ClientRecord(
+        name="Invalid native",
+        client_memory_json=json.dumps({"source_project_ids": [8]}),
+        client_memory_source_project_ids_json="not-json",
+    )
 
     assert get_project_memory_coverage(native_project) == {"source": "native"}
-    assert get_project_memory_coverage(legacy_project) == {"source": "legacy"}
+    assert get_project_memory_coverage(legacy_project) == {}
+    assert get_project_memory_coverage(invalid_native_project) == {}
     assert get_client_memory_source_project_ids(native_client) == [2, 3]
-    assert get_client_memory_source_project_ids(legacy_client) == [4, 5]
+    assert get_client_memory_source_project_ids(legacy_client) == []
+    assert get_client_memory_source_project_ids(invalid_native_client) == []
 
 
 def test_projection_state_setters_normalize_and_stay_private() -> None:
@@ -51,6 +66,36 @@ def test_projection_state_setters_normalize_and_stay_private() -> None:
     assert get_client_memory_source_project_ids(client) == [3, 7]
     assert "memory_coverage_json" not in project.model_dump()
     assert "client_memory_source_project_ids_json" not in client.model_dump()
+
+
+def test_public_memory_payloads_do_not_expose_legacy_projection_residue() -> None:
+    project = Project(
+        name="Project",
+        client="Client",
+        context_memory_json=json.dumps(
+            {
+                "project_brief": "kept",
+                "_coverage": {"private": "legacy"},
+            }
+        ),
+    )
+    client = ClientRecord(
+        name="Client",
+        client_memory_json=json.dumps(
+            {
+                "client_profile": "kept",
+                "source_project_ids": [99],
+            }
+        ),
+    )
+
+    project_payload = get_project_memory_payload(project)
+    client_payload = get_client_memory_payload(client)
+
+    assert project_payload["project_brief"] == "kept"
+    assert project_payload["_coverage"] == {}
+    assert client_payload["client_profile"] == "kept"
+    assert client_payload["source_project_ids"] == []
 
 
 def test_projection_authority_report_is_content_free_and_detects_gaps() -> None:
@@ -85,8 +130,10 @@ def test_projection_authority_report_is_content_free_and_detects_gaps() -> None:
     report = build_memory_projection_authority_report(projects, clients)
     serialized = json.dumps(report, ensure_ascii=False)
 
-    assert report["schema_version"] == 1
+    assert report["schema_version"] == 2
     assert report["content_included"] is False
+    assert report["runtime_read_mode"] == "native_only"
+    assert report["legacy_runtime_fallback_enabled"] is False
     assert report["native_cutover_ready"] is False
     assert report["legacy_aggregate_retirement_ready"] is False
     assert report["missing_native_projection_count"] == 1
@@ -119,6 +166,8 @@ def test_projection_authority_report_confirms_native_clean_storage() -> None:
 
     assert report["native_cutover_ready"] is True
     assert report["legacy_aggregate_retirement_ready"] is True
+    assert report["runtime_read_mode"] == "native_only"
+    assert report["legacy_runtime_fallback_enabled"] is False
     assert report["legacy_aggregate_projection_count"] == 0
     assert report["project"]["native"] == 1
     assert report["client"]["native"] == 1

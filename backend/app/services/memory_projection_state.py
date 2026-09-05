@@ -1,9 +1,9 @@
 """Owner-native metadata projected through the public memory contract.
 
 Project coverage and the client source-project set affect rebuild provenance,
-but they are not business memory slots. Dedicated owner columns are the native
-state; aggregate keys remain a temporary read fallback for records that have
-not completed the V1.52 migration.
+but they are not business memory slots. Dedicated owner columns are the only
+runtime read authority. Aggregate keys are inspected only by the content-free
+retirement report and never participate in product behavior.
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def _parse_source_project_ids(raw: str | None) -> list[int] | None:
     return _normalize_source_project_ids(value)
 
 
-def _legacy_project_coverage(project: Project) -> dict[str, Any] | None:
+def _aggregate_project_coverage(project: Project) -> dict[str, Any] | None:
     aggregate = _parse_aggregate(project.context_memory_json)
     if aggregate is None or "_coverage" not in aggregate:
         return {}
@@ -60,7 +60,7 @@ def _legacy_project_coverage(project: Project) -> dict[str, Any] | None:
     return dict(value) if isinstance(value, dict) else None
 
 
-def _legacy_client_source_project_ids(client: ClientRecord) -> list[int] | None:
+def _aggregate_client_source_project_ids(client: ClientRecord) -> list[int] | None:
     aggregate = _parse_aggregate(client.client_memory_json)
     if aggregate is None or "source_project_ids" not in aggregate:
         return []
@@ -68,13 +68,12 @@ def _legacy_client_source_project_ids(client: ClientRecord) -> list[int] | None:
 
 
 def get_project_memory_coverage(project: Project | None) -> dict[str, Any]:
+    """Return only owner-native coverage; legacy aggregate data is diagnostic."""
+
     if project is None:
         return {}
     native = _parse_object(project.memory_coverage_json)
-    if native:
-        return native
-    legacy = _legacy_project_coverage(project)
-    return legacy if legacy is not None else {}
+    return native if native is not None else {}
 
 
 def set_project_memory_coverage(
@@ -91,13 +90,12 @@ def set_project_memory_coverage(
 def get_client_memory_source_project_ids(
     client: ClientRecord | None,
 ) -> list[int]:
+    """Return only owner-native source IDs; never revive aggregate copies."""
+
     if client is None:
         return []
     native = _parse_source_project_ids(client.client_memory_source_project_ids_json)
-    if native:
-        return native
-    legacy = _legacy_client_source_project_ids(client)
-    return legacy if legacy is not None else []
+    return native if native is not None else []
 
 
 def set_client_memory_source_project_ids(
@@ -135,7 +133,7 @@ def build_memory_projection_authority_report(
     for project in project_rows:
         aggregate = _parse_aggregate(project.context_memory_json)
         legacy_present = aggregate is not None and "_coverage" in aggregate
-        legacy = _legacy_project_coverage(project)
+        legacy = _aggregate_project_coverage(project)
         native = _parse_object(project.memory_coverage_json)
         project_counts["legacy"] += int(legacy_present)
         project_counts["invalid_aggregate"] += int(aggregate is None)
@@ -150,7 +148,7 @@ def build_memory_projection_authority_report(
     for client in client_rows:
         aggregate = _parse_aggregate(client.client_memory_json)
         legacy_present = aggregate is not None and "source_project_ids" in aggregate
-        legacy = _legacy_client_source_project_ids(client)
+        legacy = _aggregate_client_source_project_ids(client)
         native = _parse_source_project_ids(
             client.client_memory_source_project_ids_json
         )
@@ -181,8 +179,10 @@ def build_memory_projection_authority_report(
         (missing, divergent, invalid_native, invalid_legacy, invalid_aggregate)
     )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "content_included": False,
+        "runtime_read_mode": "native_only",
+        "legacy_runtime_fallback_enabled": False,
         "native_cutover_ready": native_cutover_ready,
         "legacy_aggregate_retirement_ready": native_cutover_ready and legacy == 0,
         "missing_native_projection_count": missing,
