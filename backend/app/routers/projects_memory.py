@@ -44,6 +44,7 @@ from app.services.memory_slots import (
     load_project_memory_slot_values,
 )
 from app.services.memory_rebuilds import latest_memory_rebuild_metadata
+from app.services.memory_projection_state import get_project_memory_coverage
 from app.services.time_utils import utc_now_naive
 from app.routers.projects_deps import (
     _get_project_memory_lock,
@@ -419,7 +420,7 @@ async def update_project_memory_slot(
         actor_user_id=actor_user_id,
     )
     raw_memory = _get_existing_raw_memory(project)
-    coverage = raw_memory.get("_coverage", {}) if isinstance(raw_memory.get("_coverage"), dict) else {}
+    coverage = get_project_memory_coverage(project)
     raw_memory[slot_name] = _normalize_editable_slot(raw_memory.get(slot_name), pinned=body.pinned)
     saved_memory = save_project_memory(
         session,

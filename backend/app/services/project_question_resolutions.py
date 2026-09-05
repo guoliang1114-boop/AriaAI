@@ -25,6 +25,7 @@ from app.models.db import (
 )
 from app.services.cache import projects_cache
 from app.services.memory_slots import load_project_memory_slot_view
+from app.services.memory_projection_state import get_project_memory_coverage
 from app.services.project_contexts import (
     ACCEPTED_MEMORY_CANDIDATES_KEY,
     _get_existing_raw_memory,
@@ -369,7 +370,7 @@ def resolve_project_question(
         project_id,
         raw_memory,
         trigger="question_resolved",
-        coverage=raw_memory.get("_coverage") if isinstance(raw_memory.get("_coverage"), dict) else {},
+        coverage=get_project_memory_coverage(project),
         rebuilt_slots=(OPEN_QUESTIONS_SLOT,),
         rebuild_mode="targeted_edit",
         removed_accepted_anchors={OPEN_QUESTIONS_SLOT: removed_anchor_values},
@@ -512,7 +513,7 @@ def reopen_project_question(
             project_id,
             raw_memory,
             trigger="question_reopened",
-            coverage=raw_memory.get("_coverage") if isinstance(raw_memory.get("_coverage"), dict) else {},
+            coverage=get_project_memory_coverage(project),
             rebuilt_slots=(OPEN_QUESTIONS_SLOT,),
             rebuild_mode="targeted_edit",
             commit=False,

@@ -3207,12 +3207,14 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 project_id,
                 {"project_brief": "Version one", "key_risks": ["Risk A"]},
                 trigger="first_build",
+                coverage={"files_total": 1},
             )
             project_contexts_module.save_project_memory(
                 session,
                 project_id,
                 {"project_brief": "Version two", "key_risks": ["Risk B"]},
                 trigger="second_build",
+                coverage={"files_total": 2},
             )
 
         snapshots_resp = self.client.get(f"/projects/{project_id}/memory/snapshots")
@@ -3224,6 +3226,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         detail_resp = self.client.get(f"/projects/{project_id}/memory/snapshots/{older_snapshot['id']}")
         self.assertEqual(detail_resp.status_code, 200)
         self.assertEqual(detail_resp.json()["memory"]["project_brief"], "Version one")
+        self.assertEqual(detail_resp.json()["memory"]["_coverage"]["files_total"], 1)
 
         diff_resp = self.client.get(f"/projects/{project_id}/memory/snapshots/{older_snapshot['id']}/diff")
         self.assertEqual(diff_resp.status_code, 200)
@@ -3234,10 +3237,16 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(changed_fields["project_brief"]["after"], "Version two")
         self.assertEqual(changed_fields["key_risks"]["added"], ["Risk B"])
         self.assertEqual(changed_fields["key_risks"]["removed"], ["Risk A"])
+        self.assertEqual(changed_fields["_coverage"]["before"]["files_total"], 1)
+        self.assertEqual(changed_fields["_coverage"]["after"]["files_total"], 2)
 
         rollback_resp = self.client.post(f"/projects/{project_id}/memory/snapshots/{older_snapshot['id']}/rollback")
         self.assertEqual(rollback_resp.status_code, 200)
         self.assertEqual(rollback_resp.json()["memory"]["project_brief"], "Version one")
+        self.assertEqual(
+            rollback_resp.json()["memory"]["_coverage"]["files_total"],
+            1,
+        )
         self.assertEqual(rollback_resp.json()["memory_version"], 3)
 
         with Session(self.engine) as session:
@@ -6406,12 +6415,14 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                 client_id,
                 {"client_profile": "Version one", "decision_patterns": ["Pattern A"]},
                 trigger="first_build",
+                source_project_ids=[101],
             )
             client_contexts_module.save_client_memory(
                 session,
                 client_id,
                 {"client_profile": "Version two", "decision_patterns": ["Pattern B"]},
                 trigger="second_build",
+                source_project_ids=[202],
             )
 
         snapshots_resp = self.client.get(f"/clients/{client_id}/memory/snapshots")
@@ -6423,6 +6434,7 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         detail_resp = self.client.get(f"/clients/{client_id}/memory/snapshots/{older_snapshot['id']}")
         self.assertEqual(detail_resp.status_code, 200)
         self.assertEqual(detail_resp.json()["memory"]["client_profile"], "Version one")
+        self.assertEqual(detail_resp.json()["memory"]["source_project_ids"], [101])
 
         diff_resp = self.client.get(f"/clients/{client_id}/memory/snapshots/{older_snapshot['id']}/diff")
         self.assertEqual(diff_resp.status_code, 200)
@@ -6433,10 +6445,16 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         self.assertEqual(changed_fields["client_profile"]["after"], "Version two")
         self.assertEqual(changed_fields["decision_patterns"]["added"], ["Pattern B"])
         self.assertEqual(changed_fields["decision_patterns"]["removed"], ["Pattern A"])
+        self.assertEqual(changed_fields["source_project_ids"]["added"], [202])
+        self.assertEqual(changed_fields["source_project_ids"]["removed"], [101])
 
         rollback_resp = self.client.post(f"/clients/{client_id}/memory/snapshots/{older_snapshot['id']}/rollback")
         self.assertEqual(rollback_resp.status_code, 200)
         self.assertEqual(rollback_resp.json()["memory"]["client_profile"], "Version one")
+        self.assertEqual(
+            rollback_resp.json()["memory"]["source_project_ids"],
+            [101],
+        )
         self.assertEqual(rollback_resp.json()["memory_version"], 3)
 
         with Session(self.engine) as session:

@@ -25,6 +25,10 @@ from app.services.memory_operation_state import (
     set_project_memory_rebuild_log,
     strip_native_memory_state,
 )
+from app.services.memory_projection_state import (
+    get_project_memory_coverage,
+    set_project_memory_coverage,
+)
 from app.services.memory_slots import (
     PROJECT_MEMORY_SLOT_KEYS,
     build_project_slot_evidence_refs,
@@ -139,7 +143,7 @@ def _default_project_memory(project: Project) -> dict[str, Any]:
         "last_updated_at": project.memory_updated_at.isoformat() if project.memory_updated_at else "",
         "stale": project.memory_stale,
         "rebuild_log": get_project_memory_rebuild_log(project),
-        "_coverage": {},
+        "_coverage": get_project_memory_coverage(project),
         ACCEPTED_MEMORY_CANDIDATES_KEY: {},
     }
 
@@ -1084,7 +1088,7 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
         memory["important_documents"] = []
 
     memory["rebuild_log"] = get_project_memory_rebuild_log(project)
-    memory["_coverage"] = existing_raw.get("_coverage", {}) if isinstance(existing_raw.get("_coverage"), dict) else {}
+    memory["_coverage"] = get_project_memory_coverage(project)
     memory[MODEL_SOURCE_ATTRIBUTIONS_KEY] = bind_model_source_attributions(
         parsed.get(MODEL_SOURCE_ATTRIBUTIONS_KEY),
         PROJECT_MEMORY_SLOT_KEYS,
@@ -1172,7 +1176,7 @@ def parse_project_memory_patch(
 
     _merge_accepted_memory_candidates(memory, existing)
     memory["rebuild_log"] = get_project_memory_rebuild_log(project)
-    memory["_coverage"] = existing.get("_coverage", {}) if isinstance(existing.get("_coverage"), dict) else {}
+    memory["_coverage"] = get_project_memory_coverage(project)
     memory[MODEL_SOURCE_ATTRIBUTIONS_KEY] = bind_model_source_attributions(
         parsed.get(MODEL_SOURCE_ATTRIBUTIONS_KEY),
         selected,
@@ -1248,7 +1252,12 @@ def save_project_memory(
         memory.pop(MODEL_SOURCE_ATTRIBUTIONS_KEY, []),
         selected_slots,
     )
-    persisted_coverage = dict(coverage or {})
+    coverage_input = coverage
+    if coverage_input is None and isinstance(memory.get("_coverage"), dict):
+        coverage_input = memory.get("_coverage")
+    if coverage_input is None:
+        coverage_input = get_project_memory_coverage(project)
+    persisted_coverage = dict(coverage_input)
     persisted_coverage.pop("_source_handles", None)
     source_snapshots = persisted_coverage.pop("_source_snapshots", None)
     stakeholder_source_ids = persisted_coverage.pop(
@@ -1319,6 +1328,7 @@ def save_project_memory(
         **persisted_coverage,
         "built_at": project.memory_updated_at.isoformat(),
     }
+    set_project_memory_coverage(project, memory["_coverage"])
     if isinstance(persisted_coverage.get("client_stakeholders"), list):
         memory["client_stakeholders"] = persisted_coverage["client_stakeholders"]
     memory["memory_version"] = project.memory_version
@@ -1357,17 +1367,18 @@ def save_project_memory(
         or any(state["status"] != "ready" for state in current_states)
     )
     memory["stale"] = project.memory_stale
-    project.context_memory_json = json.dumps(
-        strip_native_memory_state(memory),
-        ensure_ascii=False,
-    )
+    aggregate_memory = strip_native_memory_state(memory)
+    project.context_memory_json = json.dumps(aggregate_memory, ensure_ascii=False)
     session.add(project)
     session.add(
         ProjectMemorySnapshot(
             project_id=project_id,
             memory_version=project.memory_version,
             trigger=trigger,
-            memory_json=project.context_memory_json,
+            memory_json=json.dumps(
+                {**aggregate_memory, "_coverage": memory["_coverage"]},
+                ensure_ascii=False,
+            ),
             created_at=project.memory_updated_at,
         )
     )

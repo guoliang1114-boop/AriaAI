@@ -20,6 +20,9 @@ from app.services.memory_slots import (
     summarize_memory_read_authority,
 )
 from app.services.memory_operation_state import build_memory_operation_authority_report
+from app.services.memory_projection_state import (
+    build_memory_projection_authority_report,
+)
 from app.services.memory_legacy_quarantine import (
     build_memory_legacy_quarantine_report,
 )
@@ -55,6 +58,10 @@ def build_report(session: Session) -> dict[str, object]:
         "project": summarize_memory_read_authority(project_reports),
         "client": summarize_memory_read_authority(client_reports),
         "operation_state": build_memory_operation_authority_report(
+            all_projects,
+            all_clients,
+        ),
+        "projection_state": build_memory_projection_authority_report(
             all_projects,
             all_clients,
         ),

@@ -34,6 +34,7 @@ from app.models.db import (
 )
 from app.services.stakeholder_contexts import MAX_STAKEHOLDERS_IN_PROMPT
 from app.services.project_clients import find_client_for_project, list_projects_for_client
+from app.services.memory_projection_state import get_client_memory_source_project_ids
 from app.services.time_utils import utc_now_naive
 
 
@@ -1123,6 +1124,7 @@ def get_client_memory_slot_states(
             parsed = {}
         if isinstance(parsed, dict):
             memory = parsed
+        memory["source_project_ids"] = get_client_memory_source_project_ids(client)
     evidence_by_slot = (
         build_client_slot_evidence_refs(session, client, memory)
         if client is not None

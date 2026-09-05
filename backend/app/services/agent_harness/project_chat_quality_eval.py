@@ -110,6 +110,9 @@ from app.services.memory_slots import (
     build_memory_read_authority_report,
 )
 from app.services.memory_operation_state import build_memory_operation_authority_report
+from app.services.memory_projection_state import (
+    build_memory_projection_authority_report,
+)
 from app.services.memory_legacy_quarantine import (
     FLATTENED_STRUCTURED_STAKEHOLDER_KEYS,
     build_memory_legacy_quarantine_report,
@@ -2292,6 +2295,36 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
         ],
         [],
     )
+    projection_state = build_memory_projection_authority_report(
+        [
+            Project(
+                name="Projection state",
+                client="Client",
+                context_memory_json="{}",
+                memory_coverage_json=json.dumps({"private": "VALUE"}),
+            )
+        ],
+        [
+            ClientRecord(
+                name="Projection state",
+                client_memory_json="{}",
+                client_memory_source_project_ids_json=json.dumps([7]),
+            )
+        ],
+    )
+    legacy_projection_state = build_memory_projection_authority_report(
+        [
+            Project(
+                name="Legacy projection state",
+                client="Client",
+                context_memory_json=json.dumps(
+                    {"_coverage": {"private": "VALUE"}}
+                ),
+                memory_coverage_json=json.dumps({"private": "VALUE"}),
+            )
+        ],
+        [],
+    )
     legacy_quarantine = build_memory_legacy_quarantine_report(
         [
             ClientRecord(
@@ -2328,6 +2361,8 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             wrong_scope_metadata,
             operation_state,
             legacy_operation_state,
+            projection_state,
+            legacy_projection_state,
             legacy_quarantine,
             filtered_project_memory,
             filtered_client_memory,
@@ -2402,6 +2437,16 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
                 "rebuild_history"
             ]
             == 0
+            and "PRIVATE" not in serialized,
+        },
+        {
+            "case": "native_projection_metadata_is_content_free_and_legacy_residue_blocks_retirement",
+            "passed": projection_state["native_cutover_ready"]
+            and projection_state["legacy_aggregate_retirement_ready"]
+            and projection_state["legacy_aggregate_projection_count"] == 0
+            and legacy_projection_state["native_cutover_ready"]
+            and not legacy_projection_state["legacy_aggregate_retirement_ready"]
+            and legacy_projection_state["legacy_aggregate_projection_count"] == 1
             and "PRIVATE" not in serialized,
         },
         {

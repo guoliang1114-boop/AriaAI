@@ -675,6 +675,13 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - `Memory Operation Authority Report v3` 在原生覆盖、缺失与分歧之外，新增按项目/客户和状态类型统计的 legacy 聚合残留数，以及独立的 `legacy_aggregate_retirement_ready`。报告仍只返回固定状态名和计数，不返回错误、晋升、代次、历史正文或实体 ID。
 - 降级只把原生值补回当前聚合中缺失的键，不覆盖后来产生的新值，也不删除原生列。数据库备份仍是生产迁移硬前置条件；确定性门禁为 131 个场景、35 项指标，不运行、导入或连接 Codex。
 
+### Phase 4S：覆盖与来源投影元数据原生化（已实施）
+
+- 幂等迁移 `052_v1_52` 为项目增加私有 `memory_coverage_json`，为客户增加私有 `client_memory_source_project_ids_json`。只有旧 `_coverage` 为对象、旧 `source_project_ids` 可规范为正整数 ID 列表，且原生为空可无损回填或双方一致时，才从当前聚合移除；异常类型、非法 JSON 和分歧均保留。
+- 项目覆盖信息继续驱动覆盖度展示与重建来源，客户来源项目集合继续驱动证据范围、来源摘要和晋升冲突检测。公共项目/客户记忆 API 保持 `_coverage` / `source_project_ids` 合同；当前聚合停止新写，但新快照显式保存对应投影，使详情、diff 和 rollback 保持可逆。
+- 运行期采用 owner 原生列优先、旧聚合有界回退的发布窗口。`Memory Projection Authority Report v1` 只输出固定 kind 和原生、缺失、分歧、异常、legacy 残留计数，不返回覆盖值、项目 ID、客户 ID 或正文；后续只有生产报告证明全量原生覆盖且 legacy 为零，才可移除回退。
+- 数据库备份仍是生产迁移硬前置条件；确定性门禁为 132 个场景、35 项指标。全部实现属于 Aria Python/SQLModel/Alembic 与现有 ACL/HITAS，不运行、导入或连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

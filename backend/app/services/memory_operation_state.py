@@ -21,6 +21,8 @@ NATIVE_MEMORY_STATE_KEYS = frozenset(
         "_last_failure",
         "_client_promotion",
         "_rebuild_generation",
+        "_coverage",
+        "source_project_ids",
     }
 )
 

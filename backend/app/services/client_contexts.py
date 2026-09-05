@@ -25,6 +25,10 @@ from app.services.memory_operation_state import (
     set_client_memory_rebuild_log,
     strip_native_memory_state,
 )
+from app.services.memory_projection_state import (
+    get_client_memory_source_project_ids,
+    set_client_memory_source_project_ids,
+)
 from app.services.memory_slots import (
     CLIENT_MEMORY_SLOT_KEYS,
     build_client_slot_evidence_refs,
@@ -78,7 +82,7 @@ def _default_client_memory(client: ClientRecord) -> dict[str, Any]:
         "last_updated_at": client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else "",
         "stale": client.client_memory_stale,
         "rebuild_log": get_client_memory_rebuild_log(client),
-        "source_project_ids": [],
+        "source_project_ids": get_client_memory_source_project_ids(client),
         "_accepted_memory_candidates": {},
     }
 
@@ -639,6 +643,7 @@ def save_client_memory(
         *[int(item) for item in (source_project_ids or [])],
     ]
     memory["source_project_ids"] = list(dict.fromkeys(merged_source_ids))
+    set_client_memory_source_project_ids(client, memory["source_project_ids"])
     structured_stakeholders = (
         list_client_stakeholder_dicts(
             session,
@@ -737,17 +742,21 @@ def save_client_memory(
         or any(state["status"] != "ready" for state in current_states)
     )
     memory["stale"] = client.client_memory_stale
-    client.client_memory_json = json.dumps(
-        strip_native_memory_state(memory),
-        ensure_ascii=False,
-    )
+    aggregate_memory = strip_native_memory_state(memory)
+    client.client_memory_json = json.dumps(aggregate_memory, ensure_ascii=False)
     session.add(client)
     session.add(
         ClientMemorySnapshot(
             client_id=client_id,
             memory_version=client.client_memory_version,
             trigger=trigger,
-            memory_json=client.client_memory_json,
+            memory_json=json.dumps(
+                {
+                    **aggregate_memory,
+                    "source_project_ids": memory["source_project_ids"],
+                },
+                ensure_ascii=False,
+            ),
             created_at=client.client_memory_updated_at,
         )
     )

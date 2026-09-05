@@ -170,10 +170,7 @@ def test_native_memory_state_is_removed_without_touching_business_metadata() -> 
         }
     )
 
-    assert stripped == {
-        "project_brief": "private business content",
-        "_coverage": {"source": "private"},
-    }
+    assert stripped == {"project_brief": "private business content"}
 
 
 def test_operation_authority_report_is_content_free_and_detects_cutover_gaps() -> None:

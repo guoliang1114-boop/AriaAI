@@ -35,6 +35,7 @@ from app.services.project_contexts import (
     _normalize_editable_slot,
     save_project_memory,
 )
+from app.services.memory_projection_state import get_project_memory_coverage
 from app.services.time_utils import utc_now_naive
 
 
@@ -876,7 +877,7 @@ def accept_memory_candidate(
             int(candidate.project_id),
             memory,
             trigger=f"memory_candidate:{candidate.id}",
-            coverage=memory.get("_coverage") if isinstance(memory.get("_coverage"), dict) else {},
+            coverage=get_project_memory_coverage(project),
             rebuilt_slots=(target_slot,),
             rebuild_mode="targeted_edit",
             commit=False,

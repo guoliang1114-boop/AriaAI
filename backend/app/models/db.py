@@ -32,6 +32,11 @@ class ClientRecord(SQLModel, table=True):
         exclude=True,
         sa_column=Column(Text, nullable=False, default="[]"),
     )
+    client_memory_source_project_ids_json: str = Field(
+        default="[]",
+        exclude=True,
+        sa_column=Column(Text, nullable=False, default="[]"),
+    )
     client_memory_last_failure_json: str = Field(
         default="",
         exclude=True,
@@ -111,6 +116,11 @@ class Project(SQLModel, table=True):
         default="[]",
         exclude=True,
         sa_column=Column(Text, nullable=False, default="[]"),
+    )
+    memory_coverage_json: str = Field(
+        default="{}",
+        exclude=True,
+        sa_column=Column(Text, nullable=False, default="{}"),
     )
     memory_last_failure_json: str = Field(
         default="",

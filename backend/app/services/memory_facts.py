@@ -40,6 +40,7 @@ from app.services.memory_slots import (
     project_memory_slots_for_trigger,
 )
 from app.services.time_utils import utc_now_naive
+from app.services.memory_projection_state import get_client_memory_source_project_ids
 
 
 MAX_FACT_EVIDENCE_REFS = 6
@@ -1054,6 +1055,7 @@ def get_client_memory_fact_states(
             parsed = {}
         if isinstance(parsed, dict):
             memory = parsed
+        memory["source_project_ids"] = get_client_memory_source_project_ids(client)
     evidence_by_slot = (
         build_client_slot_evidence_refs(session, client, memory)
         if client is not None

@@ -12,12 +12,14 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.db import (
     ClientMemoryFact,
+    ClientMemorySnapshot,
     ClientMemorySlot,
     ClientRecord,
     ClientStakeholder,
     Project,
     ProjectFile,
     ProjectMemoryFact,
+    ProjectMemorySnapshot,
     ProjectMemorySlot,
     ProjectPayment,
     ProjectTodo,
@@ -59,6 +61,10 @@ from app.services.memory_operation_state import (
     get_project_memory_failure,
     set_client_memory_failure,
     set_project_memory_failure,
+)
+from app.services.memory_projection_state import (
+    get_client_memory_source_project_ids,
+    get_project_memory_coverage,
 )
 from app.services.memory_facts import (
     fact_states_by_slot,
@@ -655,6 +661,14 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
                 "rebuild_log",
             }.intersection(stored_project_memory)
             assert json.loads(project.memory_rebuild_log_json)[-1]["trigger"] == "test"
+            assert "_coverage" not in stored_project_memory
+            assert get_project_memory_coverage(project).get("built_at")
+            snapshot = session.exec(
+                select(ProjectMemorySnapshot).where(
+                    ProjectMemorySnapshot.project_id == project.id
+                )
+            ).one()
+            assert "_coverage" in json.loads(snapshot.memory_json)
             assert aggregate["rebuild_log"][-1]["trigger"] == "test"
             healthy = get_project_memory_read_authority_report(
                 session,
@@ -673,7 +687,6 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             assert "rebuild_log" not in healthy["aggregate_only_keys"]
             assert set(healthy["aggregate_only_keys"]) == {
                 "_accepted_memory_candidates",
-                "_coverage",
             }
 
             operational_metadata = get_project_memory_read_authority_report(
@@ -1052,6 +1065,16 @@ def test_client_memory_dual_write_has_independent_slots_and_project_provenance()
             assert session.exec(
                 select(ClientMemorySlot).where(ClientMemorySlot.client_id == client.id)
             ).all()
+            client = session.get(ClientRecord, client.id)
+            assert "source_project_ids" not in json.loads(client.client_memory_json)
+            assert get_client_memory_source_project_ids(client) == [project.id]
+            assert get_client_memory_payload(client)["source_project_ids"] == [project.id]
+            snapshot = session.exec(
+                select(ClientMemorySnapshot).where(
+                    ClientMemorySnapshot.client_id == client.id
+                )
+            ).one()
+            assert json.loads(snapshot.memory_json)["source_project_ids"] == [project.id]
     finally:
         engine.dispose()
 
