@@ -31,7 +31,11 @@ from app.services.memory_projection_state import (
 )
 from app.services.memory_slots import (
     PROJECT_MEMORY_SLOT_KEYS,
+    PROJECT_EDITABLE_SLOT_KEYS,
     build_project_slot_evidence_refs,
+    load_project_memory_slot_canonical_values,
+    load_project_memory_slot_values,
+    strip_aggregate_memory_business_slots,
 )
 from app.services.project_files import list_project_files
 from app.services.project_financials import list_project_payments
@@ -241,6 +245,11 @@ def get_project_memory_payload(project: Project) -> dict[str, Any]:
     except json.JSONDecodeError:
         parsed = {}
     parsed = strip_native_memory_state(parsed)
+    parsed = strip_aggregate_memory_business_slots(
+        parsed,
+        PROJECT_MEMORY_SLOT_KEYS,
+        editable_slot_keys=PROJECT_EDITABLE_SLOT_KEYS,
+    )
     payload = {
         **base,
         **parsed,
@@ -1102,6 +1111,8 @@ def parse_project_memory_patch(
     raw: str,
     project: Project,
     slot_keys: tuple[str, ...],
+    *,
+    existing_memory: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Strictly validate and merge an LLM response for selected project slots."""
 
@@ -1119,7 +1130,11 @@ def parse_project_memory_patch(
             f"partial project memory is missing slots: {', '.join(missing)}"
         )
 
-    existing = _get_existing_raw_memory(project)
+    existing = (
+        dict(existing_memory)
+        if existing_memory is not None
+        else _get_existing_raw_memory(project)
+    )
     memory = {**_default_project_memory(project), **existing}
     string_slots = {
         "project_brief",
@@ -1367,16 +1382,24 @@ def save_project_memory(
         or any(state["status"] != "ready" for state in current_states)
     )
     memory["stale"] = project.memory_stale
-    aggregate_memory = strip_native_memory_state(memory)
+    snapshot_base = strip_native_memory_state(memory)
+    aggregate_memory = strip_aggregate_memory_business_slots(
+        snapshot_base,
+        PROJECT_MEMORY_SLOT_KEYS,
+        editable_slot_keys=PROJECT_EDITABLE_SLOT_KEYS,
+    )
     project.context_memory_json = json.dumps(aggregate_memory, ensure_ascii=False)
     session.add(project)
+    snapshot_memory = strip_native_memory_state(
+        load_project_memory_slot_canonical_values(session, project, snapshot_base)
+    )
     session.add(
         ProjectMemorySnapshot(
             project_id=project_id,
             memory_version=project.memory_version,
             trigger=trigger,
             memory_json=json.dumps(
-                {**aggregate_memory, "_coverage": memory["_coverage"]},
+                {**snapshot_memory, "_coverage": memory["_coverage"]},
                 ensure_ascii=False,
             ),
             created_at=project.memory_updated_at,
@@ -1387,7 +1410,11 @@ def save_project_memory(
         session.refresh(project)
     else:
         session.flush()
-    return get_project_memory_payload(project)
+    return load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
 
 
 def save_project_context_summary(session: Session, project_id: int, summary: str) -> None:

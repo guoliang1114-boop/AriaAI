@@ -27,15 +27,24 @@ from app.services.chat.conversation_continuity import (
     build_conversation_continuity_snapshot,
 )
 from app.services.project_contexts import (
-    _get_existing_raw_memory,
+    get_project_memory_payload,
     save_project_memory,
 )
+from app.services.memory_slots import load_project_memory_slot_canonical_values
 from app.services.project_question_answer_adoption import (
     parse_project_question_resolution_event_note,
 )
 
 
 QUESTION = "客户是否已经确认验收范围？"
+
+
+def _memory(session: Session, project: Project) -> dict:
+    return load_project_memory_slot_canonical_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
 
 
 def _session() -> Session:
@@ -153,9 +162,9 @@ def test_resolution_atomically_retires_question_and_binds_assistant_answer() -> 
     assert fact.is_active is False
 
     session.refresh(project)
-    raw = _get_existing_raw_memory(project)
-    assert raw["open_questions"] == {"ai": [], "pinned": []}
-    assert raw["_accepted_memory_candidates"]["open_questions"] == []
+    memory = _memory(session, project)
+    assert memory["open_questions"] == {"ai": [], "pinned": []}
+    assert memory["_accepted_memory_candidates"]["open_questions"] == []
 
 
 def test_reopen_returns_question_as_user_pinned_anchor() -> None:
@@ -194,7 +203,7 @@ def test_reopen_returns_question_as_user_pinned_anchor() -> None:
     assert events[0].answer_message_id == answer.id
     assert events[1].note == "客户新增了验收例外，需要再次确认。"
     session.refresh(project)
-    assert _get_existing_raw_memory(project)["open_questions"]["pinned"] == [QUESTION]
+    assert _memory(session, project)["open_questions"]["pinned"] == [QUESTION]
 
     revised_answer = Message(
         conversation_id=int(conversation.id or 0),
@@ -237,12 +246,12 @@ def test_reopen_returns_question_as_user_pinned_anchor() -> None:
 def test_resolution_rejects_stale_memory_version_without_partial_write() -> None:
     session, project, conversation, owner, answer = _seed()
     snapshot = build_conversation_continuity_snapshot(session, conversation=conversation)
-    raw = _get_existing_raw_memory(project)
-    raw["current_objective"] = "New objective"
+    memory = _memory(session, project)
+    memory["current_objective"] = "New objective"
     save_project_memory(
         session,
         int(project.id or 0),
-        raw,
+        memory,
         trigger="concurrent_change",
         rebuilt_slots=("current_objective",),
     )
@@ -264,7 +273,7 @@ def test_resolution_rejects_stale_memory_version_without_partial_write() -> None
     session.rollback()
     assert session.exec(select(ProjectQuestionResolution)).all() == []
     session.refresh(project)
-    assert QUESTION in _get_existing_raw_memory(project)["open_questions"]["ai"]
+    assert QUESTION in _memory(session, project)["open_questions"]["ai"]
 
 
 def test_resolution_rejects_answer_from_another_conversation() -> None:
@@ -336,12 +345,12 @@ def test_resolution_route_rejects_viewer_and_memory_change_flags_review() -> Non
 
     resolved = _resolve(session, project, conversation, owner, answer)
     session.refresh(project)
-    raw = _get_existing_raw_memory(project)
-    raw["current_objective"] = "范围变化后的目标"
+    memory = _memory(session, project)
+    memory["current_objective"] = "范围变化后的目标"
     save_project_memory(
         session,
         int(project.id or 0),
-        raw,
+        memory,
         trigger="memory_changed_after_resolution",
         rebuilt_slots=("current_objective",),
     )

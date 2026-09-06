@@ -20,7 +20,6 @@ from app.services import scheduler as scheduler_service
 from app.services.project_contexts import (
     EDITABLE_MEMORY_SLOTS,
     PROJECT_MEMORY_SUMMARY_TYPES,
-    _get_existing_raw_memory,
     _normalize_editable_slot,
     build_project_memory_multi_summary_prompt,
     build_project_memory_view_prompt,
@@ -41,6 +40,7 @@ from app.services.memory_facts import get_project_memory_fact_states
 from app.services.memory_slots import (
     get_project_memory_read_authority_report,
     get_project_memory_slot_states,
+    load_project_memory_slot_canonical_values,
     load_project_memory_slot_values,
 )
 from app.services.memory_rebuilds import latest_memory_rebuild_metadata
@@ -419,7 +419,11 @@ async def update_project_memory_slot(
         project_id,
         actor_user_id=actor_user_id,
     )
-    raw_memory = _get_existing_raw_memory(project)
+    raw_memory = load_project_memory_slot_canonical_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
     coverage = get_project_memory_coverage(project)
     raw_memory[slot_name] = _normalize_editable_slot(raw_memory.get(slot_name), pinned=body.pinned)
     saved_memory = save_project_memory(

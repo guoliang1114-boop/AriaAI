@@ -1049,12 +1049,6 @@ def get_client_memory_fact_states(
     client = session.get(ClientRecord, client_id)
     memory: dict[str, Any] = {}
     if client is not None:
-        try:
-            parsed = json.loads(client.client_memory_json or "{}")
-        except (json.JSONDecodeError, TypeError):
-            parsed = {}
-        if isinstance(parsed, dict):
-            memory = parsed
         memory["source_project_ids"] = get_client_memory_source_project_ids(client)
     evidence_by_slot = (
         build_client_slot_evidence_refs(session, client, memory)

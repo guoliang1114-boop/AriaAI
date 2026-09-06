@@ -560,16 +560,23 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
               {slotLedger?.read_authority && (
                 <CxStatus
                   tone={
-                    slotLedger.read_authority.read_mode === 'slot_ledger'
+                    slotLedger.read_authority.missing_slot_count === 0 &&
+                    slotLedger.read_authority.corrupt_slot_count === 0
                       ? 'good'
                       : 'warn'
                   }
                 >
-                  {slotLedger.read_authority.read_mode === 'slot_ledger'
-                    ? '读取权威：槽位账本'
-                    : `兼容回退 ${slotLedger.read_authority.aggregate_fallback_slot_count} 个槽位`}
+                  读取权威：槽位账本
+                  {slotLedger.read_authority.missing_slot_count +
+                    slotLedger.read_authority.corrupt_slot_count >
+                  0
+                    ? ` · ${slotLedger.read_authority.missing_slot_count + slotLedger.read_authority.corrupt_slot_count} 个账本异常`
+                    : ''}
+                  {slotLedger.read_authority.aggregate_business_slot_count > 0
+                    ? ` · ${slotLedger.read_authority.aggregate_business_slot_count} 个旧副本待清理`
+                    : ''}
                   {slotLedger.read_authority.divergent_slot_count > 0
-                    ? ` · ${slotLedger.read_authority.divergent_slot_count} 个双写差异`
+                    ? ` · ${slotLedger.read_authority.divergent_slot_count} 个旧副本差异`
                     : ''}
                 </CxStatus>
               )}

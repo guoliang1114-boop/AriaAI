@@ -53,7 +53,7 @@ def build_report(session: Session) -> dict[str, object]:
         for client in clients
     ]
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "content_included": False,
         "project": summarize_memory_read_authority(project_reports),
         "client": summarize_memory_read_authority(client_reports),

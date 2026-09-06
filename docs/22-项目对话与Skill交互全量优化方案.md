@@ -689,6 +689,13 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - `Memory Projection Authority Report v2` 显式输出 `runtime_read_mode=native_only` 和 `legacy_runtime_fallback_enabled=false`，并继续统计 legacy、缺失、分歧及异常，以便任何异常回流可见且阻止后续容器退役。
 - 本阶段不修改数据库结构，唯一 Alembic head 保持 `052_v1_52`。确定性门禁为 133 个场景、35 项指标；不运行、导入或连接 Codex。
 
+### Phase 4U：业务记忆槽位单一读取权威（已实施）
+
+- 项目对话、项目组合、客户画像、记忆候选、客户晋升、开放问题和事实证据指纹统一读取摘要校验通过的 slot ledger。缺失/损坏槽位会暴露为明确完整性问题，不从旧聚合 JSON 恢复过期内容。
+- 重建和定向编辑在同一 owner 行锁事务内同步槽位/事实账本，当前聚合容器仅保留有界非业务元数据；历史快照保存完整业务投影，diff/rollback 不受影响。
+- 幂等 `053_v1_53` 仅清理摘要正确且与账本值完全一致的当前聚合业务副本；非法 JSON、缺槽、损坏、分歧或重复槽位保留待审计，降级仅从合法账本补回当前 JSON 缺键。
+- `Memory Read Authority Report v3` 始终报告 `slot_ledger` / `fallback=false`，另行统计 legacy 业务副本、缺失、损坏和差异。生产执行前必须先创建并验证 PostgreSQL 备份；不运行、导入或连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

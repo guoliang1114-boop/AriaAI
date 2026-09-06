@@ -18,6 +18,7 @@ from app.services.context_builder import (
     is_workspace_project_inventory_query,
 )
 from app.services.project_contexts import save_project_memory
+from app.services.memory_slots import sync_project_memory_slots
 
 from tests.test_database import create_test_engine, drop_all_tables
 
@@ -67,9 +68,9 @@ class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
 
     def test_standalone_workspace_brief_lists_all_projects_from_memory(self):
         with Session(self.engine) as session:
+            projects = []
             for index in range(1, 8):
-                session.add(
-                    Project(
+                project = Project(
                         name=f"Project {index}",
                         client="Client",
                         status="active",
@@ -81,6 +82,18 @@ class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
                             }
                         ),
                     )
+                session.add(project)
+                projects.append(project)
+            session.flush()
+            for index, project in enumerate(projects, start=1):
+                sync_project_memory_slots(
+                    session,
+                    project,
+                    {
+                        "project_brief": f"Memory brief {index}",
+                        "key_risks": [f"Risk {index}"],
+                    },
+                    slot_keys=("project_brief", "key_risks"),
                 )
             session.commit()
 

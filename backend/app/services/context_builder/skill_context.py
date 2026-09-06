@@ -9,6 +9,7 @@ from app.services.context_builder.constants import (
     PROJECT_MARKDOWN_TOOL_NAMES,
     PROJECT_OFFICE_TOOL_NAMES,
 )
+from app.tools import project_markdown as _project_markdown  # noqa: F401 - register tools
 from app.tools.capabilities import tool_is_project_scoped
 
 

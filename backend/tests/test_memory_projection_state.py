@@ -92,9 +92,9 @@ def test_public_memory_payloads_do_not_expose_legacy_projection_residue() -> Non
     project_payload = get_project_memory_payload(project)
     client_payload = get_client_memory_payload(client)
 
-    assert project_payload["project_brief"] == "kept"
+    assert project_payload["project_brief"] == ""
     assert project_payload["_coverage"] == {}
-    assert client_payload["client_profile"] == "kept"
+    assert client_payload["client_profile"] == "Client"
     assert client_payload["source_project_ids"] == []
 
 

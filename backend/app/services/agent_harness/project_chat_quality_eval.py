@@ -414,8 +414,20 @@ def _memory_results() -> tuple[int, int, list[dict[str, Any]]]:
         memory_stale=False,
         context_memory_json='{"project_brief":"Current synthesis"}',
     )
-    stale_prompt = _format_project_memory_for_prompt(stale)
-    fresh_prompt = _format_project_memory_for_prompt(fresh)
+    stale_prompt = _format_project_memory_for_prompt(
+        stale,
+        evidence_bundle=build_project_memory_evidence(
+            stale,
+            memory_payload={"project_brief": "Earlier synthesis"},
+        ),
+    )
+    fresh_prompt = _format_project_memory_for_prompt(
+        fresh,
+        evidence_bundle=build_project_memory_evidence(
+            fresh,
+            memory_payload={"project_brief": "Current synthesis"},
+        ),
+    )
     details = [
         {
             "case": "stale_memory_guard",
@@ -457,25 +469,33 @@ def _memory_retrieval_results() -> tuple[int, int, list[dict[str, Any]]]:
 
 
 def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
+    client_memory_payload = {
+        "client_profile": "PRIVATE PROFILE",
+        "decision_patterns": ["PRIVATE DECISION"],
+        "lessons_learned": ["PRIVATE LESSON"],
+        "relationship_signals": ["PRIVATE RELATIONSHIP"],
+    }
     client = ClientRecord(
         name="Eval Client",
         client_memory_version=3,
         client_memory_stale=False,
-        client_memory_json=json.dumps(
-            {
-                "client_profile": "PRIVATE PROFILE",
-                "decision_patterns": ["PRIVATE DECISION"],
-                "lessons_learned": ["PRIVATE LESSON"],
-                "relationship_signals": ["PRIVATE RELATIONSHIP"],
-            }
-        ),
+        client_memory_json=json.dumps(client_memory_payload),
     )
-    unrelated = build_client_memory_prompt_bundle(client, "项目交付进度是什么？")
-    relationship = build_client_memory_prompt_bundle(client, "客户关系与决策机制如何？")
+    unrelated = build_client_memory_prompt_bundle(
+        client,
+        "项目交付进度是什么？",
+        memory_payload=client_memory_payload,
+    )
+    relationship = build_client_memory_prompt_bundle(
+        client,
+        "客户关系与决策机制如何？",
+        memory_payload=client_memory_payload,
+    )
     current_relationship = build_client_memory_prompt_bundle(
         client,
         "Summarize current relationship",
         force=True,
+        memory_payload=client_memory_payload,
     )
     client.client_memory_stale = True
     client_slot_states = {
@@ -488,28 +508,29 @@ def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
     fresh_lessons = build_client_memory_prompt_bundle(
         client,
         "What lessons did we learn from this client?",
+        memory_payload=client_memory_payload,
         slot_states=client_slot_states,
     )
     stale_relationship = build_client_memory_prompt_bundle(
         client,
         "Summarize current relationship",
+        memory_payload=client_memory_payload,
         slot_states=client_slot_states,
     )
+    project_memory_payload = {
+        "project_brief": "PROJECT BRIEF",
+        "current_stage": "delivery",
+        "current_objective": "Deliver",
+        "key_risks": ["PAYMENT RISK"],
+        "financial_status": "PAYMENT PENDING",
+        "important_documents": [{"name": "pack.pdf", "reason": "Evidence"}],
+        "delivery_signals": ["On track"],
+    }
     project = Project(
         id=77,
         name="Eval Project",
         client="Eval Client",
-        context_memory_json=json.dumps(
-            {
-                "project_brief": "PROJECT BRIEF",
-                "current_stage": "delivery",
-                "current_objective": "Deliver",
-                "key_risks": ["PAYMENT RISK"],
-                "financial_status": "PAYMENT PENDING",
-                "important_documents": [{"name": "pack.pdf", "reason": "Evidence"}],
-                "delivery_signals": ["On track"],
-            }
-        ),
+        context_memory_json=json.dumps(project_memory_payload),
         memory_version=4,
         memory_stale=True,
     )
@@ -527,16 +548,19 @@ def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
     financial_project = build_project_memory_evidence(
         project,
         "项目回款风险是什么？",
+        memory_payload=project_memory_payload,
         slot_states=project_slot_states,
     )
     document_project = build_project_memory_evidence(
         project,
         "应该查看哪些项目文件？",
+        memory_payload=project_memory_payload,
         slot_states=project_slot_states,
     )
     document_fact_project = build_project_memory_evidence(
         project,
         "应该查看哪些项目文件？",
+        memory_payload=project_memory_payload,
         slot_states=project_slot_states,
         fact_states={
             "important_documents": {
@@ -553,6 +577,7 @@ def _layered_memory_results() -> tuple[int, int, list[dict[str, Any]]]:
         client,
         "Summarize current relationship",
         force=True,
+        memory_payload=client_memory_payload,
         fact_states={
             "relationship_signals": {
                 0: {
@@ -2390,13 +2415,17 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
             and healthy["dual_write_consistent"],
         },
         {
-            "case": "missing_slot_is_explicit_aggregate_fallback",
-            "passed": missing["read_mode"] == "hybrid_aggregate_fallback"
-            and missing["aggregate_fallback_slots"] == ["key_risks"],
+            "case": "missing_slot_never_reenables_aggregate_fallback",
+            "passed": missing["read_mode"] == "slot_ledger"
+            and not missing["legacy_runtime_fallback_enabled"]
+            and missing["missing_slots"] == ["key_risks"]
+            and missing["aggregate_fallback_slots"] == [],
         },
         {
-            "case": "corrupt_slot_is_explicit_aggregate_fallback",
+            "case": "corrupt_slot_never_reenables_aggregate_fallback",
             "passed": corrupt["corrupt_slots"] == ["key_risks"]
+            and not corrupt["legacy_runtime_fallback_enabled"]
+            and corrupt["aggregate_fallback_slots"] == []
             and not corrupt["business_slot_cutover_ready"],
         },
         {

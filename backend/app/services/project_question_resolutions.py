@@ -24,11 +24,13 @@ from app.models.db import (
     ProjectQuestionResolutionEvent,
 )
 from app.services.cache import projects_cache
-from app.services.memory_slots import load_project_memory_slot_view
+from app.services.memory_slots import (
+    load_project_memory_slot_canonical_values,
+    load_project_memory_slot_view,
+)
 from app.services.memory_projection_state import get_project_memory_coverage
 from app.services.project_contexts import (
     ACCEPTED_MEMORY_CANDIDATES_KEY,
-    _get_existing_raw_memory,
     _normalize_editable_slot,
     get_project_memory_payload,
     save_project_memory,
@@ -349,7 +351,11 @@ def resolve_project_question(
             if normalize_project_question(item) != normalized_question
         ],
     }
-    raw_memory = _get_existing_raw_memory(project)
+    raw_memory = load_project_memory_slot_canonical_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
     raw_memory[OPEN_QUESTIONS_SLOT] = updated_detail
     accepted = raw_memory.get(ACCEPTED_MEMORY_CANDIDATES_KEY)
     removed_anchor_values = [current_question]
@@ -503,7 +509,11 @@ def reopen_project_question(
         )
     ).first()
     if not already_pinned:
-        raw_memory = _get_existing_raw_memory(project)
+        raw_memory = load_project_memory_slot_canonical_values(
+            session,
+            project,
+            get_project_memory_payload(project),
+        )
         raw_memory[OPEN_QUESTIONS_SLOT] = {
             "pinned": [*detail["pinned"], row.question_text],
             "ai": list(detail["ai"]),

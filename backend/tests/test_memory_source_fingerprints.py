@@ -21,6 +21,7 @@ from app.services.project_contexts import build_project_memory_data
 from app.services.memory_slots import (
     build_client_slot_evidence_refs,
     build_project_slot_evidence_refs,
+    sync_project_memory_slots,
 )
 from app.services.stakeholder_contexts import list_client_stakeholder_dicts
 
@@ -365,6 +366,16 @@ def test_client_sources_hash_prompt_projection_and_ignore_memory_envelope_churn(
             session.commit()
             session.refresh(client)
             session.refresh(project)
+            sync_project_memory_slots(
+                session,
+                project,
+                {
+                    "project_brief": "Pilot ERP in two plants",
+                    "key_risks": ["Procurement delay"],
+                    "next_actions": ["Run steering review"],
+                },
+                slot_keys=("project_brief", "key_risks", "next_actions"),
+            )
             stakeholder = ClientStakeholder(
                 client_id=int(client.id or 0),
                 name="Alice Chen",
@@ -478,12 +489,15 @@ def test_client_sources_hash_prompt_projection_and_ignore_memory_envelope_churn(
             )["source_sha256"] != stakeholder_ref["source_sha256"]
 
             client.notes = "CFO now prefers a single recommendation"
-            project.context_memory_json = json.dumps(
+            sync_project_memory_slots(
+                session,
+                project,
                 {
                     "project_brief": "Pilot ERP across three plants",
                     "key_risks": ["Procurement delay"],
                     "next_actions": ["Run steering review"],
-                }
+                },
+                slot_keys=("project_brief", "key_risks", "next_actions"),
             )
             stakeholder.decision_style = "Requires a single recommendation"
             session.add(client)
@@ -546,6 +560,16 @@ def test_promotion_source_digest_covers_full_business_memory_projection():
             session.commit()
             session.refresh(client)
             session.refresh(project)
+            sync_project_memory_slots(
+                session,
+                project,
+                {
+                    "project_brief": "ERP pilot",
+                    "financial_status": "Deposit pending",
+                },
+                slot_keys=("project_brief", "financial_status"),
+            )
+            session.commit()
 
             before = build_client_slot_evidence_refs(
                 session,
@@ -565,13 +589,14 @@ def test_promotion_source_digest_covers_full_business_memory_projection():
                 int(project.id or 0),
             )["source_sha256"]
 
-            project.context_memory_json = json.dumps(
+            sync_project_memory_slots(
+                session,
+                project,
                 {
                     "project_brief": "ERP pilot",
                     "financial_status": "Deposit received",
-                    "memory_version": 8,
-                    "rebuild_log": [{"version": 8}],
-                }
+                },
+                slot_keys=("financial_status",),
             )
             session.add(project)
             session.commit()

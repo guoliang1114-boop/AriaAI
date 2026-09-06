@@ -10,7 +10,6 @@ metadata outside the provider prompt.
 """
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
@@ -117,16 +116,6 @@ def _format_project_memory_for_prompt(
     return str(bundle.get("prompt") or "")
 
 
-def _load_client_memory(client: ClientRecord) -> dict[str, Any]:
-    try:
-        memory = json.loads(client.client_memory_json or "{}")
-        if not isinstance(memory, dict):
-            memory = {}
-    except Exception:
-        memory = {}
-    return memory
-
-
 def classify_client_memory_facets(query: str) -> tuple[str, ...]:
     """Return deterministic client-memory facets explicitly requested by a turn."""
 
@@ -225,7 +214,7 @@ def build_client_memory_prompt_bundle(
 ) -> dict[str, Any]:
     """Build an ephemeral prompt and content-free client-layer receipt data."""
 
-    memory = memory_payload or _load_client_memory(client)
+    memory = memory_payload or {}
     slot_states = slot_states or {}
     fact_states = fact_states or {}
     version = max(0, int(client.client_memory_version or 0))

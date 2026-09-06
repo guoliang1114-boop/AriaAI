@@ -966,15 +966,23 @@ function ClientMemoryPanel({
                 ) : null}
                 {memorySlots.read_authority ? (
                   <span>
-                    {memorySlots.read_authority.read_mode === 'slot_ledger'
-                      ? (isZh ? '读取权威：槽位账本' : 'Read authority: slot ledger')
-                      : (isZh
-                          ? `兼容回退 ${memorySlots.read_authority.aggregate_fallback_slot_count} 个槽位`
-                          : `${memorySlots.read_authority.aggregate_fallback_slot_count} aggregate fallbacks`)}
+                    {isZh ? '读取权威：槽位账本' : 'Read authority: slot ledger'}
+                    {memorySlots.read_authority.missing_slot_count +
+                      memorySlots.read_authority.corrupt_slot_count >
+                    0
+                      ? (isZh
+                          ? ` · ${memorySlots.read_authority.missing_slot_count + memorySlots.read_authority.corrupt_slot_count} 个账本异常`
+                          : ` · ${memorySlots.read_authority.missing_slot_count + memorySlots.read_authority.corrupt_slot_count} ledger issues`)
+                      : ''}
+                    {memorySlots.read_authority.aggregate_business_slot_count > 0
+                      ? (isZh
+                          ? ` · ${memorySlots.read_authority.aggregate_business_slot_count} 个旧副本待清理`
+                          : ` · ${memorySlots.read_authority.aggregate_business_slot_count} legacy copies pending cleanup`)
+                      : ''}
                     {memorySlots.read_authority.divergent_slot_count > 0
                       ? (isZh
-                          ? ` · ${memorySlots.read_authority.divergent_slot_count} 个双写差异`
-                          : ` · ${memorySlots.read_authority.divergent_slot_count} dual-write differences`)
+                          ? ` · ${memorySlots.read_authority.divergent_slot_count} 个旧副本差异`
+                          : ` · ${memorySlots.read_authority.divergent_slot_count} legacy-copy differences`)
                       : ''}
                   </span>
                 ) : null}

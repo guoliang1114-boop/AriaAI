@@ -56,10 +56,16 @@ from app.services import memory_candidates as memory_candidates_service
 from app.services import project_core as project_core_service
 from app.services.memory_candidates import accept_memory_candidate, create_memory_candidate
 from app.services.project_contexts import (
+    get_project_memory_payload,
     get_project_memory_summary_cache,
     save_project_memory_summary_cache,
 )
-from app.services.memory_slots import get_project_memory_slot_states
+from app.services.client_contexts import get_client_memory_payload
+from app.services.memory_slots import (
+    get_project_memory_slot_states,
+    load_client_memory_slot_values,
+    load_project_memory_slot_values,
+)
 from app.services.project_deletion import delete_project_cascade
 from app.services.time_utils import utc_now_naive
 from app.tools import office_documents
@@ -158,7 +164,11 @@ class RunOutputsPostgresContractTests(unittest.TestCase):
             candidate = session.exec(select(MemoryCandidate)).one()
             self.assertEqual(candidate.status, "accepted")
             project = session.get(Project, project_id)
-            memory = json.loads(project.context_memory_json)
+            memory = load_project_memory_slot_values(
+                session,
+                project,
+                get_project_memory_payload(project),
+            )
             self.assertIn("安排项目启动会并确认责任人。", memory["next_actions"])
             generated = session.exec(select(GeneratedFile)).one()
             self.assertEqual(generated.run_id, "run_postgres_output_contract")
@@ -452,7 +462,11 @@ class RunOutputsPostgresContractTests(unittest.TestCase):
             self.assertIsNotNone(candidate)
             self.assertIsNotNone(client)
             self.assertEqual(candidate.status, expected_status)
-            memory = json.loads(client.client_memory_json or "{}")
+            memory = load_client_memory_slot_values(
+                verify,
+                client,
+                get_client_memory_payload(client),
+            )
             if expected_status == "accepted":
                 self.assertEqual(int(client.client_memory_version or 0), 1)
                 self.assertIn(content, memory.get("decision_patterns", []))
@@ -477,7 +491,11 @@ class RunOutputsPostgresContractTests(unittest.TestCase):
             self.assertIsNotNone(project)
             self.assertIsNotNone(source)
             self.assertEqual(candidate.status, expected_status)
-            memory = json.loads(project.context_memory_json or "{}")
+            memory = load_project_memory_slot_values(
+                verify,
+                project,
+                get_project_memory_payload(project),
+            )
             if expected_status == "accepted":
                 self.assertEqual(int(project.memory_version or 0), 1)
                 self.assertIn(content, memory.get("recent_progress", []))

@@ -141,8 +141,9 @@ export interface MemorySlotState {
 }
 
 export interface MemoryReadAuthorityReport {
-  schema_version: 1
-  read_mode: 'slot_ledger' | 'hybrid_aggregate_fallback'
+  schema_version: 3
+  read_mode: 'slot_ledger'
+  legacy_runtime_fallback_enabled: false
   expected_slot_count: number
   ledger_row_count: number
   ledger_value_count: number
@@ -155,6 +156,8 @@ export interface MemoryReadAuthorityReport {
   corrupt_slots: string[]
   aggregate_fallback_slot_count: number
   aggregate_fallback_slots: string[]
+  aggregate_business_slot_count: number
+  aggregate_business_slots: string[]
   divergent_slot_count: number
   divergent_slots: string[]
   divergent_slot_details: Array<{
@@ -167,6 +170,13 @@ export interface MemoryReadAuthorityReport {
   aggregate_only_key_count: number
   aggregate_only_keys: string[]
   aggregate_only_unknown_key_count: number
+  aggregate_storage_valid: boolean
+  unknown_aggregate_key_profiles: Array<{
+    key_sha256: string
+    key_length: number
+    value_type: 'null' | 'boolean' | 'string' | 'array' | 'object' | 'number' | 'other'
+  }>
+  unknown_aggregate_key_profiles_truncated: boolean
   business_slot_cutover_ready: boolean
   dual_write_consistent: boolean
   aggregate_container_retirement_ready: boolean

@@ -32,9 +32,16 @@ from app.services.memory_projection_state import (
 from app.services.memory_slots import (
     CLIENT_MEMORY_SLOT_KEYS,
     build_client_slot_evidence_refs,
+    load_client_memory_slot_values,
+    load_project_memory_slot_value_views,
     project_memory_promotion_payload,
+    strip_aggregate_memory_business_slots,
 )
-from app.services.project_contexts import _resolve_output_language, normalize_summary_language
+from app.services.project_contexts import (
+    _resolve_output_language,
+    get_project_memory_payload,
+    normalize_summary_language,
+)
 from app.services.project_clients import list_projects_for_client
 from app.services.stakeholder_contexts import (
     format_client_stakeholders_for_prompt,
@@ -97,6 +104,7 @@ def get_client_memory_payload(client: ClientRecord) -> dict[str, Any]:
         parsed = {}
 
     parsed = strip_native_memory_state(parsed)
+    parsed = strip_aggregate_memory_business_slots(parsed, CLIENT_MEMORY_SLOT_KEYS)
 
     return {
         **base,
@@ -231,6 +239,14 @@ def build_client_memory_data(
         lines.append(stakeholder_context)
 
     if projects:
+        project_memory_by_id = load_project_memory_slot_value_views(
+            session,
+            {
+                int(project.id): get_project_memory_payload(project)
+                for project in projects[:12]
+                if project.id is not None
+            },
+        )
         lines.append(f"Related projects ({len(projects)} total):")
         for project in projects[:12]:
             project_source = f"[project:{project.id}]"
@@ -242,29 +258,22 @@ def build_client_memory_data(
                 lines.append(
                     f"  {project_source} Summary: {project.context_summary[:320]}"
                 )
-            if project.context_memory_json:
-                try:
-                    memory = json.loads(project.context_memory_json)
-                    if isinstance(memory, dict):
-                        brief = str(memory.get("project_brief", "")).strip()
-                        risks = memory.get("key_risks", [])
-                        next_actions = memory.get("next_actions", [])
-                        if brief:
-                            lines.append(
-                                f"  {project_source} Project brief: {brief[:240]}"
-                            )
-                        if isinstance(risks, list) and risks:
-                            lines.append(
-                                f"  {project_source} Risks: "
-                                f"{'; '.join(str(item) for item in risks[:3])}"
-                            )
-                        if isinstance(next_actions, list) and next_actions:
-                            lines.append(
-                                f"  {project_source} Next actions: "
-                                f"{'; '.join(str(item) for item in next_actions[:3])}"
-                            )
-                except json.JSONDecodeError:
-                    pass
+            memory = project_memory_by_id.get(int(project.id or 0), {})
+            brief = str(memory.get("project_brief", "")).strip()
+            risks = memory.get("key_risks", [])
+            next_actions = memory.get("next_actions", [])
+            if brief:
+                lines.append(f"  {project_source} Project brief: {brief[:240]}")
+            if isinstance(risks, list) and risks:
+                lines.append(
+                    f"  {project_source} Risks: "
+                    f"{'; '.join(str(item) for item in risks[:3])}"
+                )
+            if isinstance(next_actions, list) and next_actions:
+                lines.append(
+                    f"  {project_source} Next actions: "
+                    f"{'; '.join(str(item) for item in next_actions[:3])}"
+                )
 
     source_handles = list(
         dict.fromkeys(
@@ -742,9 +751,16 @@ def save_client_memory(
         or any(state["status"] != "ready" for state in current_states)
     )
     memory["stale"] = client.client_memory_stale
-    aggregate_memory = strip_native_memory_state(memory)
+    snapshot_base = strip_native_memory_state(memory)
+    aggregate_memory = strip_aggregate_memory_business_slots(
+        snapshot_base,
+        CLIENT_MEMORY_SLOT_KEYS,
+    )
     client.client_memory_json = json.dumps(aggregate_memory, ensure_ascii=False)
     session.add(client)
+    snapshot_memory = strip_native_memory_state(
+        load_client_memory_slot_values(session, client, snapshot_base)
+    )
     session.add(
         ClientMemorySnapshot(
             client_id=client_id,
@@ -752,7 +768,7 @@ def save_client_memory(
             trigger=trigger,
             memory_json=json.dumps(
                 {
-                    **aggregate_memory,
+                    **snapshot_memory,
                     "source_project_ids": memory["source_project_ids"],
                 },
                 ensure_ascii=False,
@@ -765,7 +781,11 @@ def save_client_memory(
         session.refresh(client)
     else:
         session.flush()
-    return get_client_memory_payload(client)
+    return load_client_memory_slot_values(
+        session,
+        client,
+        get_client_memory_payload(client),
+    )
 
 
 def build_client_memory_summary_prompt(

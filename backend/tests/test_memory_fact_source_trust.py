@@ -675,6 +675,12 @@ def test_project_memory_source_drift_downgrades_dependent_client_state():
             session.commit()
             session.refresh(client)
             session.refresh(project)
+            sync_project_memory_slots(
+                session,
+                project,
+                {"financial_status": "Deposit pending"},
+                slot_keys=("financial_status",),
+            )
 
             handle = f"project_memory:{project.id}"
             memory = {
@@ -713,8 +719,11 @@ def test_project_memory_source_drift_downgrades_dependent_client_state():
             )[0]["provenance_status"] == "direct"
 
             project = session.get(Project, project.id)
-            project.context_memory_json = json.dumps(
-                {"financial_status": "Deposit received"}
+            sync_project_memory_slots(
+                session,
+                project,
+                {"financial_status": "Deposit received"},
+                slot_keys=("financial_status",),
             )
             session.add(project)
             session.commit()

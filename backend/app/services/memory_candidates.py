@@ -31,9 +31,13 @@ from app.services.client_identity import (
 )
 from app.services.project_contexts import (
     _default_project_memory,
-    _get_existing_raw_memory,
+    get_project_memory_payload,
     _normalize_editable_slot,
     save_project_memory,
+)
+from app.services.memory_slots import (
+    load_client_memory_slot_values,
+    load_project_memory_slot_canonical_values,
 )
 from app.services.memory_projection_state import get_project_memory_coverage
 from app.services.time_utils import utc_now_naive
@@ -288,12 +292,20 @@ def inspect_memory_candidate(
         project = session.get(Project, candidate.project_id)
         if project is not None:
             current_version = int(project.memory_version or 0)
-            memory = _get_existing_raw_memory(project) or {}
+            memory = load_project_memory_slot_canonical_values(
+                session,
+                project,
+                get_project_memory_payload(project),
+            )
     elif candidate.scope == "client" and candidate.client_id is not None:
         client = session.get(ClientRecord, candidate.client_id)
         if client is not None:
             current_version = int(client.client_memory_version or 0)
-            memory = get_client_memory_payload(client)
+            memory = load_client_memory_slot_values(
+                session,
+                client,
+                get_client_memory_payload(client),
+            )
     elif candidate.scope == "user":
         row = session.exec(
             select(UserMemory).where(UserMemory.user_id == candidate.owner_user_id)
@@ -856,7 +868,11 @@ def accept_memory_candidate(
         sync_candidate_source_message(session, candidate)
         session.commit()
     elif candidate.scope == "project":
-        memory = _get_existing_raw_memory(project) or _default_project_memory(project)
+        memory = load_project_memory_slot_canonical_values(
+            session,
+            project,
+            get_project_memory_payload(project),
+        )
         _record_accepted_anchor(memory, target_slot, candidate.content)
         if target_slot == "key_risks":
             normalized = _normalize_editable_slot(memory.get(target_slot))
@@ -885,7 +901,11 @@ def accept_memory_candidate(
         sync_candidate_source_message(session, candidate)
         session.commit()
     elif candidate.scope == "client":
-        memory = get_client_memory_payload(client)
+        memory = load_client_memory_slot_values(
+            session,
+            client,
+            get_client_memory_payload(client),
+        )
         _record_accepted_anchor(memory, target_slot, candidate.content)
         memory[target_slot] = _append_unique(memory.get(target_slot), candidate.content)
         next_version = int(client.client_memory_version or 0) + 1

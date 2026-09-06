@@ -46,10 +46,16 @@ def _project(*, stale: bool = False) -> Project:
     )
 
 
+def _memory(project: Project) -> dict:
+    return json.loads(project.context_memory_json)
+
+
 def test_risk_question_selects_only_relevant_memory_slots():
+    project = _project()
     bundle = build_project_memory_evidence(
-        _project(),
+        project,
         "项目当前最大的风险、阻塞和下一步是什么？",
+        memory_payload=_memory(project),
     )
 
     selection = bundle["selection"]
@@ -80,7 +86,10 @@ def test_financial_and_stakeholder_facets_are_distinct():
 
 
 def test_comprehensive_question_selects_all_slots_with_bounded_items():
-    bundle = build_project_memory_evidence(_project(), "全面盘点项目所有方面")
+    project = _project()
+    bundle = build_project_memory_evidence(
+        project, "全面盘点项目所有方面", memory_payload=_memory(project)
+    )
 
     assert classify_project_memory_facets("全面盘点项目所有方面") == ("comprehensive",)
     assert bundle["selection"]["retrieval_mode"] == "full"
@@ -90,7 +99,10 @@ def test_comprehensive_question_selects_all_slots_with_bounded_items():
 
 
 def test_manifest_never_persists_memory_text_and_resolves_only_valid_citations():
-    bundle = build_project_memory_evidence(_project(), "项目风险是什么？")
+    project = _project()
+    bundle = build_project_memory_evidence(
+        project, "项目风险是什么？", memory_payload=_memory(project)
+    )
     manifest = bundle["manifest"]
     valid, reason = validate_project_memory_evidence_manifest(manifest)
 
@@ -110,7 +122,10 @@ def test_manifest_never_persists_memory_text_and_resolves_only_valid_citations()
 
 
 def test_stale_memory_prompt_keeps_freshness_guard_and_receipt_reference():
-    bundle = build_project_memory_evidence(_project(stale=True), "项目当前风险是什么？")
+    project = _project(stale=True)
+    bundle = build_project_memory_evidence(
+        project, "项目当前风险是什么？", memory_payload=_memory(project)
+    )
 
     assert "Structured Project Memory (STALE)" in bundle["prompt"]
     assert "prefer newer milestones" in bundle["prompt"]
@@ -134,7 +149,9 @@ def test_per_slot_item_limit_reports_truncation_and_neutralizes_embedded_citatio
     }
     project.context_memory_json = json.dumps(memory, ensure_ascii=False)
 
-    bundle = build_project_memory_evidence(project, "项目风险是什么？")
+    bundle = build_project_memory_evidence(
+        project, "项目风险是什么？", memory_payload=memory
+    )
 
     assert bundle["selection"]["truncated"] is True
     assert bundle["prompt"].index("Pinned risk anchor") < bundle["prompt"].index("Risk one")
@@ -144,7 +161,10 @@ def test_per_slot_item_limit_reports_truncation_and_neutralizes_embedded_citatio
 
 
 def test_manifest_rejects_tampered_evidence_identity_and_lifecycle():
-    bundle = build_project_memory_evidence(_project(), "项目风险是什么？")
+    project = _project()
+    bundle = build_project_memory_evidence(
+        project, "项目风险是什么？", memory_payload=_memory(project)
+    )
     manifest = json.loads(json.dumps(bundle["manifest"]))
     manifest["entries"][0]["evidence_id"] = "memory_evidence_forged"
 

@@ -98,6 +98,7 @@ from app.services.memory_slots import (
     get_client_memory_slot_states,
     get_project_memory_slot_states,
     load_client_memory_slot_values,
+    load_project_memory_slot_canonical_values,
     load_project_memory_slot_values,
 )
 from app.services.project_deletion import delete_project_cascade
@@ -517,7 +518,11 @@ async def _auto_promote_archived_project_to_client_memory(
     if client is None:
         return False
 
-    project_memory = get_project_memory_payload(project)
+    project_memory = load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
     if (project.memory_version or 0) == 0 or project.memory_stale:
         project_memory = await _rebuild_project_memory(
             session,
@@ -538,9 +543,17 @@ async def _auto_promote_archived_project_to_client_memory(
     client = _find_client_record_for_project(session, project)
     if client is None:
         return False
-    project_memory = get_project_memory_payload(project)
+    project_memory = load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
 
-    current_client_memory = get_client_memory_payload(client)
+    current_client_memory = load_client_memory_slot_values(
+        session,
+        client,
+        get_client_memory_payload(client),
+    )
     promotion_plan = plan_client_memory_rebuild(
         memory_version=int(client.client_memory_version or 0),
         parent_stale=bool(client.client_memory_stale),
@@ -635,7 +648,11 @@ async def _auto_promote_archived_project_to_client_memory(
         for member in source_memberships
     ):
         raise HTTPException(403, "Source project write permission required")
-    refreshed_client_memory = get_client_memory_payload(client)
+    refreshed_client_memory = load_client_memory_slot_values(
+        session,
+        client,
+        get_client_memory_payload(client),
+    )
     current_source_snapshots = capture_client_memory_source_snapshots(
         session,
         client,
@@ -1904,6 +1921,11 @@ async def _rebuild_project_memory(
                     raw_memory,
                     project,
                     plan.slot_keys,
+                    existing_memory=load_project_memory_slot_canonical_values(
+                        session,
+                        project,
+                        get_project_memory_payload(project),
+                    ),
                 )
             except MemoryPatchValidationError:
                 begin_memory_prompt_snapshot(session)
@@ -1952,6 +1974,11 @@ async def _rebuild_project_memory(
                     full_raw,
                     project,
                     PROJECT_MEMORY_SLOT_KEYS,
+                    existing_memory=load_project_memory_slot_canonical_values(
+                        session,
+                        project,
+                        get_project_memory_payload(project),
+                    ),
                 )
                 return save_project_memory(
                     session,
@@ -1969,6 +1996,11 @@ async def _rebuild_project_memory(
                 raw_memory,
                 project,
                 PROJECT_MEMORY_SLOT_KEYS,
+                existing_memory=load_project_memory_slot_canonical_values(
+                    session,
+                    project,
+                    get_project_memory_payload(project),
+                ),
             )
         return save_project_memory(
             session,
@@ -2009,11 +2041,19 @@ async def _ensure_project_memory(
         trusted_system=trusted_system,
     )
     project = project or get_project_or_404(session, project_id)
-    memory_payload = get_project_memory_payload(project)
+    memory_payload = load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
     if project.memory_stale or project.memory_version == 0:
         async with _get_project_memory_lock(project_id):
             project = get_project_or_404(session, project_id)
-            memory_payload = get_project_memory_payload(project)
+            memory_payload = load_project_memory_slot_values(
+                session,
+                project,
+                get_project_memory_payload(project),
+            )
             if project.memory_stale or project.memory_version == 0:
                 memory_payload = await _rebuild_project_memory(
                     session,

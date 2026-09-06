@@ -36,6 +36,7 @@ from app.services.project_contexts import (
     parse_project_memory_patch,
     save_project_memory,
 )
+from app.services.memory_slots import load_project_memory_slot_values
 
 
 def _engine():
@@ -201,7 +202,12 @@ def test_project_rebuild_verifies_direct_source_ids_and_keeps_private_envelope_o
 
             # An unchanged fact keeps its already-verified direct link even if
             # an older provider or a user edit path omits the private envelope.
-            memory = get_project_memory_payload(session.get(Project, project.id))
+            current_project = session.get(Project, project.id)
+            memory = load_project_memory_slot_values(
+                session,
+                current_project,
+                get_project_memory_payload(current_project),
+            )
             save_project_memory(
                 session,
                 int(project.id or 0),
@@ -224,7 +230,12 @@ def test_project_rebuild_verifies_direct_source_ids_and_keeps_private_envelope_o
             payment.note = "Deposit record corrected"
             session.add(payment)
             session.commit()
-            memory = get_project_memory_payload(session.get(Project, project.id))
+            current_project = session.get(Project, project.id)
+            memory = load_project_memory_slot_values(
+                session,
+                current_project,
+                get_project_memory_payload(current_project),
+            )
             save_project_memory(
                 session,
                 int(project.id or 0),

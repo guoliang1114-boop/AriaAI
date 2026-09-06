@@ -24,10 +24,22 @@ from app.models.db import (
     User,
     UserMemory,
 )
-from app.services.client_contexts import parse_client_memory, save_client_memory
+from app.services.client_contexts import (
+    get_client_memory_payload,
+    parse_client_memory,
+    save_client_memory,
+)
 from app.services.client_identity import lock_client_identity_namespaces
 from app.services.chat_store import delete_conversation_with_messages
-from app.services.project_contexts import parse_project_memory, save_project_memory
+from app.services.project_contexts import (
+    get_project_memory_payload,
+    parse_project_memory,
+    save_project_memory,
+)
+from app.services.memory_slots import (
+    load_client_memory_slot_values,
+    load_project_memory_slot_values,
+)
 from app.services import memory_candidates as memory_candidates_service
 from app.routers import memory_candidates as candidates_module
 from app.routers.auth import get_current_user
@@ -1051,8 +1063,13 @@ def test_chat_candidate_is_source_linked_idempotent_and_accepts_into_project_mem
 
     with Session(engine) as session:
         project = session.get(Project, project_id)
-        memory = json.loads(project.context_memory_json)
+        memory = load_project_memory_slot_values(
+            session,
+            project,
+            get_project_memory_payload(project),
+        )
         assert payload["content"] in memory["recent_progress"]
+        assert "recent_progress" not in json.loads(project.context_memory_json)
         source = session.get(Message, message_id)
         metadata = json.loads(source.metadata_json)
         message_candidate = next(
@@ -1078,7 +1095,11 @@ def test_chat_candidate_is_source_linked_idempotent_and_accepts_into_project_mem
             trigger="test_stale_rebuild",
         )
         refreshed_project = session.get(Project, project_id)
-        persisted_rebuild = json.loads(refreshed_project.context_memory_json)
+        persisted_rebuild = load_project_memory_slot_values(
+            session,
+            refreshed_project,
+            get_project_memory_payload(refreshed_project),
+        )
         assert payload["content"] in persisted_rebuild["recent_progress"]
     engine.dispose()
 
@@ -1294,8 +1315,13 @@ def test_client_candidate_requires_related_project_write_access_and_survives_reb
     assert accepted.status_code == 200, accepted.text
     with Session(engine) as session:
         record = session.get(ClientRecord, client_id)
-        memory = json.loads(record.client_memory_json)
+        memory = load_client_memory_slot_values(
+            session,
+            record,
+            get_client_memory_payload(record),
+        )
         assert payload["content"] in memory["relationship_signals"]
+        assert "relationship_signals" not in json.loads(record.client_memory_json)
         rebuilt = parse_client_memory('{"relationship_signals": []}', record)
         assert payload["content"] in rebuilt["relationship_signals"]
         save_client_memory(
@@ -1305,7 +1331,11 @@ def test_client_candidate_requires_related_project_write_access_and_survives_reb
             trigger="test_stale_rebuild",
         )
         refreshed_client = session.get(ClientRecord, client_id)
-        persisted_rebuild = json.loads(refreshed_client.client_memory_json)
+        persisted_rebuild = load_client_memory_slot_values(
+            session,
+            refreshed_client,
+            get_client_memory_payload(refreshed_client),
+        )
         assert payload["content"] in persisted_rebuild["relationship_signals"]
     engine.dispose()
 

@@ -1,9 +1,10 @@
-"""Durable slot-level memory projections, freshness, and provenance.
+"""Durable slot-level memory authority, freshness, and provenance.
 
-Aria retains its aggregate project/client JSON and snapshots as compatibility
-read models. This module dual-writes the smallest durable unit that retrieval
-actually consumes: one memory slot. Stable slot identities, canonical content
-digests, and bounded source references are an Aria-native adaptation of the
+Aria's current project/client aggregate JSON columns retain only bounded
+non-business metadata. Historical snapshots remain full recovery records, while
+the slot ledger is the sole runtime authority for business memory. Stable slot
+identities, canonical content digests, and bounded source references are an
+Aria-native adaptation of the
 world-state identity mechanism in OpenAI Codex
 ``codex-rs/core/src/context/world_state/mod.rs`` at upstream commit
 ``83d1fe0e67b1323f71febc2925817732b449f1d9`` (Apache License 2.0).
@@ -96,6 +97,27 @@ _CLIENT_PROJECT_SUMMARY_CHARS = 320
 _CLIENT_PROJECT_BRIEF_CHARS = 240
 
 
+def strip_aggregate_memory_business_slots(
+    memory: Mapping[str, Any],
+    slot_keys: Iterable[str],
+    *,
+    editable_slot_keys: Iterable[str] = (),
+) -> dict[str, Any]:
+    """Remove ledger-owned business values from the current JSON container."""
+
+    owned = {str(key) for key in slot_keys if str(key)}
+    derived = {
+        f"{str(key)}_detail"
+        for key in editable_slot_keys
+        if str(key)
+    }
+    return {
+        str(key): value
+        for key, value in memory.items()
+        if str(key) not in owned and str(key) not in derived
+    }
+
+
 def _canonical_json(value: Any) -> str:
     return json.dumps(
         value,
@@ -179,7 +201,10 @@ def _client_base_prompt_state(client: ClientRecord) -> dict[str, Any]:
     }
 
 
-def _project_for_client_prompt_state(project: Project) -> dict[str, Any]:
+def _project_for_client_prompt_state(
+    project: Project,
+    memory: Mapping[str, Any],
+) -> dict[str, Any]:
     """Project source state as rendered by ``build_client_memory_data``.
 
     Hashing the raw ``context_memory_json`` would make an otherwise unchanged
@@ -198,13 +223,6 @@ def _project_for_client_prompt_state(project: Project) -> dict[str, Any]:
             :_CLIENT_PROJECT_SUMMARY_CHARS
         ],
     }
-    try:
-        memory = json.loads(project.context_memory_json or "{}")
-    except (json.JSONDecodeError, TypeError):
-        memory = {}
-    if not isinstance(memory, dict):
-        return state
-
     brief = str(memory.get("project_brief", "")).strip()
     risks = memory.get("key_risks", [])
     next_actions = memory.get("next_actions", [])
@@ -248,16 +266,8 @@ def project_memory_promotion_payload(memory: Any) -> dict[str, Any]:
     return payload
 
 
-def _project_memory_for_promotion_state(project: Project) -> dict[str, Any]:
-    """Canonical promotion state, including the client ownership boundary."""
-
-    try:
-        stored = json.loads(project.context_memory_json or "{}")
-    except (json.JSONDecodeError, TypeError):
-        stored = {}
-    if not isinstance(stored, dict):
-        stored = {}
-    defaults: dict[str, Any] = {
+def _project_memory_defaults(project: Project) -> dict[str, Any]:
+    return {
         "project_brief": str(project.description or "")[:300],
         "current_stage": project.status,
         "current_objective": "",
@@ -271,10 +281,64 @@ def _project_memory_for_promotion_state(project: Project) -> dict[str, Any]:
         "stakeholder_notes": {"ai": [], "pinned": []},
         "client_stakeholders": [],
     }
+
+
+def _project_read_base(
+    project: Project,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Combine owner defaults with non-business metadata only."""
+
+    result = {
+        **_project_memory_defaults(project),
+        **strip_aggregate_memory_business_slots(
+            payload,
+            PROJECT_MEMORY_SLOT_KEYS,
+            editable_slot_keys=PROJECT_EDITABLE_SLOT_KEYS,
+        ),
+    }
+    for slot_key in PROJECT_EDITABLE_SLOT_KEYS:
+        value = result.get(slot_key)
+        normalized = value if isinstance(value, dict) else {"ai": [], "pinned": []}
+        result[f"{slot_key}_detail"] = normalized
+        flattened: list[str] = []
+        for part in ("pinned", "ai"):
+            items = normalized.get(part)
+            if isinstance(items, list):
+                flattened.extend(
+                    str(item).strip() for item in items if str(item).strip()
+                )
+        result[slot_key] = flattened
+    return result
+
+
+def _client_read_base(
+    client: ClientRecord,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "client_profile": str(client.notes or "")[:400] or client.name,
+        "decision_patterns": [],
+        "key_contacts": [],
+        "structured_stakeholders": [],
+        "lessons_learned": [],
+        "relationship_signals": [],
+        "project_history": [],
+        "sensitive_topics": [],
+        **strip_aggregate_memory_business_slots(payload, CLIENT_MEMORY_SLOT_KEYS),
+    }
+
+
+def _project_memory_for_promotion_state(
+    project: Project,
+    memory: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Canonical promotion state, including the client ownership boundary."""
+
     return {
         "project_name": project.name,
         "project_client": project.client,
-        "project_memory": project_memory_promotion_payload({**defaults, **stored}),
+        "project_memory": project_memory_promotion_payload(memory),
     }
 
 
@@ -671,13 +735,27 @@ def build_client_slot_evidence_refs(
         reverse=True,
     )
     matching_projects = matching_projects[:12]
+    project_memory_by_id = load_project_memory_slot_value_views(
+        session,
+        {
+            int(project.id): _project_memory_defaults(project)
+            for project in matching_projects
+            if project.id is not None
+        },
+    )
     project_refs = [
         _source_ref(
             "project",
             project.id,
             f"Project: {project.name}",
             project.created_at,
-            source_state=_project_for_client_prompt_state(project),
+            source_state=_project_for_client_prompt_state(
+                project,
+                project_memory_by_id.get(
+                    int(project.id or 0),
+                    _project_memory_defaults(project),
+                ),
+            ),
         )
         for project in matching_projects
     ]
@@ -687,7 +765,13 @@ def build_client_slot_evidence_refs(
             project.id,
             f"Project memory: {project.name}",
             project.memory_updated_at,
-            source_state=_project_memory_for_promotion_state(project),
+            source_state=_project_memory_for_promotion_state(
+                project,
+                project_memory_by_id.get(
+                    int(project.id or 0),
+                    _project_memory_defaults(project),
+                ),
+            ),
         )
         for project in matching_projects
     ]
@@ -1116,15 +1200,11 @@ def get_client_memory_slot_states(
         statement = statement.with_for_update()
     rows = session.exec(statement).all()
     client = session.get(ClientRecord, client_id)
-    memory: dict[str, Any] = {}
-    if client is not None:
-        try:
-            parsed = json.loads(client.client_memory_json or "{}")
-        except (json.JSONDecodeError, TypeError):
-            parsed = {}
-        if isinstance(parsed, dict):
-            memory = parsed
-        memory["source_project_ids"] = get_client_memory_source_project_ids(client)
+    memory = (
+        {"source_project_ids": get_client_memory_source_project_ids(client)}
+        if client is not None
+        else {}
+    )
     evidence_by_slot = (
         build_client_slot_evidence_refs(session, client, memory)
         if client is not None
@@ -1140,6 +1220,8 @@ def _overlay_slot_rows(
     payload: dict[str, Any],
     rows: Iterable[ProjectMemorySlot | ClientMemorySlot],
     evidence_by_slot: Mapping[str, Iterable[dict[str, str]]] | None = None,
+    *,
+    flatten_project_editable: bool = True,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     result = dict(payload)
     states: dict[str, dict[str, Any]] = {}
@@ -1153,7 +1235,11 @@ def _overlay_slot_rows(
         if not integrity_ok:
             continue
         result[row.slot_key] = value
-        if row.slot_key in PROJECT_EDITABLE_SLOT_KEYS and isinstance(value, dict):
+        if (
+            flatten_project_editable
+            and row.slot_key in PROJECT_EDITABLE_SLOT_KEYS
+            and isinstance(value, dict)
+        ):
             result[f"{row.slot_key}_detail"] = value
             flattened: list[str] = []
             for part in ("pinned", "ai"):
@@ -1164,6 +1250,30 @@ def _overlay_slot_rows(
                     )
             result[row.slot_key] = flattened
     return result, states
+
+
+def load_project_memory_slot_canonical_values(
+    session: Session,
+    project: Project,
+    base_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Hydrate canonical ledger values for durable snapshots and internal writes."""
+
+    rows = session.exec(
+        select(ProjectMemorySlot).where(
+            ProjectMemorySlot.project_id == int(project.id or 0)
+        )
+    ).all()
+    payload = {
+        key: value
+        for key, value in base_payload.items()
+        if key not in {f"{slot_key}_detail" for slot_key in PROJECT_EDITABLE_SLOT_KEYS}
+    }
+    return _overlay_slot_rows(
+        payload,
+        rows,
+        flatten_project_editable=False,
+    )[0]
 
 
 def build_memory_read_authority_report(
@@ -1177,12 +1287,7 @@ def build_memory_read_authority_report(
     aggregate_storage_payload: Mapping[str, Any] | None = None,
     aggregate_storage_valid: bool = True,
 ) -> dict[str, Any]:
-    """Describe slot-ledger authority without returning memory content.
-
-    The aggregate JSON remains a compatibility container. This report makes
-    every business-slot fallback and dual-write divergence observable before
-    Aria attempts a future read-model cutover or removes compatibility code.
-    """
+    """Describe ledger-only authority and legacy aggregate copies without content."""
 
     expected = tuple(dict.fromkeys(str(key) for key in slot_keys if str(key)))
     expected_set = set(expected)
@@ -1241,13 +1346,22 @@ def build_memory_read_authority_report(
         else:
             stale_slots.append(slot_key)
 
-        detail_key = f"{slot_key}_detail"
-        aggregate_value = (
-            aggregate_payload.get(detail_key)
-            if slot_key in editable and detail_key in aggregate_payload
-            else aggregate_payload.get(slot_key)
+        storage_payload = (
+            aggregate_payload
+            if aggregate_storage_payload is None
+            else aggregate_storage_payload
         )
-        if _sha256_json(aggregate_value) != _sha256_json(value):
+        detail_key = f"{slot_key}_detail"
+        aggregate_key = (
+            detail_key
+            if slot_key in editable and detail_key in storage_payload
+            else slot_key
+        )
+        if (
+            aggregate_key in storage_payload
+            and _sha256_json(storage_payload.get(aggregate_key))
+            != _sha256_json(value)
+        ):
             divergent_slots.append(slot_key)
             row_aggregate_version = max(
                 0,
@@ -1257,7 +1371,9 @@ def build_memory_read_authority_report(
                 {
                     "slot_key": slot_key,
                     "ledger_value_type": _json_value_type(value),
-                    "aggregate_value_type": _json_value_type(aggregate_value),
+                    "aggregate_value_type": _json_value_type(
+                        storage_payload.get(aggregate_key)
+                    ),
                     "aggregate_version_relation": _memory_version_relation(
                         row_aggregate_version,
                         current_aggregate_version,
@@ -1265,18 +1381,19 @@ def build_memory_read_authority_report(
                 }
             )
 
-    fallback_set = set(missing_slots) | set(corrupt_slots)
-    fallback_slots = [
-        slot_key
-        for slot_key in expected
-        if slot_key in fallback_set
-    ]
     storage_payload = (
         aggregate_payload
         if aggregate_storage_payload is None
         else aggregate_storage_payload
     )
     derived_detail_keys = {f"{slot_key}_detail" for slot_key in editable}
+    aggregate_business_slots = sorted(
+        {
+            key.removesuffix("_detail") if key in derived_detail_keys else key
+            for key in storage_payload
+            if key in expected_set or key in derived_detail_keys
+        }
+    )
     aggregate_only_keys = [
         str(key)
         for key in storage_payload
@@ -1311,19 +1428,16 @@ def build_memory_read_authority_report(
     unknown_aggregate_key_profiles = unknown_aggregate_key_profiles[
         :MAX_UNKNOWN_AGGREGATE_KEY_PROFILES_PER_ENTITY
     ]
-    business_slot_cutover_ready = not fallback_slots
+    business_slot_cutover_ready = not missing_slots and not corrupt_slots
     dual_write_consistent = (
         business_slot_cutover_ready
         and not divergent_slots
         and not unexpected_slots
     )
     return {
-        "schema_version": 2,
-        "read_mode": (
-            "slot_ledger"
-            if business_slot_cutover_ready
-            else "hybrid_aggregate_fallback"
-        ),
+        "schema_version": 3,
+        "read_mode": "slot_ledger",
+        "legacy_runtime_fallback_enabled": False,
         "expected_slot_count": len(expected),
         "ledger_row_count": len(row_by_key),
         "ledger_value_count": len(ledger_slots),
@@ -1334,8 +1448,10 @@ def build_memory_read_authority_report(
         "missing_slots": missing_slots,
         "corrupt_slot_count": len(corrupt_slots),
         "corrupt_slots": corrupt_slots,
-        "aggregate_fallback_slot_count": len(fallback_slots),
-        "aggregate_fallback_slots": fallback_slots,
+        "aggregate_fallback_slot_count": 0,
+        "aggregate_fallback_slots": [],
+        "aggregate_business_slot_count": len(aggregate_business_slots),
+        "aggregate_business_slots": aggregate_business_slots,
         "divergent_slot_count": len(divergent_slots),
         "divergent_slots": divergent_slots,
         "divergent_slot_details": divergent_slot_details,
@@ -1351,6 +1467,7 @@ def build_memory_read_authority_report(
         "aggregate_container_retirement_ready": (
             bool(aggregate_storage_valid)
             and dual_write_consistent
+            and not aggregate_business_slots
             and not aggregate_only_keys
         ),
     }
@@ -1423,7 +1540,7 @@ def summarize_memory_read_authority(
             )
             unknown_key_profiles[profile] = unknown_key_profiles.get(profile, 0) + 1
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "entity_count": total,
         "slot_ledger_entity_count": sum(
             item.get("read_mode") == "slot_ledger" for item in items
@@ -1431,6 +1548,9 @@ def summarize_memory_read_authority(
         "hybrid_fallback_entity_count": sum(
             item.get("read_mode") == "hybrid_aggregate_fallback"
             for item in items
+        ),
+        "legacy_runtime_fallback_enabled": any(
+            bool(item.get("legacy_runtime_fallback_enabled")) for item in items
         ),
         "business_slot_cutover_ready_entity_count": cutover_ready,
         "business_slot_cutover_ready_rate": round(cutover_ready / total, 4)
@@ -1446,6 +1566,13 @@ def summarize_memory_read_authority(
         ),
         "aggregate_fallback_slots_by_key": slot_counts(
             "aggregate_fallback_slots"
+        ),
+        "aggregate_business_slot_count": sum(
+            max(0, int(item.get("aggregate_business_slot_count") or 0))
+            for item in items
+        ),
+        "aggregate_business_slots_by_key": slot_counts(
+            "aggregate_business_slots"
         ),
         "missing_slot_count": sum(
             max(0, int(item.get("missing_slot_count") or 0))
@@ -1607,7 +1734,7 @@ def load_project_memory_slot_view(
         select(ProjectMemorySlot).where(ProjectMemorySlot.project_id == int(project.id or 0))
     ).all()
     return _overlay_slot_rows(
-        aggregate_payload,
+        _project_read_base(project, aggregate_payload),
         rows,
         build_project_slot_evidence_refs(session, project),
     )
@@ -1621,9 +1748,8 @@ def load_project_memory_slot_values(
     """Return the verified slot-ledger value projection for one project.
 
     Read-only product surfaces that do not expose freshness metadata use this
-    lighter projection. A corrupt or absent slot safely falls back to the
-    compatibility aggregate; a verified slot remains authoritative when the
-    aggregate copy has diverged.
+    lighter projection. The caller supplies owner-derived safe defaults;
+    corrupt or absent slots never revive a legacy aggregate business value.
     """
 
     views = load_project_memory_slot_value_views(
@@ -1647,7 +1773,15 @@ def load_project_memory_slot_value_views(
     rows_by_project: dict[int, list[ProjectMemorySlot]] = {
         project_id: [] for project_id in project_ids
     }
+    projects_by_id: dict[int, Project] = {}
     if project_ids:
+        projects_by_id = {
+            int(project.id): project
+            for project in session.exec(
+                select(Project).where(Project.id.in_(project_ids))
+            ).all()
+            if project.id is not None
+        }
         rows = session.exec(
             select(ProjectMemorySlot).where(
                 ProjectMemorySlot.project_id.in_(project_ids)
@@ -1658,7 +1792,13 @@ def load_project_memory_slot_value_views(
 
     return {
         int(project_id): _overlay_slot_rows(
-            dict(payload),
+            _project_read_base(projects_by_id[int(project_id)], payload)
+            if int(project_id) in projects_by_id
+            else strip_aggregate_memory_business_slots(
+                payload,
+                PROJECT_MEMORY_SLOT_KEYS,
+                editable_slot_keys=PROJECT_EDITABLE_SLOT_KEYS,
+            ),
             rows_by_project.get(int(project_id), ()),
         )[0]
         for project_id, payload in aggregate_payloads.items()
@@ -1674,7 +1814,7 @@ def load_client_memory_slot_view(
         select(ClientMemorySlot).where(ClientMemorySlot.client_id == int(client.id or 0))
     ).all()
     return _overlay_slot_rows(
-        aggregate_payload,
+        _client_read_base(client, aggregate_payload),
         rows,
         build_client_slot_evidence_refs(session, client, aggregate_payload),
     )
@@ -1685,11 +1825,11 @@ def load_client_memory_slot_values(
     client: ClientRecord,
     aggregate_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Return verified client slot values with aggregate fallback."""
+    """Return verified client slot values over owner-derived safe defaults."""
 
     rows = session.exec(
         select(ClientMemorySlot).where(
             ClientMemorySlot.client_id == int(client.id or 0)
         )
     ).all()
-    return _overlay_slot_rows(aggregate_payload, rows)[0]
+    return _overlay_slot_rows(_client_read_base(client, aggregate_payload), rows)[0]

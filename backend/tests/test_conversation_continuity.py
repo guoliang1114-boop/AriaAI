@@ -17,6 +17,7 @@ from app.services.agent_harness.conversation_capsule import (
 from app.services.chat.conversation_continuity import (
     build_conversation_continuity_snapshot,
 )
+from app.services.memory_slots import sync_project_memory_slots
 
 
 def _session() -> Session:
@@ -60,6 +61,17 @@ def _seed_ready_state(session: Session) -> tuple[Project, Conversation, User, Me
     session.add(owner)
     session.add(project)
     session.flush()
+    sync_project_memory_slots(
+        session,
+        project,
+        {
+            "open_questions": {
+                "pinned": ["预算上限是多少？"],
+                "ai": ["客户是否确认范围？", "预算上限是多少？"],
+            }
+        },
+        slot_keys=("open_questions",),
+    )
     session.add(ProjectMember(project_id=int(project.id or 0), user_id=int(owner.id or 0), role="owner"))
     conversation = Conversation(
         title="风险工作流",
@@ -141,9 +153,9 @@ def test_snapshot_projects_only_validated_bounded_continuity_state() -> None:
     assert snapshot["project_questions"] == {
         "status": "ready",
         "memory_version": 3,
-        "slot_version": 0,
+        "slot_version": 1,
         "stale": False,
-        "items": ["客户是否确认范围？", "预算上限是多少？"],
+        "items": ["预算上限是多少？", "客户是否确认范围？"],
         "resolved": [],
     }
     rendered = json.dumps(snapshot, ensure_ascii=False)

@@ -843,6 +843,10 @@ Skill 运行契约同步也移除了旧的 `type=legacy` 假工具占位符。�
 
 4S 发布后的生产审计确认全部 34 个项目和 18 个客户均无原生缺失、分歧、异常或 legacy 投影残留，因此运行期 `_coverage` / `source_project_ids` 已正式切为 owner 原生列单读。空值与非法原生 JSON 安全返回空投影，不再读取聚合副本；聚合扫描仅存在于无正文 `Memory Projection Authority Report v2`，用于发现未来异常回流。公共 API、快照、差异和回滚合同不变，本阶段无数据库结构变更，Alembic head 保持 `052_v1_52`。实现完全属于 Aria，不增加 Codex runtime、SDK、协议、进程、账号或通信。
 
+### Phase 4U：业务记忆账本单读与聚合副本退役（已实施）
+
+继续借鉴 Codex world-state 中“稳定身份 + 内容摘要 + 权威状态与历史记录分离”的最小机制，但实现仍是 Aria 原生 Python/SQLModel/Alembic。项目和客户业务记忆只从摘要校验通过的槽位账本读取；丢失或损坏槽位不会激活旧 JSON 回退。当前聚合写入只保留非业务元数据，而快照继续保留全量业务投影。`053_v1_53` 在生产备份后仅移除可由摘要账本完全证明一致的聚合副本，对分歧、损坏、缺槽、重复和非法 JSON 失败关闭，降级只补缺不覆盖。不增加 Codex runtime、App Server、SDK、协议、子进程、账号或通信。
+
 ## 8. 许可证与升级流程
 
 Aria 主项目继续使用 MIT License；从 Codex 改编的具体文件同时受 Apache License 2.0 的适用要求约束。

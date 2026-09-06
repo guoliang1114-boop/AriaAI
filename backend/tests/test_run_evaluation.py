@@ -111,7 +111,13 @@ def test_valid_project_memory_citation_passes_completion_evidence() -> None:
         memory_version=2,
         context_memory_json='{"key_risks":{"ai":["Vendor dependency"],"pinned":[]}}',
     )
-    manifest = build_project_memory_evidence(project, "项目风险是什么？")["manifest"]
+    manifest = build_project_memory_evidence(
+        project,
+        "项目风险是什么？",
+        memory_payload={
+            "key_risks": {"ai": ["Vendor dependency"], "pinned": []}
+        },
+    )["manifest"]
     citation_key = next(
         entry["citation_key"]
         for entry in manifest["entries"]

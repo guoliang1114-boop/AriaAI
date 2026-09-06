@@ -45,6 +45,12 @@ from app.routers.projects_deps import ProjectCreate, ProjectMemorySummarizeReque
 from app.services.memory_rebuilds import MemoryRebuildConflict
 from app.services.client_contexts import get_client_memory_payload, mark_client_memory_stale
 from app.services.project_contexts import get_project_memory_payload, mark_project_memory_stale
+from app.services.memory_slots import (
+    load_client_memory_slot_values,
+    load_project_memory_slot_values,
+    sync_client_memory_slots,
+    sync_project_memory_slots,
+)
 from app.services.time_utils import utc_now_naive
 
 
@@ -2506,8 +2512,19 @@ async def test_client_summary_drops_output_when_memory_changes_during_provider(t
             session.add(client)
             session.commit()
             session.refresh(client)
+            sync_client_memory_slots(
+                session,
+                client,
+                {"client_profile": "Before"},
+                slot_keys=("client_profile",),
+            )
+            session.commit()
             client_id = int(client.id or 0)
-            memory = get_client_memory_payload(client)
+            memory = load_client_memory_slot_values(
+                session,
+                client,
+                get_client_memory_payload(client),
+            )
 
             async def change_memory_during_provider(**_kwargs):
                 with Session(engine) as concurrent_session:
@@ -2516,6 +2533,12 @@ async def test_client_summary_drops_output_when_memory_changes_during_provider(t
                     current.client_memory_json = json.dumps({"client_profile": "After"})
                     current.client_memory_version = 2
                     current.client_memory_updated_at = utc_now_naive()
+                    sync_client_memory_slots(
+                        concurrent_session,
+                        current,
+                        {"client_profile": "After"},
+                        slot_keys=("client_profile",),
+                    )
                     concurrent_session.add(current)
                     concurrent_session.commit()
                 return "Stale client summary"
@@ -2594,8 +2617,19 @@ async def test_project_summary_drops_output_when_memory_changes_during_provider(
             session.add(project)
             session.commit()
             session.refresh(project)
+            sync_project_memory_slots(
+                session,
+                project,
+                {"project_brief": "Before"},
+                slot_keys=("project_brief",),
+            )
+            session.commit()
             project_id = int(project.id or 0)
-            memory = get_project_memory_payload(project)
+            memory = load_project_memory_slot_values(
+                session,
+                project,
+                get_project_memory_payload(project),
+            )
 
             async def change_memory_during_provider(**_kwargs):
                 with Session(engine) as concurrent_session:
@@ -2605,6 +2639,12 @@ async def test_project_summary_drops_output_when_memory_changes_during_provider(
                     current.memory_version = 2
                     current.memory_updated_at = utc_now_naive()
                     current.updated_at = utc_now_naive()
+                    sync_project_memory_slots(
+                        concurrent_session,
+                        current,
+                        {"project_brief": "After"},
+                        slot_keys=("project_brief",),
+                    )
                     concurrent_session.add(current)
                     concurrent_session.commit()
                 return "Stale project summary"
@@ -2657,6 +2697,13 @@ async def test_non_stream_project_summary_returns_conflict_for_changed_memory(tm
             session.commit()
             session.refresh(actor)
             session.refresh(project)
+            sync_project_memory_slots(
+                session,
+                project,
+                {"project_brief": "Before"},
+                slot_keys=("project_brief",),
+            )
+            session.commit()
             project_id = int(project.id or 0)
 
             async def change_memory_during_provider(**_kwargs):
@@ -2667,6 +2714,12 @@ async def test_non_stream_project_summary_returns_conflict_for_changed_memory(tm
                     current.memory_version = 2
                     current.memory_updated_at = utc_now_naive()
                     current.updated_at = utc_now_naive()
+                    sync_project_memory_slots(
+                        concurrent_session,
+                        current,
+                        {"project_brief": "After"},
+                        slot_keys=("project_brief",),
+                    )
                     concurrent_session.add(current)
                     concurrent_session.commit()
                 return "Stale endpoint summary"

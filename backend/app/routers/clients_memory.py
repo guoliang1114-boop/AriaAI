@@ -44,6 +44,7 @@ from app.services.memory_slots import (
     get_client_memory_read_authority_report,
     get_client_memory_slot_states,
     load_client_memory_slot_values,
+    load_project_memory_slot_values,
 )
 from app.services.memory_rebuilds import (
     MemoryRebuildConflict,
@@ -825,8 +826,16 @@ async def promote_project_memory_to_client(
     if not project_belongs_to_client(session, project, client):
         raise HTTPException(status_code=400, detail="Project does not belong to this client")
 
-    project_memory = get_project_memory_payload(project)
-    current_memory = get_client_memory_payload(client)
+    project_memory = load_project_memory_slot_values(
+        session,
+        project,
+        get_project_memory_payload(project),
+    )
+    current_memory = load_client_memory_slot_values(
+        session,
+        client,
+        get_client_memory_payload(client),
+    )
     promotion_plan = plan_client_memory_rebuild(
         memory_version=int(client.client_memory_version or 0),
         parent_stale=bool(client.client_memory_stale),
@@ -891,13 +900,18 @@ async def promote_project_memory_to_client(
             status_code=409,
             detail="Project client ownership changed during promotion; retry with current data.",
         )
+    refreshed_memory = load_client_memory_slot_values(
+        session,
+        client,
+        get_client_memory_payload(client),
+    )
     current_source_snapshots = capture_client_memory_source_snapshots(
         session,
         client,
         {
-            **get_client_memory_payload(client),
+            **refreshed_memory,
             "source_project_ids": [
-                *list(get_client_memory_payload(client).get("source_project_ids") or []),
+                *list(refreshed_memory.get("source_project_ids") or []),
                 project.id,
             ],
         },

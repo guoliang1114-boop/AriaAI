@@ -19,6 +19,7 @@ from app.services.agent_harness.conversation_capsule import (
 from app.services.chat.conversation_continuity import (
     build_conversation_continuity_snapshot,
 )
+from app.services.memory_slots import sync_project_memory_slots
 from tests.test_database import create_test_engine, drop_all_tables
 
 
@@ -50,6 +51,12 @@ class ConversationContinuityDatabaseContractTests(unittest.TestCase):
             )
             session.add(project)
             session.flush()
+            sync_project_memory_slots(
+                session,
+                project,
+                {"open_questions": {"ai": ["是否已确认验收范围？"], "pinned": []}},
+                slot_keys=("open_questions",),
+            )
             conversation = Conversation(
                 title="Continuity PostgreSQL",
                 project_id=int(project.id or 0),

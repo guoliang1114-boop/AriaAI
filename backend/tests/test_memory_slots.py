@@ -331,7 +331,7 @@ def test_successful_partial_memory_save_clears_native_and_legacy_failures():
         engine.dispose()
 
 
-def test_project_memory_dual_write_versions_only_changed_slot_and_records_sources():
+def test_project_memory_slot_ledger_versions_only_changed_slot_and_records_sources():
     engine = _engine()
     try:
         with Session(engine) as session:
@@ -552,7 +552,7 @@ def test_slot_view_prefers_verified_slot_value_over_aggregate_json():
         engine.dispose()
 
 
-def test_read_only_value_views_use_verified_slots_and_safe_fallbacks():
+def test_read_only_value_views_use_verified_slots_and_never_revive_aggregate_values():
     engine = _engine()
     try:
         with Session(engine) as session:
@@ -626,12 +626,9 @@ def test_read_only_value_views_use_verified_slots_and_safe_fallbacks():
             )
 
             assert single["project_brief"] == "Current project brief"
-            assert single["financial_status"] == "Aggregate fallback financial"
+            assert single["financial_status"] == ""
             assert batched[int(first.id)] == single
-            assert (
-                batched[int(second.id)]["project_brief"]
-                == "Aggregate-only second brief"
-            )
+            assert batched[int(second.id)]["project_brief"] == ""
             assert client_view["client_profile"] == "Enterprise account"
             assert sum(
                 "projectmemoryslot" in statement.lower()
@@ -641,7 +638,7 @@ def test_read_only_value_views_use_verified_slots_and_safe_fallbacks():
         engine.dispose()
 
 
-def test_memory_read_authority_report_exposes_fallback_without_content():
+def test_memory_read_authority_report_exposes_ledger_only_state_without_content():
     engine = _engine()
     try:
         with Session(engine) as session:
@@ -662,6 +659,7 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             }.intersection(stored_project_memory)
             assert json.loads(project.memory_rebuild_log_json)[-1]["trigger"] == "test"
             assert "_coverage" not in stored_project_memory
+            assert not set(PROJECT_MEMORY_SLOT_KEYS).intersection(stored_project_memory)
             assert get_project_memory_coverage(project).get("built_at")
             snapshot = session.exec(
                 select(ProjectMemorySnapshot).where(
@@ -669,6 +667,7 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
                 )
             ).one()
             assert "_coverage" in json.loads(snapshot.memory_json)
+            assert json.loads(snapshot.memory_json)["project_brief"] == "Current project brief"
             assert aggregate["rebuild_log"][-1]["trigger"] == "test"
             healthy = get_project_memory_read_authority_report(
                 session,
@@ -683,7 +682,9 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             assert healthy["business_slot_cutover_ready"] is True
             assert healthy["dual_write_consistent"] is True
             assert healthy["aggregate_container_retirement_ready"] is False
-            assert healthy["schema_version"] == 2
+            assert healthy["schema_version"] == 3
+            assert healthy["legacy_runtime_fallback_enabled"] is False
+            assert healthy["aggregate_business_slot_count"] == 0
             assert "rebuild_log" not in healthy["aggregate_only_keys"]
             assert set(healthy["aggregate_only_keys"]) == {
                 "_accepted_memory_candidates",
@@ -728,13 +729,15 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
             session.add(project)
             session.flush()
 
-            aggregate["project_brief"] = "PRIVATE TAMPERED CONTENT"
-            aggregate["PRIVATE PERSON NAME"] = "PRIVATE VALUE"
+            legacy_storage = {
+                "project_brief": "PRIVATE TAMPERED CONTENT",
+                "PRIVATE PERSON NAME": "PRIVATE VALUE",
+            }
             divergent = get_project_memory_read_authority_report(
                 session,
                 project,
                 aggregate,
-                aggregate_storage_payload=aggregate,
+                aggregate_storage_payload=legacy_storage,
             )
             assert divergent["divergent_slots"] == ["project_brief"]
             assert divergent["divergent_slot_details"] == [
@@ -746,6 +749,7 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
                 }
             ]
             assert divergent["dual_write_consistent"] is False
+            assert divergent["aggregate_business_slots"] == ["project_brief"]
             assert divergent["aggregate_only_unknown_key_count"] == 1
             unknown_fingerprint = hashlib.sha256(
                 b"aria.memory.aggregate-key.v1\0PRIVATE PERSON NAME"
@@ -782,25 +786,21 @@ def test_memory_read_authority_report_exposes_fallback_without_content():
                 project,
                 get_project_memory_payload(project),
             )
-            assert degraded["read_mode"] == "hybrid_aggregate_fallback"
+            assert degraded["read_mode"] == "slot_ledger"
             assert degraded["missing_slots"] == ["key_risks"]
             assert degraded["corrupt_slots"] == ["financial_status"]
-            assert degraded["aggregate_fallback_slots"] == [
-                "key_risks",
-                "financial_status",
-            ]
+            assert degraded["aggregate_fallback_slots"] == []
+            assert degraded["legacy_runtime_fallback_enabled"] is False
             assert degraded["business_slot_cutover_ready"] is False
 
             fleet = summarize_memory_read_authority([healthy, degraded])
             assert fleet["entity_count"] == 2
-            assert fleet["slot_ledger_entity_count"] == 1
-            assert fleet["hybrid_fallback_entity_count"] == 1
+            assert fleet["slot_ledger_entity_count"] == 2
+            assert fleet["hybrid_fallback_entity_count"] == 0
             assert fleet["business_slot_cutover_ready_rate"] == 0.5
-            assert fleet["aggregate_fallback_slot_count"] == 2
-            assert fleet["aggregate_fallback_slots_by_key"] == {
-                "financial_status": 1,
-                "key_risks": 1,
-            }
+            assert fleet["aggregate_fallback_slot_count"] == 0
+            assert fleet["aggregate_fallback_slots_by_key"] == {}
+            assert fleet["legacy_runtime_fallback_enabled"] is False
             assert fleet["missing_slot_count"] == 1
             assert fleet["missing_slots_by_key"] == {"key_risks": 1}
             assert fleet["corrupt_slot_count"] == 1
@@ -856,15 +856,15 @@ def test_unknown_aggregate_key_profiles_are_bounded_and_content_free():
             save_project_memory(session, project.id, _project_memory(), trigger="test")
 
             project = session.get(Project, project.id)
-            aggregate = {
-                **get_project_memory_payload(project),
+            storage = {
+                **json.loads(project.context_memory_json),
                 **{f"PRIVATE KEY {index}": index for index in range(70)},
             }
             report = get_project_memory_read_authority_report(
                 session,
                 project,
-                aggregate,
-                aggregate_storage_payload=aggregate,
+                get_project_memory_payload(project),
+                aggregate_storage_payload=storage,
             )
             fleet = summarize_memory_read_authority([report])
 
@@ -916,16 +916,16 @@ def test_client_read_authority_classifies_only_client_scoped_metadata():
             save_client_memory(session, client.id, _client_memory(), trigger="test")
 
             client = session.get(ClientRecord, client.id)
-            aggregate = {
-                **get_client_memory_payload(client),
+            storage = {
+                **json.loads(client.client_memory_json),
                 "_last_failure": {"PRIVATE": "VALUE"},
                 "_client_promotion": {"PRIVATE": "VALUE"},
             }
             report = get_client_memory_read_authority_report(
                 session,
                 client,
-                aggregate,
-                aggregate_storage_payload=aggregate,
+                get_client_memory_payload(client),
+                aggregate_storage_payload=storage,
             )
 
             assert "_last_failure" in report["aggregate_only_keys"]
@@ -967,6 +967,13 @@ def test_client_memory_read_authority_report_uses_all_expected_slots():
             assert json.loads(client.client_memory_rebuild_log_json)[-1][
                 "trigger"
             ] == "test"
+            assert not set(CLIENT_MEMORY_SLOT_KEYS).intersection(stored_client_memory)
+            client_snapshot = session.exec(
+                select(ClientMemorySnapshot).where(
+                    ClientMemorySnapshot.client_id == client.id
+                )
+            ).one()
+            assert json.loads(client_snapshot.memory_json)["client_profile"] == "Enterprise account"
             report = get_client_memory_read_authority_report(
                 session,
                 client,
@@ -978,6 +985,7 @@ def test_client_memory_read_authority_report_uses_all_expected_slots():
             assert report["expected_slot_count"] == len(CLIENT_MEMORY_SLOT_KEYS)
             assert report["ledger_value_count"] == len(CLIENT_MEMORY_SLOT_KEYS)
             assert report["dual_write_consistent"] is True
+            assert report["aggregate_business_slot_count"] == 0
             assert report["aggregate_container_retirement_ready"] is False
     finally:
         engine.dispose()
@@ -1033,7 +1041,7 @@ def test_corrupt_or_missing_slot_is_not_silently_treated_as_fresh():
         engine.dispose()
 
 
-def test_client_memory_dual_write_has_independent_slots_and_project_provenance():
+def test_client_memory_slot_ledger_has_independent_slots_and_project_provenance():
     engine = _engine()
     try:
         with Session(engine) as session:
@@ -1872,7 +1880,13 @@ def test_client_full_promotion_plan_rejects_concurrent_memory_version_change():
             session.rollback()
             refreshed = session.get(ClientRecord, client_id)
             assert refreshed.client_memory_version == 2
-            assert "Concurrent client memory" in refreshed.client_memory_json
+            persisted = load_client_memory_slot_values(
+                session,
+                refreshed,
+                get_client_memory_payload(refreshed),
+            )
+            assert persisted["client_profile"] == "Concurrent client memory"
+            assert "Concurrent client memory" not in refreshed.client_memory_json
     finally:
         engine.dispose()
 
@@ -1953,7 +1967,11 @@ def test_project_full_rebuild_rejects_truncated_json_without_overwriting_memory(
                     )
 
             refreshed = session.get(Project, project.id)
-            persisted = get_project_memory_payload(refreshed)
+            persisted = load_project_memory_slot_values(
+                session,
+                refreshed,
+                get_project_memory_payload(refreshed),
+            )
             prompt = mocked.await_args.kwargs["messages"][0]["content"]
             assert refreshed.memory_version == 1
             assert persisted["project_brief"] == "Current project brief"
@@ -2043,7 +2061,11 @@ def test_project_full_fallback_rejects_truncated_json_without_overwriting_memory
                     )
 
             refreshed = session.get(Project, project.id)
-            persisted = get_project_memory_payload(refreshed)
+            persisted = load_project_memory_slot_values(
+                session,
+                refreshed,
+                get_project_memory_payload(refreshed),
+            )
             assert mocked.await_count == 2
             assert all(
                 call.kwargs["max_tokens"] == 3200
@@ -2084,7 +2106,11 @@ def test_client_full_rebuild_rejects_truncated_json_without_overwriting_memory()
                     )
 
             refreshed = session.get(ClientRecord, client.id)
-            persisted = get_client_memory_payload(refreshed)
+            persisted = load_client_memory_slot_values(
+                session,
+                refreshed,
+                get_client_memory_payload(refreshed),
+            )
             prompt = mocked.await_args.kwargs["messages"][0]["content"]
             assert refreshed.client_memory_version == 1
             assert persisted["client_profile"] == "Enterprise account"
@@ -2174,7 +2200,11 @@ def test_client_full_fallback_rejects_truncated_json_without_overwriting_memory(
                     )
 
             refreshed = session.get(ClientRecord, client.id)
-            persisted = get_client_memory_payload(refreshed)
+            persisted = load_client_memory_slot_values(
+                session,
+                refreshed,
+                get_client_memory_payload(refreshed),
+            )
             assert mocked.await_count == 2
             assert all(
                 call.kwargs["max_tokens"] == 3200

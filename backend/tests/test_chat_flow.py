@@ -88,6 +88,11 @@ from app.services.agent_harness.instruction_manifest import validate_instruction
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.chat.prompt_assembler import validate_prompt_layer_manifest
 from app.services.intent_router import IntentDecision
+from app.services.memory_slots import (
+    load_project_memory_slot_values,
+    sync_client_memory_slots,
+    sync_project_memory_slots,
+)
 from contextlib import ExitStack, contextmanager
 
 @contextmanager
@@ -756,7 +761,7 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertEqual(governance["current_revision"], "999")
         self.assertEqual(governance["pending_revisions"], ["001_v1_1", "002_v1_2"])
 
-    def test_get_project_memory_payload_flattens_pinned_slots(self):
+    def test_get_project_memory_payload_does_not_revive_legacy_business_slots(self):
         project = Project(
             name="Alpha",
             client="Client",
@@ -779,18 +784,9 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
 
         payload = project_contexts_module.get_project_memory_payload(project)
 
-        self.assertEqual(
-            payload["key_risks"],
-            ["Timeline risk", "Decision-maker alignment risk"],
-        )
-        self.assertEqual(
-            payload["stakeholder_notes"],
-            ["Finance team supports automation", "CFO is the final approver"],
-        )
-        self.assertEqual(
-            payload["key_risks_detail"]["pinned"],
-            ["Decision-maker alignment risk"],
-        )
+        self.assertEqual(payload["key_risks"], [])
+        self.assertEqual(payload["stakeholder_notes"], [])
+        self.assertEqual(payload["key_risks_detail"]["pinned"], [])
 
     def test_stream_llm_text_chunks_skips_tool_markers(self):
         async def fake_chunks():
@@ -1243,8 +1239,18 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             self.assertFalse(refreshed_b.memory_stale)
             self.assertEqual(refreshed_a.memory_version, 1)
             self.assertEqual(refreshed_b.memory_version, 1)
-            self.assertEqual(json.loads(refreshed_a.context_memory_json)["project_brief"], "Alpha memory brief")
-            self.assertEqual(json.loads(refreshed_b.context_memory_json)["project_brief"], "Beta memory brief")
+            memory_a = load_project_memory_slot_values(
+                session,
+                refreshed_a,
+                project_contexts_module.get_project_memory_payload(refreshed_a),
+            )
+            memory_b = load_project_memory_slot_values(
+                session,
+                refreshed_b,
+                project_contexts_module.get_project_memory_payload(refreshed_b),
+            )
+            self.assertEqual(memory_a["project_brief"], "Alpha memory brief")
+            self.assertEqual(memory_b["project_brief"], "Beta memory brief")
             self.assertEqual(refreshed_c.memory_version, 2)
             self.assertFalse(refreshed_c.memory_stale)
 
@@ -1300,8 +1306,18 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             self.assertEqual(refreshed_b.memory_version, 1)
             self.assertFalse(refreshed_a.memory_stale)
             self.assertFalse(refreshed_b.memory_stale)
-            self.assertEqual(json.loads(refreshed_a.context_memory_json)["project_brief"], "Alpha generated brief")
-            self.assertEqual(json.loads(refreshed_b.context_memory_json)["project_brief"], "Beta generated brief")
+            memory_a = load_project_memory_slot_values(
+                session,
+                refreshed_a,
+                project_contexts_module.get_project_memory_payload(refreshed_a),
+            )
+            memory_b = load_project_memory_slot_values(
+                session,
+                refreshed_b,
+                project_contexts_module.get_project_memory_payload(refreshed_b),
+            )
+            self.assertEqual(memory_a["project_brief"], "Alpha generated brief")
+            self.assertEqual(memory_b["project_brief"], "Beta generated brief")
 
     def test_auto_summarize_file_persists_generated_summary(self):
         with Session(self.engine) as session:
@@ -2298,6 +2314,11 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
             session.refresh(sibling)
+            sync_project_memory_slots(
+                session,
+                project,
+                json.loads(project.context_memory_json),
+            )
 
             session.add(Milestone(project_id=project.id, title="Current Milestone", priority="high"))
             session.add(Milestone(project_id=sibling.id, title="Sibling Milestone", priority="medium"))
@@ -4883,6 +4904,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
     def test_standalone_client_portfolio_query_includes_all_matching_projects(self):
         client_name = "金科智慧服务集团股份有限公司"
         with Session(self.engine) as session:
+            projects = []
             for index in range(7):
                 project = Project(
                     name=f"金科项目 {index + 1}",
@@ -4899,7 +4921,20 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                     memory_version=1,
                 )
                 session.add(project)
+                projects.append(project)
             session.add(Project(name="Other Client Project", client="Other Client", status="delivering"))
+            session.flush()
+            for index, project in enumerate(projects):
+                sync_project_memory_slots(
+                    session,
+                    project,
+                    {
+                        "project_brief": f"项目 {index + 1} 摘要",
+                        "key_risks": [f"风险 {index + 1}"],
+                        "next_actions": [f"行动 {index + 1}"],
+                    },
+                    slot_keys=("project_brief", "key_risks", "next_actions"),
+                )
             session.commit()
 
             ctx = context_builder_module.build_chat_context(
@@ -5329,6 +5364,21 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.flush()
             project.client_id = client.id
             session.add(project)
+            session.commit()
+            sync_client_memory_slots(
+                session,
+                client,
+                {
+                    "client_profile": "Large enterprise account with multi-step approvals",
+                    "decision_patterns": ["Budget closes in Q4"],
+                    "key_contacts": [],
+                    "structured_stakeholders": [],
+                    "lessons_learned": ["Technical team prefers phased rollouts"],
+                    "relationship_signals": [],
+                    "project_history": [],
+                    "sensitive_topics": [],
+                },
+            )
             session.commit()
             session.refresh(project)
 
