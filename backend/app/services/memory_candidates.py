@@ -40,6 +40,7 @@ from app.services.memory_slots import (
     load_project_memory_slot_canonical_values,
 )
 from app.services.memory_projection_state import get_project_memory_coverage
+from app.services.memory_candidate_anchors import activate_memory_candidate_anchor
 from app.services.time_utils import utc_now_naive
 
 
@@ -68,7 +69,6 @@ DEFAULT_TARGET_SLOT = {
     "client_relationship_signal": "relationship_signals",
     "consulting_lesson": "lessons_learned",
 }
-ACCEPTED_MEMORY_CANDIDATES_KEY = "_accepted_memory_candidates"
 SOURCE_CONVERSATION_REF_TYPE = "aria_source_conversation"
 SOURCE_PROJECT_REF_TYPE = "aria_source_project"
 SOURCE_OWNER_REF_TYPE = "aria_source_owner"
@@ -427,13 +427,6 @@ def _append_unique(items: Any, content: str, *, limit: int = 50) -> list[str]:
     if content not in values:
         values.append(content)
     return values[-limit:]
-
-
-def _record_accepted_anchor(memory: dict[str, Any], target_slot: str, content: str) -> None:
-    anchors = memory.get(ACCEPTED_MEMORY_CANDIDATES_KEY)
-    anchors = dict(anchors) if isinstance(anchors, dict) else {}
-    anchors[target_slot] = _append_unique(anchors.get(target_slot), content)
-    memory[ACCEPTED_MEMORY_CANDIDATES_KEY] = anchors
 
 
 def _mark_accepted(
@@ -830,6 +823,11 @@ def accept_memory_candidate(
             applied_memory_version=current_version,
             decision_note=decision_note or "Already present in target memory",
         )
+        activate_memory_candidate_anchor(
+            session,
+            candidate,
+            actor_user_id=user_id,
+        )
         sync_candidate_source_message(session, candidate)
         session.commit()
         session.refresh(candidate)
@@ -873,7 +871,6 @@ def accept_memory_candidate(
             project,
             get_project_memory_payload(project),
         )
-        _record_accepted_anchor(memory, target_slot, candidate.content)
         if target_slot == "key_risks":
             normalized = _normalize_editable_slot(memory.get(target_slot))
             normalized["pinned"] = _append_unique(normalized.get("pinned"), candidate.content)
@@ -887,6 +884,11 @@ def accept_memory_candidate(
             user_id=user_id,
             applied_memory_version=next_version,
             decision_note=decision_note,
+        )
+        activate_memory_candidate_anchor(
+            session,
+            candidate,
+            actor_user_id=user_id,
         )
         save_project_memory(
             session,
@@ -906,7 +908,6 @@ def accept_memory_candidate(
             client,
             get_client_memory_payload(client),
         )
-        _record_accepted_anchor(memory, target_slot, candidate.content)
         memory[target_slot] = _append_unique(memory.get(target_slot), candidate.content)
         next_version = int(client.client_memory_version or 0) + 1
         _mark_accepted(
@@ -915,6 +916,11 @@ def accept_memory_candidate(
             user_id=user_id,
             applied_memory_version=next_version,
             decision_note=decision_note,
+        )
+        activate_memory_candidate_anchor(
+            session,
+            candidate,
+            actor_user_id=user_id,
         )
         save_client_memory(
             session,

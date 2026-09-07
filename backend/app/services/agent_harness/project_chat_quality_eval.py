@@ -15,15 +15,18 @@ from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.db import (
     ChatTrace,
     ClientRecord,
+    MemoryCandidate,
+    MemoryCandidateAnchor,
     Project,
     ProjectMemorySlot,
     ProjectPayment,
     Skill,
+    User,
 )
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.config_validation import assert_chat_runtime_configuration
@@ -124,6 +127,10 @@ from app.services.memory_facts import (
     bind_model_source_attributions,
     capture_project_memory_source_snapshots,
     get_project_memory_fact_states,
+)
+from app.services.memory_candidate_anchors import (
+    activate_memory_candidate_anchor,
+    build_memory_candidate_anchor_authority_report,
 )
 from app.services.project_contexts import parse_project_memory, save_project_memory
 from app.services.project_question_evidence import assess_project_question_answer
@@ -2537,6 +2544,97 @@ def _memory_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _memory_candidate_anchor_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Accepted anchors remain native, integrity checked, and content-free in audit."""
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            private_content = "PRIVATE ACCEPTED ANCHOR"
+            owner = User(email="anchor-eval@example.com", password_hash="x")
+            project = Project(name="Anchor eval", client="Client")
+            session.add(owner)
+            session.add(project)
+            session.flush()
+            candidate = MemoryCandidate(
+                owner_user_id=int(owner.id or 0),
+                scope="project",
+                candidate_type="project_fact",
+                content=private_content,
+                content_sha256="provider-value-not-trusted",
+                project_id=int(project.id or 0),
+                status="accepted",
+                target_slot="recent_progress",
+            )
+            session.add(candidate)
+            session.flush()
+            activate_memory_candidate_anchor(
+                session,
+                candidate,
+                actor_user_id=int(owner.id or 0),
+            )
+            healthy = build_memory_candidate_anchor_authority_report(
+                session,
+                [project],
+                [],
+            )
+            anchor = session.exec(select(MemoryCandidateAnchor)).one()
+            anchor.content = "PRIVATE TAMPERED ANCHOR"
+            session.add(anchor)
+            session.flush()
+            corrupt = build_memory_candidate_anchor_authority_report(
+                session,
+                [project],
+                [],
+            )
+            anchor.content = private_content
+            project.context_memory_json = json.dumps(
+                {"_accepted_memory_candidates": {"recent_progress": [private_content]}}
+            )
+            session.add(anchor)
+            session.add(project)
+            session.flush()
+            legacy = build_memory_candidate_anchor_authority_report(
+                session,
+                [project],
+                [],
+            )
+    finally:
+        engine.dispose()
+    serialized = json.dumps(
+        {"healthy": healthy, "corrupt": corrupt, "legacy": legacy},
+        ensure_ascii=False,
+    )
+    details = [
+        {
+            "case": "accepted_candidate_anchor_is_native_only_and_complete",
+            "passed": healthy["runtime_read_mode"] == "native_only"
+            and not healthy["legacy_runtime_fallback_enabled"]
+            and healthy["native_authority_ready"]
+            and healthy["active_anchor_count"] == 1
+            and healthy["missing_candidate_anchor_count"] == 0,
+        },
+        {
+            "case": "tampered_native_anchor_fails_integrity_closed",
+            "passed": corrupt["invalid_anchor_count"] == 1
+            and not corrupt["native_authority_ready"],
+        },
+        {
+            "case": "legacy_anchor_residue_is_visible_without_content",
+            "passed": legacy["legacy_aggregate_entity_count"] == 1
+            and legacy["legacy_aggregate_item_count"] == 1
+            and not legacy["native_authority_ready"]
+            and "PRIVATE" not in serialized,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -2573,6 +2671,9 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         ),
         "grounded_answer_contract_accuracy": _grounded_answer_contract_results(),
         "memory_read_authority_accuracy": _memory_read_authority_results(),
+        "memory_candidate_anchor_authority_accuracy": (
+            _memory_candidate_anchor_results()
+        ),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
         "question_answer_readiness_accuracy": _question_answer_readiness_results(),

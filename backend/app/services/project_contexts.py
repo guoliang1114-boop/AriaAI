@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, AsyncIterator, Collection, Mapping
+from typing import Any, AsyncIterator, Mapping
 import json
 
 from fastapi import HTTPException
@@ -12,6 +12,12 @@ from app.services.memory_facts import (
     MODEL_SOURCE_ATTRIBUTIONS_KEY,
     bind_model_source_attributions,
     normalize_model_source_attributions,
+)
+from app.services.memory_candidate_anchors import (
+    PROJECT_EDITABLE_MEMORY_ANCHOR_SLOTS,
+    apply_memory_candidate_anchors,
+    load_active_memory_candidate_anchors,
+    strip_retired_memory_candidate_metadata,
 )
 from app.services.memory_rebuilds import (
     MemoryPatchValidationError,
@@ -108,7 +114,6 @@ MAX_SUMMARY_DOCUMENT_ITEMS = 4
 MAX_SUMMARY_DOCUMENT_NAME_CHARS = 80
 MAX_SUMMARY_DOCUMENT_REASON_CHARS = 120
 EDITABLE_MEMORY_SLOTS = ("key_risks", "open_questions", "stakeholder_notes")
-ACCEPTED_MEMORY_CANDIDATES_KEY = "_accepted_memory_candidates"
 
 
 def _resolve_output_language(language: str | None) -> str:
@@ -148,7 +153,6 @@ def _default_project_memory(project: Project) -> dict[str, Any]:
         "stale": project.memory_stale,
         "rebuild_log": get_project_memory_rebuild_log(project),
         "_coverage": get_project_memory_coverage(project),
-        ACCEPTED_MEMORY_CANDIDATES_KEY: {},
     }
 
 
@@ -186,54 +190,13 @@ def _normalize_editable_slot(value: Any, pinned: list[str] | None = None) -> dic
 
 
 def _get_existing_raw_memory(project: Project) -> dict[str, Any]:
+    """Load the private aggregate container for operational metadata writes."""
+
     try:
         parsed = json.loads(project.context_memory_json or "{}")
-        return parsed if isinstance(parsed, dict) else {}
     except json.JSONDecodeError:
         return {}
-
-
-def _merge_accepted_memory_candidates(
-    memory: dict[str, Any],
-    existing_raw: dict[str, Any],
-) -> dict[str, Any]:
-    """Overlay user-accepted anchors onto a newly derived memory payload."""
-
-    existing_candidates = existing_raw.get(ACCEPTED_MEMORY_CANDIDATES_KEY)
-    existing_candidates = (
-        dict(existing_candidates) if isinstance(existing_candidates, dict) else {}
-    )
-    incoming_candidates = memory.get(ACCEPTED_MEMORY_CANDIDATES_KEY)
-    incoming_candidates = (
-        dict(incoming_candidates) if isinstance(incoming_candidates, dict) else {}
-    )
-    accepted_candidates: dict[str, list[str]] = {}
-    for slot_name in {*existing_candidates, *incoming_candidates}:
-        combined: list[str] = []
-        for source in (existing_candidates.get(slot_name), incoming_candidates.get(slot_name)):
-            if isinstance(source, list):
-                combined.extend(str(item).strip() for item in source if str(item).strip())
-        accepted_candidates[str(slot_name)] = list(dict.fromkeys(combined))[-50:]
-    for slot_name, raw_items in accepted_candidates.items():
-        items = (
-            [str(item).strip() for item in raw_items if str(item).strip()]
-            if isinstance(raw_items, list)
-            else []
-        )
-        if slot_name in EDITABLE_MEMORY_SLOTS:
-            slot = _normalize_editable_slot(memory.get(slot_name))
-            slot["pinned"] = list(dict.fromkeys([*slot["pinned"], *items]))[-50:]
-            memory[slot_name] = slot
-        elif slot_name in {"recent_progress", "next_actions", "delivery_signals"}:
-            current = memory.get(slot_name)
-            current = (
-                [str(item).strip() for item in current if str(item).strip()]
-                if isinstance(current, list)
-                else []
-            )
-            memory[slot_name] = list(dict.fromkeys([*current, *items]))[-50:]
-    memory[ACCEPTED_MEMORY_CANDIDATES_KEY] = accepted_candidates
-    return memory
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def get_project_memory_payload(project: Project) -> dict[str, Any]:
@@ -1034,7 +997,6 @@ def _project_model_fact_bindings(
 
 def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
     base = _default_project_memory(project)
-    existing_raw = _get_existing_raw_memory(project)
     try:
         parsed = json.loads(_extract_first_json_object(raw))
         if not isinstance(parsed, dict):
@@ -1071,17 +1033,7 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
     )
 
     for key in EDITABLE_MEMORY_SLOTS:
-        existing_slot = existing_raw.get(key, {})
-        existing_pinned = []
-        if isinstance(existing_slot, dict):
-            existing_pinned = [
-                str(item).strip()
-                for item in existing_slot.get("pinned", [])
-                if str(item).strip()
-            ]
-        memory[key] = _normalize_editable_slot(memory.get(key), pinned=existing_pinned)
-
-    _merge_accepted_memory_candidates(memory, existing_raw)
+        memory[key] = _normalize_editable_slot(memory.get(key))
 
     important_documents = memory.get("important_documents")
     if isinstance(important_documents, list):
@@ -1133,7 +1085,7 @@ def parse_project_memory_patch(
     existing = (
         dict(existing_memory)
         if existing_memory is not None
-        else _get_existing_raw_memory(project)
+        else get_project_memory_payload(project)
     )
     memory = {**_default_project_memory(project), **existing}
     string_slots = {
@@ -1189,7 +1141,6 @@ def parse_project_memory_patch(
         else:
             raise MemoryPatchValidationError(f"unknown project memory slot: {key}")
 
-    _merge_accepted_memory_candidates(memory, existing)
     memory["rebuild_log"] = get_project_memory_rebuild_log(project)
     memory["_coverage"] = get_project_memory_coverage(project)
     memory[MODEL_SOURCE_ATTRIBUTIONS_KEY] = bind_model_source_attributions(
@@ -1211,7 +1162,6 @@ def save_project_memory(
     rebuild_mode: str | None = None,
     fallback_reason: str = "",
     rebuild_plan: MemoryRebuildPlan | None = None,
-    removed_accepted_anchors: Mapping[str, Collection[str]] | None = None,
     commit: bool = True,
 ) -> dict[str, Any]:
     if rebuild_plan is not None:
@@ -1239,33 +1189,20 @@ def save_project_memory(
             rebuilt_slots=selected_slots,
         )
 
-    existing_raw_memory = _get_existing_raw_memory(project)
-    memory = _merge_accepted_memory_candidates(
-        dict(memory),
-        existing_raw_memory,
-    )
-    for slot_name, removed_values in (removed_accepted_anchors or {}).items():
-        if slot_name not in EDITABLE_MEMORY_SLOTS:
-            continue
-        removed = {str(item).strip() for item in removed_values if str(item).strip()}
-        if not removed:
-            continue
-        accepted = memory.get(ACCEPTED_MEMORY_CANDIDATES_KEY)
-        if not isinstance(accepted, dict):
-            continue
-        current = accepted.get(slot_name)
-        if isinstance(current, list):
-            accepted[slot_name] = [
-                str(item).strip()
-                for item in current
-                if str(item).strip() and str(item).strip() not in removed
-            ]
-        slot = _normalize_editable_slot(memory.get(slot_name))
-        slot["pinned"] = [item for item in slot["pinned"] if item not in removed]
-        memory[slot_name] = slot
+    memory = dict(memory)
     source_attributions = normalize_model_source_attributions(
         memory.pop(MODEL_SOURCE_ATTRIBUTIONS_KEY, []),
         selected_slots,
+    )
+    memory = strip_retired_memory_candidate_metadata(memory, scope="project")
+    memory = apply_memory_candidate_anchors(
+        memory,
+        load_active_memory_candidate_anchors(
+            session,
+            scope="project",
+            entity_id=project_id,
+        ),
+        editable_slots=PROJECT_EDITABLE_MEMORY_ANCHOR_SLOTS,
     )
     coverage_input = coverage
     if coverage_input is None and isinstance(memory.get("_coverage"), dict):

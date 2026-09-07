@@ -696,6 +696,13 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 幂等 `053_v1_53` 仅清理摘要正确且与账本值完全一致的当前聚合业务副本；非法 JSON、缺槽、损坏、分歧或重复槽位保留待审计，降级仅从合法账本补回当前 JSON 缺键。
 - `Memory Read Authority Report v3` 始终报告 `slot_ledger` / `fallback=false`，另行统计 legacy 业务副本、缺失、损坏和差异。生产执行前必须先创建并验证 PostgreSQL 备份；不运行、导入或连接 Codex。
 
+### Phase 4V：accepted candidate 原生锚点生命周期（已实施）
+
+- 新增 `MemoryCandidateAnchor`：以作用域、owner、槽位和内容摘要生成稳定身份，记录 active/retired、revision、来源 candidate、操作者与时间；摘要破坏时失败关闭，不进入重建。
+- 候选接受与锚点激活保持同一授权事务；项目/客户重建从原生 active 锚点叠加用户已确认内容。项目开放问题解决同步退休锚点，重开同步恢复，避免已关闭问题被下一次重建复活。
+- `_source_attributions` 只在模型响应解析、Prompt 来源快照核验和事实账本同步之间流转，不持久化为当前聚合元数据。`054_v1_54` 先回填再移除形态合法的 `_accepted_memory_candidates`；异常形态原样保留，无正文报告会阻止退役准备度。
+- `candidate_anchors` 报告只输出 active/retired、摘要异常、accepted candidate 缺锚点和 legacy 残留计数。确定性门禁为 136 个场景、36 项指标；备份仍是生产迁移硬前置，不运行、导入或连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

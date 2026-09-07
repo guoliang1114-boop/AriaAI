@@ -29,8 +29,11 @@ from app.services.memory_slots import (
     load_project_memory_slot_view,
 )
 from app.services.memory_projection_state import get_project_memory_coverage
+from app.services.memory_candidate_anchors import (
+    reactivate_project_memory_candidate_anchors,
+    retire_project_memory_candidate_anchors,
+)
 from app.services.project_contexts import (
-    ACCEPTED_MEMORY_CANDIDATES_KEY,
     _normalize_editable_slot,
     get_project_memory_payload,
     save_project_memory,
@@ -357,19 +360,14 @@ def resolve_project_question(
         get_project_memory_payload(project),
     )
     raw_memory[OPEN_QUESTIONS_SLOT] = updated_detail
-    accepted = raw_memory.get(ACCEPTED_MEMORY_CANDIDATES_KEY)
-    removed_anchor_values = [current_question]
-    if isinstance(accepted, dict) and isinstance(accepted.get(OPEN_QUESTIONS_SLOT), list):
-        removed_anchor_values.extend(
-            str(item).strip()
-            for item in accepted[OPEN_QUESTIONS_SLOT]
-            if normalize_project_question(item) == normalized_question
-        )
-        accepted[OPEN_QUESTIONS_SLOT] = [
-            item
-            for item in accepted[OPEN_QUESTIONS_SLOT]
-            if normalize_project_question(item) != normalized_question
-        ]
+    retire_project_memory_candidate_anchors(
+        session,
+        project_id=project_id,
+        slot_key=OPEN_QUESTIONS_SLOT,
+        contents=(current_question,),
+        actor_user_id=actor_user_id,
+        reason="question_resolved",
+    )
 
     save_project_memory(
         session,
@@ -379,7 +377,6 @@ def resolve_project_question(
         coverage=get_project_memory_coverage(project),
         rebuilt_slots=(OPEN_QUESTIONS_SLOT,),
         rebuild_mode="targeted_edit",
-        removed_accepted_anchors={OPEN_QUESTIONS_SLOT: removed_anchor_values},
         commit=False,
     )
     refreshed_project = session.get(type(project), project_id)
@@ -508,6 +505,13 @@ def reopen_project_question(
             ProjectMemorySlot.slot_key == OPEN_QUESTIONS_SLOT,
         )
     ).first()
+    reactivate_project_memory_candidate_anchors(
+        session,
+        project_id=project_id,
+        slot_key=OPEN_QUESTIONS_SLOT,
+        contents=(row.question_text,),
+        actor_user_id=actor_user_id,
+    )
     if not already_pinned:
         raw_memory = load_project_memory_slot_canonical_values(
             session,

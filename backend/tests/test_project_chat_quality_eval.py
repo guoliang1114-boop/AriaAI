@@ -28,6 +28,10 @@ def test_project_chat_quality_release_gate_passes():
     assert report["metrics"]["conversation_trace_diagnostic_safety_rate"]["score"] == 1.0
     assert report["metrics"]["grounded_answer_contract_accuracy"]["score"] == 1.0
     assert report["metrics"]["memory_read_authority_accuracy"]["score"] == 1.0
+    assert (
+        report["metrics"]["memory_candidate_anchor_authority_accuracy"]["score"]
+        == 1.0
+    )
     assert all(
         metric["score"] == 1.0
         for metric in report["metrics"].values()

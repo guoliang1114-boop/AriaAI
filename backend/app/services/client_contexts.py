@@ -13,6 +13,11 @@ from app.services.memory_facts import (
     bind_model_source_attributions,
     normalize_model_source_attributions,
 )
+from app.services.memory_candidate_anchors import (
+    apply_memory_candidate_anchors,
+    load_active_memory_candidate_anchors,
+    strip_retired_memory_candidate_metadata,
+)
 from app.services.memory_rebuilds import (
     MemoryPatchValidationError,
     MemoryRebuildPlan,
@@ -90,7 +95,6 @@ def _default_client_memory(client: ClientRecord) -> dict[str, Any]:
         "stale": client.client_memory_stale,
         "rebuild_log": get_client_memory_rebuild_log(client),
         "source_project_ids": get_client_memory_source_project_ids(client),
-        "_accepted_memory_candidates": {},
     }
 
 
@@ -114,40 +118,6 @@ def get_client_memory_payload(client: ClientRecord) -> dict[str, Any]:
         "stale": client.client_memory_stale,
         "rebuild_log": get_client_memory_rebuild_log(client),
     }
-
-
-def _merge_accepted_memory_candidates(
-    memory: dict[str, Any],
-    existing: dict[str, Any],
-) -> dict[str, Any]:
-    existing_candidates = existing.get("_accepted_memory_candidates")
-    existing_candidates = (
-        dict(existing_candidates) if isinstance(existing_candidates, dict) else {}
-    )
-    incoming_candidates = memory.get("_accepted_memory_candidates")
-    incoming_candidates = (
-        dict(incoming_candidates) if isinstance(incoming_candidates, dict) else {}
-    )
-    accepted_candidates: dict[str, list[str]] = {}
-    for slot_name in {*existing_candidates, *incoming_candidates}:
-        combined: list[str] = []
-        for source in (existing_candidates.get(slot_name), incoming_candidates.get(slot_name)):
-            if isinstance(source, list):
-                combined.extend(str(item).strip() for item in source if str(item).strip())
-        accepted_candidates[str(slot_name)] = list(dict.fromkeys(combined))[-50:]
-
-    for slot_name, items in accepted_candidates.items():
-        if slot_name not in {"decision_patterns", "lessons_learned", "relationship_signals"}:
-            continue
-        current = memory.get(slot_name)
-        current = (
-            [str(item).strip() for item in current if str(item).strip()]
-            if isinstance(current, list)
-            else []
-        )
-        memory[slot_name] = list(dict.fromkeys([*current, *items]))[-50:]
-    memory["_accepted_memory_candidates"] = accepted_candidates
-    return memory
 
 
 def mark_client_memory_stale(
@@ -494,7 +464,6 @@ def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
     memory["source_project_ids"] = (
         existing.get("source_project_ids", []) if isinstance(existing.get("source_project_ids"), list) else []
     )
-    _merge_accepted_memory_candidates(memory, existing)
     structured_stakeholders = existing.get("structured_stakeholders", [])
     parsed_stakeholders = memory.get("structured_stakeholders", [])
     memory["structured_stakeholders"] = (
@@ -566,7 +535,6 @@ def parse_client_memory_patch(
 
     memory["rebuild_log"] = existing.get("rebuild_log", []) if isinstance(existing.get("rebuild_log"), list) else []
     memory["source_project_ids"] = existing.get("source_project_ids", []) if isinstance(existing.get("source_project_ids"), list) else []
-    _merge_accepted_memory_candidates(memory, existing)
     memory[MODEL_SOURCE_ATTRIBUTIONS_KEY] = bind_model_source_attributions(
         parsed.get(MODEL_SOURCE_ATTRIBUTIONS_KEY),
         selected,
@@ -617,13 +585,19 @@ def save_client_memory(
             rebuilt_slots=selected_slots,
         )
 
-    memory = _merge_accepted_memory_candidates(
-        dict(memory),
-        get_client_memory_payload(client),
-    )
+    memory = dict(memory)
     source_attributions = normalize_model_source_attributions(
         memory.pop(MODEL_SOURCE_ATTRIBUTIONS_KEY, []),
         selected_slots,
+    )
+    memory = strip_retired_memory_candidate_metadata(memory, scope="client")
+    memory = apply_memory_candidate_anchors(
+        memory,
+        load_active_memory_candidate_anchors(
+            session,
+            scope="client",
+            entity_id=client_id,
+        ),
     )
 
     client.client_memory_version = int(client.client_memory_version or 0) + 1

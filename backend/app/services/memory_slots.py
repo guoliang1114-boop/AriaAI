@@ -24,7 +24,7 @@ from app.models.db import (
     ClientMemorySlot,
     ClientRecord,
     ClientStakeholder,
-    MemoryCandidate,
+    MemoryCandidateAnchor,
     Milestone,
     Project,
     ProjectFile,
@@ -36,6 +36,7 @@ from app.models.db import (
 from app.services.stakeholder_contexts import MAX_STAKEHOLDERS_IN_PROMPT
 from app.services.project_clients import find_client_for_project, list_projects_for_client
 from app.services.memory_projection_state import get_client_memory_source_project_ids
+from app.services.memory_candidate_anchors import memory_anchor_integrity_valid
 from app.services.time_utils import utc_now_naive
 
 
@@ -71,8 +72,6 @@ SAFE_AGGREGATE_ONLY_KEYS = frozenset(
         "rebuild_log",
         "source_project_ids",
         "_coverage",
-        "_accepted_memory_candidates",
-        "_model_source_attributions",
         "_rebuild_generation",
     }
 )
@@ -467,39 +466,49 @@ def _prompt_snapshot_evidence_refs(
     }
 
 
-def _accepted_candidate_refs(
+def _accepted_anchor_refs(
     session: Session,
     *,
     scope: str,
     entity_id: int,
 ) -> dict[str, list[dict[str, str]]]:
-    statement = select(MemoryCandidate).where(
-        MemoryCandidate.scope == scope,
-        MemoryCandidate.status == "accepted",
+    statement = select(MemoryCandidateAnchor).where(
+        MemoryCandidateAnchor.scope == scope,
+        MemoryCandidateAnchor.status == "active",
     )
     if scope == "project":
-        statement = statement.where(MemoryCandidate.project_id == entity_id)
+        statement = statement.where(MemoryCandidateAnchor.project_id == entity_id)
     else:
-        statement = statement.where(MemoryCandidate.client_id == entity_id)
-    candidates = session.exec(
-        statement.order_by(MemoryCandidate.resolved_at.desc(), MemoryCandidate.id.desc())
+        statement = statement.where(MemoryCandidateAnchor.client_id == entity_id)
+    anchors = session.exec(
+        statement.order_by(
+            MemoryCandidateAnchor.activated_at.desc(),
+            MemoryCandidateAnchor.id.desc(),
+        )
     ).all()
     by_slot: dict[str, list[dict[str, str]]] = {}
-    for candidate in candidates[:MAX_SLOT_EVIDENCE_REFS]:
-        slot_key = str(candidate.target_slot or "").strip()
-        if not slot_key:
+    for anchor in anchors[:MAX_SLOT_EVIDENCE_REFS]:
+        slot_key = str(anchor.slot_key or "").strip()
+        if not slot_key or not memory_anchor_integrity_valid(anchor):
             continue
+        source_type = "memory_candidate" if anchor.source_candidate_id else "memory_anchor"
+        source_id = anchor.source_candidate_id or anchor.id
         by_slot.setdefault(slot_key, []).append(
             _source_ref(
-                "memory_candidate",
-                candidate.id,
-                f"Accepted memory candidate #{candidate.id}",
-                candidate.resolved_at or candidate.created_at,
+                source_type,
+                source_id,
+                (
+                    f"Accepted memory candidate #{anchor.source_candidate_id}"
+                    if anchor.source_candidate_id
+                    else f"Migrated memory anchor #{anchor.id}"
+                ),
+                anchor.activated_at,
                 source_state={
-                    "content": candidate.content,
-                    "target_slot": candidate.target_slot,
-                    "status": candidate.status,
-                    "resolved_at": candidate.resolved_at,
+                    "content": anchor.content,
+                    "target_slot": anchor.slot_key,
+                    "status": anchor.status,
+                    "revision": anchor.revision,
+                    "activated_at": anchor.activated_at,
                 },
             )
         )
@@ -660,7 +669,7 @@ def build_project_slot_evidence_refs(
         )
         for item in stakeholders
     ]
-    candidates = _accepted_candidate_refs(
+    candidates = _accepted_anchor_refs(
         session,
         scope="project",
         entity_id=project_id,
@@ -791,7 +800,7 @@ def build_client_slot_evidence_refs(
         )
         for item in stakeholders
     ]
-    candidates = _accepted_candidate_refs(
+    candidates = _accepted_anchor_refs(
         session,
         scope="client",
         entity_id=client_id,

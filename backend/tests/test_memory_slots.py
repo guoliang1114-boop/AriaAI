@@ -681,14 +681,12 @@ def test_memory_read_authority_report_exposes_ledger_only_state_without_content(
             assert healthy["stale_slots"] == []
             assert healthy["business_slot_cutover_ready"] is True
             assert healthy["dual_write_consistent"] is True
-            assert healthy["aggregate_container_retirement_ready"] is False
+            assert healthy["aggregate_container_retirement_ready"] is True
             assert healthy["schema_version"] == 3
             assert healthy["legacy_runtime_fallback_enabled"] is False
             assert healthy["aggregate_business_slot_count"] == 0
             assert "rebuild_log" not in healthy["aggregate_only_keys"]
-            assert set(healthy["aggregate_only_keys"]) == {
-                "_accepted_memory_candidates",
-            }
+            assert healthy["aggregate_only_keys"] == []
 
             operational_metadata = get_project_memory_read_authority_report(
                 session,
@@ -986,7 +984,7 @@ def test_client_memory_read_authority_report_uses_all_expected_slots():
             assert report["ledger_value_count"] == len(CLIENT_MEMORY_SLOT_KEYS)
             assert report["dual_write_consistent"] is True
             assert report["aggregate_business_slot_count"] == 0
-            assert report["aggregate_container_retirement_ready"] is False
+            assert report["aggregate_container_retirement_ready"] is True
     finally:
         engine.dispose()
 

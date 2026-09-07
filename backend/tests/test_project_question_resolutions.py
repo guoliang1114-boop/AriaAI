@@ -7,6 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.db import (
     Conversation,
+    MemoryCandidateAnchor,
     Message,
     Project,
     ProjectMemoryFact,
@@ -31,6 +32,10 @@ from app.services.project_contexts import (
     save_project_memory,
 )
 from app.services.memory_slots import load_project_memory_slot_canonical_values
+from app.services.memory_candidate_anchors import (
+    memory_anchor_content_sha256,
+    memory_anchor_key,
+)
 from app.services.project_question_answer_adoption import (
     parse_project_question_resolution_event_note,
 )
@@ -84,13 +89,29 @@ def _seed() -> tuple[Session, Project, Conversation, User, Message]:
         content="客户已在 8 月 31 日书面确认验收范围。",
     )
     session.add(answer)
+    session.flush()
+    session.add(
+        MemoryCandidateAnchor(
+            anchor_key=memory_anchor_key(
+                "project",
+                int(project.id or 0),
+                "open_questions",
+                QUESTION,
+            ),
+            scope="project",
+            project_id=int(project.id or 0),
+            slot_key="open_questions",
+            content=QUESTION,
+            content_sha256=memory_anchor_content_sha256(QUESTION),
+            status="active",
+        )
+    )
     session.commit()
     save_project_memory(
         session,
         int(project.id or 0),
         {
             "open_questions": {"ai": [QUESTION], "pinned": [QUESTION]},
-            "_accepted_memory_candidates": {"open_questions": [QUESTION]},
             "_coverage": {},
         },
         trigger="test_seed",
@@ -164,7 +185,10 @@ def test_resolution_atomically_retires_question_and_binds_assistant_answer() -> 
     session.refresh(project)
     memory = _memory(session, project)
     assert memory["open_questions"] == {"ai": [], "pinned": []}
-    assert memory["_accepted_memory_candidates"]["open_questions"] == []
+    assert "_accepted_memory_candidates" not in memory
+    anchor = session.exec(select(MemoryCandidateAnchor)).one()
+    assert anchor.status == "retired"
+    assert anchor.retirement_reason == "question_resolved"
 
 
 def test_reopen_returns_question_as_user_pinned_anchor() -> None:

@@ -847,6 +847,10 @@ Skill 运行契约同步也移除了旧的 `type=legacy` 假工具占位符。�
 
 继续借鉴 Codex world-state 中“稳定身份 + 内容摘要 + 权威状态与历史记录分离”的最小机制，但实现仍是 Aria 原生 Python/SQLModel/Alembic。项目和客户业务记忆只从摘要校验通过的槽位账本读取；丢失或损坏槽位不会激活旧 JSON 回退。当前聚合写入只保留非业务元数据，而快照继续保留全量业务投影。`053_v1_53` 在生产备份后仅移除可由摘要账本完全证明一致的聚合副本，对分歧、损坏、缺槽、重复和非法 JSON 失败关闭，降级只补缺不覆盖。不增加 Codex runtime、App Server、SDK、协议、子进程、账号或通信。
 
+### Phase 4V：候选记忆锚点原生生命周期（已实施）
+
+继续复用同一“稳定身份 + 摘要校验 + 当前态/历史分离”机制，但落点是 Aria 的 `MemoryCandidateAnchor`。accepted candidate 的长期保留、退休、重开和来源候选关系均由原生表承担，聚合 JSON 不再是锚点状态源。迁移 `054_v1_54` 可从既有 accepted candidate 及形态合法的旧锚点无损重建账本，异常旧数据失败关闭并留待审计，降级不会覆盖新值。模型来源声明仍仅作为生成事务内输入，由 Aria 核验后落到事实账本。实现不增加 Codex runtime、App Server、SDK、协议、子进程、账号或通信。
+
 ## 8. 许可证与升级流程
 
 Aria 主项目继续使用 MIT License；从 Codex 改编的具体文件同时受 Apache License 2.0 的适用要求约束。

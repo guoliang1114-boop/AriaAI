@@ -88,6 +88,7 @@ export function AboutSettings() {
             '完整记忆解析现在只接收并规范化 Aria 声明的业务槽位；成功保存同步清除原生与旧聚合失败回执。',
             '已确认的历史客户干系人拍平数据会在备份后无损迁入私有隔离列，并以无正文完整性报告验证，不会自动晋升为正式联系人。',
             '新重建仅在当前聚合 JSON 保留非业务元数据，完整业务内容继续保存在可追溯快照中；备份后的幂等迁移只清理可证明一致的旧副本。',
+            'accepted candidate 已迁入原生锚点账本，具备摘要校验、激活/退休 revision 和操作者审计；问题解决与重开会同步更新锚点，不再依赖聚合 JSON 私有键。',
           ]
         : [
             'Unified Product Run Event activity timeline across live and persisted Skill, step, tool, artifact, error, and confirmation states.',
@@ -109,6 +110,7 @@ export function AboutSettings() {
             'Full memory parsing now accepts and normalizes only Aria-declared business slots; successful saves clear both native and legacy aggregate failure receipts.',
             'Confirmed legacy flattened stakeholder data is losslessly moved into a private quarantine column after backup and verified through a content-free integrity audit, without automatic promotion to a formal contact.',
             'Current aggregate JSON retains only bounded non-business metadata while full snapshots preserve recovery history; a reversible migration removes only provably matching legacy business copies after backup.',
+            'Accepted candidates now use a native digest-verified anchor ledger with active/retired revisions and actor audit; question resolution and reopening update anchors without aggregate-JSON control keys.',
           ],
     },
     {

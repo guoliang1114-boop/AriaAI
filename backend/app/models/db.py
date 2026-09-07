@@ -2268,6 +2268,78 @@ class MemoryCandidate(SQLModel, table=True):
     )
 
 
+class MemoryCandidateAnchor(SQLModel, table=True):
+    """Durable active/retired lifecycle for accepted project/client memory."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "anchor_key",
+            name="uq_memorycandidateanchor_anchor_key",
+        ),
+        CheckConstraint(
+            "scope IN ('project', 'client')",
+            name="ck_memorycandidateanchor_scope",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'retired')",
+            name="ck_memorycandidateanchor_status",
+        ),
+        CheckConstraint(
+            "revision >= 1",
+            name="ck_memorycandidateanchor_revision",
+        ),
+        CheckConstraint(
+            "(scope = 'project' AND project_id IS NOT NULL AND client_id IS NULL) "
+            "OR (scope = 'client' AND client_id IS NOT NULL AND project_id IS NULL)",
+            name="ck_memorycandidateanchor_owner",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    anchor_key: str
+    scope: str = Field(index=True)
+    project_id: Optional[int] = Field(
+        default=None,
+        foreign_key="project.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    client_id: Optional[int] = Field(
+        default=None,
+        foreign_key="clientrecord.id",
+        ondelete="CASCADE",
+        index=True,
+    )
+    slot_key: str = Field(index=True)
+    content: str = Field(sa_column=Column(Text, nullable=False))
+    content_sha256: str = Field(index=True)
+    source_candidate_id: Optional[int] = Field(
+        default=None,
+        foreign_key="memorycandidate.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    status: str = Field(default="active", index=True)
+    revision: int = 1
+    activated_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    retired_by_user_id: Optional[int] = Field(
+        default=None,
+        foreign_key="user.id",
+        ondelete="SET NULL",
+        index=True,
+    )
+    retirement_reason: str = ""
+    activated_at: datetime = Field(default_factory=utc_now_naive)
+    retired_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
 class SystemMessage(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str

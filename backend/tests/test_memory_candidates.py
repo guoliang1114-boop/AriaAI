@@ -15,6 +15,7 @@ from app.models.db import (
     ClientRecord,
     Conversation,
     MemoryCandidate,
+    MemoryCandidateAnchor,
     Message,
     Project,
     ProjectMember,
@@ -621,7 +622,14 @@ def test_client_candidate_decision_uses_stable_id_with_duplicate_client_names(
             assert target is not None
             if decision == "accept":
                 assert int(target.client_memory_version or 0) == 1
-                assert content in target.client_memory_json
+                assert content not in target.client_memory_json
+                anchor = verify.exec(
+                    select(MemoryCandidateAnchor).where(
+                        MemoryCandidateAnchor.source_candidate_id == candidate_id
+                    )
+                ).one()
+                assert anchor.status == "active"
+                assert anchor.client_id == target_client_id
             else:
                 assert int(target.client_memory_version or 0) == 0
                 assert content not in target.client_memory_json
@@ -700,7 +708,14 @@ def test_client_candidate_decision_uses_stable_id_with_blank_legacy_name(
             assert client is not None
             if decision == "accept":
                 assert int(client.client_memory_version or 0) == 1
-                assert content in client.client_memory_json
+                assert content not in client.client_memory_json
+                anchor = verify.exec(
+                    select(MemoryCandidateAnchor).where(
+                        MemoryCandidateAnchor.source_candidate_id == candidate_id
+                    )
+                ).one()
+                assert anchor.status == "active"
+                assert anchor.client_id == client_id
             else:
                 assert int(client.client_memory_version or 0) == 0
                 assert content not in client.client_memory_json
@@ -1087,7 +1102,7 @@ def test_chat_candidate_is_source_linked_idempotent_and_accepts_into_project_mem
         )
         assert timeline_candidate["status"] == "accepted"
         rebuilt = parse_project_memory('{"recent_progress": []}', project)
-        assert payload["content"] in rebuilt["recent_progress"]
+        assert payload["content"] not in rebuilt["recent_progress"]
         save_project_memory(
             session,
             project_id,
@@ -1323,7 +1338,7 @@ def test_client_candidate_requires_related_project_write_access_and_survives_reb
         assert payload["content"] in memory["relationship_signals"]
         assert "relationship_signals" not in json.loads(record.client_memory_json)
         rebuilt = parse_client_memory('{"relationship_signals": []}', record)
-        assert payload["content"] in rebuilt["relationship_signals"]
+        assert payload["content"] not in rebuilt["relationship_signals"]
         save_client_memory(
             session,
             client_id,

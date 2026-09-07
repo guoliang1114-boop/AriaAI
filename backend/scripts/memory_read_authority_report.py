@@ -26,6 +26,9 @@ from app.services.memory_projection_state import (
 from app.services.memory_legacy_quarantine import (
     build_memory_legacy_quarantine_report,
 )
+from app.services.memory_candidate_anchors import (
+    build_memory_candidate_anchor_authority_report,
+)
 from app.services.project_contexts import get_project_memory_payload
 
 
@@ -53,7 +56,7 @@ def build_report(session: Session) -> dict[str, object]:
         for client in clients
     ]
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "content_included": False,
         "project": summarize_memory_read_authority(project_reports),
         "client": summarize_memory_read_authority(client_reports),
@@ -66,6 +69,11 @@ def build_report(session: Session) -> dict[str, object]:
             all_clients,
         ),
         "legacy_quarantine": build_memory_legacy_quarantine_report(all_clients),
+        "candidate_anchors": build_memory_candidate_anchor_authority_report(
+            session,
+            all_projects,
+            all_clients,
+        ),
     }
 
 

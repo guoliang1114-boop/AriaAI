@@ -952,6 +952,8 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 补充进展（2026-09-06）：Phase 4U 将项目 12 个、客户 8 个业务记忆槽位切为槽位账本单一运行时读取权威；缺失或摘要损坏失败关闭，不再从聚合 JSON 回退。项目/客户重建和定向编辑只向当前聚合容器保留非业务元数据，但每个新快照仍保存完整账本投影。`053_v1_53` 只清理可由合法摘要账本完全证明一致的旧业务副本，分歧、损坏、缺失、重复或非法容器保留，降级只补缺。`Memory Read Authority Report v3` 分开量化账本完整性和 legacy 业务副本残留，前端不再显示“兼容回退”。权限、HITAS、owner 行锁、CAS 和 Provider 边界不变，不引入或连接 Codex。
 
+补充进展（2026-09-07）：Phase 4V 新增 `MemoryCandidateAnchor` 原生生命周期账本，将 accepted project/client candidate 的跨重建保留语义从 `_accepted_memory_candidates` 聚合私有键迁出。稳定锚点身份同时绑定作用域、owner、槽位与内容摘要；只有摘要合法且 active 的锚点会进入重建与来源证据，开放问题解决/重开在原事务内同步退休/恢复。`054_v1_54` 回填 accepted candidates 和形态合法的旧锚点后删除旧键，异常形态保留审计，降级只补缺。部署报告新增无正文 candidate-anchor 权威指标，确定性门禁为 136 个场景、36 项指标；不引入或连接 Codex。
+
 补充进展（2026-09-03）：Phase 4B 将 Skill 验收声明与真实交付物验证连接起来。运行合同以 SHA-256 绑定精确验收计划；Persistence Harness 在 `GeneratedFile` 落库事务内执行 Aria 自有的只读文件身份和格式完整性检查，并将结果按文件字节、校验器版本与 Skill 发布写入不可变 `ArtifactVerification`。自动化层绝不执行 Skill script、宏或代码，也不把语义/业务验收冒充为自动通过；此类步骤保持 `manual_required`，上下文不完整保持 `partial`，技术失败不能满足交付契约。Product Run Event、消息 metadata、恢复与前端卡片共享无正文摘要，授权 API 仅返回有界检查码。幂等迁移 `043_v1_43` 保持单一 head；确定性门禁扩展为 95 个场景、28 项指标。不引入 Codex 运行时、SDK、协议、进程或通信。
 
 补充进展（2026-09-03）：Phase 4C 为 `manual_required` 制品增加业务验收和最终交付门禁。验收绑定精确技术证据、文件字节和 Skill 验收计划，以 expected revision 处理并发，并写入当前态与 append-only 审计事件；接受/退回必须填写理由。技术失败、格式不支持或 Skill 上下文不完整不能被人工覆盖。Aria 自有声明式校验器注册表只支持有界结构指标，未知规则失败关闭，且不会执行 Skill 包代码、宏、shell 或动态 callable。预览面板可查看证据、验收、退回和历史。幂等迁移 `044_v1_44` 保持单一 head；确定性门禁为 99 个场景、29 项指标。不引入 Codex 运行时、SDK、协议、进程或通信。
