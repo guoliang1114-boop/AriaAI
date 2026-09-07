@@ -121,6 +121,9 @@ describe('chat receipt normalization', () => {
         workspace_context: true,
         attached_file_count: 0,
         knowledge_reference_count: 2,
+        knowledge_retrieval_mode: 'source_scoped',
+        knowledge_legacy_fallback: false,
+        knowledge_source_scoped_unavailable: false,
         history_message_count: 4,
         history_retained_message_count: 3,
         history_summarized_message_count: 1,
@@ -159,6 +162,8 @@ describe('chat receipt normalization', () => {
         history_retained_message_count: 3,
         history_summarized_message_count: 1,
         history_truncated_message_count: 1,
+        knowledge_retrieval_mode: 'source_scoped',
+        knowledge_legacy_fallback: false,
       },
     })
     expect(JSON.stringify(valid && toContextReceiptEvent(valid))).not.toContain('private instructions')

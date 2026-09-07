@@ -34,6 +34,7 @@ _EVIDENCE_STATUSES = {
     "partial",
     "not_available",
 }
+_DOCUMENT_NAMESPACES = {"legacy", "source_scoped"}
 
 
 def _stable_json(value: Any) -> str:
@@ -98,13 +99,31 @@ def build_knowledge_evidence_manifest(
             getattr(result, "document_name", ""),
             MAX_EVIDENCE_TITLE_CHARS,
         )
+        document_namespace = _bounded_text(
+            getattr(result, "document_namespace", "legacy"),
+            24,
+        ).lower()
+        knowledge_source_id = _safe_int(
+            getattr(result, "knowledge_source_id", None),
+            -1,
+        )
         if not content.strip() or document_id < 0 or chunk_index < 0 or not title:
+            continue
+        if document_namespace not in _DOCUMENT_NAMESPACES:
+            continue
+        if document_namespace == "source_scoped" and knowledge_source_id <= 0:
             continue
         content_sha256 = _text_sha256(content)
         evidence_id = "evidence_" + _sha256(
             {
                 "domain": "aria.knowledge-evidence-item.v1",
+                "document_namespace": document_namespace,
                 "document_id": document_id,
+                "knowledge_source_id": (
+                    knowledge_source_id
+                    if document_namespace == "source_scoped"
+                    else None
+                ),
                 "chunk_index": chunk_index,
                 "content_sha256": content_sha256,
             }
@@ -117,7 +136,13 @@ def build_knowledge_evidence_manifest(
                 "evidence_id": evidence_id,
                 "citation_key": f"K{len(entries) + 1}",
                 "source_type": "knowledge_document",
+                "document_namespace": document_namespace,
                 "document_id": document_id,
+                "knowledge_source_id": (
+                    knowledge_source_id
+                    if document_namespace == "source_scoped"
+                    else None
+                ),
                 "title": title,
                 "chunk_index": chunk_index,
                 "score": _safe_score(getattr(result, "score", 0.0)),
@@ -173,6 +198,21 @@ def validate_knowledge_evidence_manifest(value: Any) -> tuple[bool, str]:
         citation_keys.add(citation_key)
         if entry.get("source_type") != "knowledge_document":
             return False, "unsupported knowledge evidence source type"
+        document_namespace = str(entry.get("document_namespace") or "legacy")
+        if document_namespace not in _DOCUMENT_NAMESPACES:
+            return False, "unsupported knowledge document namespace"
+        knowledge_source_id = entry.get("knowledge_source_id")
+        if (
+            document_namespace == "source_scoped"
+            and _safe_int(knowledge_source_id, -1) <= 0
+        ):
+            return False, "invalid source-scoped knowledge source id"
+        if (
+            document_namespace == "legacy"
+            and knowledge_source_id is not None
+            and knowledge_source_id != ""
+        ):
+            return False, "legacy evidence cannot claim a knowledge source id"
         if _safe_int(entry.get("document_id"), -1) < 0:
             return False, "invalid knowledge document id"
         if _safe_int(entry.get("chunk_index"), -1) < 0:
@@ -270,6 +310,13 @@ def knowledge_reference(entry: dict[str, Any]) -> dict[str, Any]:
         "type": "doc",
         "id": int(entry["document_id"]),
         "title": str(entry["title"]),
+        "document_namespace": str(entry.get("document_namespace") or "legacy"),
+        **(
+            {"knowledge_source_id": int(entry["knowledge_source_id"])}
+            if str(entry.get("document_namespace") or "legacy")
+            == "source_scoped"
+            else {}
+        ),
         "evidence_id": str(entry["evidence_id"]),
         "citation_key": str(entry["citation_key"]),
         "chunk_index": int(entry["chunk_index"]),

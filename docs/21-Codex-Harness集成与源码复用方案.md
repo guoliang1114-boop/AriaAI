@@ -1,7 +1,7 @@
 # Codex 源码吸收与 Aria 原生 Harness 优化方案
 
-> 更新日期：2026-08-28
-> 状态：Phase 1 至 Phase 2W、项目对话 Phase 3A 至 3L 已实施
+> 更新日期：2026-09-07
+> 状态：Phase 1 至 Phase 2W、项目对话 Phase 3A 至 Phase 5B 已实施
 > 核心结论：Aria 不运行、不调用、不连接 Codex；仅从其开源仓库吸收适合 Aria 的源码与工程机制。
 
 ## 1. 架构决策
@@ -850,6 +850,12 @@ Skill 运行契约同步也移除了旧的 `type=legacy` 假工具占位符。�
 ### Phase 4V：候选记忆锚点原生生命周期（已实施）
 
 继续复用同一“稳定身份 + 摘要校验 + 当前态/历史分离”机制，但落点是 Aria 的 `MemoryCandidateAnchor`。accepted candidate 的长期保留、退休、重开和来源候选关系均由原生表承担，聚合 JSON 不再是锚点状态源。迁移 `054_v1_54` 可从既有 accepted candidate 及形态合法的旧锚点无损重建账本，异常旧数据失败关闭并留待审计，降级不会覆盖新值。模型来源声明仍仅作为生成事务内输入，由 Aria 核验后落到事实账本。实现不增加 Codex runtime、App Server、SDK、协议、子进程、账号或通信。
+
+### Phase 5A/5B：Source-scoped 知识读取与来源身份（已实施）
+
+本阶段复用既有“知识证据 Item 与引用闭环”机制，不引入新的 Codex 文件或运行依赖。Aria 主聊天现优先调用自身 v0.0.5 Knowledge reader；登录 actor、Source ACL 与精确作用域二元组共同约束检索，无命中或异常时才回退到既有 legacy reader。Context Receipt 明确记录实际路径和回退状态。
+
+`Knowledge Evidence Manifest v1` 的新记录增加 document namespace 与 Aria `KnowledgeSource` ID，并把它们纳入 Evidence ID 摘要；旧记录保持兼容。部署新增无正文 reader authority 报告和确定性发布指标，只有历史迁移映射完整时才允许未来退休 legacy reader。所有 Source、Document、Chunk、权限、消息、证据和迁移仍由 Aria 原生 Python/SQLModel 服务拥有；不运行、导入或连接 Codex。
 
 ## 8. 许可证与升级流程
 

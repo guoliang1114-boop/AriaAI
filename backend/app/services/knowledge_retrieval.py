@@ -29,6 +29,7 @@ QUERY_EXPANSIONS: dict[str, set[str]] = {
 class KnowledgeSearchResult:
     id: int
     document_id: int
+    chunk_index: int
     document_title: str
     document_path: str
     heading_path: list[str]
@@ -43,6 +44,7 @@ class KnowledgeSearchResult:
         return {
             "id": self.id,
             "document_id": self.document_id,
+            "chunk_index": self.chunk_index,
             "document_title": self.document_title,
             "document_path": self.document_path,
             "heading_path": self.heading_path,
@@ -81,6 +83,18 @@ def _matches_scope(doc: KnowledgeV1Document, scope_types: list[str] | None, scop
     if scope_ids and doc.scope_id not in scope_ids:
         return False
     return True
+
+
+def _matches_scope_pairs(
+    doc: KnowledgeV1Document,
+    scope_pairs: list[tuple[str, int | None]],
+) -> bool:
+    """Match exact scope identities without widening across ID namespaces."""
+
+    return any(
+        doc.scope_type == scope_type and doc.scope_id == scope_id
+        for scope_type, scope_id in scope_pairs
+    )
 
 
 def _expanded_query_terms(query: str) -> set[str]:
@@ -128,6 +142,8 @@ def search_knowledge(
     confidential_levels: list[str] | None = None,
     can_generate: bool | None = None,
     top_k: int = TOP_K_DEFAULT,
+    document_ids: list[int] | None = None,
+    scope_pairs: list[tuple[str, int | None]] | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     normalized_top_k = max(1, min(int(top_k or TOP_K_DEFAULT), 20))
@@ -138,6 +154,15 @@ def search_knowledge(
         .join(KnowledgeV1Document, KnowledgeV1Document.id == KnowledgeChunk.document_id)
         .where(KnowledgeV1Document.status == "indexed")
     )
+    normalized_document_ids = sorted(
+        {
+            int(value)
+            for value in list(document_ids or [])[:100]
+            if isinstance(value, int) and value > 0
+        }
+    )
+    if normalized_document_ids:
+        stmt = stmt.where(KnowledgeV1Document.id.in_(normalized_document_ids))
     chunks = session.exec(stmt).all()
     chunks = filter_chunks_by_permission(user, chunks, session)
 
@@ -150,12 +175,43 @@ def search_knowledge(
 
     scored: list[tuple[float, KnowledgeChunk]] = []
     query_terms = _expanded_query_terms(query)
-    attempted_scope: dict[str, Any] = {"scope_types": scope_types, "scope_ids": scope_ids}
-    for attempt_scope_types, attempt_scope_ids in _scope_attempts(scope_types, scope_ids):
+    normalized_scope_pairs = list(
+        dict.fromkeys(
+            (
+                str(scope_type or "").strip().lower(),
+                int(scope_id) if isinstance(scope_id, int) else None,
+            )
+            for scope_type, scope_id in list(scope_pairs or [])[:20]
+            if str(scope_type or "").strip()
+        )
+    )
+    exact_scope_requested = scope_pairs is not None
+    attempts = (
+        [(None, None)]
+        if exact_scope_requested
+        else _scope_attempts(scope_types, scope_ids)
+    )
+    attempted_scope: dict[str, Any] = {
+        "scope_types": scope_types,
+        "scope_ids": scope_ids,
+    }
+    if exact_scope_requested:
+        attempted_scope = {
+            "scope_pairs": [
+                {"scope_type": scope_type, "scope_id": scope_id}
+                for scope_type, scope_id in normalized_scope_pairs
+            ]
+        }
+    for attempt_scope_types, attempt_scope_ids in attempts:
         scored = []
         for chunk in chunks:
             doc = doc_map.get(chunk.document_id)
-            if not doc or not _matches_scope(doc, attempt_scope_types, attempt_scope_ids):
+            if not doc:
+                continue
+            if exact_scope_requested:
+                if not _matches_scope_pairs(doc, normalized_scope_pairs):
+                    continue
+            elif not _matches_scope(doc, attempt_scope_types, attempt_scope_ids):
                 continue
             source = source_map.get(doc.source_id)
             if not source or not can_access_source(user, source, session):
@@ -196,6 +252,7 @@ def search_knowledge(
             KnowledgeSearchResult(
                 id=chunk.id or 0,
                 document_id=doc.id or 0,
+                chunk_index=max(0, int(chunk.chunk_index or 0)),
                 document_title=doc.title,
                 document_path=doc.path,
                 heading_path=_parse_json(chunk.heading_path, []),

@@ -44,4 +44,40 @@ describe('knowledge evidence references', () => {
     expect(JSON.stringify(refs)).not.toContain('must not survive')
     expect(knowledgeReferenceLabel(refs[0], 0)).toBe('[M2]')
   })
+
+  it('keeps source-scoped namespace and Source identity without content', () => {
+    const refs = normalizeKnowledgeReferences([
+      {
+        type: 'doc',
+        id: 7,
+        title: 'Project playbook',
+        document_namespace: 'source_scoped',
+        knowledge_source_id: 31,
+        content: 'must not survive',
+      },
+    ])
+
+    expect(refs[0]).toMatchObject({
+      type: 'doc',
+      id: 7,
+      document_namespace: 'source_scoped',
+      knowledge_source_id: 31,
+    })
+    expect(JSON.stringify(refs)).not.toContain('must not survive')
+  })
+
+  it('drops a Source identity unless the document namespace is source-scoped', () => {
+    const refs = normalizeKnowledgeReferences([
+      {
+        type: 'doc',
+        id: 7,
+        title: 'Legacy document',
+        document_namespace: 'legacy',
+        knowledge_source_id: 31,
+      },
+    ])
+
+    expect(refs[0].document_namespace).toBe('legacy')
+    expect(refs[0].knowledge_source_id).toBeUndefined()
+  })
 })

@@ -267,6 +267,9 @@ _SKILL_USAGE_MODES = frozenset({"none", "advisory", "workflow"})
 _SKILL_LOAD_STATUSES = frozenset({"loaded", "compacted", "degraded"})
 _SKILL_PACKAGE_KINDS = frozenset({"bundled", "custom"})
 _SKILL_VERIFICATION_STATUSES = frozenset({"available", "not_declared"})
+_KNOWLEDGE_RETRIEVAL_MODES = frozenset(
+    {"none", "source_scoped", "legacy_fallback", "legacy_explicit", "legacy"}
+)
 _CONTEXT_WARNING_CODES = frozenset(
     {
         "project_memory_missing",
@@ -282,6 +285,8 @@ _CONTEXT_WARNING_CODES = frozenset(
         "context_compacted",
         "project_world_state_changed",
         "project_world_state_truncated",
+        "knowledge_legacy_fallback",
+        "knowledge_source_scoped_unavailable",
     }
 )
 
@@ -817,8 +822,15 @@ def context_receipt(
         "conversation_capsule",
         "user_preferences",
         "compacted",
+        "knowledge_legacy_fallback",
+        "knowledge_source_scoped_unavailable",
     ):
         normalized_evidence[key] = bool(evidence.get(key, False))
+    normalized_evidence["knowledge_retrieval_mode"] = _require_in(
+        str(evidence.get("knowledge_retrieval_mode") or "none"),
+        _KNOWLEDGE_RETRIEVAL_MODES,
+        "context_receipt.evidence.knowledge_retrieval_mode",
+    )
 
     event: dict[str, Any] = {
         "type": EventType.CONTEXT_RECEIPT,

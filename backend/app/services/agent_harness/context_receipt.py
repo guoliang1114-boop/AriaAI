@@ -138,6 +138,10 @@ def build_context_receipt(run_id: str, runtime: Any) -> dict[str, Any]:
     warnings.extend(skill_runtime_contract_warnings(skill_runtime))
     if evidence["compacted"]:
         warnings.append("context_compacted")
+    if bool(evidence.get("knowledge_legacy_fallback", False)):
+        warnings.append("knowledge_legacy_fallback")
+    if bool(evidence.get("knowledge_source_scoped_unavailable", False)):
+        warnings.append("knowledge_source_scoped_unavailable")
 
     world_state_manifest = _dict(metrics.get("project_world_state"))
     world_state_change = _dict(metrics.get("project_world_state_change"))

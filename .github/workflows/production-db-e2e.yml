@@ -394,10 +394,12 @@ jobs:
                         "tests/test_chat_flow.py::ClientMemoryRouterTestCase::test_run_client_memory_jobs_now_rebuilds_client",
                         "tests/test_conversation_state_and_versions.py",
                         "tests/test_knowledge.py",
+                        "tests/test_knowledge_chat_cutover.py",
                         "tests/test_knowledge_job_acl.py",
                         "tests/test_knowledge_job_recovery.py",
                         "tests/test_knowledge_storage_atomicity.py",
                         "tests/test_knowledge_legacy_migration.py",
+                        "tests/test_knowledge_read_authority.py",
                         "tests/test_layered_memory_routing.py",
                         "tests/test_client_memory_acl.py",
                         "tests/test_client_memory_jobs.py",
@@ -488,5 +490,6 @@ jobs:
             PY
 
             "$PYTHON" scripts/memory_read_authority_report.py
+            "$PYTHON" scripts/knowledge_read_authority_report.py
             curl -fsS --max-time 10 http://127.0.0.1:8000/health >/dev/null
             echo "Production database E2E completed successfully."

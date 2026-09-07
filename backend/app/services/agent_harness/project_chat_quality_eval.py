@@ -20,6 +20,8 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app.models.db import (
     ChatTrace,
     ClientRecord,
+    DocumentChunk,
+    KnowledgeDocument,
     MemoryCandidate,
     MemoryCandidateAnchor,
     Project,
@@ -27,6 +29,12 @@ from app.models.db import (
     ProjectPayment,
     Skill,
     User,
+)
+from app.models.knowledge import (
+    KnowledgeChunk,
+    KnowledgeLegacyMigration,
+    KnowledgeSource,
+    KnowledgeV1Document,
 )
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.config_validation import assert_chat_runtime_configuration
@@ -106,6 +114,9 @@ from app.services.intent_router import classify_chat_intent
 from app.services.memory_rebuilds import (
     plan_client_memory_rebuild,
     plan_project_memory_rebuild,
+)
+from app.services.knowledge_read_authority import (
+    build_knowledge_read_authority_report,
 )
 from app.services.memory_slots import (
     CLIENT_MEMORY_SLOT_KEYS,
@@ -2635,6 +2646,127 @@ def _memory_candidate_anchor_results() -> tuple[int, int, list[dict[str, Any]]]:
     return sum(int(item["passed"]) for item in details), len(details), details
 
 
+def _knowledge_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]:
+    """Knowledge cutover remains explicit, integrity checked, and content-free."""
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            private_content = "PRIVATE KNOWLEDGE EVIDENCE"
+            empty = build_knowledge_read_authority_report(session)
+            legacy = KnowledgeDocument(
+                name="PRIVATE LEGACY DOCUMENT",
+                file_type="md",
+                path="private/legacy.md",
+                vector_status="synced",
+            )
+            session.add(legacy)
+            session.flush()
+            session.add(
+                DocumentChunk(
+                    document_id=int(legacy.id or 0),
+                    chunk_index=0,
+                    content=private_content,
+                    embedding_json="[1.0]",
+                )
+            )
+            session.commit()
+            unmapped = build_knowledge_read_authority_report(session)
+
+            source = KnowledgeSource(
+                name="PRIVATE SOURCE",
+                source_type="manual_upload",
+                scope_type="workspace",
+                status="active",
+            )
+            session.add(source)
+            session.flush()
+            document = KnowledgeV1Document(
+                source_id=int(source.id or 0),
+                title="PRIVATE DOCUMENT",
+                file_name="private.md",
+                file_type="md",
+                path="private/new.md",
+                content_hash=hashlib.sha256(private_content.encode()).hexdigest(),
+                scope_type="workspace",
+                status="indexed",
+            )
+            session.add(document)
+            session.flush()
+            session.add(
+                KnowledgeChunk(
+                    document_id=int(document.id or 0),
+                    chunk_index=0,
+                    content=private_content,
+                    embedding_model="test",
+                    embedding="[1.0]",
+                )
+            )
+            session.add(
+                KnowledgeLegacyMigration(
+                    legacy_document_id=int(legacy.id or 0),
+                    document_id=int(document.id or 0),
+                    source_id=int(source.id or 0),
+                    status="completed",
+                    scope_type="workspace",
+                )
+            )
+            session.commit()
+            migrated = build_knowledge_read_authority_report(session)
+
+            source.status = "inactive"
+            session.add(source)
+            session.commit()
+            invalid = build_knowledge_read_authority_report(session)
+    finally:
+        engine.dispose()
+
+    serialized = json.dumps(
+        {
+            "empty": empty,
+            "unmapped": unmapped,
+            "migrated": migrated,
+            "invalid": invalid,
+        },
+        ensure_ascii=False,
+    )
+    details = [
+        {
+            "case": "empty_knowledge_store_is_source_scoped_cutover_ready",
+            "passed": empty["runtime_read_mode"] == "source_scoped_first"
+            and empty["source_scoped_cutover_ready"],
+        },
+        {
+            "case": "unmapped_legacy_knowledge_blocks_reader_retirement",
+            "passed": not unmapped["source_scoped_cutover_ready"]
+            and unmapped["unmapped_legacy_document_count"] == 1
+            and unmapped["legacy_fallback_enabled"],
+        },
+        {
+            "case": "verified_migration_mapping_enables_source_scoped_cutover",
+            "passed": migrated["source_scoped_cutover_ready"]
+            and migrated["mapped_legacy_document_count"] == 1
+            and migrated["invalid_completed_mapping_count"] == 0,
+        },
+        {
+            "case": "inactive_migration_target_fails_integrity_closed",
+            "passed": not invalid["source_scoped_cutover_ready"]
+            and invalid["invalid_completed_mapping_count"] == 1,
+        },
+        {
+            "case": "knowledge_authority_report_is_content_free",
+            "passed": not migrated["content_included"]
+            and "PRIVATE" not in serialized,
+        },
+    ]
+    return sum(int(item["passed"]) for item in details), len(details), details
+
+
 def run_project_chat_quality_eval() -> dict[str, Any]:
     """Run all deterministic cases and return a JSON-safe release report."""
 
@@ -2674,6 +2806,7 @@ def run_project_chat_quality_eval() -> dict[str, Any]:
         "memory_candidate_anchor_authority_accuracy": (
             _memory_candidate_anchor_results()
         ),
+        "knowledge_read_authority_accuracy": _knowledge_read_authority_results(),
         "memory_rebuild_planning_accuracy": _memory_rebuild_planning_results(),
         "memory_direct_source_accuracy": _memory_direct_source_results(),
         "question_answer_readiness_accuracy": _question_answer_readiness_results(),

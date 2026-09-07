@@ -75,6 +75,7 @@ def build_chat_context(
     context_mode: str = "",
     accessible_project_ids: Optional[list[int]] = None,
     accessible_client_ids: Optional[list[int]] = None,
+    requesting_user_id: Optional[int] = None,
     skill_override: Optional[Skill] = None,
 ) -> ChatContext:
     """Build complete chat context including skill, project, and RAG.
@@ -237,6 +238,7 @@ def build_chat_context(
         auto_trigger=True,
         accessible_project_ids=accessible_project_ids,
         accessible_client_ids=accessible_client_ids,
+        requesting_user_id=requesting_user_id,
     )
 
     if portfolio_context:
@@ -289,6 +291,15 @@ def build_chat_context(
             "workspace_context": bool(project_context.strip()),
             "attached_file_count": len(file_ids or []),
             "knowledge_reference_count": len(rag_data["sources"] or []),
+            "knowledge_retrieval_mode": str(
+                rag_data.get("retrieval_mode") or "none"
+            ),
+            "knowledge_legacy_fallback": bool(
+                rag_data.get("legacy_fallback_used", False)
+            ),
+            "knowledge_source_scoped_unavailable": bool(
+                rag_data.get("source_scoped_unavailable", False)
+            ),
         },
     }
     
@@ -332,7 +343,16 @@ def build_chat_context(
             kind="retrieval",
             trust="retrieved",
             content=rag_data["text"] or "",
-            metadata={"reference_count": len(rag_data["sources"] or [])},
+            metadata={
+                "reference_count": len(rag_data["sources"] or []),
+                "retrieval_mode": str(rag_data.get("retrieval_mode") or "none"),
+                "source_scoped_attempted": bool(
+                    rag_data.get("source_scoped_attempted", False)
+                ),
+                "legacy_fallback_used": bool(
+                    rag_data.get("legacy_fallback_used", False)
+                ),
+            },
         )
     )
 

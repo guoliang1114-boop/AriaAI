@@ -1,9 +1,9 @@
 ---
 name: meeting-intelligence
 description: "Extract structured meeting intelligence from transcripts or notes. Use when the user provides (1) meeting transcript, (2) interview notes, (3) call recording text, (4) workshop notes, or asks to (5) summarize a meeting, (6) extract action items, (7) identify decisions and risks from a meeting. Produces structured minutes with decisions, action items, risks, and follow-ups."
-version: "1.0.0"
+version: "1.1.0"
 domain: "consulting"
-last_updated: "2026-08-26"
+last_updated: "2026-09-07"
 status: "stable"
 ---
 
@@ -25,6 +25,24 @@ Extract structured meeting intelligence from raw transcripts, interview notes, o
 |------|---------|
 | `update_project_markdown_document` | Save meeting minutes as project document |
 | `write_project_office_document` | Generate meeting minutes as Word/PDF |
+
+## Diagnostic Intake
+
+Before extraction, determine only the facts that materially affect the result:
+
+- Is the input a transcript, rough notes, interview record, or workshop output?
+- Is the meeting date known? It is required to convert relative dates such as “next Wednesday”.
+- Are speaker names reliable, role-only, or absent?
+- Does the user want Quick, Standard, or Deep output, and should it be saved?
+- Which project/client scope applies, and is any content too sensitive for a broad summary?
+
+Do not block useful analysis when metadata is missing. Mark unknown participants,
+owners, deadlines, and decision status as “待确认”; preserve the original relative
+date when it cannot be converted. Ask a short follow-up only when the ambiguity
+would change attribution, commitment, confidentiality, or the requested artifact.
+
+Treat contradictions as evidence to surface, not text to reconcile silently. When
+two speakers disagree, record both positions and the unresolved decision owner.
 
 ## Workflow
 
@@ -197,6 +215,10 @@ Always offer to save to project space.
 - [ ] 决策与讨论意见分开，不把倾向性发言误写成正式决策。
 - [ ] 重要客户原话保留短引用，但不大段复制全文。
 - [ ] 已识别哪些内容应进入项目记忆或客户记忆。
+
+Before final delivery, read `references/quality-checklist.md`. Use
+`examples/standard-example.md` when relative dates, unconfirmed decisions, or
+memory candidates need a concrete calibration example.
 
 ## Consulting Excellence Layer
 

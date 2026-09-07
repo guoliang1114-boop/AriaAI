@@ -18,10 +18,22 @@ export function normalizeKnowledgeReferences(value: unknown): Reference[] {
     if (!['skill', 'doc', 'file', 'milestone', 'memory', 'question_evidence'].includes(type)) return []
     if (!Number.isInteger(id) || id < 0 || !title) return []
     const citationKey = String(item.citation_key || '').trim()
+    const documentNamespace = item.document_namespace === 'legacy'
+      || item.document_namespace === 'source_scoped'
+      ? item.document_namespace
+      : undefined
     return [{
       type: type as Reference['type'],
       id,
       title,
+      ...(documentNamespace
+        ? { document_namespace: documentNamespace }
+        : {}),
+      ...(documentNamespace === 'source_scoped'
+        && Number.isInteger(Number(item.knowledge_source_id))
+        && Number(item.knowledge_source_id) > 0
+        ? { knowledge_source_id: Number(item.knowledge_source_id) }
+        : {}),
       ...(CITATION_KEY_PATTERN.test(citationKey) ? { citation_key: citationKey } : {}),
       ...(typeof item.evidence_id === 'string' ? { evidence_id: item.evidence_id } : {}),
       ...(Number.isInteger(Number(item.chunk_index)) ? { chunk_index: Number(item.chunk_index) } : {}),

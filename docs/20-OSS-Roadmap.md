@@ -62,8 +62,13 @@ Goal: turn documents and team knowledge into workflow context, not only search r
   content-bound plan fingerprints, non-destructive source/file copying,
   restart-safe per-document mapping, duplicate-content reuse, stale-plan
   rejection, permission closure for legacy management APIs, and duplicate-free
-  frontend cutover. The next open item is making source-scoped v0.0.5 retrieval
-  the primary chat RAG path before retiring the legacy vector reader.
+  frontend cutover.
+- Chat-read cutover delivered on 2026-09-07: source-scoped v0.0.5 retrieval is
+  now primary for authenticated project/client chat, exact typed scope pairs
+  prevent cross-domain ID widening, and bounded legacy fallback remains visible
+  in Context Receipts. Evidence identities include the document namespace and
+  Source ID. A content-free production authority report blocks legacy-reader
+  retirement until every historical document has a valid indexed mapping.
 
 ## 4. Skill Workflows
 

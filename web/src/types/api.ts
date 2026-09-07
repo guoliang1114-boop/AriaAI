@@ -1870,6 +1870,8 @@ export interface Reference {
   type: 'skill' | 'doc' | 'file' | 'milestone' | 'memory' | 'question_evidence'
   id: number
   title: string
+  document_namespace?: 'legacy' | 'source_scoped'
+  knowledge_source_id?: number
   schema_version?: 1
   evidence_id?: string
   citation_key?: string
@@ -1890,7 +1892,10 @@ export interface KnowledgeEvidenceManifest {
     evidence_id: string
     citation_key: string
     source_type: 'knowledge_document'
+    /** Optional for persisted manifests created before source-scoped chat RAG. */
+    document_namespace?: 'legacy' | 'source_scoped'
     document_id: number
+    knowledge_source_id?: number | null
     title: string
     chunk_index: number
     score: number

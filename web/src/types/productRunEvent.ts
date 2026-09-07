@@ -144,7 +144,9 @@ export type ContextWarningCode =
   | "skill_verification_not_declared"
   | "context_compacted"
   | "project_world_state_changed"
-  | "project_world_state_truncated";
+  | "project_world_state_truncated"
+  | "knowledge_legacy_fallback"
+  | "knowledge_source_scoped_unavailable";
 
 export interface ContextMemoryLayer {
   scope: ContextMemoryLayerScope;
@@ -212,6 +214,10 @@ export interface ContextReceiptEvent {
     workspace_context: boolean;
     attached_file_count: number;
     knowledge_reference_count: number;
+    /** Optional for persisted receipts created before source-scoped RAG cutover. */
+    knowledge_retrieval_mode?: "none" | "source_scoped" | "legacy_fallback" | "legacy_explicit" | "legacy";
+    knowledge_legacy_fallback?: boolean;
+    knowledge_source_scoped_unavailable?: boolean;
     history_message_count: number;
     /** Optional for persisted receipts created before history-retention disclosure shipped. */
     history_retained_message_count?: number;

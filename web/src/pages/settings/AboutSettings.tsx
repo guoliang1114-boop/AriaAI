@@ -89,6 +89,9 @@ export function AboutSettings() {
             '已确认的历史客户干系人拍平数据会在备份后无损迁入私有隔离列，并以无正文完整性报告验证，不会自动晋升为正式联系人。',
             '新重建仅在当前聚合 JSON 保留非业务元数据，完整业务内容继续保存在可追溯快照中；备份后的幂等迁移只清理可证明一致的旧副本。',
             'accepted candidate 已迁入原生锚点账本，具备摘要校验、激活/退休 revision 和操作者审计；问题解决与重开会同步更新锚点，不再依赖聚合 JSON 私有键。',
+            '项目/客户对话现优先读取新版 Source-scoped 知识库，精确作用域阻止跨项目混入；旧库回退和新版不可用状态会在本轮依据中明确展示。',
+            '知识证据增加新版/旧版 document namespace 与 Source ID，避免同号文档身份歧义；部署通过无正文报告守卫旧 reader 退役。',
+            '会议智能与演示文稿两个高频 Skill 升级至 1.1.0，补齐最小诊断、假设/矛盾处理、依赖边界与交付验证。',
           ]
         : [
             'Unified Product Run Event activity timeline across live and persisted Skill, step, tool, artifact, error, and confirmation states.',
@@ -111,6 +114,9 @@ export function AboutSettings() {
             'Confirmed legacy flattened stakeholder data is losslessly moved into a private quarantine column after backup and verified through a content-free integrity audit, without automatic promotion to a formal contact.',
             'Current aggregate JSON retains only bounded non-business metadata while full snapshots preserve recovery history; a reversible migration removes only provably matching legacy business copies after backup.',
             'Accepted candidates now use a native digest-verified anchor ledger with active/retired revisions and actor audit; question resolution and reopening update anchors without aggregate-JSON control keys.',
+            'Project and client chat now prefers source-scoped knowledge with exact typed scope boundaries, while visible bounded legacy fallback preserves continuity.',
+            'Knowledge evidence now distinguishes legacy and source-scoped document namespaces and records Source IDs; a content-free deploy audit guards legacy-reader retirement.',
+            'Meeting Intelligence and Presentation Builder 1.1.0 add focused intake diagnostics, assumption and contradiction handling, dependency boundaries, and delivery verification.',
           ],
     },
     {

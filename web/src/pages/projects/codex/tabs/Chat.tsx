@@ -2225,10 +2225,19 @@ function ProjectContextReceiptSummary({
   const historyLabel = contextHistoryEvidenceLabel(receipt.evidence)
   const evidenceBits = [
     receipt.evidence.knowledge_reference_count > 0
-      ? `${receipt.evidence.knowledge_reference_count} 条知识证据`
+      ? `${receipt.evidence.knowledge_reference_count} 条知识证据${
+        receipt.evidence.knowledge_retrieval_mode === 'source_scoped'
+          ? '（新版知识源）'
+          : receipt.evidence.knowledge_legacy_fallback
+            ? '（旧库兼容）'
+            : ''
+      }`
       : '',
     receipt.evidence.attached_file_count > 0
       ? `${receipt.evidence.attached_file_count} 个指定文件`
+      : '',
+    receipt.evidence.knowledge_source_scoped_unavailable
+      ? '新版知识检索暂不可用，已限制在兼容路径内'
       : '',
     historyLabel,
   ].filter(Boolean)
@@ -2243,6 +2252,8 @@ function ProjectContextReceiptSummary({
       'user_preference_overridden',
       'skill_match_ambiguous',
       'project_world_state_changed',
+      'knowledge_legacy_fallback',
+      'knowledge_source_scoped_unavailable',
     ].includes(warning),
   )
   return (

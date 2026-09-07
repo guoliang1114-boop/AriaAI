@@ -173,6 +173,18 @@ const CONTEXT_WARNING_CODES = new Set<ContextWarningCode>([
   'context_compacted',
   'project_world_state_changed',
   'project_world_state_truncated',
+  'knowledge_legacy_fallback',
+  'knowledge_source_scoped_unavailable',
+])
+
+type KnowledgeRetrievalMode = NonNullable<ContextReceiptEvent['evidence']['knowledge_retrieval_mode']>
+
+const KNOWLEDGE_RETRIEVAL_MODES = new Set<KnowledgeRetrievalMode>([
+  'none',
+  'source_scoped',
+  'legacy_fallback',
+  'legacy_explicit',
+  'legacy',
 ])
 
 function stringList(value: unknown): string[] {
@@ -337,6 +349,13 @@ export function toContextReceiptEvent(event: ChatStreamEvent): ContextReceiptEve
       workspace_context: Boolean(evidence.workspace_context),
       attached_file_count: nonNegativeInt(evidence.attached_file_count),
       knowledge_reference_count: nonNegativeInt(evidence.knowledge_reference_count),
+      knowledge_retrieval_mode: KNOWLEDGE_RETRIEVAL_MODES.has(
+        evidence.knowledge_retrieval_mode as KnowledgeRetrievalMode,
+      )
+        ? evidence.knowledge_retrieval_mode as KnowledgeRetrievalMode
+        : 'none',
+      knowledge_legacy_fallback: Boolean(evidence.knowledge_legacy_fallback),
+      knowledge_source_scoped_unavailable: Boolean(evidence.knowledge_source_scoped_unavailable),
       history_message_count: nonNegativeInt(evidence.history_message_count),
       history_retained_message_count: optionalNonNegativeInt(evidence.history_retained_message_count),
       history_summarized_message_count: optionalNonNegativeInt(evidence.history_summarized_message_count),

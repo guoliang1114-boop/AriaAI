@@ -281,10 +281,12 @@ jobs:
                 tests/test_grounded_provider_eval.py \
                 tests/test_instruction_manifest.py \
                 tests/test_knowledge_evidence.py \
+                tests/test_knowledge_chat_cutover.py \
                 tests/test_knowledge_job_acl.py \
                 tests/test_knowledge_job_recovery.py \
                 tests/test_knowledge_storage_atomicity.py \
                 tests/test_knowledge_legacy_migration.py \
+                tests/test_knowledge_read_authority.py \
                 tests/test_layered_memory_routing.py \
                 tests/test_memory_fact_source_trust.py \
                 tests/test_memory_failure_recovery.py \
@@ -380,6 +382,7 @@ jobs:
             # verified backup. The report uses an explicit read-only
             # transaction and never exposes memory content.
             "$PYTHON" scripts/memory_read_authority_report.py
+            "$PYTHON" scripts/knowledge_read_authority_report.py
 
             # Reload backend after code and schema changes.
             mkdir -p /www/wwwroot/AriaAI/logs

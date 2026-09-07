@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -55,6 +56,8 @@ def test_manifest_is_stable_bounded_and_never_persists_retrieved_text() -> None:
     assert first == second
     assert [entry["citation_key"] for entry in first["entries"]] == ["K1", "K2"]
     assert first["entries"][0]["evidence_id"].startswith("evidence_")
+    assert first["entries"][0]["document_namespace"] == "legacy"
+    assert first["entries"][0]["knowledge_source_id"] is None
     assert first["entries"][0]["content_sha256"]
     serialized = json.dumps(first, ensure_ascii=False)
     assert "phased rollout" not in serialized
@@ -91,6 +94,7 @@ def test_citation_resolution_keeps_only_valid_cited_sources() -> None:
             "type": "doc",
             "id": 7,
             "title": "Steering notes.md",
+            "document_namespace": "legacy",
             "evidence_id": manifest["entries"][0]["evidence_id"],
             "citation_key": "K1",
             "chunk_index": 2,
@@ -99,6 +103,53 @@ def test_citation_resolution_keeps_only_valid_cited_sources() -> None:
         }
     ]
     assert knowledge_evidence_reference(resolved)["cited_count"] == 1
+
+
+def test_source_scoped_evidence_keeps_unambiguous_source_provenance() -> None:
+    source_scoped = SimpleNamespace(
+        content="The client approved a phased rollout.",
+        document_name="Steering notes.md",
+        document_id=7,
+        knowledge_source_id=31,
+        document_namespace="source_scoped",
+        chunk_index=2,
+        score=0.94,
+    )
+    source_manifest = build_knowledge_evidence_manifest([source_scoped])
+    legacy_manifest = build_knowledge_evidence_manifest([_results()[0]])
+
+    resolved, references = resolve_knowledge_citations(source_manifest, "Approved [K1].")
+
+    assert source_manifest["entries"][0]["document_namespace"] == "source_scoped"
+    assert source_manifest["entries"][0]["knowledge_source_id"] == 31
+    assert source_manifest["entries"][0]["evidence_id"] != legacy_manifest["entries"][0]["evidence_id"]
+    assert references[0]["document_namespace"] == "source_scoped"
+    assert references[0]["knowledge_source_id"] == 31
+    assert validate_knowledge_evidence_manifest(resolved) == (True, "")
+
+
+def test_manifest_created_before_namespace_cutover_remains_valid() -> None:
+    manifest = build_knowledge_evidence_manifest([_results()[0]])
+    entry = manifest["entries"][0]
+    entry.pop("document_namespace")
+    entry.pop("knowledge_source_id")
+    digest_payload = {
+        "domain": "aria.knowledge-evidence-manifest.v1",
+        "knowledge_scope": manifest["knowledge_scope"],
+        "project_id": manifest["project_id"],
+        "entries": manifest["entries"],
+    }
+    stable_json = json.dumps(
+        digest_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    manifest["manifest_id"] = (
+        "ke_manifest_" + hashlib.sha256(stable_json.encode("utf-8")).hexdigest()[:24]
+    )
+
+    assert validate_knowledge_evidence_manifest(manifest) == (True, "")
 
 
 def test_uncited_evidence_is_explicit_and_tampering_fails_validation() -> None:

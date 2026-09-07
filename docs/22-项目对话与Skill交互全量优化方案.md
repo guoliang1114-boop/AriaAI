@@ -1,6 +1,6 @@
 # 项目对话与 Skill 交互全量优化方案
 
-> 更新日期：2026-08-28
+> 更新日期：2026-09-07
 > 对照基线：OpenAI Codex `83d1fe0e67b1323f71febc2925817732b449f1d9`；发布快照/重建机制固定于 `343074d4207d572809bd8cea15f4be1d09d98e0b`；Phase 4A Skill 本轮加载边界固定于 `5e26f7621c1c470fe62350d61c9eb4d6c772a0da`
 > 产品边界：只吸收源码机制，不运行、不调用、不连接 Codex。
 
@@ -702,6 +702,19 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - 候选接受与锚点激活保持同一授权事务；项目/客户重建从原生 active 锚点叠加用户已确认内容。项目开放问题解决同步退休锚点，重开同步恢复，避免已关闭问题被下一次重建复活。
 - `_source_attributions` 只在模型响应解析、Prompt 来源快照核验和事实账本同步之间流转，不持久化为当前聚合元数据。`054_v1_54` 先回填再移除形态合法的 `_accepted_memory_candidates`；异常形态原样保留，无正文报告会阻止退役准备度。
 - `candidate_anchors` 报告只输出 active/retired、摘要异常、accepted candidate 缺锚点和 legacy 残留计数。确定性门禁为 136 个场景、36 项指标；备份仍是生产迁移硬前置，不运行、导入或连接 Codex。
+
+### Phase 5A/5B：项目知识上下文主路径切换与来源溯源（已实施）
+
+- 项目/客户聊天和显式 `#doc` 由 Source-scoped Knowledge reader 优先服务，actor ACL 与精确 `(scope_type, scope_id)` 同时生效；其他可访问项目不会因 ID 同号或 fallback 规则被混入当前项目。
+- 新版无结果或不可用时保留有界 legacy fallback；显式旧文档仍走 legacy explicit。Context Receipt 和聊天来源卡明确显示 reader 类型、回退与不可用告警，不把兼容行为伪装为新版命中。
+- Knowledge Evidence 记录 document namespace 和 `knowledge_source_id`，稳定身份区分 legacy 与 v0.0.5 文档；历史 manifest 继续兼容。部署和生产 E2E 新增无正文权威报告，生产遗留未完成迁移时失败关闭 legacy reader 退役。
+- 确定性发布门禁为 141 个场景、37 项指标。本阶段无迁移，Alembic head 保持 `054_v1_54`；不运行、导入或连接 Codex。
+
+### Phase 5C：高频 Skill 诊断与交付边界（第一批已实施）
+
+- `meeting-intelligence` 1.1.0 新增输入类型、会议日期、说话人可靠性、输出模式、项目作用域和保密范围的最小诊断；缺失字段按“待确认”处理，矛盾观点不会被静默合并。
+- `presentation-builder` 1.1.0 新增受众/决策/证据/品牌/格式诊断，以及生成工具、参考清单、样例隔离和 Artifact 完成判定边界；禁止为填图编造业务数据。
+- 两个高频 Skill 的 Aria 质量分均达到 100；全库门禁继续覆盖 48 个包。其余非优先 Skill 的 references/examples 警告按实际使用价值分批消化，不用模板化堆料换分数。
 
 ## 11. 官方资料与许可证
 

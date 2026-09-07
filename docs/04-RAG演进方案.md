@@ -235,3 +235,17 @@ AriaAI 的北极星场景依赖客户关系上下文，而不是海量知识库�
 5. 会前简报中的来源引用。
 
 RAG 的技术演进应服务产品主线，不应脱离客户关系智能单独追求复杂检索架构。
+
+## 10. Phase 5A：项目对话切换到 Source-scoped RAG（已实施）
+
+项目/客户对话和显式 `#doc` 查询现由 v0.0.5 `KnowledgeSource → KnowledgeDocument → KnowledgeChunk` 路径优先检索。检索同时执行当前登录用户 ACL 与精确 `(scope_type, scope_id)` 匹配；项目 ID、客户 ID 和用户 ID 不再放进一个无类型 ID 集合，也不会因结果不足自动扩大到另一个项目。只有新版路径没有结果或暂时不可用时，才调用既有 legacy reader，且继续使用当前项目/客户可访问 ID 做有界过滤。
+
+Context Receipt 与聊天依据区分 `source_scoped`、`legacy_fallback`、`legacy_explicit` 和 `legacy`。回退和新版检索异常会生成内容安全告警；检索正文仍只进入本轮 Provider 上下文，持久化事件只保留证据身份、摘要和计数。显式选择旧文档保持兼容，不会被静默改解释为新版文档 ID。
+
+新增只读、无正文的 `Knowledge Read Authority Report v1`，在部署和生产数据库 E2E 中统计 active Source、新版文档/chunk、legacy 文档状态、迁移映射以及失效映射。只有全部 legacy 文档均映射到 active Source 下带 chunk 的 indexed 新版文档时，`source_scoped_cutover_ready` 才为 true；报告不会自动迁移、删除或修改数据。
+
+## 11. Phase 5B：知识来源命名空间与 Source 溯源（已实施）
+
+新版检索结果和 `Knowledge Evidence Manifest v1` 增加 `document_namespace=source_scoped` 与 `knowledge_source_id`；legacy 证据明确标记 `document_namespace=legacy`。Evidence ID 将命名空间和 Source 身份纳入摘要，因此两套文档表即使出现相同 `document_id/chunk_index` 也不会形成同一证据身份。旧的已持久化 v1 manifest 没有这些可选字段时仍按 legacy 兼容验证。
+
+本阶段未新增数据库表或迁移，Alembic head 保持 `054_v1_54`；没有引入或连接 Codex runtime、App Server、SDK、协议、子进程或账号。

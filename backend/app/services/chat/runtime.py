@@ -1243,6 +1243,7 @@ def prepare_chat_runtime(
         context_mode=context_mode,
         accessible_project_ids=_accessible_project_ids(session, owner_user_id),
         accessible_client_ids=_accessible_client_ids(session, owner_user_id),
+        requesting_user_id=owner_user_id,
         skill_override=effective_skill,
     )
     prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)

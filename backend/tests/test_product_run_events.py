@@ -215,6 +215,9 @@ class ContextReceiptTest(unittest.TestCase):
                 "workspace_context": True,
                 "attached_file_count": 1,
                 "knowledge_reference_count": 2,
+                "knowledge_retrieval_mode": "legacy_fallback",
+                "knowledge_legacy_fallback": True,
+                "knowledge_source_scoped_unavailable": False,
                 "history_message_count": 8,
                 "history_retained_message_count": 6,
                 "history_summarized_message_count": 2,
@@ -227,6 +230,7 @@ class ContextReceiptTest(unittest.TestCase):
                 "project_memory_stale",
                 "client_memory_stale",
                 "user_preference_overridden",
+                "knowledge_legacy_fallback",
             ],
         )
 
@@ -260,6 +264,11 @@ class ContextReceiptTest(unittest.TestCase):
         self.assertEqual(event["memory"]["layers"][1]["matched_fact_count"], 0)
         self.assertEqual(event["skill"]["usage_mode"], "advisory")
         self.assertEqual(event["evidence"]["knowledge_reference_count"], 2)
+        self.assertEqual(
+            event["evidence"]["knowledge_retrieval_mode"],
+            "legacy_fallback",
+        )
+        self.assertTrue(event["evidence"]["knowledge_legacy_fallback"])
         self.assertNotIn("prompt", event)
         self.assertNotIn("content", event)
         self.assertNotIn("_source_snapshots", str(event))
