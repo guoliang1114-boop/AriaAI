@@ -260,6 +260,62 @@ def test_question_review_recalls_current_sources_and_ranks_project_answers(monke
     assert "content_sha256" not in serialized
 
 
+def test_question_review_uses_authorized_source_scoped_knowledge(monkeypatch) -> None:
+    session, owner, _, project, _, _, _ = _seed()
+    source_manifest = build_knowledge_evidence_manifest(
+        [
+            SimpleNamespace(
+                content="客户于周五书面确认最终验收范围。",
+                document_name="新版验收确认函.pdf",
+                document_id=71,
+                knowledge_source_id=17,
+                document_namespace="source_scoped",
+                chunk_index=3,
+                score=0.93,
+            )
+        ],
+        knowledge_scope="project",
+        project_id=int(project.id),
+    )
+    observed: dict[str, object] = {}
+
+    def source_scoped(*_args, **kwargs):
+        observed.update(kwargs)
+        return {
+            "text": "PRIVATE SOURCE-SCOPED CHUNK",
+            "sources": [],
+            "evidence_manifest": source_manifest,
+            "retrieval_mode": "source_scoped",
+            "source_scoped_attempted": True,
+            "source_scoped_unavailable": False,
+            "legacy_fallback_used": False,
+        }
+
+    monkeypatch.setattr(
+        "app.services.project_question_evidence.build_rag_context",
+        source_scoped,
+    )
+    payload = build_project_question_evidence_review(
+        session,
+        project=project,
+        question=QUESTION,
+        question_sha256=project_question_sha256(QUESTION),
+        requesting_user_id=int(owner.id),
+    )
+
+    knowledge = payload["question_evidence"]["knowledge"]
+    assert observed["requesting_user_id"] == owner.id
+    assert observed["accessible_project_ids"] == [project.id]
+    assert knowledge["retrieval_mode"] == "source_scoped"
+    assert knowledge["source_scoped_attempted"] is True
+    assert knowledge["source_scoped_unavailable"] is False
+    assert knowledge["legacy_fallback_used"] is False
+    assert knowledge["sources"][0]["document_namespace"] == "source_scoped"
+    assert knowledge["sources"][0]["knowledge_source_id"] == 17
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert "PRIVATE SOURCE-SCOPED CHUNK" not in serialized
+
+
 def test_question_review_degrades_when_knowledge_retrieval_is_unavailable(monkeypatch) -> None:
     session, _, _, project, _, _, _ = _seed()
 

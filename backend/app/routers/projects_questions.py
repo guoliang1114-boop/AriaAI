@@ -179,11 +179,14 @@ def analyze_project_question_evidence(
         current_user,
         require_write=True,
     )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     return build_project_question_evidence_review(
         session,
         project=_project(session, project_id),
         question=body.question,
         question_sha256=question_sha256,
+        requesting_user_id=int(current_user.id),
     )
 
 
@@ -228,6 +231,8 @@ def prepare_project_question_answer_adoption(
         current_user,
         require_write=True,
     )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     snapshot = build_project_question_answer_adoption_snapshot(
         session,
         project=_project(session, project_id),
@@ -235,6 +240,7 @@ def prepare_project_question_answer_adoption(
         question_sha256=question_sha256,
         answer_message_id=body.answer_message_id,
         resolution_summary=body.resolution_summary,
+        requesting_user_id=int(current_user.id),
     )
     return snapshot.public
 
@@ -255,11 +261,14 @@ def plan_project_question_remediation(
         current_user,
         require_write=True,
     )
+    if current_user.id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     return build_project_question_remediation_plan(
         session,
         project=_project(session, project_id),
         question=body.question,
         question_sha256=question_sha256,
+        requesting_user_id=int(current_user.id),
     )
 
 

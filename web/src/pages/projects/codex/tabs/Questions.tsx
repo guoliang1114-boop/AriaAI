@@ -2087,6 +2087,14 @@ function QuestionEvidencePanel({
     ...review.question_evidence.memory.sources,
     ...review.question_evidence.attachments.sources,
   ]
+  const knowledgeRetrievalMode = review.question_evidence.knowledge.retrieval_mode
+  const knowledgeRetrievalLabel = knowledgeRetrievalMode === 'source_scoped'
+    ? '新版知识源'
+    : knowledgeRetrievalMode === 'legacy_fallback'
+      ? '旧库兼容'
+      : knowledgeRetrievalMode === 'legacy_explicit' || knowledgeRetrievalMode === 'legacy'
+        ? '旧版知识库'
+        : ''
   return (
     <section
       aria-label="问题证据分析"
@@ -2101,7 +2109,8 @@ function QuestionEvidencePanel({
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ color: 'var(--ink-soft)', fontSize: 11.5 }}>
           当前召回 {review.question_evidence.source_count} 条来源：知识文档{' '}
-          {review.question_evidence.knowledge.source_count} · 项目记忆{' '}
+          {review.question_evidence.knowledge.source_count}
+          {knowledgeRetrievalLabel ? `（${knowledgeRetrievalLabel}）` : ''} · 项目记忆{' '}
           {review.question_evidence.memory.source_count} · 整改附件{' '}
           {review.question_evidence.attachments.source_count} · 可用于支持{' '}
           {review.question_evidence.supporting_source_count}
@@ -2122,6 +2131,17 @@ function QuestionEvidencePanel({
           当前项目记忆含陈旧槽位，证据对齐结果需要额外复核。
         </div>
       )}
+      {review.question_evidence.knowledge.source_scoped_unavailable && (
+        <div style={{ marginTop: 6, color: 'var(--warn)', fontSize: 10.5 }}>
+          新版知识检索暂不可用，问题证据已限制在旧库兼容路径内。
+        </div>
+      )}
+      {!review.question_evidence.knowledge.source_scoped_unavailable
+        && review.question_evidence.knowledge.legacy_fallback_used && (
+          <div style={{ marginTop: 6, color: 'var(--ink-mute)', fontSize: 10.5 }}>
+            新版知识源暂无匹配结果，本次问题证据使用旧库兼容检索。
+          </div>
+        )}
       <div
         style={{
           display: 'flex',

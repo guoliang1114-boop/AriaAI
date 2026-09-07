@@ -605,6 +605,7 @@ def _current_knowledge_question_evidence(
     *,
     project_id: int,
     question: str,
+    requesting_user_id: int | None = None,
 ) -> tuple[dict[str, Any], dict[tuple[Any, ...], dict[str, Any]]]:
     try:
         rag = build_rag_context(
@@ -615,12 +616,17 @@ def _current_knowledge_question_evidence(
             auto_trigger=True,
             accessible_project_ids=[project_id],
             accessible_client_ids=[],
+            requesting_user_id=requesting_user_id,
         )
         manifest = rag.get("evidence_manifest")
         valid, _ = validate_knowledge_evidence_manifest(manifest)
         if not valid:
             return {
                 "status": "not_available",
+                "retrieval_mode": str(rag.get("retrieval_mode") or "none"),
+                "source_scoped_attempted": bool(rag.get("source_scoped_attempted")),
+                "source_scoped_unavailable": bool(rag.get("source_scoped_unavailable")),
+                "legacy_fallback_used": bool(rag.get("legacy_fallback_used")),
                 "source_count": 0,
                 "supporting_source_count": 0,
                 "sources": [],
@@ -636,11 +642,25 @@ def _current_knowledge_question_evidence(
                 "document_id": int(entry.get("document_id") or 0),
                 "chunk_index": max(0, int(entry.get("chunk_index") or 0)),
                 "retrieval_score": round(float(entry.get("score") or 0.0), 4),
+                "document_namespace": str(
+                    entry.get("document_namespace") or "legacy"
+                ),
             }
+            knowledge_source_id = entry.get("knowledge_source_id")
+            if (
+                source["document_namespace"] == "source_scoped"
+                and isinstance(knowledge_source_id, int)
+                and knowledge_source_id > 0
+            ):
+                source["knowledge_source_id"] = knowledge_source_id
             source_map[("knowledge", source["evidence_id"])] = source
             sources.append(source)
         return {
             "status": "available" if sources else "not_available",
+            "retrieval_mode": str(rag.get("retrieval_mode") or "none"),
+            "source_scoped_attempted": bool(rag.get("source_scoped_attempted")),
+            "source_scoped_unavailable": bool(rag.get("source_scoped_unavailable")),
+            "legacy_fallback_used": bool(rag.get("legacy_fallback_used")),
             "source_count": len(sources),
             "supporting_source_count": len(sources),
             "sources": sources,
@@ -649,6 +669,10 @@ def _current_knowledge_question_evidence(
         logger.warning("Project question knowledge evidence retrieval failed", exc_info=True)
         return {
             "status": "unavailable",
+            "retrieval_mode": "none",
+            "source_scoped_attempted": requesting_user_id is not None,
+            "source_scoped_unavailable": requesting_user_id is not None,
+            "legacy_fallback_used": False,
             "source_count": 0,
             "supporting_source_count": 0,
             "sources": [],
@@ -803,6 +827,7 @@ def build_project_question_evidence_review(
     question: str,
     question_sha256: str,
     focus_message_id: int | None = None,
+    requesting_user_id: int | None = None,
 ) -> dict[str, Any]:
     """Recall current evidence and rank persisted project answers for review."""
 
@@ -827,6 +852,7 @@ def build_project_question_evidence_review(
         session,
         project_id=project_id,
         question=normalized_question,
+        requesting_user_id=requesting_user_id,
     )
     attached_evidence, attached_source_map = _current_attached_question_evidence(
         session,

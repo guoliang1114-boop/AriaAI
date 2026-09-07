@@ -1246,6 +1246,8 @@ export interface ProjectQuestionEvidenceSource {
   document_id?: number
   chunk_index?: number
   retrieval_score?: number
+  document_namespace?: 'legacy' | 'source_scoped'
+  knowledge_source_id?: number
   memory_slot?: string
   memory_version?: number
   provenance_status?: string
@@ -1334,6 +1336,10 @@ export interface ProjectQuestionEvidenceReview {
     }
     knowledge: {
       status: 'available' | 'not_available' | 'unavailable'
+      retrieval_mode?: 'none' | 'source_scoped' | 'legacy_fallback' | 'legacy_explicit' | 'legacy'
+      source_scoped_attempted?: boolean
+      source_scoped_unavailable?: boolean
+      legacy_fallback_used?: boolean
       source_count: number
       supporting_source_count: number
       sources: ProjectQuestionEvidenceSource[]

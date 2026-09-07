@@ -124,6 +124,10 @@ const evidenceReview: ProjectQuestionEvidenceReview = {
     },
     knowledge: {
       status: 'available',
+      retrieval_mode: 'source_scoped',
+      source_scoped_attempted: true,
+      source_scoped_unavailable: false,
+      legacy_fallback_used: false,
       source_count: 1,
       supporting_source_count: 1,
       sources: [{
@@ -134,6 +138,8 @@ const evidenceReview: ProjectQuestionEvidenceReview = {
         document_id: 31,
         chunk_index: 2,
         retrieval_score: 0.91,
+        document_namespace: 'source_scoped',
+        knowledge_source_id: 17,
       }],
     },
     attachments: {
@@ -643,6 +649,7 @@ describe('project question workbench', () => {
 
     expect(await screen.findByRole('region', { name: '问题证据分析' })).toBeInTheDocument()
     expect(screen.getByText(/验收确认函\.pdf · 项目记忆 v5 · Open questions/)).toBeInTheDocument()
+    expect(screen.getByText(/知识文档 1（新版知识源）/)).toBeInTheDocument()
     expect(screen.getByText('91')).toBeInTheDocument()
     expect(screen.getByText('证据较强')).toBeInTheDocument()
     expect(screen.getByText('确定性排序仅辅助人工选择，不代表答案正确。')).toBeInTheDocument()
@@ -655,6 +662,31 @@ describe('project question workbench', () => {
     expect(screen.getByRole('button', { name: '确认采用并关单' })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: '采用回答 42' }))
     expect(screen.getByRole('combobox', { name: '选择解决问题的回答' })).toHaveValue('42')
+  })
+
+  it('makes source-scoped retrieval degradation visible', async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({
+      ...evidenceReview,
+      question_evidence: {
+        ...evidenceReview.question_evidence,
+        knowledge: {
+          ...evidenceReview.question_evidence.knowledge,
+          retrieval_mode: 'legacy_fallback',
+          source_scoped_attempted: true,
+          source_scoped_unavailable: true,
+          legacy_fallback_used: true,
+        },
+      },
+    })
+    renderQuestions()
+    await screen.findByText('客户是否确认了最终验收范围？')
+
+    await userEvent.click(screen.getByRole('button', { name: '分析问题证据' }))
+
+    expect(await screen.findByText(/知识文档 1（旧库兼容）/)).toBeInTheDocument()
+    expect(screen.getByText(
+      '新版知识检索暂不可用，问题证据已限制在旧库兼容路径内。',
+    )).toBeInTheDocument()
   })
 
   it('prepares a bounded accepted-evidence re-answer draft without sending it', async () => {

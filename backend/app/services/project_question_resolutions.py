@@ -325,6 +325,7 @@ def resolve_project_question(
         question_sha256=question_hash,
         answer_message_id=answer_message_id,
         resolution_summary=normalized_summary,
+        requesting_user_id=actor_user_id,
     )
     expected_adoption_sha256 = str(
         expected_answer_adoption_snapshot_sha256 or ""

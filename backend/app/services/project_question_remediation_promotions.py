@@ -463,6 +463,7 @@ def prepare_project_question_remediation_promotion(
         project=project,
         question=normalized_question,
         question_sha256=action["question_sha256"],
+        requesting_user_id=actor_user_id,
     )
     current_basis = str((current_plan.get("basis") or {}).get("fingerprint") or "")
     if current_basis != basis:
@@ -684,6 +685,7 @@ def confirm_project_question_remediation_promotion(
         project=project,
         question=row.question_text,
         question_sha256=row.question_sha256,
+        requesting_user_id=actor_user_id,
     )
     current_basis = str((current_plan.get("basis") or {}).get("fingerprint") or "")
     if current_basis != row.evidence_basis_sha256:

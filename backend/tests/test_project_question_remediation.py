@@ -294,12 +294,14 @@ def test_remediation_endpoint_delegates_for_project_owner(monkeypatch) -> None:
         project: Project,
         question: str,
         question_sha256: str,
+        requesting_user_id: int | None = None,
     ) -> dict:
         captured.update(
             session=received_session,
             project_id=project.id,
             question=question,
             question_sha256=question_sha256,
+            requesting_user_id=requesting_user_id,
         )
         return expected
 
@@ -321,4 +323,5 @@ def test_remediation_endpoint_delegates_for_project_owner(monkeypatch) -> None:
         "project_id": project.id,
         "question": QUESTION,
         "question_sha256": IDENTITY,
+        "requesting_user_id": owner.id,
     }

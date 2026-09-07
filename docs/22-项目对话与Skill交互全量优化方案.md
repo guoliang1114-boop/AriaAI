@@ -716,6 +716,12 @@ Phase 2W 进一步允许专业问答在唯一、高置信、无近似竞争候�
 - `presentation-builder` 1.1.0 新增受众/决策/证据/品牌/格式诊断，以及生成工具、参考清单、样例隔离和 Artifact 完成判定边界；禁止为填图编造业务数据。
 - 两个高频 Skill 的 Aria 质量分均达到 100；全库门禁继续覆盖 48 个包。其余非优先 Skill 的 references/examples 警告按实际使用价值分批消化，不用模板化堆料换分数。
 
+### Phase 5D：项目问题证据统一读取新版知识源（已实施）
+
+- “分析问题证据”、补证草案、回答采用预览、问题关单和整改推广重验均携带已授权 actor，统一使用项目 Source ACL 与精确作用域；主聊天和问题工作台不再各走一套知识主路径。
+- 问题证据只公开实际 reader、回退原因、Evidence ID、document namespace、Source ID 与有界标题，不返回 chunk 正文。前端明确标出“新版知识源”“旧库兼容”和新版异常。
+- 降级只影响证据置信提示，不绕过人工确认，也不会自动发消息、执行工具、采用答案或关闭问题。本阶段无迁移，Alembic head 保持 `054_v1_54`；不运行、导入或连接 Codex。
+
 ## 11. 官方资料与许可证
 
 - OpenAI 模型与 Agent 提示建议：<https://developers.openai.com/api/docs/guides/latest-model>

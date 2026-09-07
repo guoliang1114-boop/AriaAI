@@ -249,3 +249,9 @@ Context Receipt 与聊天依据区分 `source_scoped`、`legacy_fallback`、`leg
 新版检索结果和 `Knowledge Evidence Manifest v1` 增加 `document_namespace=source_scoped` 与 `knowledge_source_id`；legacy 证据明确标记 `document_namespace=legacy`。Evidence ID 将命名空间和 Source 身份纳入摘要，因此两套文档表即使出现相同 `document_id/chunk_index` 也不会形成同一证据身份。旧的已持久化 v1 manifest 没有这些可选字段时仍按 legacy 兼容验证。
 
 本阶段未新增数据库表或迁移，Alembic head 保持 `054_v1_54`；没有引入或连接 Codex runtime、App Server、SDK、协议、子进程或账号。
+
+## 12. Phase 5D：项目问题证据切换到 Source-scoped RAG（已实施）
+
+项目问题工作台的“分析问题证据”、补证计划、回答采用预览、问题关单复核和整改推广重校验，现都会把已完成项目写权限校验的 actor 身份传给同一个 Source-scoped Context Builder。由此，问题级答案排序与主聊天使用同一套 `KnowledgeSource → KnowledgeDocument → KnowledgeChunk` 权限和精确项目作用域，不再出现聊天命中新版知识、问题工作台却只检查旧文档的断层。
+
+问题证据响应继续不包含检索正文，但会保留 `retrieval_mode`、新版尝试/不可用/兼容回退状态，以及每条知识证据的 document namespace 和 Source ID。前端明确显示“新版知识源”“旧库兼容”及降级原因。未提供 actor 的兼容内部调用不会冒充新版授权读取；它只保留既有 legacy 行为。此阶段无数据库迁移，也不运行或连接 Codex。

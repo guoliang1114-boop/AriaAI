@@ -91,6 +91,7 @@ export function AboutSettings() {
             'accepted candidate 已迁入原生锚点账本，具备摘要校验、激活/退休 revision 和操作者审计；问题解决与重开会同步更新锚点，不再依赖聚合 JSON 私有键。',
             '项目/客户对话现优先读取新版 Source-scoped 知识库，精确作用域阻止跨项目混入；旧库回退和新版不可用状态会在本轮依据中明确展示。',
             '知识证据增加新版/旧版 document namespace 与 Source ID，避免同号文档身份歧义；部署通过无正文报告守卫旧 reader 退役。',
+            '项目问题证据、补证、回答采用与关单复核已统一使用同一 Source-scoped 权限路径，并可见展示新版命中或旧库降级。',
             '会议智能与演示文稿两个高频 Skill 升级至 1.1.0，补齐最小诊断、假设/矛盾处理、依赖边界与交付验证。',
           ]
         : [
@@ -116,6 +117,7 @@ export function AboutSettings() {
             'Accepted candidates now use a native digest-verified anchor ledger with active/retired revisions and actor audit; question resolution and reopening update anchors without aggregate-JSON control keys.',
             'Project and client chat now prefers source-scoped knowledge with exact typed scope boundaries, while visible bounded legacy fallback preserves continuity.',
             'Knowledge evidence now distinguishes legacy and source-scoped document namespaces and records Source IDs; a content-free deploy audit guards legacy-reader retirement.',
+            'Project-question evidence, remediation, answer adoption, and closure rechecks now share the authorized source-scoped reader and visibly disclose legacy fallback.',
             'Meeting Intelligence and Presentation Builder 1.1.0 add focused intake diagnostics, assumption and contradiction handling, dependency boundaries, and delivery verification.',
           ],
     },

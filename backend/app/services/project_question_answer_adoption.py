@@ -179,6 +179,7 @@ def build_project_question_answer_adoption_snapshot(
     question_sha256: str,
     answer_message_id: int,
     resolution_summary: str,
+    requesting_user_id: int | None = None,
 ) -> ProjectQuestionAnswerAdoptionSnapshot:
     """Prepare an exact, side-effect-free answer-adoption snapshot."""
 
@@ -213,6 +214,7 @@ def build_project_question_answer_adoption_snapshot(
         question=normalized_question,
         question_sha256=question_sha256,
         focus_message_id=int(answer_message_id),
+        requesting_user_id=requesting_user_id,
     )
     candidate = next(
         (

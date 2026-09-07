@@ -455,6 +455,7 @@ def build_project_question_remediation_plan(
     project: Project,
     question: str,
     question_sha256: str,
+    requesting_user_id: int | None = None,
 ) -> dict[str, Any]:
     """Re-retrieve current evidence, then return a non-persisted plan draft."""
 
@@ -463,5 +464,6 @@ def build_project_question_remediation_plan(
         project=project,
         question=question,
         question_sha256=question_sha256,
+        requesting_user_id=requesting_user_id,
     )
     return build_question_evidence_remediation_plan(review)
