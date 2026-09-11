@@ -2635,6 +2635,8 @@ export interface SendMessageRequest {
   disable_skill?: boolean
   knowledge_scope?: 'project' | 'client' | 'global'
   rag_doc_ids?: number[]
+  /** Exact source-scoped document IDs, not legacy IDs or chunk IDs. */
+  knowledge_document_ids?: number[]
   file_ids?: number[]
   model?: string
   mention_context?: MentionContext

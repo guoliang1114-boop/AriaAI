@@ -77,6 +77,7 @@ def build_chat_context(
     accessible_client_ids: Optional[list[int]] = None,
     requesting_user_id: Optional[int] = None,
     skill_override: Optional[Skill] = None,
+    knowledge_document_ids: Optional[list[int]] = None,
 ) -> ChatContext:
     """Build complete chat context including skill, project, and RAG.
 
@@ -239,6 +240,7 @@ def build_chat_context(
         accessible_project_ids=accessible_project_ids,
         accessible_client_ids=accessible_client_ids,
         requesting_user_id=requesting_user_id,
+        knowledge_document_ids=knowledge_document_ids,
     )
 
     if portfolio_context:

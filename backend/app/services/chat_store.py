@@ -205,12 +205,15 @@ def build_message_metadata(
     turn_recovery: Optional[dict] = None,
     project_question_reanswer: Optional[dict] = None,
     skill_deliverable: Optional[dict] = None,
+    knowledge_document_ids: Optional[list[int]] = None,
 ) -> dict:
     metadata = {}
     if skill_id:
         metadata["skill_id"] = skill_id
     if rag_doc_ids:
         metadata["doc_ids"] = rag_doc_ids
+    if knowledge_document_ids is not None:
+        metadata["knowledge_document_ids"] = list(dict.fromkeys(knowledge_document_ids))
     if file_ids:
         metadata["file_ids"] = file_ids
     if project_id:

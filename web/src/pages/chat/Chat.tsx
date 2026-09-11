@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { useSearchParams, useNavigate, Link } from 'react-router-dom'
+import { useSearchParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import {
@@ -55,6 +55,7 @@ import {
   type ChatStreamEvent,
 } from '../../types/chatStreamEvent'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../utils/knowledgeEvidence'
+import { parseKnowledgeChatHandoff } from '../../utils/knowledgeChatHandoff'
 import { describeRunSkill, normalizeRunSkill, type ActiveRunSkill } from '../../utils/chatRunSkill'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
 import { formatDateOnly, formatDatePartsKey, formatTimeOnly, parseAppDateTime } from '../../utils/timezone'
@@ -1218,6 +1219,9 @@ function CopyButton({ text }: { text: string }) {
 
 export function Chat() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const knowledgeHandoff = useMemo(() => parseKnowledgeChatHandoff(location.state?.knowledgeHandoff), [location.state])
+  const selectedKnowledge = useMemo(() => knowledgeHandoff ?? parseKnowledgeChatHandoff(location.state?.knowledgeContext), [knowledgeHandoff, location.state])
   const { t, i18n } = useTranslation()
   const { resolvedTimeZone } = useAppTimeZone()
   const [searchParams] = useSearchParams()
@@ -1227,7 +1231,14 @@ export function Chat() {
   const projectId = searchParams.get('project')
   const prefilledQ = searchParams.get('q')
 
-  const [input, setInput] = useState(prefilledQ || '')
+  const [input, setInput] = useState(knowledgeHandoff?.query || prefilledQ || '')
+  const [previousHandoff, setPreviousHandoff] = useState(knowledgeHandoff)
+  // A new navigation handoff is a new draft, not an effect that can overwrite
+  // subsequent typing or re-fill the composer after sending its first turn.
+  if (previousHandoff !== knowledgeHandoff) {
+    setPreviousHandoff(knowledgeHandoff)
+    if (knowledgeHandoff) setInput(knowledgeHandoff.query || '')
+  }
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [conversationState, setConversation] = useState<Conversation | null>(null)
@@ -1632,6 +1643,7 @@ export function Chat() {
     resetSkillProgress()
     setSelectedSkill(null)
     setSkillArmed(false)
+    setInput('')
     navigate('/chat', { replace: true })
   }
 
@@ -1815,7 +1827,10 @@ export function Chat() {
         setConversation(newConv)
         setConversations(prev => [newConv, ...prev])
         skipNextConvLoadRef.current = true
-        navigate(`/chat?conversation=${newConv.id}`, { replace: true })
+        navigate(`/chat?conversation=${newConv.id}`, {
+          replace: true,
+          state: selectedKnowledge ? { knowledgeContext: { namespace: 'source_scoped', documents: selectedKnowledge.documents } } : null,
+        })
         isNewConvRef.current = true
         firstMessageRef.current = msgText
       } else {
@@ -1847,6 +1862,7 @@ export function Chat() {
           skill_id: skillForThisMessage,
           force_skill: forceSkillForThisMessage,
           rag_doc_ids: [],
+          ...(selectedKnowledge ? { knowledge_document_ids: selectedKnowledge.documents.map(document => document.id) } : {}),
           file_ids: [],
           language: i18n.language || 'zh-CN',
         }),
@@ -3113,6 +3129,25 @@ export function Chat() {
             )}
 
             {/* Composer box — textarea on top, toolbar with context pills + send at the bottom. */}
+            {selectedKnowledge && (
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs" aria-label="已选择的知识文档">
+                <span>{i18n.language.startsWith('zh') ? '本轮知识范围：' : 'Knowledge scope:'}</span>
+                {selectedKnowledge.documents.map(document => (
+                  <button key={document.id} type="button" disabled={sending}
+                    className="inline-flex max-w-full items-center gap-1 rounded border px-2 py-1"
+                    aria-label={`${i18n.language.startsWith('zh') ? '移除知识文档' : 'Remove knowledge document'} ${document.title}`}
+                    onClick={() => {
+                      const documents = selectedKnowledge.documents.filter(item => item.id !== document.id)
+                      navigate(location.pathname + location.search, {
+                        replace: true,
+                        state: documents.length ? { knowledgeContext: { namespace: 'source_scoped', documents } } : null,
+                      })
+                    }}>
+                    <BookOpen size={12} /><span className="truncate">{document.title}</span><X size={12} />
+                  </button>
+                ))}
+              </div>
+            )}
             <div
               className="transition-all duration-200"
               style={{

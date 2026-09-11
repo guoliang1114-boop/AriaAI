@@ -75,15 +75,17 @@ def _source_scoped_results(
     session: Session,
     user: User,
     query: str,
-    scope_pairs: list[tuple[str, int | None]],
+    scope_pairs: list[tuple[str, int | None]] | None = None,
+    document_ids: list[int] | None = None,
 ) -> list[_SourceScopedRetrievalResult]:
-    if not scope_pairs:
+    if not scope_pairs and document_ids is None:
         return []
     payload = search_knowledge(
         session=session,
         user=user,
         query=query,
         scope_pairs=scope_pairs,
+        document_ids=document_ids,
     )
     results: list[_SourceScopedRetrievalResult] = []
     for item in list(payload.get("chunks") or []):
@@ -155,12 +157,40 @@ def build_rag_context(
     accessible_project_ids: Optional[list[int]] = None,
     accessible_client_ids: Optional[list[int]] = None,
     requesting_user_id: Optional[int] = None,
+    knowledge_document_ids: Optional[list[int]] = None,
 ) -> dict:
     """
     Build RAG context from knowledge documents.
     
     Returns structured dict with both text for LLM and sources for citations.
     """
+    if knowledge_document_ids is not None:
+        # Explicit IDs are in the new namespace and are a hard retrieval bound.
+        # Empty/unauthorized/no-match selections must never widen or fall back.
+        results = []
+        unavailable = False
+        user = session.get(User, requesting_user_id) if requesting_user_id is not None else None
+        if user is not None and user.is_active:
+            try:
+                results = _source_scoped_results(
+                    session=session, user=user, query=query,
+                    document_ids=knowledge_document_ids,
+                )
+            except Exception:
+                unavailable = True
+                logger.warning("Explicit knowledge retrieval failed; no fallback permitted", exc_info=True)
+        payload = _rag_payload(
+            list(results), query=query, knowledge_scope=knowledge_scope,
+            project_id=project_id, retrieval_mode="source_scoped",
+            source_scoped_attempted=True, source_scoped_unavailable=unavailable,
+        )
+        payload["text"] = (
+            "用户本轮明确选择了知识库文档。知识引用仅限以下检索证据；"
+            "未检索到相关证据时请说明资料不足，不得编造文档内容或引用其他知识库资料。\n"
+            + payload["text"]
+        )
+        return payload
+
     # Perform structured retrieval. In a project chat, the selected knowledge scope
     # should behave like ambient workspace context: if scoped vectorized documents
     # exist, retrieve from them without requiring the user to type #doc.

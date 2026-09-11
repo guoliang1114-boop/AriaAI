@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import i18n from 'i18next'
 import { initReactI18next, I18nextProvider } from 'react-i18next'
 import zh from '../../i18n/locales/zh.json'
@@ -31,6 +31,43 @@ describe('standalone chat failure handling', () => {
     vi.unstubAllGlobals()
     sessionStorage.clear()
     localStorage.removeItem('authToken')
+  })
+
+  it.each(['keep', 'remove', 'new', 'switch'])('preserves knowledge only in its conversation (%s)', async action => {
+    const mockFetch = vi.fn(async () => new Response('data: {"type":"done"}\n\n', { headers: { 'Content-Type': 'text/event-stream' } }))
+    vi.stubGlobal('fetch', mockFetch)
+    function SwitchConversation() {
+      const navigate = useNavigate()
+      return <button onClick={() => navigate('/chat?conversation=1')}>切换验证对话</button>
+    }
+    render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={[{
+      pathname: '/chat', state: { knowledgeHandoff: {
+        namespace: 'source_scoped', documents: [{ id: 7, title: '市场洞察.pdf' }], query: '战略规划如何分析市场洞察？',
+      } },
+    }]}><Chat /><SwitchConversation /></MemoryRouter></I18nextProvider>)
+    const input = await screen.findByPlaceholderText(zh.chat.placeholder)
+    await waitFor(() => expect(input).toBeEnabled())
+    expect(input).toHaveValue('战略规划如何分析市场洞察？')
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '移除知识文档 市场洞察.pdf' })).toBeInTheDocument()
+    if (action === 'remove') fireEvent.click(screen.getByRole('button', { name: '移除知识文档 市场洞察.pdf' }))
+    if (action === 'new') {
+      fireEvent.click(screen.getByRole('button', { name: '打开侧边栏' }))
+      fireEvent.click(screen.getByRole('button', { name: /新建对话/ }))
+    }
+    if (action === 'switch') fireEvent.click(screen.getByRole('button', { name: '切换验证对话' }))
+    if (action !== 'keep') await waitFor(() => expect(screen.queryByRole('button', { name: '移除知识文档 市场洞察.pdf' })).not.toBeInTheDocument())
+    fireEvent.change(input, { target: { value: '数据权限如何审批？' } })
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+    const body = JSON.parse((mockFetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
+    expect(body.knowledge_document_ids).toEqual(action === 'keep' ? [7] : undefined)
+    expect(body.rag_doc_ids).toEqual([])
+    await waitFor(() => expect(input).toBeEnabled())
+    if (action === 'keep') {
+      expect(screen.getByRole('button', { name: '移除知识文档 市场洞察.pdf' })).toBeInTheDocument()
+      expect(input).toHaveValue('')
+    }
   })
 
   it.each([true, false])('consumes run_failed without done (streamed text: %s)', async (withText) => {

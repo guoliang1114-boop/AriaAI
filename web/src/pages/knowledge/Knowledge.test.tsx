@@ -5,6 +5,8 @@ import { Knowledge } from './Knowledge'
 const mockGet = vi.fn()
 const mockPost = vi.fn()
 const mockDelete = vi.fn()
+const mockNavigate = vi.fn()
+vi.mock('react-router-dom', () => ({ useNavigate: () => mockNavigate }))
 
 const source = {
   id: 10,
@@ -100,6 +102,7 @@ describe('Knowledge', () => {
     mockGet.mockReset()
     mockPost.mockReset()
     mockDelete.mockReset()
+    mockNavigate.mockReset()
   })
 
   it('renders loading state initially', () => {
@@ -134,8 +137,45 @@ describe('Knowledge', () => {
     render(<Knowledge />)
     await waitFor(() => {
       expect(screen.getByText('还没有文档')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '在对话中提问' })).toBeDisabled()
       expect(screen.getAllByRole('button', { name: /上传文档/ }).length).toBeGreaterThanOrEqual(1)
     })
+  })
+
+  it('hands off exact document IDs rather than chunk IDs, deduplicates and requires an explicit send', async () => {
+    mockGet.mockImplementation((url: string) => Promise.resolve(url === '/knowledge/sources' ? [source] : []))
+    const response = searchResponse(7, '市场洞察.pdf')
+    response.chunks.push({ ...response.chunks[0], id: 701 })
+    mockPost.mockResolvedValue(response)
+    render(<Knowledge />)
+    await screen.findByLabelText('搜索知识库')
+    fireEvent.change(screen.getByLabelText('搜索知识库'), { target: { value: '战略规划如何分析市场洞察？' } })
+    await screen.findAllByText('市场洞察.pdf')
+    fireEvent.click(screen.getByRole('button', { name: '在对话中提问' }))
+    expect(mockNavigate).toHaveBeenLastCalledWith('/chat', { state: { knowledgeHandoff: {
+      namespace: 'source_scoped', documents: [{ id: 7, title: '市场洞察.pdf' }], query: '战略规划如何分析市场洞察？',
+    } } })
+    fireEvent.click(screen.getAllByRole('button', { name: '在对话中追问' })[1])
+    expect(mockNavigate).toHaveBeenCalledTimes(2)
+    expect(mockNavigate.mock.calls[1]).toEqual(mockNavigate.mock.calls[0])
+    expect(mockPost.mock.calls.every(([url]) => url === '/knowledge/search')).toBe(true)
+  })
+
+  it('does not hand off unindexed or legacy documents as source-scoped IDs', async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/knowledge/sources') return Promise.resolve([source])
+      if (url === '/knowledge/sources/10/documents') return Promise.resolve([
+        v005Doc({ id: 1, name: 'pending.pdf', file_type: 'pdf', path: 'pending.pdf', status: 'uploaded' }),
+      ])
+      if (url === '/knowledge/documents') return Promise.resolve([{ id: 1, name: 'legacy.pdf', file_type: 'pdf', path: 'legacy.pdf', vector_status: 'synced' }])
+      return Promise.resolve([])
+    })
+    render(<Knowledge />)
+    await screen.findAllByText('pending.pdf')
+    await screen.findAllByText('legacy.pdf')
+    expect(screen.getByRole('button', { name: '在对话中提问' })).toBeDisabled()
+    screen.getAllByRole('button', { name: '在对话中追问' }).forEach(button => expect(button).toBeDisabled())
+    expect(mockNavigate).not.toHaveBeenCalled()
   })
 
   it('filters documents by search', async () => {

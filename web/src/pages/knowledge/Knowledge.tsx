@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import {
   ArrowRight,
   BookOpen,
@@ -26,6 +27,7 @@ import { PageTitle } from '../../components/PageTitle'
 import { useToast } from '../../contexts/ToastContext'
 import type { KnowledgeDocument as LegacyKnowledgeDocument, KnowledgeStats } from '../../types/api'
 import { formatDateOnly, parseAppDateTime } from '../../utils/timezone'
+import { MAX_KNOWLEDGE_CHAT_DOCUMENTS, parseKnowledgeChatHandoff } from '../../utils/knowledgeChatHandoff'
 
 const DOC_PAGE_SIZE = 10
 const MANAGE_GRID = '26px 38px minmax(260px,1fr) 190px 104px 70px 84px 22px'
@@ -704,6 +706,7 @@ async function fetchKnowledgeData(params: {
 }
 
 export function Knowledge() {
+  const navigate = useNavigate()
   const { i18n } = useTranslation()
   const toast = useToast()
   const isZh = isZhLanguage(i18n?.language)
@@ -1079,6 +1082,16 @@ export function Knowledge() {
               setDocumentPage(1)
             }}
             onCopyCitation={(doc) => void copyCitation(doc)}
+            onAskInChat={(selectedDocuments) => {
+              const handoff = parseKnowledgeChatHandoff({
+                namespace: 'source_scoped',
+                documents: Array.from(new Map(selectedDocuments.map(doc => [doc.document_id ?? doc.id, {
+                  id: doc.document_id ?? doc.id, title: doc.name,
+                }])).values()),
+                query: searchQuery.trim(),
+              })
+              if (handoff) navigate('/chat', { state: { knowledgeHandoff: handoff } })
+            }}
             onPageChange={(nextPage) => {
               beginDocumentListUpdate()
               setDocumentPage(nextPage)
@@ -1339,6 +1352,7 @@ function KnowledgeFindView({
   onCategoryChange,
   onClear,
   onCopyCitation,
+  onAskInChat,
   onPageChange,
   onPageSizeChange,
   onReindex,
@@ -1366,6 +1380,7 @@ function KnowledgeFindView({
   onCategoryChange: (category: string) => void
   onClear: () => void
   onCopyCitation: (doc: KnowledgeViewDocument) => void
+  onAskInChat: (documents: KnowledgeViewDocument[]) => void
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
   onReindex: (doc: KnowledgeViewDocument) => void
@@ -1382,6 +1397,9 @@ function KnowledgeFindView({
   const topCategories = categoryCounts.slice(0, 5)
   const projectIds = Array.from(new Set(documents.map((doc) => doc.project_id).filter(Boolean))).slice(0, 4)
   const queryLabel = searchQuery.trim()
+  const chatDocuments = documents.filter(doc => doc.api_mode === 'v005' && doc.vector_status === 'synced')
+  const chatDocumentCount = new Set(chatDocuments.map(doc => doc.document_id ?? doc.id)).size
+  const canAskInChat = !documentListLoading && chatDocumentCount > 0 && chatDocumentCount <= MAX_KNOWLEDGE_CHAT_DOCUMENTS
 
   return (
     <div className="grid min-h-0 flex-1 lg:grid-cols-[212px_minmax(0,1fr)]">
@@ -1525,9 +1543,11 @@ function KnowledgeFindView({
               <Sparkles size={15} strokeWidth={1.6} aria-hidden="true" />
             </span>
             <span style={{ fontSize: 13, color: 'var(--color-codex-accent-ink)', flex: 1 }}>
-              {isZh ? '让 Aria 综合下面这些资料，直接回答你的问题' : 'Ask Aria to synthesize these sources and answer directly'}
+              {isZh
+                ? `将本页 ${chatDocumentCount} 份可用的新知识文档带入对话（最多 ${MAX_KNOWLEDGE_CHAT_DOCUMENTS} 份），发送前可检查范围`
+                : `Bring this page’s ${chatDocumentCount} ready documents into chat (up to ${MAX_KNOWLEDGE_CHAT_DOCUMENTS}); review before sending`}
             </span>
-            <button type="button" className="cx-no-hover inline-flex items-center gap-1.5" style={{ padding: '7px 14px', fontSize: 12.5, fontWeight: 500, background: 'var(--color-codex-accent)', color: 'var(--color-codex-bg-elev)', borderRadius: 'var(--codex-r-sm, 3px)' }}>
+            <button type="button" onClick={() => onAskInChat(chatDocuments)} disabled={!canAskInChat} className="cx-no-hover inline-flex items-center gap-1.5 disabled:opacity-40" style={{ padding: '7px 14px', fontSize: 12.5, fontWeight: 500, background: 'var(--color-codex-accent)', color: 'var(--color-codex-bg-elev)', borderRadius: 'var(--codex-r-sm, 3px)' }}>
               {isZh ? '在对话中提问' : 'Ask in chat'}
               <ArrowRight size={12} strokeWidth={1.8} aria-hidden="true" />
             </button>
@@ -1554,6 +1574,8 @@ function KnowledgeFindView({
                     isZh={isZh}
                     query={queryLabel}
                     onCopyCitation={() => onCopyCitation(doc)}
+                    onAskInChat={() => onAskInChat([doc])}
+                    askingDisabled={documentListLoading || doc.api_mode !== 'v005' || doc.vector_status !== 'synced'}
                     onReindex={() => onReindex(doc)}
                     reindexing={reindexingId === doc.id}
                   />
@@ -2091,6 +2113,8 @@ function SearchResultRow({
   isZh,
   query,
   onCopyCitation,
+  onAskInChat,
+  askingDisabled,
   onReindex,
   reindexing,
 }: {
@@ -2099,6 +2123,8 @@ function SearchResultRow({
   isZh: boolean
   query: string
   onCopyCitation: () => void
+  onAskInChat: () => void
+  askingDisabled: boolean
   onReindex: () => void
   reindexing: boolean
 }) {
@@ -2185,7 +2211,7 @@ function SearchResultRow({
           ) : null}
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-4" style={{ paddingLeft: 13 }}>
-          <button type="button" className="cx-no-hover inline-flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--color-codex-ink)', fontWeight: 500 }}>
+          <button type="button" disabled title={isZh ? '原文预览暂未开放' : 'Source preview is not available yet'} className="cx-no-hover inline-flex items-center gap-1.5 cursor-not-allowed opacity-40" style={{ fontSize: 12, color: 'var(--color-codex-ink)', fontWeight: 500 }}>
             <File size={12} strokeWidth={1.5} aria-hidden="true" />
             {isZh ? '打开原文' : 'Open source'}
           </button>
@@ -2207,7 +2233,7 @@ function SearchResultRow({
               {isZh ? '重新处理' : 'Retry indexing'}
             </button>
           ) : null}
-          <button type="button" className="cx-no-hover inline-flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--color-codex-accent)' }}>
+          <button type="button" onClick={onAskInChat} disabled={askingDisabled} title={askingDisabled ? (isZh ? '文档升级并完成索引后可提问' : 'Upgrade and index this document first') : undefined} className="cx-no-hover inline-flex items-center gap-1.5 disabled:opacity-40" style={{ fontSize: 12, color: 'var(--color-codex-accent)' }}>
             <Sparkles size={12} strokeWidth={1.5} aria-hidden="true" />
             {isZh ? '在对话中追问' : 'Ask follow-up'}
           </button>

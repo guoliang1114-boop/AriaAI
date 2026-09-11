@@ -4172,8 +4172,14 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                     chat_router_module.SendMessageRequest(
                         conversation_id=conv_id,
                         content="不用正式语气，改成简洁口语",
+                        knowledge_document_ids=[7],
                     ),
                 )
+                self.assertEqual(mocked_context.call_args.kwargs["knowledge_document_ids"], [7])
+                user_message = session.exec(select(Message).where(
+                    Message.conversation_id == conv_id, Message.role == "user",
+                )).first()
+                self.assertEqual(json.loads(user_message.metadata_json)["knowledge_document_ids"], [7])
 
         self.assertEqual(validate_conversation_capsule(runtime.conversation_capsule), (True, "valid"))
         self.assertEqual(validate_instruction_manifest(runtime.instruction_manifest), (True, "valid"))

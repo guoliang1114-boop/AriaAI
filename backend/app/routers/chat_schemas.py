@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class MentionContext(BaseModel):
@@ -96,6 +96,10 @@ class SendMessageRequest(BaseModel):
     disable_skill: bool = False
     knowledge_scope: str = "project"
     rag_doc_ids: List[int] = []
+    # Source-scoped document IDs, never legacy document or chunk IDs.
+    knowledge_document_ids: Optional[List[Annotated[int, Field(strict=True, gt=0)]]] = Field(
+        default=None, min_length=1, max_length=20,
+    )
     file_ids: List[int] = []
     model: Optional[str] = None
     language: Optional[str] = None
@@ -107,6 +111,12 @@ class SendMessageRequest(BaseModel):
     project_question_reanswer: Optional[ProjectQuestionReanswerInput] = None
     skill_deliverable: Optional[SkillDeliverableSelectionInput] = None
     action_confirmations: List[str] = []
+
+    @model_validator(mode="after")
+    def validate_knowledge_namespace(self):
+        if self.knowledge_document_ids is not None and (self.rag_doc_ids or self.project_question_reanswer):
+            raise ValueError("Source-scoped knowledge selection cannot be combined with legacy evidence selection")
+        return self
 
 
 class SteerChatRunRequest(BaseModel):
