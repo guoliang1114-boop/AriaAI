@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
 from sqlmodel import SQLModel, Session
 
 from app.models.db import ClientRecord, DocumentChunk, KnowledgeDocument, Project, ProjectMember, User
@@ -84,7 +85,11 @@ def _seed_source_scoped_document(
     return document
 
 
-def test_project_chat_prefers_source_scoped_knowledge_and_preserves_chunk_identity() -> None:
+@pytest.mark.parametrize("query,content", [
+    ("weekly risk review", "The delivery playbook requires a weekly risk review."),
+    ("请问数据权限由谁审批？", "客户验收前必须完成数据权限审批，审批责任人为客户数据负责人。"),
+])
+def test_project_chat_prefers_source_scoped_knowledge_and_preserves_chunk_identity(query, content) -> None:
     engine = create_test_engine()
     drop_all_tables(engine)
     SQLModel.metadata.create_all(engine)
@@ -96,7 +101,7 @@ def test_project_chat_prefers_source_scoped_knowledge_and_preserves_chunk_identi
                 user=user,
                 project=project,
                 title="Delivery playbook",
-                content="The delivery playbook requires a weekly risk review.",
+                content=content,
                 chunk_index=4,
             )
 
@@ -109,13 +114,13 @@ def test_project_chat_prefers_source_scoped_knowledge_and_preserves_chunk_identi
                     session=session,
                     project_id=project.id,
                     knowledge_scope="project",
-                    content="weekly risk review",
+                    content=query,
                     requesting_user_id=user.id,
                     accessible_project_ids=[project.id],
                     accessible_client_ids=[],
                 )
 
-        assert "weekly risk review" in context.rag_context
+        assert content in context.rag_context
         assert context.rag_sources[0]["id"] == document.id
         assert context.rag_sources[0]["document_namespace"] == "source_scoped"
         assert context.rag_sources[0]["knowledge_source_id"] == document.source_id

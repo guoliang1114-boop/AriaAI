@@ -1,9 +1,9 @@
 ---
 name: digital-strategy
 description: "Digital transformation strategy planning and blueprint design for consulting engagements. Use when the user requests (1) creating or updating a digital transformation strategy, (2) digital top-level design or blueprint, (3) digital vision mission or goal setting, (4) digital transformation roadmap or phased planning, (5) digital strategy reports or presentation materials for leadership. Also triggers when keywords appear such as digital transformation strategy, digital blueprint, digital top-level design, transformation roadmap, digital vision, digital strategic planning. This skill produces structured strategic content that can be rendered into PPT, documents, or Excel deliverables via collaborating skills."
-version: "1.0.0"
+version: "1.1.0"
 domain: "consulting"
-last_updated: "2026-08-26"
+last_updated: "2026-09-12"
 status: "stable"
 ---
 
@@ -13,7 +13,15 @@ Strategic planning for enterprise digital transformation. Produces structured st
 
 ## Workflow
 
-Follow this sequence. Do not skip steps.
+Use the relevant steps for the user's actual request, not a mandatory interview or report template. A short question deserves a direct answer; a revision changes only the requested part and preserves agreed scope, constraints, and decisions. Explicit format, length, and time horizon take precedence over every default below.
+
+### Context and evidence contract
+
+- Read available authorized project memory, selected documents, prior decisions, and the current conversation before asking for information already supplied. Do not broaden to unrelated projects when evidence is missing.
+- Start with the decision the user needs. If a missing fact materially changes that decision, ask at most 1–3 focused questions; otherwise answer the supported portion and list the specific remaining gap. Do not require revenue, headcount, or IT spend for a quick qualitative question.
+- Distinguish **confirmed facts**, **proposed assumptions**, and **unknowns**. Cite the document, date, or source behind client facts. If sources conflict, show the conflict and ask which governs; do not silently overwrite a prior decision.
+- Missing evidence is not a license to invent maturity scores, budget, ROI, KPI baselines, owners, deadlines, or competitor results. Use “待评估 / 待确认” and name the input needed. A hypothetical scenario must be explicitly requested or grounded in stated inputs, with its calculation visible.
+- Deliver the useful answer first, then a concrete next action. Do not claim a file exists until an available generation tool returns an artifact.
 
 ```
 1. Diagnosis        → Understand context, select framework, define scope
@@ -37,11 +45,11 @@ Determine the engagement context and select the appropriate strategic framework.
 | Public sector/SOE | Government Digital Maturity + Policy Alignment | ISO 22301 |
 | Industry 4.0 / Manufacturing | Smart Manufacturing Reference Architecture | Industry 4.0 Maturity |
 
-**Decision rule**: If user does not specify, default to **Huawei 5-See 3-Define** for enterprises with revenue > 5B RMB, **McKinsey Digital Quotient** for others.
+**Decision rule**: Choose the smallest framework that fits the business question and available evidence. Revenue alone does not select a methodology. These references are Aria working adaptations, not certified assessments or access to proprietary benchmark databases; verify named external methods before attributing specific rules to them.
 
 ### Scope Definition Checklist
 
-Confirm with user (or infer from input):
+Use this as an internal checklist for a full engagement, not a questionnaire to repeat to every user. Mark unavailable facts unknown; confirm only missing items that affect the requested decision:
 
 - [ ] Industry and sub-sector
 - [ ] Revenue scale and employee count
@@ -70,7 +78,7 @@ Evaluate the client's digital maturity across 6 dimensions.
 
 ### Output of This Step
 
-- Maturity radar chart data (6 dimensions × 5 levels)
+- Evidence-backed maturity findings; radar scores only when the assessment rubric and supporting observations are available. Unassessed dimensions stay unknown, not zero.
 - Top 5 pain points ranked by business impact
 - Key findings summary (3-5 bullet points)
 
@@ -165,14 +173,14 @@ For each phase, specify:
 
 ### Investment Estimation Guidelines
 
-- **Light digitalization** (L1→L2): 0.5-1.5% of revenue
-- **Medium transformation** (L2→L3): 1.5-3.5% of revenue
-- **Deep transformation** (L3→L4): 3.5-6% of revenue
-- Split: 40% technology / 30% talent/change / 20% data / 10% ecosystem
+- Estimate bottom-up by initiative: scope and quantities × supported unit costs; separate one-off implementation, recurring operations, data work, talent/change, and explicit contingency.
+- State currency, period, tax treatment if known, source/date, inclusions and exclusions. Reconcile phase totals and avoid counting shared platforms or benefits twice.
+- Do not default investment to a percentage of revenue or invent an industry allocation. Without cost inputs, provide a cost structure and targeted data request, not a numeric budget.
+- Quantify benefits and payback only with a baseline, attribution, adoption/ramp assumptions, and a time horizon. Where inputs permit, show sensitivity to the key assumption; distinguish a scenario from an approved target.
 
 ## Output Structure
 
-The final output follows this structure. Populate every section.
+For a full strategy report, use the following structure as a menu. For a quick answer, focused roadmap, or revision, include only the sections needed and respect the requested length. Unknown metrics remain explicitly unknown.
 
 ```
 1. Executive Summary (1 page)
@@ -230,13 +238,11 @@ Before delivering, verify:
 This skill produces **structured strategic content** and can hand it to AriaAI generation tools for downloadable deliverables.
 
 - **For PPT delivery**: call `generate_ppt_from_skill` with `skill_name: "digital-strategy"` after the strategic content is complete
-- **For document delivery**: Pass content to `docx` skill for document formatting
-- **For roadmap visualization**: Generate timeline data in table format, render with `xlsx` skill for Gantt or phased timeline
-- **For architecture diagrams**: Use `generate_image` for capability blueprint or target operating model visualization
+- **For documents, spreadsheets, or diagrams**: Use only the tools actually available in the current Aria run. If the requested exporter is unavailable, provide editable text or a table and state the limitation; do not invent `docx`, `xlsx`, or image tool calls.
 
 ### PPT Tool Call
 
-When the user asks for a PPT, leadership deck, presentation material, downloadable deliverable, or slide version, always create a slide-by-slide outline first and then call `generate_ppt_from_skill`.
+When the user explicitly asks for a PPT or slide deck, create a slide-by-slide outline and call `generate_ppt_from_skill` if available. “汇报建议”, “材料”, or “可下载” alone does not force PPT output. A text-only request must not invoke a generator.
 
 PPT depth standard:
 
@@ -247,7 +253,7 @@ PPT depth standard:
 - For diagnosis pages, include symptoms, structural root causes, evidence sources, and the management action implied by the diagnosis.
 - For blueprint pages, include capability definitions, business scenarios, enabling data/technology, operating responsibilities, and success metrics.
 - For roadmap and investment pages, include phase gates, owners, dependencies, investment envelope, benefit assumptions, and KPI tracking rhythm.
-- Include quantified assumptions where exact data is missing: revenue impact range, cost takeout range, investment envelope, timeline, adoption target, KPI baseline and target.
+- Quantify only evidence-backed inputs or clearly requested hypothetical calculations. Missing revenue impact, investment, baseline, or target stays “待确认”; explain the data needed rather than filling a slide with unsupported numbers.
 - Include the full storyline: executive answer, context, maturity diagnosis, heatmap, pain-point root causes, target ambition, operating model blueprint, capability blueprint, use-case portfolio, prioritization logic, roadmap, investment case, KPI dashboard, risk controls, governance, 90-day action plan, and appendices.
 - Make the deck useful for a consulting partner reviewing client-ready material: each slide should be able to stand alone with enough detail for discussion.
 - Add chapter divider slides every 4-6 business pages. Recommended dividers: Executive Alignment, Target Blueprint, Roadmap and Investment, Governance and Mobilization.
@@ -267,12 +273,12 @@ PPT design specification:
   - `dense`: diagnosis, matrix, roadmap, KPI, risk, appendix.
 - Every slide object must include `layout_key`, `page_rhythm`, `visualization_type`, `insight`, and either `content` or `left_content/right_content`.
 - `insight` is the page's one-sentence takeaway. It should be written like a slide headline claim, not a topic label.
-- `data_points` should contain quantified assumptions, benchmark ranges, KPI targets, or evidence needed for the visual. If exact data is missing, provide explicit assumptions and label them as assumptions.
+- `data_points` contains sourced values or explicitly grounded scenario inputs. If unavailable, use an empty list or a clear “待确认” label; never create benchmark ranges or chart values merely to fill a layout.
 - `management_implications` should state the decision, trade-off, owner, or governance action required from management.
 
 ### Digital Strategy PPT Standard Storyline
 
-Use this richer second-level storyline by default for digital-strategy PPTs. Keep the order stable so the generator can apply chapter dividers, section numbering, visual pages, and lead sentences consistently.
+Use this richer second-level storyline for a full digital-strategy PPT. For a shorter deck, merge or omit sections to meet the requested page count; keep useful section ordering without adding mandatory divider pages.
 
 1. 高层共识
    - 执行摘要：把数字化作为业务价值组合来管理
@@ -394,7 +400,7 @@ Allowed `layout_key` values:
       "title": "执行摘要：把数字化作为业务价值组合来管理",
       "insight": "数字化转型应从零散项目升级为由业务价值、数据能力和治理节奏共同驱动的组合管理机制。",
       "content": "- 战略判断：数字化窗口期已从试点验证转向规模复制\n- 价值目标：用增长、效率、风险和决策速度四类 KPI 衡量转型\n- 优先动作：先补数据基础，再推进高价值场景和流程重构\n- 高层决策：确认范围、资金、负责人和第一批试点",
-      "data_points": ["假设：3 年投资强度为收入的 1.5%-3.5%", "目标：首年形成 3-5 个可量化价值样板"],
+      "data_points": ["待确认：各举措范围、数量、单价及运营成本", "待确认：试点价值基线与验收指标"],
       "management_implications": ["需要指导委员会确认投资边界和跨部门决策权"]
     },
     {
@@ -415,6 +421,18 @@ Allowed `layout_key` values:
 推荐 PPT 结构：默认使用上方 25 页核心目录。如果用户要求更长版本，保持同一顺序，只在治理与动员章节后追加可选附录页。
 
 ## Dependencies
+
+### Aria Runtime Delivery Contract
+
+- 按用户当前问题选择 digital-strategy 工作流中的必要步骤；简短问答直接回答，局部修改保留已有目标、约束和决策，不强制重跑完整诊断。
+- 优先使用已授权的项目上下文和本轮选中文档；不要重复询问已有信息，也不要扩展到无关项目。只有缺失信息会改变当前决策时，才询问 1–3 个关键问题。
+- 明确区分已确认事实、待验证假设和未知项；事实注明来源。缺少依据时不得编造成熟度分数、预算、ROI、KPI 基线或行业标杆数字。
+- 框架服务于业务问题，不以营收阈值机械选择。完整方案可覆盖诊断、目标蓝图、路线图及治理；短问答只覆盖必要内容。
+- 投资按举措范围、数量和有依据的单价自下而上估算，区分一次性和持续运营成本，包含数据、人才和变革管理；没有输入则列成本结构和待补数据，不套营收百分比。
+- 只有明确要求 PPT 或幻灯片时才调用 `generate_ppt_from_skill`，`skill_name` 固定为 `digital-strategy`；遵循包内 slide schema、layout_key 和模板约定，用户指定的页数优先，不额外输出 JSON 文件。
+- 未要求文件时直接交付文字；只使用当前运行实际可用的工具，工具未返回成功文件前不声称已生成。结论先行，给出证据、必要的不确定性和具体下一步。
+
+### Available integration
 
 - `generate_ppt_from_skill` - creates `.pptx` files through AriaAI's `python-pptx` backend tool
 - Optional template: place `KPMG-Template.pptx` or `template.pptx` under `assets/` or `references/`; without a template, AriaAI falls back to the default PPT layout
@@ -494,7 +512,7 @@ Each roadmap initiative must include:
 
 ### Executive Review Standard
 
-For leadership decks, include one page each for:
+For a full leadership deck, cover the following topics. In a short deck, combine them and prioritize the user's question; do not exceed the requested page count:
 
 - Transformation thesis.
 - Current value leakage.

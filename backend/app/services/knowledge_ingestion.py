@@ -320,17 +320,14 @@ def serialize_embedding(vector: list[float]):
 def parse_embedding(value) -> list[float]:
     if value is None:
         return []
-    if isinstance(value, list):
-        return [float(item) for item in value]
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except json.JSONDecodeError:
-            return []
-        return [float(item) for item in parsed] if isinstance(parsed, list) else []
     try:
-        return [float(item) for item in value]
-    except TypeError:
+        if isinstance(value, str):
+            value = json.loads(value)
+        if isinstance(value, (dict, str, bytes)):
+            return []
+        vector = [float(item) for item in value]
+        return vector if all(math.isfinite(item) for item in vector) else []
+    except (TypeError, ValueError, OverflowError):
         return []
 
 

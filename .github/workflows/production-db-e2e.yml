@@ -396,6 +396,7 @@ jobs:
                         "tests/test_conversation_state_and_versions.py",
                         "tests/test_knowledge.py",
                         "tests/test_knowledge_chat_cutover.py",
+                        "tests/test_knowledge_retrieval.py",
                         "tests/test_knowledge_job_acl.py",
                         "tests/test_knowledge_job_recovery.py",
                         "tests/test_knowledge_storage_atomicity.py",

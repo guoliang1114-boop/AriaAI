@@ -284,6 +284,7 @@ jobs:
                 tests/test_instruction_manifest.py \
                 tests/test_knowledge_evidence.py \
                 tests/test_knowledge_chat_cutover.py \
+                tests/test_knowledge_retrieval.py \
                 tests/test_knowledge_job_acl.py \
                 tests/test_knowledge_job_recovery.py \
                 tests/test_knowledge_storage_atomicity.py \
@@ -335,6 +336,7 @@ jobs:
                 tests/test_hitas_project_scope_binding.py \
                 tests/test_skill_root_snapshots.py \
                 tests/test_skill_quality.py \
+                tests/test_skills_router.py \
                 tests/test_skill_deliverables.py \
                 tests/test_skill_runtime_contract.py \
                 tests/test_structured_patch.py \

@@ -577,6 +577,35 @@ class SkillsCrudTestCase(unittest.TestCase):
             for step in required_steps:
                 self.assertIn(step, skill.system_prompt, skill.name)
 
+    def test_digital_strategy_publishes_and_resolves_evidence_first_contract(self):
+        definition = next(item for item in skills_module.GSTACK_PRO_SKILLS
+                          if item["name"] == skills_module.DIGITAL_STRATEGY_SKILL_NAME)
+        self.assertIsInstance(definition["system_prompt"], skills_module.FileBackedSkillPrompt)
+        with Session(self.engine) as session:
+            skills_module.ensure_builtin_pro_skills(session)
+            skill = session.exec(select(Skill).where(
+                Skill.name == skills_module.DIGITAL_STRATEGY_SKILL_NAME
+            )).one()
+            runtime, selection = resolve_skill_release(
+                session, skill, owner_user_id=1, project_id=None, conversation_id=None,
+            )
+            self.assertEqual(runtime.package_version, "1.1.0")
+            self.assertEqual(selection.release_id, skill.active_release_id)
+            self.assertEqual(runtime.package_sha256, skill.package_sha256)
+            self.assertEqual(runtime.tools, ["generate_ppt_from_skill"])
+            self.assertIn("Context and evidence contract", runtime.system_prompt)
+            self.assertIn("简短问答直接回答", runtime.system_prompt)
+            self.assertIn("不套营收百分比", runtime.system_prompt)
+            self.assertIn("用户指定的页数优先", runtime.system_prompt)
+            self.assertIn("Bundled Reference: references/industry-notes.md", runtime.system_prompt)
+            self.assertNotIn("不要跳步", runtime.system_prompt)
+            self.assertNotIn("0.5-1.5% of revenue", runtime.system_prompt)
+            self.assertNotIn("Digitized 90%+", runtime.system_prompt)
+            release_id = skill.active_release_id
+            skills_module.ensure_builtin_pro_skills(session)
+            session.refresh(skill)
+            self.assertEqual(skill.active_release_id, release_id)
+
     def test_seed_pro_adds_consulting_proposal_advisor_skill(self):
         with Session(self.engine) as session:
             skills_module.ensure_builtin_pro_skills(session)

@@ -1,28 +1,23 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from sqlalchemy import and_, case, or_
 from sqlmodel import Session, select
 
 from app.models.db import User
 from app.models.knowledge import KnowledgeChunk, KnowledgeSource, KnowledgeV1Document
 from app.services.knowledge_ingestion import deterministic_embedding, parse_embedding
-from app.services.knowledge_permissions import can_access_source, filter_chunks_by_permission
+from app.services.knowledge_permissions import can_access_source
+from app.services.knowledge_ranking import expanded_terms, lexical_score, normalize_text
 
 TOP_K_DEFAULT = 8
 RELEVANCE_THRESHOLD = 0.6
-QUERY_EXPANSIONS: dict[str, set[str]] = {
-    "战略": {"strategy", "规划", "蓝图"},
-    "诊断": {"assessment", "评估", "现状"},
-    "会员": {"member", "crm", "用户"},
-    "运营": {"operation", "增长", "转化"},
-    "方法论": {"methodology", "框架", "模型"},
-    "案例": {"case", "复盘", "经验"},
-}
 
 
 @dataclass
@@ -59,74 +54,46 @@ class KnowledgeSearchResult:
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
-    if not a or not b:
+    try:
+        va = np.asarray(a, dtype=float)
+        vb = np.asarray(b, dtype=float)
+    except (TypeError, ValueError, OverflowError):
         return 0.0
-    va = np.array(a, dtype=float)
-    vb = np.array(b, dtype=float)
-    denom = np.linalg.norm(va) * np.linalg.norm(vb)
-    if denom == 0:
+    if va.ndim != 1 or vb.ndim != 1 or va.size == 0 or va.shape != vb.shape:
         return 0.0
-    return float(np.dot(va, vb) / denom)
+    if not np.isfinite(va).all() or not np.isfinite(vb).all():
+        return 0.0
+    with np.errstate(over="ignore", invalid="ignore"):
+        denom = np.linalg.norm(va) * np.linalg.norm(vb)
+        if not np.isfinite(denom) or denom == 0:
+            return 0.0
+        return float(np.clip(np.dot(va, vb) / denom, -1.0, 1.0))
 
 
 def _parse_json(raw: str, default):
     try:
         value = json.loads(raw or "")
-    except json.JSONDecodeError:
+    except (TypeError, ValueError):
         return default
     return value if isinstance(value, type(default)) else default
 
 
-def _matches_scope(doc: KnowledgeV1Document, scope_types: list[str] | None, scope_ids: list[int] | None) -> bool:
-    if scope_types and doc.scope_type not in scope_types:
+def _metadata_matches(metadata: dict, **filters) -> bool:
+    # Malformed policy fields are not permission to reuse the document.
+    for field in ("confidential_level", "reuse_policy"):
+        if field in metadata and not isinstance(metadata[field], str):
+            return False
+    if metadata.get("confidential_level") == "do_not_generate" or metadata.get("reuse_policy") == "do_not_generate":
         return False
-    if scope_ids and doc.scope_id not in scope_ids:
-        return False
-    return True
-
-
-def _matches_scope_pairs(
-    doc: KnowledgeV1Document,
-    scope_pairs: list[tuple[str, int | None]],
-) -> bool:
-    """Match exact scope identities without widening across ID namespaces."""
-
-    return any(
-        doc.scope_type == scope_type and doc.scope_id == scope_id
-        for scope_type, scope_id in scope_pairs
-    )
-
-
-def _expanded_query_terms(query: str) -> set[str]:
-    terms = {term.lower() for term in query.split() if term.strip()}
-    compact = query.lower().strip()
-    if compact:
-        terms.add(compact)
-    for key, expansions in QUERY_EXPANSIONS.items():
-        if key in query:
-            terms.update(item.lower() for item in expansions)
-    return terms
-
-
-def _scope_attempts(scope_types: list[str] | None, scope_ids: list[int] | None) -> list[tuple[list[str] | None, list[int] | None]]:
-    attempts: list[tuple[list[str] | None, list[int] | None]] = [(scope_types, scope_ids)]
-    normalized = set(scope_types or [])
-    if "project" in normalized:
-        attempts.append((["project", "client", "workspace"], scope_ids))
-        attempts.append((["client", "workspace"], None))
-    elif "client" in normalized:
-        attempts.append((["client", "workspace"], scope_ids))
-        attempts.append((["workspace"], None))
-    elif scope_types:
-        attempts.append((None, None))
-    seen: set[tuple[tuple[str, ...] | None, tuple[int, ...] | None]] = set()
-    unique: list[tuple[list[str] | None, list[int] | None]] = []
-    for types, ids in attempts:
-        key = (tuple(types) if types else None, tuple(ids) if ids else None)
-        if key not in seen:
-            unique.append((types, ids))
-            seen.add(key)
-    return unique
+    for field, values in (("confidential_level", filters["confidential_levels"]), ("template_key", filters["template_keys"])):
+        if values and metadata.get(field) not in values:
+            return False
+    for field in ("industries", "service_lines"):
+        values = filters[field]
+        stored = metadata.get(field)
+        if values and not (isinstance(stored, list) and any(isinstance(item, str) and item in values for item in stored)):
+            return False
+    return filters["can_generate"] is not True or metadata.get("reuse_policy") in ("can_generate", "reference_only")
 
 
 def search_knowledge(
@@ -147,129 +114,127 @@ def search_knowledge(
 ) -> dict[str, Any]:
     started = time.perf_counter()
     normalized_top_k = max(1, min(int(top_k or TOP_K_DEFAULT), 20))
-    query_embedding = deterministic_embedding(query)
+    primary, related = expanded_terms(query)
+    scope_used: dict[str, Any] = {"scope_types": scope_types, "scope_ids": scope_ids}
+    normalized_pairs = list(dict.fromkeys(
+        (str(kind).strip().lower(), identity)
+        for kind, identity in (scope_pairs or [])[:20]
+        if isinstance(kind, str) and kind.strip()
+        and (identity is None or (type(identity) is int and identity > 0))
+    ))
+    if scope_pairs is not None:
+        scope_used = {"scope_pairs": [
+            {"scope_type": kind, "scope_id": identity} for kind, identity in normalized_pairs
+        ]}
+        if scope_types is not None:
+            scope_used["scope_types"] = scope_types
+        if scope_ids is not None:
+            scope_used["scope_ids"] = scope_ids
 
-    stmt = (
-        select(KnowledgeChunk)
-        .join(KnowledgeV1Document, KnowledgeV1Document.id == KnowledgeChunk.document_id)
-        .where(KnowledgeV1Document.status == "indexed")
-    )
-    normalized_document_ids = sorted(
-        {
-            int(value)
-            for value in list(document_ids or [])[:100]
-            if isinstance(value, int) and value > 0
+    def response(results: list[KnowledgeSearchResult]) -> dict[str, Any]:
+        return {
+            "chunks": [result.to_dict() for result in results],
+            "total_found": len(results),
+            "query_time_ms": round((time.perf_counter() - started) * 1000),
+            "low_confidence": sum(result.relevance >= RELEVANCE_THRESHOLD for result in results) < min(3, normalized_top_k),
+            "expanded_terms": sorted(primary | related),
+            "scope_used": scope_used,
         }
+
+    if not primary or not user.is_active:
+        return response([])
+    normalized_document_ids = sorted({
+        value for value in (document_ids or [])[:100] if type(value) is int and value > 0
+    })
+    # Explicit empty/invalid selections mean nothing selected, never "all".
+    if document_ids is not None and not normalized_document_ids:
+        return response([])
+    if scope_pairs is not None and not normalized_pairs:
+        return response([])
+    if scope_types == [] or scope_ids == []:
+        return response([])
+
+    doc, source = KnowledgeV1Document, KnowledgeSource
+    scope_identity = case((source.scope_type == "user", source.owner_user_id), else_=source.scope_id)
+    stmt = select(doc, source).join(source, source.id == doc.source_id).where(
+        doc.status == "indexed",
+        source.status == "active",
+        doc.scope_type == source.scope_type,
+        or_(doc.scope_id == source.scope_id, and_(doc.scope_id.is_(None), source.scope_id.is_(None))),
     )
     if normalized_document_ids:
-        stmt = stmt.where(KnowledgeV1Document.id.in_(normalized_document_ids))
-    chunks = session.exec(stmt).all()
-    chunks = filter_chunks_by_permission(user, chunks, session)
+        stmt = stmt.where(doc.id.in_(normalized_document_ids))
+    if scope_pairs is not None:
+        stmt = stmt.where(or_(*[
+            and_(source.scope_type == kind, scope_identity.is_(None) if identity is None else scope_identity == identity)
+            for kind, identity in normalized_pairs
+        ]))
+    # Both filter styles are hard bounds; no fallback to a wider namespace.
+    if scope_types is not None:
+        stmt = stmt.where(source.scope_type.in_(scope_types))
+    if scope_ids is not None:
+        stmt = stmt.where(scope_identity.in_([value for value in scope_ids if type(value) is int and value > 0]))
 
-    doc_ids = {chunk.document_id for chunk in chunks}
-    docs = session.exec(select(KnowledgeV1Document).where(KnowledgeV1Document.id.in_(doc_ids))).all() if doc_ids else []
-    doc_map = {doc.id: doc for doc in docs}
-    source_ids = {doc.source_id for doc in docs}
-    sources = session.exec(select(KnowledgeSource).where(KnowledgeSource.id.in_(source_ids))).all() if source_ids else []
-    source_map = {source.id: source for source in sources}
+    docs: dict[int, tuple[KnowledgeV1Document, dict]] = {}
+    source_access: dict[int, bool] = {}
+    for document, knowledge_source in session.exec(stmt):
+        source_id = int(knowledge_source.id)
+        if source_id not in source_access:
+            source_access[source_id] = can_access_source(user, knowledge_source, session)
+        if not source_access[source_id]:
+            continue
+        metadata = _parse_json(document.metadata_json, {})
+        if _metadata_matches(
+            metadata, template_keys=template_keys, industries=industries,
+            service_lines=service_lines, confidential_levels=confidential_levels,
+            can_generate=can_generate,
+        ):
+            docs[int(document.id)] = (document, metadata)
+    if not docs:
+        return response([])
 
-    scored: list[tuple[float, KnowledgeChunk]] = []
-    query_terms = _expanded_query_terms(query)
-    normalized_scope_pairs = list(
-        dict.fromkeys(
-            (
-                str(scope_type or "").strip().lower(),
-                int(scope_id) if isinstance(scope_id, int) else None,
-            )
-            for scope_type, scope_id in list(scope_pairs or [])[:20]
-            if str(scope_type or "").strip()
-        )
-    )
-    exact_scope_requested = scope_pairs is not None
-    attempts = (
-        [(None, None)]
-        if exact_scope_requested
-        else _scope_attempts(scope_types, scope_ids)
-    )
-    attempted_scope: dict[str, Any] = {
-        "scope_types": scope_types,
-        "scope_ids": scope_ids,
-    }
-    if exact_scope_requested:
-        attempted_scope = {
-            "scope_pairs": [
-                {"scope_type": scope_type, "scope_id": scope_id}
-                for scope_type, scope_id in normalized_scope_pairs
+    query_embedding = deterministic_embedding(query)
+    # Keep at most top_k bodies in memory while iterating authorized chunks.
+    # Content duplicates cannot crowd out independent evidence.
+    best: dict[str, tuple[tuple[float, int, int, int], KnowledgeSearchResult]] = {}
+    document_ids_to_read = sorted(docs)
+    # Bound SQL IN parameters for large authorized libraries on SQLite and PG.
+    for offset in range(0, len(document_ids_to_read), 500):
+        chunk_stmt = select(KnowledgeChunk).where(
+            KnowledgeChunk.document_id.in_(document_ids_to_read[offset:offset + 500])
+        ).execution_options(yield_per=100)
+        for chunk in session.exec(chunk_stmt):
+            if not chunk.content.strip():
+                continue
+            document, metadata = docs[chunk.document_id]
+            heading_path = [
+                item for item in _parse_json(chunk.heading_path, []) if isinstance(item, str)
             ]
-        }
-    for attempt_scope_types, attempt_scope_ids in attempts:
-        scored = []
-        for chunk in chunks:
-            doc = doc_map.get(chunk.document_id)
-            if not doc:
-                continue
-            if exact_scope_requested:
-                if not _matches_scope_pairs(doc, normalized_scope_pairs):
-                    continue
-            elif not _matches_scope(doc, attempt_scope_types, attempt_scope_ids):
-                continue
-            source = source_map.get(doc.source_id)
-            if not source or not can_access_source(user, source, session):
-                continue
-            metadata = _parse_json(doc.metadata_json, {})
-            if metadata.get("confidential_level") == "do_not_generate" or metadata.get("reuse_policy") == "do_not_generate":
-                continue
-            if confidential_levels and metadata.get("confidential_level") not in confidential_levels:
-                continue
-            if template_keys and metadata.get("template_key") not in template_keys:
-                continue
-            if industries and not set(industries).intersection(set(metadata.get("industries") or [])):
-                continue
-            if service_lines and not set(service_lines).intersection(set(metadata.get("service_lines") or [])):
-                continue
-            if can_generate is True and metadata.get("reuse_policy") not in {"can_generate", "reference_only"}:
-                continue
-
-            vector_score = cosine_similarity(query_embedding, parse_embedding(chunk.embedding))
-            lowered = chunk.content.lower()
-            text_score = 0.0
-            if query_terms:
-                text_score = sum(1 for term in query_terms if term and term in lowered) / len(query_terms)
-            relevance = 0.7 * vector_score + 0.3 * text_score
-            if relevance > 0:
-                scored.append((relevance, chunk))
-        if scored:
-            attempted_scope = {"scope_types": attempt_scope_types, "scope_ids": attempt_scope_ids}
-            break
-
-    scored.sort(key=lambda item: item[0], reverse=True)
-    selected = scored[:normalized_top_k]
-    results: list[KnowledgeSearchResult] = []
-    for relevance, chunk in selected:
-        doc = doc_map[chunk.document_id]
-        metadata = _parse_json(doc.metadata_json, {})
-        results.append(
-            KnowledgeSearchResult(
-                id=chunk.id or 0,
-                document_id=doc.id or 0,
-                chunk_index=max(0, int(chunk.chunk_index or 0)),
-                document_title=doc.title,
-                document_path=doc.path,
-                heading_path=_parse_json(chunk.heading_path, []),
-                content=chunk.content,
-                scope_type=doc.scope_type,
-                scope_id=doc.scope_id,
-                source_id=doc.source_id,
-                relevance=relevance,
-                metadata=metadata,
+            text_score = lexical_score(
+                primary, related, chunk.content, " ".join([document.title, *heading_path]),
             )
-        )
+            if text_score <= 0:
+                continue
+            vector_score = max(0.0, cosine_similarity(query_embedding, parse_embedding(chunk.embedding)))
+            relevance = min(1.0, text_score + 0.05 * vector_score)
+            chunk_index = max(0, int(chunk.chunk_index or 0))
+            rank = (relevance, -int(document.id), -chunk_index, -int(chunk.id))
+            fingerprint = hashlib.sha256(
+                " ".join(normalize_text(chunk.content).split()).encode("utf-8")
+            ).hexdigest()
+            if fingerprint in best and best[fingerprint][0] >= rank:
+                continue
+            if fingerprint not in best and len(best) >= normalized_top_k:
+                weakest = min(best, key=lambda key: best[key][0])
+                if best[weakest][0] >= rank:
+                    continue
+                del best[weakest]
+            best[fingerprint] = (rank, KnowledgeSearchResult(
+                id=int(chunk.id), document_id=int(document.id), chunk_index=chunk_index,
+                document_title=document.title, document_path=document.path,
+                heading_path=heading_path, content=chunk.content,
+                scope_type=document.scope_type, scope_id=document.scope_id,
+                source_id=document.source_id, relevance=relevance, metadata=metadata,
+            ))
 
-    return {
-        "chunks": [result.to_dict() for result in results],
-        "total_found": len(results),
-        "query_time_ms": round((time.perf_counter() - started) * 1000),
-        "low_confidence": len([r for r in results if r.relevance >= RELEVANCE_THRESHOLD]) < min(3, normalized_top_k),
-        "expanded_terms": sorted(query_terms),
-        "scope_used": attempted_scope,
-    }
+    return response([item[1] for item in sorted(best.values(), key=lambda item: item[0], reverse=True)])

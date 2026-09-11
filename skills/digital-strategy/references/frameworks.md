@@ -2,6 +2,10 @@
 
 Detailed methodology descriptions for strategic frameworks used in digital transformation consulting. Load the relevant section based on framework selection in Step 1.
 
+## Evidence boundary
+
+These are simplified Aria working notes, not official framework specifications, certifications, or access to a proprietary benchmark database. The dimensions, weights, levels, durations, and thresholds below are illustrative assessment-design choices, not validated industry facts. Verify an original source before attributing them to a named firm. Do not score a client without observations and an agreed rubric; unknown answers remain unassessed, never zero. Select a framework by the decision to support, not by revenue cutoffs.
+
 ## Table of Contents
 
 1. [Huawei 5-See 3-Define (五看三定)](#huawei-5-see-3-define)
@@ -15,7 +19,7 @@ Detailed methodology descriptions for strategic frameworks used in digital trans
 
 ## Huawei 5-See 3-Define
 
-Best for: Large enterprises (>5B RMB revenue), business-led transformations, complex multi-business-group organizations.
+Potential use: Business-led transformations and complex multi-business-group organizations; revenue is not a selection threshold.
 
 ### 5-See (五看) — Strategic Analysis
 
@@ -71,9 +75,9 @@ Best for: Mid-size enterprises, rapid digital build-outs, organizations needing 
 | **H3** | 3-5 years | Create breakthrough digital business models | Innovation lab / separate entity |
 
 ### McKinsey Framework Strengths
-- Fast assessment (can complete in 2-3 weeks)
-- Strong benchmark database (cross-industry comparisons available)
-- Clear linkage between digital maturity and financial performance
+- Can organize a focused assessment; duration depends on scope and evidence access
+- External comparisons require separately sourced, comparable data
+- Test any maturity-to-performance hypothesis against the client's evidence
 - 3-Horizon model provides intuitive initiative categorization
 
 ---

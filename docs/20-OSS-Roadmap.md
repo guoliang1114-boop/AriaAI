@@ -72,6 +72,16 @@ Goal: turn documents and team knowledge into workflow context, not only search r
 
 ## 4. Skill Workflows
 
+2026-09-12 native reliability increment (Phase 5E): Chinese bigram/English
+token evidence ranking, malformed-vector isolation, strict intersecting source
+filters, pre-scoring ACL checks, and normalized duplicate suppression are
+implemented without an index rewrite. Hash embeddings remain an offline
+baseline, not semantic retrieval. Digital-strategy 1.1.0 now uses project
+evidence and request-sized outputs, removes unsourced numerical benchmarks,
+and publishes the same evidence-first contract through Aria Skill Releases.
+Legacy document ingestion readiness and a genuine semantic embedding provider
+remain separate follow-up work; this increment does not retire legacy reads.
+
 Goal: turn skills from prompts into delivery-oriented workflows.
 
 - Define input requirements, output artifacts, QA checklist, and save location for core skills.
