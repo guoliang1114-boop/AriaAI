@@ -45,7 +45,6 @@ class HistoryStrategy(str, Enum):
 
 class ModelStrategy(str, Enum):
     USER_DEFAULT = "user_default"
-    LENGTH_AWARE_FAST_PATH = "length_aware_fast_path"
     FAST_PORTFOLIO = "fast_portfolio"
 
 
@@ -68,14 +67,12 @@ class ModeConfig:
 MODE_CONFIG: dict[ChatMode, ModeConfig] = {
     ChatMode.STANDALONE_QA: ModeConfig(
         prompt_template="modes/standalone_qa.md",
-        model_strategy=ModelStrategy.LENGTH_AWARE_FAST_PATH,
+        # A short prompt does not imply access to a different provider model.
+        model_strategy=ModelStrategy.USER_DEFAULT,
         max_tokens=2048,
         history_window=96,
         history_strategy=HistoryStrategy.FULL,
         context_mode="workspace_brief",
-        fast_model="moonshot-v1-8k",
-        fast_max_tokens=1536,
-        fast_source_models=("kimi-k3", "kimi-k2.6"),
     ),
     ChatMode.PROJECT_DEEP_DIVE: ModeConfig(
         prompt_template="modes/project_deep_dive.md",

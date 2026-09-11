@@ -2106,9 +2106,9 @@ def _runtime_configuration_results() -> tuple[int, int, list[dict[str, Any]]]:
             and report["tool_count"] == 17,
         },
         {
-            "case": "mode_registry_drives_fast_model_and_token_caps",
-            "passed": standalone_model == "moonshot-v1-8k"
-            and standalone_tokens == 1536
+            "case": "mode_registry_preserves_selected_qa_model_and_token_caps",
+            "passed": standalone_model == "kimi-k2.6"
+            and standalone_tokens == 2048
             and portfolio_model == "deepseek-v4-flash"
             and portfolio_tokens == 4096,
         },

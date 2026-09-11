@@ -90,6 +90,26 @@ export function parseChatStreamEvent(value: unknown): ChatStreamEvent | null {
   return value as ChatStreamEvent
 }
 
+/** A Product failure is a terminal result, not a dropped SSE connection. */
+export function resolveChatRunFailure(
+  event: ChatStreamEvent,
+  activeRunId: string | null,
+  streamedContent: string,
+): { message: string; content: string; runId: string | null } | null {
+  if (event.type !== 'run_failed') return null
+  if (activeRunId && event.run_id !== activeRunId) {
+    const message = '运行失败事件身份不一致，请重新发起本轮请求'
+    return { message, content: message, runId: activeRunId }
+  }
+  const message = event.error_message || event.message || 'AI 运行未完成，请稍后重试。'
+  return {
+    message,
+    // fallback_content already includes the persisted failure explanation.
+    content: event.fallback_content || streamedContent || message,
+    runId: event.run_id || activeRunId,
+  }
+}
+
 const TURN_MODES = new Set<TurnReceiptEvent['mode']>([
   'answer_only',
   'plan_only',

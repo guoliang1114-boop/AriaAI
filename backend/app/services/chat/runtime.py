@@ -249,18 +249,6 @@ def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
     return min(max_tokens, 8192)
 
 
-def _is_standalone_fast_path(req: SendMessageRequest, effective_skill_id: int | None, chat_mode: ChatMode) -> bool:
-    mode_config = mode_config_for(chat_mode)
-    return (
-        mode_config.model_strategy is ModelStrategy.LENGTH_AWARE_FAST_PATH
-        and req.project_id is None
-        and effective_skill_id is None
-        and not req.rag_doc_ids
-        and not req.file_ids
-        and len((req.content or "").strip()) <= 280
-    )
-
-
 def _looks_like_confirmation_followup(content: str) -> bool:
     normalized = (content or "").strip().lower()
     if not normalized:
@@ -471,16 +459,6 @@ def _resolve_runtime_model_and_tokens(
                 mode_config.fast_max_tokens or mode_token_cap,
             )
         return selected_model, resolved_tokens
-
-    if (
-        mode_config.model_strategy is ModelStrategy.LENGTH_AWARE_FAST_PATH
-        and eligible_for_fast_model
-        and _is_standalone_fast_path(req, effective_skill_id, chat_mode)
-    ):
-        return mode_config.fast_model, min(
-            resolved_tokens,
-            mode_config.fast_max_tokens or mode_token_cap,
-        )
 
     return selected_model, resolved_tokens
 

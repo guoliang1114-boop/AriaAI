@@ -22,7 +22,6 @@ from app.services.chat_streaming import (
     decide_skill_activation,
     _extract_artifact,
     _is_digital_strategy_runtime,
-    _is_standalone_fast_path,
     _looks_like_digital_strategy_tool_input,
     _repair_digital_strategy_ppt_tool_input,
     _repair_skill_ppt_tool_input,
@@ -235,46 +234,36 @@ class CapMaxTokensForModelTests(unittest.TestCase):
         self.assertEqual(_cap_max_tokens_for_model(None, 5000), 5000)
 
 
-class IsStandaloneFastPathTests(unittest.TestCase):
-    def test_true_when_no_project_no_skill_no_rag_no_files_short_text(self):
-        req = DummyRequest(content="hello", project_id=None, skill_id=None)
-        self.assertTrue(_is_standalone_fast_path(req, None, ChatMode.STANDALONE_QA))
-
-    def test_false_when_project_set(self):
-        req = DummyRequest(content="hi", project_id=1)
-        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.PROJECT_DEEP_DIVE))
-
-    def test_false_when_skill_set(self):
-        req = DummyRequest(content="hi", skill_id=1)
-        self.assertFalse(_is_standalone_fast_path(req, 1, ChatMode.SKILL_EXECUTION))
-
-    def test_false_when_rag_docs(self):
-        req = DummyRequest(content="hi", rag_doc_ids=[1])
-        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.STANDALONE_QA))
-
-    def test_false_when_files(self):
-        req = DummyRequest(content="hi", file_ids=[1])
-        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.STANDALONE_QA))
-
-    def test_false_when_long_text(self):
-        req = DummyRequest(content="x" * 281)
-        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.STANDALONE_QA))
-
-    def test_false_when_portfolio_query(self):
-        req = DummyRequest(content="所有项目总结")
-        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.CROSS_PROJECT_PORTFOLIO))
-
-    def test_false_when_workspace_inventory_query(self):
-        req = DummyRequest(content="全部项目列表")
-        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.WORKSPACE_INVENTORY))
-
-
 class ResolveRuntimeModelAndTokensTests(unittest.TestCase):
-    def test_standalone_fast_path_kimi(self):
-        req = DummyRequest(content="hello")
-        model, tokens = _resolve_runtime_model_and_tokens(req, "kimi-k2.6", 8192, None, chat_mode=ChatMode.STANDALONE_QA)
-        self.assertEqual(model, "moonshot-v1-8k")
-        self.assertEqual(tokens, 1536)
+    def test_standalone_preserves_selected_model_for_short_and_long_questions(self):
+        for selected_model in ("kimi-k3", "kimi-k2.6", "kimi-k3-preview", "claude-sonnet-4-6"):
+            for content in ("hello", "帮我总结一下当前所有进行中项目的最新进展和关键风险点", "x" * 281):
+                with self.subTest(model=selected_model, content=content):
+                    model, tokens = _resolve_runtime_model_and_tokens(
+                        DummyRequest(content=content), selected_model, 8192, None,
+                        chat_mode=ChatMode.STANDALONE_QA,
+                    )
+                    self.assertEqual(model, selected_model)
+                    self.assertEqual(tokens, 2048)
+
+    def test_in_progress_portfolio_question_uses_workspace_context(self):
+        for content in (
+            "帮我总结一下当前所有进行中项目的最新进展和关键风险点",
+            "汇总全部正在进行的项目风险",
+            "总结所有在建项目的最新进展",
+            "汇总所有23个项目的情况",
+        ):
+            with self.subTest(content=content):
+                decision = classify_chat_mode_and_policy(content)
+                self.assertEqual(decision.chat_mode, ChatMode.WORKSPACE_INVENTORY)
+                self.assertEqual(decision.action_policy, ActionPolicy.DIRECT_ANSWER)
+                self.assertEqual(decision.tool_access_policy, ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
+
+    def test_single_project_question_does_not_expand_to_workspace(self):
+        for content in ("总结这个进行中项目的风险", "总结项目的所有进行中任务"):
+            with self.subTest(content=content):
+                decision = classify_chat_mode_and_policy(content, project_id=1)
+                self.assertEqual(decision.chat_mode, ChatMode.PROJECT_DEEP_DIVE)
 
     def test_client_portfolio_context_with_deepseek(self):
         req = DummyRequest(content="展示客户项目")

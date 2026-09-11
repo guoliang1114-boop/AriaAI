@@ -4190,7 +4190,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertTrue(runtime.prepare_metrics["conversation_capsule"]["valid"])
         self.assertTrue(runtime.prepare_metrics["instruction_manifest"]["valid"])
 
-    def test_prepare_chat_runtime_routes_standalone_short_chat_to_fast_model(self):
+    def test_prepare_chat_runtime_preserves_selected_model_for_short_chat(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:
             with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
@@ -4214,8 +4214,8 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                     ),
                 )
 
-        self.assertEqual(runtime.selected_model, chat_streaming_module.STANDALONE_FAST_PATH_MODEL)
-        self.assertEqual(runtime.max_tokens, chat_streaming_module.STANDALONE_FAST_PATH_MAX_TOKENS)
+        self.assertEqual(runtime.selected_model, "kimi-k2.6")
+        self.assertEqual(runtime.max_tokens, chat_streaming_module.STANDALONE_CHAT_MAX_TOKENS)
         self.assertEqual(
             validate_prompt_layer_manifest(
                 runtime.prepare_metrics["prompt_layer_manifest"]

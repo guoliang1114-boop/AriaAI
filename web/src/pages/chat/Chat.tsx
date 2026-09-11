@@ -49,6 +49,7 @@ import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skil
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../types/productRunEvent'
 import {
   parseChatStreamEvent,
+  resolveChatRunFailure,
   toContextReceiptEvent,
   toTurnReceiptEvent,
   type ChatStreamEvent,
@@ -1877,6 +1878,45 @@ export function Chat() {
       }
 
       const handleStreamEvent = async (data: ChatStreamEvent) => {
+        if (streamDone) return
+        const failure = resolveChatRunFailure(data, activeRunIdRef.current, assistantContent)
+        if (failure) {
+          // The backend deliberately does not send a success-shaped `done`
+          // after run_failed. Consume that terminal before the EOF fallback.
+          streamDone = true
+          completedNormally = true // transport handled; business result is failed
+          streamErrorMessage = failure.message
+          if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
+          if (currentConvIdRef.current === String(currentConvId)) {
+            setErrorMsg(failure.message)
+            setMessages(prev => [...prev, {
+              id: createOptimisticMessageId(),
+              conversation_id: currentConvId!,
+              role: 'assistant',
+              content: failure.content,
+              metadata_json: JSON.stringify({
+                run_rollout: { run_id: failure.runId, status: 'failed' },
+                context_receipt: resolvedContextReceipt || undefined,
+                stage_timings: Object.fromEntries(liveStageTimingsRef.current.map(item => [item.key, item.durationMs])),
+              }),
+              created_at: new Date().toISOString(),
+            }])
+          }
+          activeRunIdRef.current = null
+          stopRequestedRef.current = false
+          sessionStorage.removeItem('pendingStreamingConvId')
+          streamingConvIdRef.current = null
+          streamingContentRef.current = ''
+          isStreamingRef.current = false
+          setStreamingContent('')
+          setStreamArtifacts([])
+          setIsThinking(false)
+          setToolStatus(null)
+          setLiveStatusText(null)
+          setProgressSteps([])
+          resetSkillProgress()
+          return
+        }
         if (data.type === 'run_started' && typeof data.run_id === 'string') {
           activeRunIdRef.current = data.run_id
           const runSkill = normalizeRunSkill(data.skill)
@@ -2105,6 +2145,10 @@ export function Chat() {
         if (done) break
         streamBuffer += decoder.decode(value, { stream: true })
         await processStreamBuffer()
+        if (streamDone) {
+          await reader.cancel().catch(() => undefined)
+          break
+        }
       }
 
       streamBuffer += decoder.decode()

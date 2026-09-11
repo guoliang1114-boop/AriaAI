@@ -1,9 +1,36 @@
 import { describe, expect, it } from 'vitest'
 import {
   parseChatStreamEvent,
+  resolveChatRunFailure,
   toContextReceiptEvent,
   toTurnReceiptEvent,
 } from './chatStreamEvent'
+
+describe('Product failure terminal', () => {
+  it('preserves the saved provider failure without duplicating text or adding a network warning', () => {
+    const content = '本轮没有完成。Kimi HTTP 404: model not found'
+    expect(resolveChatRunFailure({
+      type: 'run_failed', run_id: 'run_1', error_message: 'Kimi HTTP 404', fallback_content: content,
+    }, 'run_1', content)).toEqual({ message: 'Kimi HTTP 404', content, runId: 'run_1' })
+  })
+
+  it('shows a failure even when no text was streamed or run_started was emitted', () => {
+    expect(resolveChatRunFailure({ type: 'run_failed', error_message: '模型不可用' }, null, ''))
+      .toEqual({ message: '模型不可用', content: '模型不可用', runId: null })
+  })
+
+  it('does not accept another run’s fallback content', () => {
+    const failure = resolveChatRunFailure({
+      type: 'run_failed', run_id: 'other', fallback_content: 'wrong content',
+    }, 'run_1', '')
+    expect(failure?.content).toContain('身份不一致')
+    expect(failure?.runId).toBe('run_1')
+  })
+
+  it.each(['text', 'done', 'error', 'run_done'])('does not turn %s into a Product failure', (type) => {
+    expect(resolveChatRunFailure({ type }, 'run_1', '回答')).toBeNull()
+  })
+})
 
 describe('parseChatStreamEvent', () => {
   it('accepts a typed SSE envelope without discarding forward-compatible fields', () => {

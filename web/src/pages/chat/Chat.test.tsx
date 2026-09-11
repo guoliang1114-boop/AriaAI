@@ -1,0 +1,59 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import i18n from 'i18next'
+import { initReactI18next, I18nextProvider } from 'react-i18next'
+import zh from '../../i18n/locales/zh.json'
+import { Chat } from './Chat'
+
+vi.mock('../../api/client', () => ({
+  api: {
+    get: vi.fn(async (url: string) => url === '/chat/conversations?standalone=true'
+      ? [{ id: 1, title: '回归测试', created_at: '2026-09-12T00:00:00Z', updated_at: '2026-09-12T00:00:00Z' }]
+      : []),
+    post: vi.fn(async () => ({ id: 1, title: '回归测试', created_at: '2026-09-12T00:00:00Z', updated_at: '2026-09-12T00:00:00Z' })),
+    patch: vi.fn(async () => ({})),
+  },
+}))
+vi.mock('../../contexts/ToastContext', () => ({ useToast: () => ({ showToast: vi.fn() }) }))
+vi.mock('../../hooks/useAppTimeZone', () => ({ useAppTimeZone: () => ({ resolvedTimeZone: 'Asia/Shanghai' }) }))
+
+describe('standalone chat failure handling', () => {
+  beforeEach(async () => {
+    sessionStorage.clear()
+    localStorage.setItem('authToken', 'test-token')
+    await i18n.use(initReactI18next).init({
+      resources: { 'zh-CN': { translation: zh } },
+      lng: 'zh-CN', interpolation: { escapeValue: false },
+    })
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    sessionStorage.clear()
+    localStorage.removeItem('authToken')
+  })
+
+  it.each([true, false])('consumes run_failed without done (streamed text: %s)', async (withText) => {
+    const savedFailure = '本轮没有完成。模型不可用，失败状态已保存。'
+    const events = [
+      { type: 'run_started', run_id: 'run_failure' },
+      ...(withText ? [{ type: 'text', content: savedFailure }] : []),
+      { type: 'run_failed', run_id: 'run_failure', error_message: '模型不可用', fallback_content: savedFailure },
+    ]
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''),
+      { headers: { 'Content-Type': 'text/event-stream' } },
+    )))
+    render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?conversation=1']}><Chat /></MemoryRouter></I18nextProvider>)
+    const input = await screen.findByPlaceholderText(zh.chat.placeholder)
+    await waitFor(() => expect(input).toBeEnabled())
+    fireEvent.change(input, { target: { value: '帮我总结一下当前所有进行中项目的最新进展和关键风险点' } })
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+
+    await waitFor(() => expect(screen.getAllByText(savedFailure)).toHaveLength(1))
+    expect(screen.queryByText(/连接中断/)).not.toBeInTheDocument()
+    expect(sessionStorage.getItem('pendingStreamingConvId')).toBeNull()
+    await waitFor(() => expect(screen.getByPlaceholderText(zh.chat.placeholder)).toBeEnabled())
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+})

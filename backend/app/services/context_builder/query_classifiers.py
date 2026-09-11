@@ -1,5 +1,7 @@
 """Query classifiers for context builder."""
 
+import re
+
 from sqlmodel import Session, select
 
 from app.models.db import Project, ClientRecord
@@ -7,6 +9,18 @@ from app.models.db import Project, ClientRecord
 
 def _normalize_client_match_text(value: str) -> str:
     return "".join(str(value or "").lower().split())
+
+
+def _has_qualified_all_projects(text: str) -> bool:
+    """Allow bounded status/count qualifiers, not arbitrary intervening text.
+
+    In particular, '项目的所有进行中任务' must stay a single-project request.
+    """
+    return bool(re.search(
+        r"(?:所有|全部|全量)(?:的)?(?:\d+个)?"
+        r"(?:进行中|正在进行|在建|在研|执行中|已完成)?(?:的)?项目",
+        text,
+    ))
 
 
 def is_client_project_portfolio_query(content: str) -> bool:
@@ -60,7 +74,9 @@ def is_client_project_portfolio_query(content: str) -> bool:
         "risk",
         "risks",
     )
-    return any(marker in text for marker in all_project_markers) and any(marker in text for marker in summary_markers)
+    return (
+        _has_qualified_all_projects(text) or any(marker in text for marker in all_project_markers)
+    ) and any(marker in text for marker in summary_markers)
 
 
 def is_workspace_project_inventory_query(content: str) -> bool:
@@ -115,7 +131,9 @@ def is_workspace_project_inventory_query(content: str) -> bool:
         "risk",
         "risks",
     )
-    return any(marker in text for marker in all_project_markers) and any(marker in text for marker in summary_markers)
+    return (
+        _has_qualified_all_projects(text) or any(marker in text for marker in all_project_markers)
+    ) and any(marker in text for marker in summary_markers)
 
 
 def _is_project_review_query(content: str) -> bool:

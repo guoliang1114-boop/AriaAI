@@ -36,15 +36,12 @@ from app.services.chat.runtime import (
     decide_skill_activation,
     get_selected_model,
     _has_deepseek_api_key,
-    _is_standalone_fast_path,
     _resolve_runtime_model_and_tokens,
     _should_apply_skill,
 )
 
 # Historical import names remain available, but their values now come from the
 # centralized mode registry rather than a second set of runtime constants.
-STANDALONE_FAST_PATH_MODEL = MODE_CONFIG[ChatMode.STANDALONE_QA].fast_model
-STANDALONE_FAST_PATH_MAX_TOKENS = MODE_CONFIG[ChatMode.STANDALONE_QA].fast_max_tokens
 STANDALONE_CHAT_MAX_TOKENS = MODE_CONFIG[ChatMode.STANDALONE_QA].max_tokens
 CLIENT_PORTFOLIO_FAST_MODEL = MODE_CONFIG[ChatMode.CROSS_PROJECT_PORTFOLIO].fast_model
 CLIENT_PORTFOLIO_MAX_TOKENS = MODE_CONFIG[ChatMode.CROSS_PROJECT_PORTFOLIO].max_tokens
