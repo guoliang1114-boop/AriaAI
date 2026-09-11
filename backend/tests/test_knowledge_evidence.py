@@ -77,6 +77,50 @@ def test_prompt_contains_exact_evidence_keys_and_untrusted_data_boundary() -> No
     assert "untrusted source data" in prompt
 
 
+def test_query_focused_prompt_bounds_long_chunks_but_preserves_original_source_identity():
+    original = "无关历史资料。" * 1600 + "\n数据权限审批责任人为客户数据负责人，审批前不得开放访问。\n" + "补充背景。" * 1600
+    result = SimpleNamespace(content=original, document_name="长文档", document_id=7, chunk_index=4, score=0.9)
+    manifest = build_knowledge_evidence_manifest([result])
+    before = json.dumps(manifest, sort_keys=True)
+    prompt = build_knowledge_evidence_prompt(
+        [result], manifest, query="数据权限应该由谁审批？", excerpt_char_limit=1200,
+    )
+    assert len(prompt) < 2000
+    assert "数据权限审批责任人为客户数据负责人，审批前不得开放访问" in prompt
+    assert "Source excerpt; omitted text is not shown" in prompt
+    assert "untrusted source data" in prompt
+    assert json.dumps(manifest, sort_keys=True) == before
+    assert manifest["entries"][0]["content_sha256"] == hashlib.sha256(original.encode()).hexdigest()
+    resolved, references = resolve_knowledge_citations(manifest, "客户数据负责人审批 [K1]。")
+    assert resolved["status"] == "cited"
+    assert references[0]["chunk_index"] == 4
+    assert references[0]["content_sha256"] == manifest["entries"][0]["content_sha256"]
+    assert result.content == original
+
+
+def test_short_source_prompt_remains_complete_and_legacy_default_is_unchanged():
+    results = _results()
+    manifest = build_knowledge_evidence_manifest(results)
+    assert build_knowledge_evidence_prompt(results, manifest, query="budget", excerpt_char_limit=1200) == build_knowledge_evidence_prompt(results, manifest)
+
+
+def test_chat_rag_prompt_budget_retains_all_selected_citation_keys():
+    from app.services.context_builder.rag_context import _rag_payload
+    results = [SimpleNamespace(
+        content=f"Source {index}\n" + "无关资料。" * 1000 + f"\n市场洞察案例{index}必须比较客户需求和市场空间。\n" + "附录。" * 1000,
+        document_name=f"文档{index}", document_id=index + 1, chunk_index=0, score=0.9,
+    ) for index in range(8)]
+    payload = _rag_payload(
+        results, query="市场洞察如何分析客户需求？", knowledge_scope="global", project_id=None,
+        retrieval_mode="source_scoped", source_scoped_attempted=True,
+    )
+    assert len(payload["text"]) < 14000
+    assert len(payload["sources"]) == 8
+    for index in range(8):
+        assert f"[K{index + 1}] Source: 文档{index}" in payload["text"]
+        assert f"市场洞察案例{index}必须比较客户需求和市场空间" in payload["text"]
+
+
 def test_citation_resolution_keeps_only_valid_cited_sources() -> None:
     manifest = build_knowledge_evidence_manifest(_results())
 

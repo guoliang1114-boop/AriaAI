@@ -4229,6 +4229,30 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             (True, "valid"),
         )
 
+    def test_prepare_chat_runtime_gives_grounded_qa_room_to_finish(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module, "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module, "get_selected_model", return_value="kimi-k3",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(
+                    max_tokens=8192, rag_context="市场洞察方法 [K1]",
+                    rag_sources=[{"type": "doc", "id": 7, "title": "方法论", "document_namespace": "source_scoped"}],
+                )
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda *args, **kwargs: "system"
+                )
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session, chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id, content="战略规划应该如何分析市场洞察？",
+                        knowledge_document_ids=[7],
+                    ),
+                )
+        self.assertEqual(runtime.selected_model, "kimi-k3")
+        self.assertEqual(runtime.max_tokens, 8192)
+
     def test_prepare_chat_runtime_applies_selected_skill_for_workflow_request(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:

@@ -136,7 +136,13 @@ def _rag_payload(
         project_id=project_id,
     )
     return {
-        "text": build_knowledge_evidence_prompt(results, evidence_manifest),
+        # Long PPT chunks must not consume an entire turn's context budget.
+        # Retain every selected identity, but render at most 12k source chars
+        # across query-focused excerpts (plus headers and omission markers).
+        "text": build_knowledge_evidence_prompt(
+            results, evidence_manifest, query=query,
+            excerpt_char_limit=min(2000, 12000 // max(1, len(evidence_manifest.get("entries") or []))),
+        ),
         "sources": knowledge_evidence_references(evidence_manifest),
         "query": query,
         "evidence_manifest": evidence_manifest,

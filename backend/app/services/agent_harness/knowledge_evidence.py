@@ -19,6 +19,8 @@ import json
 import re
 from typing import Any, Iterable
 
+from app.services.knowledge_ranking import lexical_terms
+
 
 KNOWLEDGE_EVIDENCE_SCHEMA_VERSION = 1
 MAX_KNOWLEDGE_EVIDENCE_ITEMS = 12
@@ -255,9 +257,35 @@ def validate_knowledge_evidence_manifest(value: Any) -> tuple[bool, str]:
     return True, ""
 
 
+def _query_focused_excerpt(content: str, query: str, limit: int) -> str:
+    """Choose a bounded, contiguous source window without rewriting its words.
+
+    Source identities/digests always describe the original chunk. The excerpt
+    only changes the ephemeral provider prompt, never the evidence manifest.
+    """
+    if len(content) <= limit:
+        return content
+    primary = lexical_terms(query, query=True)
+    stride = max(1, limit // 3)
+    starts = list(range(0, len(content) - limit + 1, stride))
+    starts.append(len(content) - limit)
+    start = max(starts, key=lambda offset: (
+        len(primary & lexical_terms(content[offset:offset + limit])), -offset,
+    )) if primary else 0
+    end = start + limit
+    return (
+        "[Source excerpt; omitted text is not shown]\n"
+        + ("…" if start else "") + content[start:end]
+        + ("…" if end < len(content) else "")
+    )
+
+
 def build_knowledge_evidence_prompt(
     results: Iterable[Any],
     manifest: dict[str, Any],
+    *,
+    query: str = "",
+    excerpt_char_limit: int | None = None,
 ) -> str:
     """Render retrieved text for the provider request using manifest keys."""
 
@@ -295,6 +323,8 @@ def build_knowledge_evidence_prompt(
         content = content_by_identity.get(identity, "")
         if not content:
             continue
+        if excerpt_char_limit is not None:
+            content = _query_focused_excerpt(content, query, max(200, excerpt_char_limit))
         blocks.append(
             f"[{entry['citation_key']}] Source: {entry['title']} "
             f"(chunk {int(entry['chunk_index']) + 1})\n{content}"

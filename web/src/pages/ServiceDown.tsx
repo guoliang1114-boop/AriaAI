@@ -49,11 +49,8 @@ interface ComponentStatusRow {
   note?: { zh: string; en: string };
 }
 
-// The status table is a static illustrative shape — without a real
-// status-page backend we can't say component-by-component what's
-// up, so the prototype's content is faithful and reassuring rather
-// than misleading. When we have a real /status endpoint, these
-// rows should be driven from it.
+// No component telemetry is available here. Do not invent a maintenance
+// cause, recovery estimate, provider failover, or persisted draft guarantee.
 const COMPONENT_STATUS: ComponentStatusRow[] = [
   {
     label: { zh: "Web 前端", en: "Web frontend" },
@@ -63,34 +60,33 @@ const COMPONENT_STATUS: ComponentStatusRow[] = [
   {
     label: { zh: "API 服务", en: "API service" },
     tone: "bad",
-    status: { zh: "维护中 · 预计 5 分钟内", en: "Maintenance · ~5 min" },
-    note: { zh: "数据库索引升级", en: "Database index upgrade" },
+    status: { zh: "请求失败 · 原因待确认", en: "Request failed · cause unconfirmed" },
   },
   {
     label: { zh: "AI 模型代理", en: "AI model proxy" },
     tone: "warn",
     status: {
-      zh: "降级运行 · 仅备用模型",
-      en: "Degraded · backup model only",
+      zh: "未独立验证",
+      en: "Not independently verified",
     },
   },
   {
     label: { zh: "向量检索", en: "Vector retrieval" },
-    tone: "good",
-    status: { zh: "正常", en: "Operational" },
+    tone: "warn",
+    status: { zh: "未独立验证", en: "Not independently verified" },
   },
   {
     label: { zh: "记忆任务队列", en: "Memory task queue" },
     tone: "warn",
     status: {
-      zh: "暂停 · 待 API 恢复后自动继续",
-      en: "Paused · resumes when API recovers",
+      zh: "未独立验证",
+      en: "Not independently verified",
     },
   },
   {
     label: { zh: "文件存储", en: "File storage" },
-    tone: "good",
-    status: { zh: "正常", en: "Operational" },
+    tone: "warn",
+    status: { zh: "未独立验证", en: "Not independently verified" },
   },
 ];
 
@@ -99,6 +95,12 @@ export function ServiceDown() {
   const location = useLocation();
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
+  const navigationState = location.state as { from?: string; reason?: string } | null;
+  const requestedFrom = navigationState?.from;
+  const returnTo = typeof requestedFrom === "string" && requestedFrom.startsWith("/")
+    && !/^\/[\\/]/.test(requestedFrom) && !["/503", "/403"].includes(requestedFrom.split("?")[0])
+    ? requestedFrom : "/";
+  const recoveryProbe = navigationState?.reason === "user-memory-unavailable" ? "/user-memory" : "/health";
 
   const [secondsLeft, setSecondsLeft] = useState(RETRY_INTERVAL_SECONDS);
   const [retrying, setRetrying] = useState(false);
@@ -126,13 +128,15 @@ export function ServiceDown() {
       if (cancelled) return;
       setRetrying(true);
       try {
-        await api.get("/health");
+        await api.get(recoveryProbe);
         if (cancelled) return;
         // Recovered — go back to where the user was. Prefer the
         // referrer if it's on our origin, otherwise drop to root.
-        const fromState = (location.state as { from?: string } | null)?.from;
-        navigate(fromState ?? "/", { replace: true });
-      } catch {
+        navigate(returnTo, { replace: true });
+      } catch (error) {
+        if (!cancelled && (error as { response?: { status?: number } })?.response?.status === 403) {
+          navigate("/403", { replace: true });
+        }
         // Still down — countdown continues.
       } finally {
         if (!cancelled) setRetrying(false);
@@ -143,14 +147,17 @@ export function ServiceDown() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [navigate, location.state]);
+  }, [navigate, recoveryProbe, returnTo]);
 
   const handleManualRetry = async () => {
     setRetrying(true);
     try {
-      await api.get("/health");
-      navigate("/", { replace: true });
-    } catch {
+      await api.get(recoveryProbe);
+      navigate(returnTo, { replace: true });
+    } catch (error) {
+      if ((error as { response?: { status?: number } })?.response?.status === 403) {
+        navigate("/403", { replace: true });
+      }
       setSecondsLeft(RETRY_INTERVAL_SECONDS);
     } finally {
       setRetrying(false);
@@ -159,28 +166,28 @@ export function ServiceDown() {
 
   const copy = isZh
     ? {
-        statusPill: "系统维护中",
+        statusPill: "服务连接异常",
         title: "服务暂时不可用",
         description:
-          "我们正在做一次例行维护，通常 5–15 分钟内恢复。已经在路上的对话和未保存的草稿都已经替你存好，登录后会自动恢复。",
+          "暂时无法完成服务请求，可能是网络波动或服务暂不可用。请保留尚未提交的输入；连接恢复后，回到原页面确认任务和消息的保存状态。",
         retryingNow: "正在尝试重新连接",
         countdownPrefix: "每 15 秒自动重试 · 下次重试",
         countdownSuffix: "秒后",
         retryNow: "立即重试",
         componentStatus: "各组件状态",
-        incidentLabel: "事故编号",
+        incidentLabel: "本地参考号",
       }
     : {
-        statusPill: "Maintenance in progress",
+        statusPill: "Connection unavailable",
         title: "Service temporarily unavailable",
         description:
-          "We're running a routine maintenance window — usually 5–15 minutes. Anything in flight (conversations, drafts) is saved on our side and will come back automatically.",
+          "The service request could not be completed. This may be a network or service interruption. Keep any unsent input; after reconnecting, check the original page for the saved task and message status.",
         retryingNow: "Trying to reconnect",
         countdownPrefix: "Auto-retry every 15s · next attempt",
         countdownSuffix: "s",
         retryNow: "Retry now",
         componentStatus: "Component status",
-        incidentLabel: "Incident",
+        incidentLabel: "Local reference",
       };
 
   return (

@@ -441,10 +441,13 @@ def _resolve_runtime_model_and_tokens(
     *,
     has_deepseek_api_key: bool = False,
     chat_mode: ChatMode = ChatMode.PROJECT_DEEP_DIVE,
+    has_knowledge_evidence: bool = False,
 ) -> tuple[str, int]:
     normalized = (selected_model or "").lower()
     mode_config = mode_config_for(chat_mode)
     mode_token_cap = max(1, int(mode_config.max_tokens))
+    if has_knowledge_evidence and mode_config.knowledge_max_tokens:
+        mode_token_cap = max(mode_token_cap, mode_config.knowledge_max_tokens)
     resolved_tokens = min(max_tokens, mode_token_cap)
     eligible_for_fast_model = bool(
         mode_config.fast_model
@@ -1244,6 +1247,7 @@ def prepare_chat_runtime(
         effective_skill_id,
         has_deepseek_api_key=_has_deepseek_api_key(session),
         chat_mode=intent_decision.chat_mode,
+        has_knowledge_evidence=bool(chat_ctx.rag_sources),
     )
     provider = resolve_provider_from_model(runtime_model)
     llm = _load_provider_module(provider)

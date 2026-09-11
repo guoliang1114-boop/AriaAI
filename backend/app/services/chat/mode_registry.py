@@ -62,6 +62,7 @@ class ModeConfig:
     fast_max_tokens: int = 0
     fast_source_models: tuple[str, ...] = field(default_factory=tuple)
     tool_pool: tuple[str, ...] = field(default_factory=tuple)
+    knowledge_max_tokens: int = 0
 
 
 MODE_CONFIG: dict[ChatMode, ModeConfig] = {
@@ -70,6 +71,9 @@ MODE_CONFIG: dict[ChatMode, ModeConfig] = {
         # A short prompt does not imply access to a different provider model.
         model_strategy=ModelStrategy.USER_DEFAULT,
         max_tokens=2048,
+        # Grounded answers need room for synthesis, citations, and reasoning.
+        # Still bounded by the configured/user output limit in the runtime.
+        knowledge_max_tokens=8192,
         history_window=96,
         history_strategy=HistoryStrategy.FULL,
         context_mode="workspace_brief",

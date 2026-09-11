@@ -264,6 +264,7 @@ jobs:
                 tests/test_chat_runtime_configuration.py \
                 tests/test_chat_streaming.py::ResolveRuntimeModelAndTokensTests \
                 tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_prepare_chat_runtime_preserves_selected_model_for_short_chat \
+                tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_prepare_chat_runtime_gives_grounded_qa_room_to_finish \
                 tests/test_conversation_capsule.py \
                 tests/test_conversation_continuity.py \
                 tests/test_conversation_continuity_postgres.py \

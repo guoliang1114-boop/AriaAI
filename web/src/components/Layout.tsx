@@ -137,7 +137,8 @@ export function Layout() {
   // the 称呼 modal. Only a successful response is allowed to send users into
   // onboarding. During deployment the backend can briefly fail this request;
   // treating that as "empty prefs" would incorrectly bounce existing users to
-  // /onboarding, so failures go to the explicit 403 page instead.
+  // /onboarding. Only a genuine permission denial is a 403; transient
+  // failures go to the retryable service-unavailable page.
   //
   // Side-effect: if the prefs carry a saved ``appearance`` block, apply it +
   // cache to localStorage so cross-device sync works at app boot (otherwise
@@ -158,7 +159,7 @@ export function Layout() {
       })
       .catch((error) => {
         if (getHttpStatus(error) === 401) return
-        navigate('/403', {
+        navigate(getHttpStatus(error) === 403 ? '/403' : '/503', {
           replace: true,
           state: { from: onboardingGatePathRef.current, reason: 'user-memory-unavailable' },
         })

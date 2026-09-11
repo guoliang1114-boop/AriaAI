@@ -235,6 +235,18 @@ class CapMaxTokensForModelTests(unittest.TestCase):
 
 
 class ResolveRuntimeModelAndTokensTests(unittest.TestCase):
+    def test_grounded_qa_has_room_to_finish_without_switching_model_or_overriding_user_cap(self):
+        for selected_model in ("kimi-k3", "kimi-k2.6", "claude-sonnet-4-6"):
+            for configured_limit in (1024, 2048, 4096, 8192, 16384):
+                with self.subTest(model=selected_model, cap=configured_limit):
+                    model, tokens = _resolve_runtime_model_and_tokens(
+                        DummyRequest(content="战略规划应该如何分析市场洞察？"),
+                        selected_model, configured_limit, None,
+                        chat_mode=ChatMode.STANDALONE_QA, has_knowledge_evidence=True,
+                    )
+                    self.assertEqual(model, selected_model)
+                    self.assertEqual(tokens, min(configured_limit, 8192))
+
     def test_standalone_preserves_selected_model_for_short_and_long_questions(self):
         for selected_model in ("kimi-k3", "kimi-k2.6", "kimi-k3-preview", "claude-sonnet-4-6"):
             for content in ("hello", "帮我总结一下当前所有进行中项目的最新进展和关键风险点", "x" * 281):
