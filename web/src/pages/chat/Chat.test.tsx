@@ -142,13 +142,16 @@ describe('standalone chat failure handling', () => {
 
   it('shows the done length receipt immediately without a reload', async () => {
     const answer_length = { max_chars: 80, actual_chars: 3, repair_count: 0, status: 'passed', unit: 'non_whitespace_unicode_codepoints' }
+    const stage_timings = { provider_headers_ms: 100, provider_reasoning_ms: 200, provider_text_ms: 800 }
+    const model_response_policy = { scope: 'bounded_readonly_rewrite', reasoning_effort: 'low' }
     vi.stubGlobal('fetch', vi.fn(async () => new Response('data: {"type":"text","content":"短回答"}\n\n'
-      + `data: ${JSON.stringify({ type: 'done', answer_length })}\n\n`)))
+      + `data: ${JSON.stringify({ type: 'done', answer_length, stage_timings, model_response_policy })}\n\n`)))
     render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat']}><Chat /></MemoryRouter></I18nextProvider>)
     const input = await screen.findByPlaceholderText(zh.chat.placeholder)
     fireEvent.change(input, { target: { value: '不超过80字' } })
     fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
     await screen.findByText('字数已核验 · 3/80')
+    await screen.findByText('简短改写 · low · 连接响应 0.1s · 开始思考 0.2s · 开始正文 0.8s')
   })
   afterEach(() => {
     vi.unstubAllGlobals()

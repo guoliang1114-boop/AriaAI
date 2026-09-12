@@ -68,6 +68,7 @@ from app.services.agent_harness.active_run_lease import (
 )
 from app.services.chat.agent_step import AgentStep, build_agent_step_event
 from app.services.chat.answer_length import AnswerLengthError, answer_char_count, answer_length_prompt
+from app.services.model_stream_observer import ModelStreamObserver, ModelStreamIdleTimeout
 from app.services.chat.product_run_events import (
     StepCompletedStatus,
     ToolProgressStatus,
@@ -443,6 +444,14 @@ async def _iter_model_stream_with_safe_retry(
     response_committed = False
 
     for attempt in range(1, max_attempts + 1):
+        observed = (getattr(runtime.llm, "supports_stream_observer", False) is True
+                    and runtime.selected_model.startswith(("kimi-", "moonshot-")))
+        observer = ModelStreamObserver(idle_seconds=getattr(runtime, "model_stream_idle_seconds", 60.0)) if observed else None
+        first_observed_attempt = not any(event.get("type") == "model_response_observed" for event in state.trace_events)
+        provider_options = {"observer": observer} if observer is not None else {}
+        reasoning_effort = getattr(runtime, "model_reasoning_effort", "")
+        if observer is not None and runtime.selected_model == "kimi-k3" and reasoning_effort:
+            provider_options["reasoning_effort"] = reasoning_effort
         try:
             source = runtime.llm.stream_response(
                 request_messages,
@@ -451,13 +460,15 @@ async def _iter_model_stream_with_safe_retry(
                 tools=runtime.tools,
                 max_tokens=runtime.max_tokens,
                 temperature=runtime.temperature,
+                **provider_options,
             )
-            stream = iter_with_heartbeat(
+            heartbeat_stream = iter_with_heartbeat(
                 source,
                 stage="thinking",
                 # Same text as the initial frontend state to avoid flicker.
                 message="Aria 正在思考...",
             )
+            stream = heartbeat_stream
             budget = state.turn_budget
             if isinstance(budget, TurnBudgetLedger):
                 stream = iter_with_turn_deadline(
@@ -465,11 +476,32 @@ async def _iter_model_stream_with_safe_retry(
                     budget,
                     phase=stream_label,
                 )
-            async for item in stream:
-                if not isinstance(item, dict):
-                    response_committed = True
-                yield item
+            try:
+                async for item in stream:
+                    if observer is not None:
+                        for key, value in (observer.timings() if first_observed_attempt else {}).items():
+                            if key not in state.stage_timings:
+                                state.stage_timings[key] = value
+                                yield {"type": "timing", "key": key, "duration_ms": value}
+                        if isinstance(item, dict) and item.get("stage") == "thinking":
+                            item = observer.heartbeat()
+                    if not isinstance(item, dict):
+                        response_committed = True
+                    yield item
+            finally:
+                await heartbeat_stream.aclose()
+                if observer is not None:
+                    response_committed = response_committed or observer.committed
+                    for key, value in (observer.timings() if first_observed_attempt else {}).items():
+                        state.stage_timings.setdefault(key, value)
+                    state.record_trace_event("model_response_observed", stage=stream_label,
+                                             attempt=attempt, reasoning_effort=reasoning_effort or "provider_default",
+                                             response_committed=observer.committed, timings=observer.timings())
             return
+        except ModelStreamIdleTimeout:
+            state.record_trace_event("model_stream_idle_timeout", stage=stream_label,
+                                     attempt=attempt, response_committed=response_committed)
+            raise
         except TurnBudgetExceeded:
             # A shared turn deadline is terminal. Replaying the model stream
             # would violate the same deadline and could duplicate committed

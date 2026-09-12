@@ -84,6 +84,11 @@ def is_knowledge_rewrite_followup(content: str) -> bool:
     )
 
 
+def is_concise_knowledge_rewrite_followup(content: str) -> bool:
+    # Expansion/continuation is not a lightweight rewrite, even with a ceiling.
+    return is_knowledge_rewrite_followup(content) and bool(re.search(r"精简|压缩|浓缩|简短一点|短一点", content))
+
+
 def contextual_knowledge_query(*, content: str, document_ids: list[int] | None,
                                history: list[Message], current_message_id: int | None,
                                conversation_id: int) -> tuple[str, int | None]:

@@ -4293,6 +4293,8 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         from app.services.context_builder.assembly import validate_context_assembly_request
         self.assertEqual(bounded.max_answer_chars, 180)
         self.assertEqual(unbounded.max_answer_chars, 0)
+        self.assertEqual(bounded.model_reasoning_effort, "")
+        self.assertEqual(unbounded.model_reasoning_effort, "")
         self.assertEqual(bounded.selected_model, "kimi-k3")
         self.assertFalse(bounded.tools)
         self.assertIn("最多 180 个非空白", bounded.system)
@@ -4318,6 +4320,8 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 self.assertIn("市场洞察", mocked_context.call_args.kwargs["knowledge_query"])
                 self.assertEqual(mocked_context.call_args.kwargs["knowledge_document_ids"], [7])
                 self.assertEqual(followup.max_answer_chars, 180)
+                self.assertEqual(followup.model_reasoning_effort, "low")
+                self.assertEqual(followup.prepare_metrics["model_reasoning_effort"], "low")
                 self.assertEqual(followup.prepare_metrics["knowledge_query_context_message_id"], original.prepare_metrics["source_user_message_id"])
 
     def test_prepare_chat_runtime_applies_selected_skill_for_workflow_request(self):
@@ -6150,6 +6154,38 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                         self.assertNotIn("done", [payload["type"] for payload in payloads])
                         self.assertEqual(metadata["phase_error"]["type"], "AnswerLengthError")
                         self.assertNotIn("仍然超限", saved.content)
+
+    def test_stream_chat_events_persists_model_response_policy_and_idle_failure(self):
+        from app.services.model_stream_observer import ModelStreamIdleTimeout
+        for fails in (False, True):
+            with self.subTest(fails=fails):
+                conv_id = self._create_conversation()
+                async def stream(*args, observer, **kwargs):
+                    self.assertEqual(kwargs["reasoning_effort"], "low")
+                    observer.mark("headers")
+                    if fails:
+                        raise ModelStreamIdleTimeout("模型无进展，本轮已停止等待")
+                    observer.mark("reasoning")
+                    observer.mark("text")
+                    yield "仅回答，不作修改。"
+                runtime = ChatRuntime(conv_id=conv_id, selected_model="kimi-k3",
+                    llm=SimpleNamespace(supports_stream_observer=True, stream_response=stream), system="system",
+                    api_messages=[], rag_sources=[], tools=[], max_tokens=1024, temperature=1, model_reasoning_effort="low")
+                req = chat_router_module.SendMessageRequest(conversation_id=conv_id, content="精简成两条，不超过80字。")
+                payloads = [json.loads(event.removeprefix("data: ").strip()) for event in collect_async_generator(stream_chat_events(runtime, req, self.engine))]
+                with Session(self.engine) as session:
+                    saved = session.exec(select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")).one()
+                    metadata = json.loads(saved.metadata_json)
+                    self.assertEqual(metadata["model_response_policy"]["reasoning_effort"], "low")
+                    self.assertIn("provider_headers_ms", metadata["stage_timings"])
+                    if fails:
+                        self.assertEqual(payloads[-1]["type"], "run_failed")
+                        self.assertNotIn("done", [payload["type"] for payload in payloads])
+                        self.assertEqual(metadata["phase_error"]["type"], "ModelStreamIdleTimeout")
+                    else:
+                        done = next(payload for payload in payloads if payload["type"] == "done")
+                        self.assertEqual(done["model_response_policy"], metadata["model_response_policy"])
+                        self.assertIn("provider_text_ms", done["stage_timings"])
 
     def test_stream_chat_events_persists_p0_durable_task_errors(self):
         project_id, conv_id = self._create_project_conversation()

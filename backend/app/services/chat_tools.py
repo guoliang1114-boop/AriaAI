@@ -100,6 +100,8 @@ class ChatRuntime:
     agent_turn_timeout_seconds: float = 600.0
     # Explicit, user-provided global answer ceiling. Zero preserves streaming.
     max_answer_chars: int = 0
+    model_stream_idle_seconds: float = 60.0
+    model_reasoning_effort: str = ""
 
     def __post_init__(self) -> None:
         """Keep explicitly selected Skill runtimes executable on fallback paths.

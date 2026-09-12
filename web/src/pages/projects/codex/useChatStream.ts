@@ -435,6 +435,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
       let finalSkillProgress: unknown[] = []
       let finalStageTimings: Record<string, number> | undefined
       let finalAnswerLength: unknown
+      let finalModelResponsePolicy: unknown
       let finalMessageId = assistantDraftIdRef.current
       let finalRunRollout: Record<string, unknown> | undefined
       let finalTurnInterrupted: Record<string, unknown> | undefined
@@ -563,6 +564,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           finalSkillProgress = ev.skill_progress || []
           finalStageTimings = ev.stage_timings
           finalAnswerLength = ev.answer_length
+          finalModelResponsePolicy = ev.model_response_policy
           finalRunRollout = ev.run_rollout
           finalTurnInterrupted = ev.turn_interrupted
           finalPhaseError = ev.phase_error
@@ -686,6 +688,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           skill_progress: finalSkillProgress,
           stage_timings: finalStageTimings,
           answer_length: finalAnswerLength,
+          model_response_policy: finalModelResponsePolicy,
           run_rollout: finalRunRollout,
           turn_interrupted: finalTurnInterrupted,
           phase_error: finalPhaseError,

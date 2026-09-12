@@ -96,6 +96,9 @@ def _safe_list(value: Any) -> list:
 
 
 def _attach_turn_audit_metadata(metadata: dict, runtime: ChatRuntime) -> None:
+    effort = getattr(runtime, "model_reasoning_effort", "")
+    if effort in {"low", "high", "max"}:
+        metadata["model_response_policy"] = {"scope": "bounded_readonly_rewrite", "reasoning_effort": effort}
     prepare_metrics = getattr(runtime, "prepare_metrics", None)
     if not isinstance(prepare_metrics, dict):
         return

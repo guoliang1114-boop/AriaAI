@@ -42,6 +42,11 @@ _TRACE_TIMING_KEYS = (
     "agent_loop_ms",
     "save_ms",
     "model_first_event_ms",
+    "provider_headers_ms",
+    "provider_reasoning_ms",
+    "provider_text_ms",
+    "provider_tool_ms",
+    "bounded_answer_ready_ms",
     "model_retry_count",
     "model_retry_wait_ms",
 )

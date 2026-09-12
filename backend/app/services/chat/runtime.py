@@ -24,6 +24,8 @@ from app.config import (
     MODEL_TURN_MAX_ATTEMPTS,
     MODEL_TURN_RETRY_BASE_DELAY_MS,
     MODEL_TURN_RETRY_MAX_DELAY_MS,
+    MODEL_STREAM_IDLE_SECONDS,
+    KIMI_SHORT_REWRITE_EFFORT,
     TOOL_PARALLEL_MAX_CONCURRENCY,
 )
 from app.models.db import Conversation, Message, ProjectMember, Skill, User
@@ -34,7 +36,7 @@ from app.services.agent_harness.context_budget import (
 )
 from app.services.agent_harness.tool_transcript import normalize_tool_transcript
 from app.services.agent_harness.knowledge_evidence import knowledge_evidence_reference
-from app.services.chat.knowledge_context import contextual_knowledge_query
+from app.services.chat.knowledge_context import contextual_knowledge_query, is_concise_knowledge_rewrite_followup
 from app.services.chat.answer_length import explicit_answer_char_limit, answer_length_prompt
 from app.services.agent_harness.project_memory_evidence import (
     project_memory_evidence_reference,
@@ -433,6 +435,16 @@ def _upgrade_policy_for_artifact_continuation(
             "artifact_contract": contract.to_dict(),
         },
     )
+
+
+def _bounded_rewrite_effort(req: SendMessageRequest, *, model: str, limit: int | None,
+                            has_skill: bool, configured: str) -> str:
+    if (model == "kimi-k3" and limit and not has_skill and not req.turn_brief
+            and not req.file_ids and not req.mention_context
+            and is_concise_knowledge_rewrite_followup(req.content)
+            and configured in {"low", "high", "max"}):
+        return configured
+    return ""
 
 
 def _resolve_runtime_model_and_tokens(
@@ -1347,6 +1359,10 @@ def prepare_chat_runtime(
     answer_length_frame = answer_length_prompt(answer_char_limit) if answer_char_limit else ""
     if answer_char_limit:
         prepare_metrics["answer_length_limit"] = answer_char_limit
+    rewrite_effort = _bounded_rewrite_effort(req, model=runtime_model, limit=answer_char_limit,
+                                            has_skill=bool(effective_skill_id), configured=KIMI_SHORT_REWRITE_EFFORT)
+    if rewrite_effort:
+        prepare_metrics["model_reasoning_effort"] = rewrite_effort
     system = _append_turn_contract_frame(system, turn_contract.to_dict())
     system = _append_capability_frame(system, intent_decision, runtime_tools)
     runtime_prompt_fragments: list[str] = []
@@ -1742,6 +1758,8 @@ def prepare_chat_runtime(
         max_tokens=runtime_max_tokens,
         temperature=temperature,
         max_answer_chars=answer_char_limit or 0,
+        model_stream_idle_seconds=MODEL_STREAM_IDLE_SECONDS,
+        model_reasoning_effort=rewrite_effort,
         skill_id=effective_skill_id,
         skill_name=effective_skill.name if effective_skill else "",
         skill_version=effective_skill.package_version if effective_skill else "",

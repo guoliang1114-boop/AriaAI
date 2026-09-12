@@ -25,10 +25,12 @@ from app.config import (
 )
 from app.database import engine
 from app.services.agent_harness.turn_retry import ModelProviderHTTPError
+from app.services.model_stream_observer import ModelStreamObserver
 from sqlmodel import Session
 from app.models.db import Setting
 
 logger = logging.getLogger(__name__)
+supports_stream_observer = True
 
 KIMI_BASE_URL = CONFIG_KIMI_BASE_URL
 DEEPSEEK_BASE_URL = CONFIG_DEEPSEEK_BASE_URL
@@ -317,6 +319,7 @@ async def _stream_once(
     client: httpx.AsyncClient,
     headers: dict,
     payload: dict,
+    observer: ModelStreamObserver | None = None,
 ) -> AsyncIterator[str]:
     """Open one Kimi stream; the Agent Loop owns all safe retries."""
 
@@ -334,6 +337,8 @@ async def _stream_once(
                 body=body.decode(errors="replace")[:300],
                 headers=response.headers,
             )
+        if observer is not None:
+            observer.mark("headers")
         async for line in response.aiter_lines():
             yield line
 
@@ -345,6 +350,8 @@ async def stream_response(
     max_tokens: int = 4096,
     tools: list[dict] | None = None,
     temperature: float = 0.7,
+    observer: ModelStreamObserver | None = None,
+    reasoning_effort: str | None = None,
 ) -> AsyncIterator[str]:
     """Stream OpenAI-compatible response, yielding same token/tool-use format as claude.py.
 
@@ -386,6 +393,8 @@ async def stream_response(
     }
     if top_p is not None:
         payload["top_p"] = top_p
+    if model == "kimi-k3" and reasoning_effort in {"low", "high", "max"}:
+        payload["reasoning_effort"] = reasoning_effort
     if openai_tools:
         payload["tools"] = openai_tools
 
@@ -405,9 +414,12 @@ async def stream_response(
     client = _get_http_client()
     finish_reason = None
     any_content_yielded = False
+    source = None
     
     try:
-        async for line in _stream_once(client, headers, payload):
+        source = (_stream_once(client, headers, payload, observer=observer)
+                  if observer is not None else _stream_once(client, headers, payload))
+        async for line in source:
             if not line.startswith("data: "):
                 continue
             payload_str = line[6:].strip()
@@ -431,16 +443,27 @@ async def stream_response(
             # Text content
             text = delta.get("content")
             if text:
+                if observer is not None:
+                    observer.mark("text")
                 any_content_yielded = True
                 yield text
 
             # Reasoning content (Kimi K2 thinking) — accumulate, don't stream to user
             reasoning = delta.get("reasoning_content")
             if reasoning:
+                if observer is not None:
+                    observer.mark("reasoning")
                 reasoning_buffer += reasoning
 
             # Tool call deltas
             tool_call_deltas = delta.get("tool_calls") or []
+            if observer is not None and any(
+                isinstance(part, dict) and (part.get("id") or
+                    isinstance(part.get("function"), dict) and
+                    (part["function"].get("name") or part["function"].get("arguments")))
+                for part in tool_call_deltas
+            ):
+                observer.mark("tool")
             for tc_delta in tool_call_deltas:
                 idx = tc_delta.get("index", 0)
                 function_delta = tc_delta.get("function") or {}
@@ -496,6 +519,9 @@ async def stream_response(
     except Exception as e:
         logger.error(f"[Kimi] stream error: {type(e).__name__}: {e}")
         raise
+    finally:
+        if source is not None:
+            await source.aclose()
 
 
 # =============================================================================

@@ -57,6 +57,10 @@ async def iter_with_heartbeat(
                 await pending
             except (asyncio.CancelledError, StopAsyncIteration):
                 pass
+        # Close a source suspended at yield as well as one waiting on I/O.
+        close = getattr(iterator, "aclose", None)
+        if close is not None:
+            await close()
 
 
 async def await_with_heartbeat(

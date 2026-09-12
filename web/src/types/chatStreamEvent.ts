@@ -41,6 +41,7 @@ export interface ChatStreamEvent {
   skill_progress?: unknown[]
   stage_timings?: Record<string, number>
   answer_length?: unknown
+  model_response_policy?: unknown
   action_policy?: string
   tool_access_policy?: string
   intent_reason?: string

@@ -66,6 +66,14 @@ describe('ProjectChatMessage', () => {
     expect(screen.getByText('字数已核验 · 3/80')).toBeInTheDocument()
   })
 
+  it('restores model-phase timing and the bounded rewrite policy', () => {
+    const message: Message = { id: 23, conversation_id: 4, role: 'assistant', content: '短回答', created_at: '2026-09-12T00:00:00Z',
+      metadata_json: JSON.stringify({ stage_timings: { provider_reasoning_ms: 800, provider_text_ms: 2500 },
+        model_response_policy: { scope: 'bounded_readonly_rewrite', reasoning_effort: 'low' } }) }
+    render(<ProjectChatMessage message={message} projectId={3} />)
+    expect(screen.getByText('简短改写 · low · 开始思考 0.8s · 开始正文 2.5s')).toBeInTheDocument()
+  })
+
   it('opens source-scoped citations without confusing legacy document identities', () => {
     const message: Message = {
       id: 22, conversation_id: 4, role: 'assistant', content: '结论 [K1]。', created_at: '2026-09-12T00:00:00Z',

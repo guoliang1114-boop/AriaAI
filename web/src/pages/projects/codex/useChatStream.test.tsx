@@ -41,12 +41,14 @@ describe('useChatStream Skill control', () => {
 
   it('preserves the final answer length receipt in the completed message', async () => {
     const receipt = { max_chars: 80, actual_chars: 2, repair_count: 0, status: 'passed', unit: 'non_whitespace_unicode_codepoints' }
+    const model_response_policy = { scope: 'bounded_readonly_rewrite', reasoning_effort: 'low' }
     vi.mocked(fetch).mockResolvedValue(new Response('data: {"type":"text","content":"回答"}\n\n'
-      + `data: ${JSON.stringify({ type: 'done', answer_length: receipt })}\n\n`))
+      + `data: ${JSON.stringify({ type: 'done', answer_length: receipt, model_response_policy })}\n\n`))
     const onAssistantMessage = vi.fn()
     const { result } = renderHook(() => useChatStream({ projectId: 3, conversationId: 4, onUserMessage: vi.fn(), onAssistantMessage }))
     await act(async () => result.current.send('不超过80字'))
     expect(JSON.parse(onAssistantMessage.mock.calls[0][0].metadata_json).answer_length).toEqual(receipt)
+    expect(JSON.parse(onAssistantMessage.mock.calls[0][0].metadata_json).model_response_policy).toEqual(model_response_policy)
   })
 
   it.each([[], [0], [-1], [1.5], Array.from({ length: 21 }, (_, i) => i + 1)].map(ids => ({ ids })))('rejects invalid document selection before any request %#', async ({ ids: knowledgeDocumentIds }) => {

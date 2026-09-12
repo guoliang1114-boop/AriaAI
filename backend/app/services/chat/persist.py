@@ -1247,6 +1247,10 @@ async def run_persist(
 
     # Build metadata
     metadata: dict = {}
+    reasoning_effort = getattr(runtime, "model_reasoning_effort", "")
+    if reasoning_effort in {"low", "high", "max"}:
+        metadata["model_response_policy"] = {"reasoning_effort": reasoning_effort,
+                                             "scope": "bounded_readonly_rewrite"}
     answer_limit = getattr(runtime, "max_answer_chars", 0)
     if type(answer_limit) is int and 32 <= answer_limit <= 4000:
         # Count the final persisted body, including any platform safety notice;

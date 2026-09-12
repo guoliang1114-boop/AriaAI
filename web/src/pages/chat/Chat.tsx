@@ -49,6 +49,7 @@ import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skill, SkillSummary } from '../../types/api'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../types/productRunEvent'
 import { AnswerLengthReceipt } from '../../components/AnswerLengthReceipt'
+import { ModelResponseReceipt } from '../../components/ModelResponseReceipt'
 import {
   parseChatStreamEvent,
   resolveChatRunFailure,
@@ -228,7 +229,11 @@ const STAGE_TIMING_LABELS: Record<string, string> = {
   history_loaded_ms: '整理历史',
   model_ready_ms: '准备模型',
   prepare_total_ms: '请求前准备',
-  model_first_event_ms: '首次响应',
+  model_first_event_ms: '首个输出片段',
+  provider_headers_ms: '连接响应',
+  provider_reasoning_ms: '开始思考',
+  provider_text_ms: '开始正文',
+  provider_tool_ms: '开始工具计划',
   planning_ms: '生成规划',
   tools_total_ms: '工具执行',
   follow_up_ms: '整理结果',
@@ -2142,6 +2147,7 @@ export function Chat() {
               references: data.references || [],
               knowledge_evidence: data.knowledge_evidence,
               answer_length: data.answer_length,
+              model_response_policy: data.model_response_policy,
               tool_calls: finalToolCalls,
               artifacts: finalArtifacts,
               skill_id: resolvedRunSkill?.id || skillForThisMessage || undefined,
@@ -4239,6 +4245,7 @@ function MessageRow({ message }: { message: Message }) {
             ))}
             <StreamingAnswerPreview content={message.content} compact={false} />
             <AnswerLengthReceipt metadataJson={message.metadata_json} />
+            <ModelResponseReceipt metadataJson={message.metadata_json} />
             {contextReceipt && <MainContextReceiptSummary receipt={contextReceipt} />}
           </div>
         )}
