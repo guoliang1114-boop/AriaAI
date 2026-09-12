@@ -152,7 +152,11 @@ describe('standalone chat failure handling', () => {
     render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat']}><Chat /></MemoryRouter></I18nextProvider>)
     const input = await screen.findByPlaceholderText(zh.chat.placeholder)
     fireEvent.change(input, { target: { value: '不超过80字' } })
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    // Flush the new-conversation navigation before the immediate mocked SSE
+    // completes; otherwise slower CI can leave the view guard on the old URL.
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    })
     fireEvent.click(await screen.findByRole('button', { name: '查看回答详情' }))
     await screen.findByText('字数已核验 · 3/80')
     await screen.findByText('简短改写 · low · 连接响应 0.1s · 开始思考 0.2s · 开始正文 0.8s')
