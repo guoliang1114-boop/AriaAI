@@ -4261,6 +4261,18 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                     followup.prepare_metrics["knowledge_query_context_message_id"],
                     runtime.prepare_metrics["source_user_message_id"],
                 )
+                with patch("app.services.chat.runtime.filter_tools_for_access", return_value=[{
+                    "name": "write_project_office_document", "description": "write", "input_schema": {"type": "object"},
+                }]):
+                    guarded = chat_streaming_module.prepare_chat_runtime(
+                        session, chat_router_module.SendMessageRequest(
+                            conversation_id=conv_id, knowledge_document_ids=[7],
+                            content="这是示例项目的方法问答，不需要制定方案，也不生成文件或修改项目数据。",
+                        ),
+                    )
+                self.assertFalse(guarded.tools)
+                self.assertFalse(guarded.prepare_metrics["turn_contract"]["write_allowed"])
+                self.assertEqual(guarded.prepare_metrics["turn_contract"]["mode"], "plan_only")
         self.assertEqual(runtime.selected_model, "kimi-k3")
         self.assertEqual(runtime.max_tokens, 8192)
 

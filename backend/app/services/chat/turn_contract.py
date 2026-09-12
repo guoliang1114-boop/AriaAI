@@ -30,6 +30,12 @@ _PLAN_ONLY_TERMS = (
     "只回答",
     "不要修改",
     "不修改项目",
+    # Shared Chinese negation covers both coordinated actions. Do not let
+    # the later positive-looking "修改项目" reopen the write boundary.
+    "不生成文件或修改项目",
+    "不要生成文件或修改项目",
+    "不需要生成文件或修改项目",
+    "无需生成文件或修改项目",
     "不要写入",
     "plan only",
     "do not execute",

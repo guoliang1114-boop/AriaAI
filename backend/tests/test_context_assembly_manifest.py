@@ -23,6 +23,8 @@ from app.services.chat.trace import build_chat_trace_payload
 from app.services.chat.agent_loop import run_agent_loop
 from app.services.chat.durable_task import run_durable_task
 from app.services.chat.persist import _runtime_artifact_contract
+from app.services.chat.turn_contract import build_turn_contract
+from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.chat_store import build_message_metadata
 from app.services.chat_tools import ChatRuntime
 from app.routers.chat_schemas import SendMessageRequest
@@ -239,6 +241,29 @@ def test_plan_only_turn_brief_blocks_durable_and_artifact_fallback_paths() -> No
         ]
 
     assert asyncio.run(collect_events()) == []
+    assert _runtime_artifact_contract(runtime) is None
+
+
+@pytest.mark.parametrize("negation", ["不", "不要", "不需要", "无需"])
+def test_coordinated_chinese_negation_cannot_reopen_project_writes(negation):
+    request = SendMessageRequest(
+        content=f"依据选中文档进行方法问答，不需要制定方案，也{negation}生成文件或修改项目数据。",
+        project_id=26, knowledge_document_ids=[7],
+    )
+    # Even an upstream positive-keyword / model-routing decision loses to
+    # the explicit restrictive clause at the final runtime boundary.
+    decision = SimpleNamespace(
+        artifact_contract=SimpleNamespace(delivery_required=True, output_kind="docx"),
+        tool_access_policy=ToolAccessPolicy.WRITE_ALLOWED,
+        action_policy=ActionPolicy.WRITE_ARTIFACT,
+        chat_mode=ChatMode.PROJECT_DEEP_DIVE,
+        turn_mode="execute_now",
+    )
+    contract = build_turn_contract(decision, request, tools=[{"name": "write_project_office_document"}])
+    assert contract.mode == "plan_only"
+    assert contract.write_allowed is False
+    assert contract.needs_artifact is False
+    runtime = SimpleNamespace(prepare_metrics={"turn_contract": contract.to_dict()}, artifact_contract=object())
     assert _runtime_artifact_contract(runtime) is None
 
 
