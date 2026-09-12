@@ -9,13 +9,14 @@ import uuid
 import hashlib
 import re
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, BackgroundTasks, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field as PydanticField
 from sqlmodel import Session, select, func
+from sqlalchemy import and_, or_
 
 from app.config import UPLOADS_DIR, KNOWLEDGE_ORIGINAL_MAX_DOWNLOAD_BYTES
 from app.database import get_session, engine
@@ -76,6 +77,7 @@ from app.services.storage import StorageService
 from app.services.time_utils import utc_now_naive
 
 from app.routers.auth import get_current_user, require_admin
+from app.routers.chat_security import require_project_access
 
 router = APIRouter(
     prefix="/knowledge",
@@ -363,6 +365,53 @@ def _knowledge_file_type_values(file_type: str) -> list[str]:
 
 
 # ── Knowledge v0.0.5 source + durable ingestion API ──────────────────────────
+
+
+@router.get("/chat-documents")
+def list_chat_documents(
+    response: Response,
+    project_id: int = Query(..., gt=0),
+    scope: Literal["project", "workspace", "user"] = "project",
+    query: str = Query("", max_length=120),
+    offset: int = Query(0, ge=0, le=10000),
+    limit: int = Query(20, ge=1, le=50),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Read-only picker: scoped, authorized, indexed identities, never chunks/paths."""
+    response.headers["Cache-Control"] = "no-store"
+    if not current_user.is_active:
+        raise HTTPException(403, "Active user required")
+    require_project_access(session, project_id, current_user)
+    if session.get(Project, project_id) is None:
+        raise HTTPException(404, "Project not found")
+    sources_query = select(KnowledgeSource).where(KnowledgeSource.status == "active")
+    if scope == "project":
+        sources_query = sources_query.where(KnowledgeSource.scope_type == "project", KnowledgeSource.scope_id == project_id)
+    elif scope == "workspace":
+        sources_query = sources_query.where(KnowledgeSource.scope_type.in_(["workspace", "global"]), KnowledgeSource.scope_id.is_(None))
+    else:
+        sources_query = sources_query.where(KnowledgeSource.scope_type == "user", KnowledgeSource.owner_user_id == current_user.id)
+    source_ids = [source.id for source in session.exec(sources_query).all() if can_access_source(current_user, source, session)]
+    payload = {"namespace": "source_scoped", "items": [], "total": 0, "offset": offset, "limit": limit}
+    if not source_ids:
+        return payload
+    doc, source = KnowledgeV1Document, KnowledgeSource
+    conditions = [
+        doc.source_id.in_(source_ids), doc.status == "indexed",
+        doc.scope_type == source.scope_type,
+        or_(doc.scope_id == source.scope_id, and_(doc.scope_id.is_(None), source.scope_id.is_(None))),
+    ]
+    if query.strip():
+        escaped = query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        conditions.append(or_(doc.title.ilike(pattern, escape="\\"), doc.file_name.ilike(pattern, escape="\\")))
+    payload["total"] = session.exec(select(func.count()).select_from(doc).join(source, doc.source_id == source.id).where(*conditions)).one()
+    rows = session.exec(select(doc.id, doc.title, doc.file_name, doc.file_type, doc.source_id, source.name)
+                        .join(source, doc.source_id == source.id).where(*conditions)
+                        .order_by(doc.updated_at.desc(), doc.id.desc()).offset(offset).limit(limit)).all()
+    payload["items"] = [dict(id=row[0], title=row[1] or row[2], file_name=row[2], file_type=row[3], source_id=row[4], source_name=row[5]) for row in rows]
+    return payload
 
 
 @router.get("/sources")

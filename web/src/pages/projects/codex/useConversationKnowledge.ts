@@ -49,6 +49,12 @@ export function useConversationKnowledge(projectId: number, conversationId: numb
     documents, unavailable, pending, error,
     blocked: pending || error || unavailable > 0,
     refresh,
+    replace: (next: KnowledgeChatDocument[]) => {
+      const parsed = next.length ? parseKnowledgeChatHandoff({ namespace: 'source_scoped', documents: next }) : null
+      if (next.length && !parsed) return
+      setState(previous => previous?.key === key && previous.selection && previous.selection.unavailable === 0
+        ? { key, selection: { documents: parsed?.documents ?? [], unavailable: 0 } } : previous)
+    },
     remove: (documentId: number) => setState(previous => (
       previous?.key === key && previous.selection
         ? { key, selection: { ...previous.selection, documents: previous.selection.documents.filter(document => document.id !== documentId) } }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import i18n from 'i18next'
 import { initReactI18next, I18nextProvider } from 'react-i18next'
@@ -19,11 +19,20 @@ vi.mock('../../api/client', () => ({
 vi.mock('../../contexts/ToastContext', () => ({ useToast: () => ({ info: vi.fn(), error: vi.fn() }) }))
 vi.mock('../../hooks/useAppTimeZone', () => ({ useAppTimeZone: () => ({ resolvedTimeZone: 'Asia/Shanghai' }) }))
 
+function defaultResponse(url: string) {
+  const detail = url.match(/^\/chat\/conversations\/(\d+)$/)
+  const conversation = { id: detail ? Number(detail[1]) : 1, title: '回归测试', created_at: '2026-09-12T00:00:00Z', updated_at: '2026-09-12T00:00:00Z' }
+  if (detail) return conversation
+  if (url === '/chat/conversations?standalone=true') return [conversation]
+  if (url.endsWith('/knowledge-context')) return { namespace: 'source_scoped', documents: [], unavailable_count: 0 }
+  return []
+}
+
 describe('standalone chat failure handling', () => {
   beforeEach(async () => {
     vi.mocked(api.get).mockClear()
-    vi.mocked(api.get).mockImplementation(async <T,>(url: string) => (url === '/chat/conversations?standalone=true'
-      ? [{ id: 1, title: '回归测试', created_at: '2026-09-12T00:00:00Z', updated_at: '2026-09-12T00:00:00Z' }] : []) as T)
+    vi.mocked(api.post).mockClear()
+    vi.mocked(api.get).mockImplementation(async <T,>(url: string) => defaultResponse(url) as T)
     sessionStorage.clear()
     localStorage.setItem('authToken', 'test-token')
     await i18n.use(initReactI18next).init({
@@ -34,7 +43,7 @@ describe('standalone chat failure handling', () => {
 
   it.each(['direct', 'cancel', 'apply'])('selects a Skill without forcing a form and preserves the draft (%s)', async action => {
     const skill = { id: 24, name: '数字化战略设计', category: '数字化', description: '战略分析', estimated_time: '5分钟', user_template: '公司：[公司]' }
-    vi.mocked(api.get).mockImplementation(async <T,>(url: string) => (url === '/skills/meta/summary' ? [skill] : url === '/skills/24' ? skill : []) as T)
+    vi.mocked(api.get).mockImplementation(async <T,>(url: string) => (url === '/skills/meta/summary' ? [skill] : url === '/skills/24' ? skill : defaultResponse(url)) as T)
     const mockFetch = vi.fn(async () => new Response('data: {"type":"done"}\n\n'))
     vi.stubGlobal('fetch', mockFetch)
     render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?skill=24']}><Chat /></MemoryRouter></I18nextProvider>)
@@ -66,7 +75,7 @@ describe('standalone chat failure handling', () => {
         if (action === 'error') throw new Error('temporary failure')
         return { namespace: 'source_scoped', documents: [{ id: 7, title: '市场洞察.pdf' }], unavailable_count: action === 'unavailable' ? 1 : 0 } as T
       }
-      return [] as T
+      return defaultResponse(url) as T
     })
     const mockFetch = vi.fn(async () => new Response('data: {"type":"done"}\n\n'))
     vi.stubGlobal('fetch', mockFetch)
@@ -98,7 +107,7 @@ describe('standalone chat failure handling', () => {
     const skill = { id: 24, name: '数字化战略设计', category: '数字化', description: '战略分析', estimated_time: '5分钟', user_template: '公司：[公司]' }
     let resolveTemplate!: (value: unknown) => void
     const pending = new Promise(resolve => { resolveTemplate = resolve })
-    vi.mocked(api.get).mockImplementation(async <T,>(url: string) => (url === '/skills/meta/summary' ? [skill] : url === '/skills/24' ? await pending : []) as T)
+    vi.mocked(api.get).mockImplementation(async <T,>(url: string) => (url === '/skills/meta/summary' ? [skill] : url === '/skills/24' ? await pending : defaultResponse(url)) as T)
     function SwitchConversation() {
       const navigate = useNavigate()
       return <button onClick={() => navigate('/chat?conversation=2')}>切换模板测试对话</button>
@@ -116,7 +125,7 @@ describe('standalone chat failure handling', () => {
     vi.mocked(api.get).mockImplementation(async <T,>(url: string) => (url.includes('/messages?') ? [{
       id: 9, conversation_id: 1, role: 'assistant', content: '已完成分析：先统一数据口径，再确认交付基线。',
       metadata_json: JSON.stringify({ skill_id: 24 }), created_at: '2026-09-12T00:00:00Z',
-    }] : []) as T)
+    }] : defaultResponse(url)) as T)
     render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?conversation=1']}><Chat /></MemoryRouter></I18nextProvider>)
     await screen.findByText('已完成分析：先统一数据口径，再确认交付基线。')
     expect(screen.queryByText(/执行期间默认隐藏正文/)).not.toBeInTheDocument()
@@ -125,6 +134,80 @@ describe('standalone chat failure handling', () => {
     vi.unstubAllGlobals()
     sessionStorage.clear()
     localStorage.removeItem('authToken')
+  })
+
+  it('restores a project conversation absent from the standalone list; URL project and pending recovery cannot override it', async () => {
+    sessionStorage.setItem('pendingStreamingConvId', '2')
+    vi.mocked(api.get).mockImplementation(async <T,>(url: string) => (url === '/chat/conversations/7'
+      ? { id: 7, title: '项目历史对话', project_id: 42 } : defaultResponse(url)) as T)
+    const mockFetch = vi.fn(async () => new Response('data: {"type":"done"}\n\n'))
+    vi.stubGlobal('fetch', mockFetch)
+    render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?conversation=7&project=999']}><Chat /></MemoryRouter></I18nextProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: '项目 #42' }))
+    expect(screen.getByText('项目归属由当前会话固定；切换项目请新建对话。')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '打开项目对话' })).toHaveAttribute('href', '/projects/42/chat')
+    const input = screen.getByPlaceholderText(zh.chat.placeholder)
+    fireEvent.change(input, { target: { value: '继续分析' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled())
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledOnce())
+    const body = JSON.parse((mockFetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
+    expect(body).toMatchObject({ conversation_id: 7, project_id: 42 })
+    expect(api.post).not.toHaveBeenCalledWith('/chat/conversations', expect.anything())
+    expect(api.get).not.toHaveBeenCalledWith('/chat/conversations/2')
+    await waitFor(() => expect(input).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '打开侧边栏' }))
+    fireEvent.click(screen.getByRole('button', { name: /新建对话/ }))
+    expect(screen.getByRole('button', { name: 'Project' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '项目 #42' })).not.toBeInTheDocument()
+    expect(api.get).not.toHaveBeenCalledWith('/chat/conversations/2')
+  })
+
+  it.each(['offline', 'wrong_id', 'invalid_project'])('blocks sends on unverified conversation detail and retries without sending (%s)', async reason => {
+    let recovered = false
+    vi.mocked(api.get).mockImplementation(async <T,>(url: string) => {
+      if (url === '/chat/conversations/7') {
+        if (!recovered && reason === 'offline') throw new Error('403')
+        return { id: !recovered && reason === 'wrong_id' ? 8 : 7, title: '已验证对话', project_id: !recovered && reason === 'invalid_project' ? -1 : 42 } as T
+      }
+      return defaultResponse(url) as T
+    })
+    const mockFetch = vi.fn()
+    vi.stubGlobal('fetch', mockFetch)
+    render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?conversation=7']}><Chat /></MemoryRouter></I18nextProvider>)
+    await screen.findByRole('button', { name: '重试加载会话' })
+    const input = screen.getByPlaceholderText(zh.chat.placeholder)
+    fireEvent.change(input, { target: { value: '不要丢失草稿' } })
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+    expect(input).toHaveValue('不要丢失草稿')
+    expect(api.post).not.toHaveBeenCalled()
+    recovered = true
+    fireEvent.click(screen.getByRole('button', { name: '重试加载会话' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled())
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(input).toHaveValue('不要丢失草稿')
+  })
+
+  it('ignores delayed metadata and messages from the previous conversation', async () => {
+    let resolveDetail!: (value: unknown) => void, resolveMessages!: (value: unknown) => void
+    const detail = new Promise(resolve => { resolveDetail = resolve })
+    const messages = new Promise(resolve => { resolveMessages = resolve })
+    vi.mocked(api.get).mockImplementation(async <T,>(url: string) => (url === '/chat/conversations/7' ? await detail
+      : url.startsWith('/chat/conversations/7/messages?') ? await messages
+      : url === '/chat/conversations/8' ? { id: 8, title: '新目标', project_id: 43 } : defaultResponse(url)) as T)
+    function SwitchConversation() { const navigate = useNavigate(); return <button onClick={() => navigate('/chat?conversation=8')}>切换归属测试</button> }
+    render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?conversation=7']}><Chat /><SwitchConversation /></MemoryRouter></I18nextProvider>)
+    fireEvent.click(screen.getByRole('button', { name: '切换归属测试' }))
+    await screen.findByRole('button', { name: '项目 #43' })
+    await act(async () => {
+      resolveDetail({ id: 7, title: '旧目标', project_id: 42 })
+      resolveMessages([{ id: 11, conversation_id: 7, role: 'assistant', content: '不得串入的旧回答', created_at: '2026-09-12T00:00:00Z' }])
+    })
+    expect(screen.queryByText('不得串入的旧回答')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '项目 #42' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '项目 #43' })).toBeInTheDocument()
+    expect(sessionStorage.getItem('pendingStreamingConvId')).toBeNull()
   })
 
   it.each(['keep', 'remove', 'new', 'switch'])('preserves knowledge only in its conversation (%s)', async action => {

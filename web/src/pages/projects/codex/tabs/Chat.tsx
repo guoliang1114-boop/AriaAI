@@ -1466,7 +1466,7 @@ function ThreadView({
             </button>
           </div>
         )}
-        {!projectQuestionReanswer && <ProjectKnowledgeControl selection={knowledgeSelection} disabled={busy} />}
+        {!projectQuestionReanswer && <ProjectKnowledgeControl key={`${projectId}:${conversationId}`} projectId={projectId} selection={knowledgeSelection} disabled={busy} />}
         <ProjectChatComposer
           projectId={projectId}
           value={composerText}

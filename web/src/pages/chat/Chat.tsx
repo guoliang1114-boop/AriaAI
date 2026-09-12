@@ -1269,7 +1269,9 @@ export function Chat() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [skills, setSkills] = useState<SkillSummary[]>([])
-  const [selectedProject, setSelectedProject] = useState<number | null>(projectId ? parseInt(projectId) : null)
+  const [draftProject, setSelectedProject] = useState<number | null>(projectId ? parseInt(projectId) : null)
+  const [conversationRetry, setConversationRetry] = useState(0)
+  const [conversationLoad, setConversationLoad] = useState<{ key: string; error?: boolean } | null>(null)
   const [selectedSkill, setSelectedSkill] = useState<number | null>(skillId ? parseInt(skillId) : null)
   const [skillArmed, setSkillArmed] = useState(!!skillId)
   const selectedSkillData = skills.find(s => s.id === selectedSkill)
@@ -1279,8 +1281,29 @@ export function Chat() {
   const conversation = useMemo(() => {
     if (validConversationId === null) return null
     if (conversationState?.id === validConversationId) return conversationState
-    return conversations.find(item => item.id === validConversationId) ?? null
-  }, [conversationState, conversations, validConversationId])
+    return null
+  }, [conversationState, validConversationId])
+  const conversationKey = `${validConversationId}:${conversationRetry}`
+  const conversationRestorePending = validConversationId !== null && conversationLoad?.key !== conversationKey
+  const conversationRestoreError = validConversationId !== null && conversationLoad?.key === conversationKey && conversationLoad.error
+  // A persisted conversation owns its project association, not the URL or a
+  // stale draft dropdown. Never create a replacement while its detail loads.
+  const selectedProject = validConversationId !== null ? conversation?.project_id ?? null : draftProject
+  useEffect(() => {
+    if (validConversationId === null) return
+    let active = true
+    void api.get<Conversation>(`/chat/conversations/${validConversationId}`).then(value => {
+      if (!value || value.id !== validConversationId || typeof value.title !== 'string'
+        || (value.project_id != null && (!Number.isSafeInteger(value.project_id) || value.project_id <= 0))) {
+        throw new Error('Invalid conversation detail')
+      }
+      if (active) {
+        setConversation(value)
+        setConversationLoad({ key: conversationKey })
+      }
+    }).catch(() => { if (active) setConversationLoad({ key: conversationKey, error: true }) })
+    return () => { active = false }
+  }, [validConversationId, conversationKey])
   const [streamingContent, setStreamingContent] = useState('')
   const [isThinking, setIsThinking] = useState(false)
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
@@ -1358,6 +1381,9 @@ export function Chat() {
   const initialDataRequestedRef = useRef(false)
   // Track if we've already loaded this conversation to prevent double-load in StrictMode
   const loadedConvIdRef = useRef<number | null>(null)
+  const conversationViewRef = useRef(validConversationId)
+  // Hide stale message loads as soon as navigation renders a different target.
+  useEffect(() => { conversationViewRef.current = validConversationId }, [validConversationId])
 
   const fetchInitialData = useCallback(() => {
     void api
@@ -1392,6 +1418,7 @@ export function Chat() {
         ? `/chat/conversations/${id}/messages?before_id=${beforeId}&limit=${PAGE_SIZE}`
         : `/chat/conversations/${id}/messages?limit=${PAGE_SIZE}`
       const data = await api.get<Message[]>(url)
+      if (conversationViewRef.current !== id) return
 
       if (beforeId) {
         setMessages(prev => [...data, ...prev])
@@ -1403,8 +1430,10 @@ export function Chat() {
     } catch (err: unknown) {
       console.error('Failed to load conversation:', err)
     } finally {
-      setLoading(false)
-      setLoadingMore(false)
+      if (conversationViewRef.current === id) {
+        setLoading(false)
+        setLoadingMore(false)
+      }
     }
   }, [])
 
@@ -1449,14 +1478,17 @@ export function Chat() {
   }, [])
 
   // ── Recover streaming state on mount ───────────────────────────────────────
+  const recoveryCheckedRef = useRef(false)
   useEffect(() => {
+    if (recoveryCheckedRef.current) return
+    recoveryCheckedRef.current = true
     // Check if we have a pending conversation to recover
     const pendingConvId = sessionStorage.getItem('pendingStreamingConvId')
     if (pendingConvId) {
-      const convId = parseInt(pendingConvId)
-      // If we're not on this conversation, navigate to it.
-      // The loading useEffect will handle the refresh.
-      if (!conversationId || parseInt(conversationId) !== convId) {
+      const convId = Number(pendingConvId)
+      // Recover only an unspecified initial route. Explicit navigation and
+      // the New conversation action always win over background recovery.
+      if (!conversationId && Number.isSafeInteger(convId) && convId > 0) {
         navigate(`/chat?conversation=${convId}`, { replace: true })
       }
     }
@@ -1514,8 +1546,8 @@ export function Chat() {
 
     // If we switched from one conversation to another
     if (prevConvId && prevConvId !== currentConvId) {
-      // Save the previous conversation ID to force refresh when we come back
-      sessionStorage.setItem('pendingStreamingConvId', prevConvId)
+      // Only unfinished streams need a forced refresh when we come back.
+      if (isStreamingRef.current) sessionStorage.setItem('pendingStreamingConvId', prevConvId)
 
       // Cancel pending debounce timer — prevents stale chunks from appearing in the new conversation
       if (updateTimerRef.current) {
@@ -1689,6 +1721,7 @@ export function Chat() {
     setProgressSteps([])
     resetSkillProgress()
     setSelectedSkill(null)
+    setSelectedProject(null)
     setSkillArmed(false)
     setInput('')
     navigate('/chat', { replace: true })
@@ -1820,7 +1853,8 @@ export function Chat() {
 
   // ── Send message (internal implementation) ─────────────────────────────────
   const sendMessage = async (msgText: string) => {
-    if (!msgText.trim() || sending || isSendingRef.current || knowledgeRestorePending || knowledgeRestoreBlocked) return
+    if (!msgText.trim() || sending || isSendingRef.current || knowledgeRestorePending || knowledgeRestoreBlocked
+      || conversationRestorePending || conversationRestoreError) return
     templateRequestRef.current += 1
     setLoadingSkillTemplate(false)
     const forceSkillForThisMessage = !!selectedSkill && skillArmed
@@ -1863,7 +1897,7 @@ export function Chat() {
     let streamErrorMessage: string | null = null
 
     try {
-      let currentConvId = conversation?.id
+      let currentConvId = validConversationId ?? conversation?.id
       if (!currentConvId) {
         const newConv = await api.post<Conversation>('/chat/conversations', {
           project_id: selectedProject, skill_id: skillForThisMessage, title: '',
@@ -3178,6 +3212,11 @@ export function Chat() {
             )}
 
             {/* Composer box — textarea on top, toolbar with context pills + send at the bottom. */}
+            {conversationRestorePending && <p role="status" className="mb-2 text-xs">正在核对会话及项目归属…</p>}
+            {conversationRestoreError && <div role="alert" className="mb-2 text-xs">
+              会话信息加载失败，尚未发送；请重试或检查访问权限。
+              <button type="button" className="ml-2 underline" onClick={() => setConversationRetry(value => value + 1)}>重试加载会话</button>
+            </div>}
             {knowledgeRestorePending && <p role="status" className="mb-2 text-xs">正在恢复本对话的知识范围…</p>}
             {knowledgeRestoreBlocked && (
               <div role="alert" className="mb-2 text-xs">
@@ -3275,13 +3314,17 @@ export function Chat() {
                   <ContextPill
                     ref={projectDropdownRef}
                     icon={<FolderKanban className="w-3 h-3" />}
-                    label={selectedProjectData ? selectedProjectData.name : 'Project'}
+                    label={selectedProjectData ? selectedProjectData.name : selectedProject ? `项目 #${selectedProject}` : 'Project'}
                     active={!!selectedProject}
                     open={showProjectDropdown}
                     onToggle={() => setShowProjectDropdown(v => !v)}
                   >
                 {showProjectDropdown && (
                   <DropdownMenu>
+                    {validConversationId !== null ? <div className="px-3 py-2 text-xs">
+                      项目归属由当前会话固定；切换项目请新建对话。
+                      {selectedProject && <Link className="mt-2 block underline" to={`/projects/${selectedProject}/chat`}>打开项目对话</Link>}
+                    </div> : <>
                     <DropdownItem onClick={() => { setSelectedProject(null); setShowProjectDropdown(false) }} muted>
                       Clear selection
                     </DropdownItem>
@@ -3290,6 +3333,7 @@ export function Chat() {
                         {p.name}
                       </DropdownItem>
                     ))}
+                    </>}
                   </DropdownMenu>
                 )}
               </ContextPill>
@@ -3429,7 +3473,7 @@ export function Chat() {
                 ) : (
                   <button
                     onClick={handleSend}
-                    disabled={!input.trim() || knowledgeRestorePending || !!knowledgeRestoreBlocked}
+                    disabled={!input.trim() || knowledgeRestorePending || !!knowledgeRestoreBlocked || conversationRestorePending || !!conversationRestoreError}
                     className="inline-flex flex-shrink-0 items-center gap-1.5 transition-all active:scale-95 disabled:opacity-30"
                     style={{
                       padding: '5px 14px',

@@ -1107,6 +1107,23 @@ export interface SkillSummary {
 }
 
 // Chat
+export interface KnowledgeChatDocumentOption {
+  id: number
+  title: string
+  file_name: string
+  file_type: string
+  source_id: number
+  source_name: string
+}
+
+export interface KnowledgeChatDocumentPage {
+  namespace: 'source_scoped'
+  items: KnowledgeChatDocumentOption[]
+  total: number
+  offset: number
+  limit: number
+}
+
 export interface Conversation {
   id: number
   title: string

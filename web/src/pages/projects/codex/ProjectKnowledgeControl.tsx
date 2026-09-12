@@ -1,9 +1,13 @@
+import { useState } from 'react'
 import type { ConversationKnowledgeSelection } from './useConversationKnowledge'
+import { ProjectKnowledgePicker } from './ProjectKnowledgePicker'
 
-export function ProjectKnowledgeControl({ selection, disabled }: {
+export function ProjectKnowledgeControl({ projectId, selection, disabled }: {
+  projectId: number
   selection: ConversationKnowledgeSelection
   disabled: boolean
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false)
   return (
     <div aria-label="项目对话知识范围" style={{ marginBottom: 8, fontSize: 12, color: 'var(--ink-soft)' }}>
       {selection.pending ? <p role="status">正在恢复本对话的知识范围…</p>
@@ -28,7 +32,10 @@ export function ProjectKnowledgeControl({ selection, disabled }: {
             </button>
           </div>}
           <div style={{ marginTop: 4, color: 'var(--ink-mute)', fontSize: 11 }}>移除最后一份资料后恢复项目默认范围；选择在下次发送后保存，不改变项目权限。</div>
+          <button type="button" disabled={disabled || selection.blocked} onClick={() => setPickerOpen(true)} style={{ marginTop: 6, textDecoration: 'underline' }}>选择知识资料</button>
         </>}
+      {pickerOpen && !disabled && !selection.blocked && <ProjectKnowledgePicker projectId={projectId} selected={selection.documents}
+        onApply={documents => { selection.replace(documents); setPickerOpen(false) }} onClose={() => setPickerOpen(false)} />}
     </div>
   )
 }

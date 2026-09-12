@@ -66,6 +66,26 @@ describe('native project knowledge scope integration', () => {
     await waitFor(() => expect(mocks.send).toHaveBeenLastCalledWith('分析当前项目', {}))
   })
 
+  it('adds a new document in the native picker without auto-sending or losing the draft', async () => {
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (url.endsWith('/knowledge-context')) return empty
+      if (url === '/knowledge/chat-documents') return { namespace: 'source_scoped', total: 1, offset: 0, limit: 20,
+        items: [{ id: 9, title: '新资料', file_type: 'md', source_name: '项目资料' }] }
+      return auxiliaryResponse(url)
+    })
+    mount()
+    await waitFor(() => expect(screen.getByRole('button', { name: '选择知识资料' })).toBeEnabled())
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '根据资料回答问题' } })
+    fireEvent.click(screen.getByRole('button', { name: '选择知识资料' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择资料 新资料' }))
+    fireEvent.click(screen.getByRole('button', { name: '应用选择（1 份）' }))
+    expect(mocks.send).not.toHaveBeenCalled()
+    expect(screen.getByRole('textbox')).toHaveValue('根据资料回答问题')
+    expect(screen.getByRole('button', { name: '移除知识文档 新资料' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith('根据资料回答问题', { knowledgeDocumentIds: [9] }))
+  })
+
   it('blocks during restore, preserves the draft on failure, and retries without auto-sending', async () => {
     let reject!: (reason: Error) => void
     vi.mocked(api.get).mockImplementation(url => url.endsWith('/knowledge-context')
