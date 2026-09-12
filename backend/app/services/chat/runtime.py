@@ -34,6 +34,7 @@ from app.services.agent_harness.context_budget import (
 )
 from app.services.agent_harness.tool_transcript import normalize_tool_transcript
 from app.services.agent_harness.knowledge_evidence import knowledge_evidence_reference
+from app.services.chat.knowledge_context import contextual_knowledge_query
 from app.services.agent_harness.project_memory_evidence import (
     project_memory_evidence_reference,
 )
@@ -1212,6 +1213,13 @@ def prepare_chat_runtime(
 
     step_started_at = time.perf_counter()
     current_turn_request = format_turn_user_request(req)
+    knowledge_query, knowledge_query_message_id = contextual_knowledge_query(
+        content=req.content, document_ids=req.knowledge_document_ids,
+        history=history, current_message_id=current_user_message_id,
+        conversation_id=conv_id,
+    )
+    if knowledge_query_message_id is not None:
+        prepare_metrics["knowledge_query_context_message_id"] = knowledge_query_message_id
     chat_ctx = build_chat_context(
         session=session,
         skill_id=effective_skill_id,
@@ -1221,6 +1229,7 @@ def prepare_chat_runtime(
         knowledge_document_ids=req.knowledge_document_ids,
         file_ids=context_file_ids if context_file_ids else None,
         content=current_turn_request,
+        knowledge_query=knowledge_query if knowledge_query_message_id is not None else None,
         default_max_tokens=max_tokens,
         mention_context=req.mention_context.model_dump() if req.mention_context else None,
         context_mode=context_mode,

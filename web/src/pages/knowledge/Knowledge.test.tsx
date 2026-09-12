@@ -7,6 +7,7 @@ const mockPost = vi.fn()
 const mockDelete = vi.fn()
 const mockNavigate = vi.fn()
 vi.mock('react-router-dom', () => ({ useNavigate: () => mockNavigate }))
+vi.mock('../../components/KnowledgeSourceViewer', () => ({ KnowledgeSourceViewer: ({ documentId }: { documentId: number }) => <div data-testid="original-viewer">原文文档 {documentId}</div> }))
 
 const source = {
   id: 10,
@@ -158,6 +159,8 @@ describe('Knowledge', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '在对话中追问' })[1])
     expect(mockNavigate).toHaveBeenCalledTimes(2)
     expect(mockNavigate.mock.calls[1]).toEqual(mockNavigate.mock.calls[0])
+    fireEvent.click(screen.getAllByRole('button', { name: '打开原文' })[0])
+    expect(screen.getByTestId('original-viewer')).toHaveTextContent('原文文档 7')
     expect(mockPost.mock.calls.every(([url]) => url === '/knowledge/search')).toBe(true)
   })
 

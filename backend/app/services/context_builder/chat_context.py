@@ -78,6 +78,7 @@ def build_chat_context(
     requesting_user_id: Optional[int] = None,
     skill_override: Optional[Skill] = None,
     knowledge_document_ids: Optional[list[int]] = None,
+    knowledge_query: Optional[str] = None,
 ) -> ChatContext:
     """Build complete chat context including skill, project, and RAG.
 
@@ -232,7 +233,7 @@ def build_chat_context(
     # Build RAG context
     rag_data = build_rag_context(
         session,
-        content,
+        knowledge_query if knowledge_document_ids is not None and knowledge_query else content,
         rag_doc_ids,
         project_id=project_id,
         knowledge_scope=knowledge_scope,

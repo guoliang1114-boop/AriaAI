@@ -43,9 +43,10 @@ import { useToast } from '../../contexts/ToastContext'
 import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { PageTitle } from '../../components/PageTitle'
+import { KnowledgeSourceViewer } from '../../components/KnowledgeSourceViewer'
 import { CxSkeleton, CxStatus, CxTopProgress } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
-import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skill } from '../../types/api'
+import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skill, SkillSummary } from '../../types/api'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../types/productRunEvent'
 import {
   parseChatStreamEvent,
@@ -55,7 +56,7 @@ import {
   type ChatStreamEvent,
 } from '../../types/chatStreamEvent'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../utils/knowledgeEvidence'
-import { parseKnowledgeChatHandoff } from '../../utils/knowledgeChatHandoff'
+import { parseKnowledgeChatHandoff, type KnowledgeChatHandoff } from '../../utils/knowledgeChatHandoff'
 import { describeRunSkill, normalizeRunSkill, type ActiveRunSkill } from '../../utils/chatRunSkill'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
 import { formatDateOnly, formatDatePartsKey, formatTimeOnly, parseAppDateTime } from '../../utils/timezone'
@@ -1142,7 +1143,7 @@ function mergeArtifacts(existing: GeneratedArtifact[], next: GeneratedArtifact |
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-function shouldRunSkillForMessage(message: string, skill?: Skill | null) {
+function shouldRunSkillForMessage(message: string, skill?: SkillSummary | null) {
   if (!skill) return false
   const text = message.trim().toLowerCase()
   if (!text) return false
@@ -1218,10 +1219,14 @@ function CopyButton({ text }: { text: string }) {
 // ─── Main component ─────────────────────────────────────────────────────────
 
 export function Chat() {
+  const toast = useToast()
   const navigate = useNavigate()
   const location = useLocation()
   const knowledgeHandoff = useMemo(() => parseKnowledgeChatHandoff(location.state?.knowledgeHandoff), [location.state])
-  const selectedKnowledge = useMemo(() => knowledgeHandoff ?? parseKnowledgeChatHandoff(location.state?.knowledgeContext), [knowledgeHandoff, location.state])
+  const navigationKnowledge = useMemo(() => knowledgeHandoff ?? parseKnowledgeChatHandoff(location.state?.knowledgeContext), [knowledgeHandoff, location.state])
+  const hasNavigationKnowledge = !!location.state && ('knowledgeContext' in location.state || 'knowledgeHandoff' in location.state)
+  const [restoredKnowledge, setRestoredKnowledge] = useState<{ key: string; context: KnowledgeChatHandoff | null; unavailable: number; error?: boolean } | null>(null)
+  const [knowledgeRetry, setKnowledgeRetry] = useState(0)
   const { t, i18n } = useTranslation()
   const { resolvedTimeZone } = useAppTimeZone()
   const [searchParams] = useSearchParams()
@@ -1230,6 +1235,24 @@ export function Chat() {
   const skillId = searchParams.get('skill')
   const projectId = searchParams.get('project')
   const prefilledQ = searchParams.get('q')
+  const needsKnowledgeRestore = !!conversationId && !hasNavigationKnowledge
+  const knowledgeRestorePending = needsKnowledgeRestore && restoredKnowledge?.key !== location.key
+  const knowledgeRestoreBlocked = needsKnowledgeRestore && restoredKnowledge?.key === location.key
+    && (restoredKnowledge.error || restoredKnowledge.unavailable > 0)
+  const selectedKnowledge = navigationKnowledge ?? (needsKnowledgeRestore && restoredKnowledge?.key === location.key ? restoredKnowledge.context : null)
+
+  useEffect(() => {
+    if (!needsKnowledgeRestore) return
+    let cancelled = false
+    void api.get<unknown>(`/chat/conversations/${conversationId}/knowledge-context`).then(value => {
+      if (cancelled) return
+      const unavailable = isRecord(value) && typeof value.unavailable_count === 'number' ? value.unavailable_count : 0
+      setRestoredKnowledge({ key: location.key, context: parseKnowledgeChatHandoff(value), unavailable })
+    }).catch(() => {
+      if (!cancelled) setRestoredKnowledge({ key: location.key, context: null, unavailable: 0, error: true })
+    })
+    return () => { cancelled = true }
+  }, [conversationId, needsKnowledgeRestore, location.key, knowledgeRetry])
 
   const [input, setInput] = useState(knowledgeHandoff?.query || prefilledQ || '')
   const [previousHandoff, setPreviousHandoff] = useState(knowledgeHandoff)
@@ -1245,7 +1268,7 @@ export function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [projects, setProjects] = useState<Project[]>([])
-  const [skills, setSkills] = useState<Skill[]>([])
+  const [skills, setSkills] = useState<SkillSummary[]>([])
   const [selectedProject, setSelectedProject] = useState<number | null>(projectId ? parseInt(projectId) : null)
   const [selectedSkill, setSelectedSkill] = useState<number | null>(skillId ? parseInt(skillId) : null)
   const [skillArmed, setSkillArmed] = useState(!!skillId)
@@ -1286,6 +1309,19 @@ export function Chat() {
   const [isLoadingConversations, setIsLoadingConversations] = useState(true)
   const [showSkillTemplateModal, setShowSkillTemplateModal] = useState(false)
   const [skillTemplateData, setSkillTemplateData] = useState<SkillTemplateData | null>(null)
+  const [loadingSkillTemplate, setLoadingSkillTemplate] = useState(false)
+  const templateContextKey = `${conversationId || ''}/${selectedSkill || ''}`
+  const [previousTemplateContext, setPreviousTemplateContext] = useState(templateContextKey)
+  if (previousTemplateContext !== templateContextKey) {
+    setPreviousTemplateContext(templateContextKey)
+    setLoadingSkillTemplate(false)
+    setShowSkillTemplateModal(false)
+    setSkillTemplateData(null)
+  }
+  const templateRequestRef = useRef(0)
+  useEffect(() => {
+    templateRequestRef.current += 1
+  }, [selectedSkill, conversationId])
   // Track streaming state for recovery after navigation
   const streamingConvIdRef = useRef<number | null>(null)
   // Debounce timer for streaming content updates — kept as ref so navigation can cancel it
@@ -1320,7 +1356,6 @@ export function Chat() {
   const skipNextConvLoadRef = useRef(false)
   const isSendingRef = useRef(false)
   const initialDataRequestedRef = useRef(false)
-  const initialSkillIdRef = useRef(selectedSkill)
   // Track if we've already loaded this conversation to prevent double-load in StrictMode
   const loadedConvIdRef = useRef<number | null>(null)
 
@@ -1335,16 +1370,8 @@ export function Chat() {
       .then((projectsData) => setProjects(projectsData))
       .catch((err: unknown) => console.error('Failed to fetch projects:', err))
     void api
-      .get<Skill[]>('/skills')
-      .then((skillsData) => {
-        setSkills(skillsData)
-        const initialSkill = skillsData.find(item => item.id === initialSkillIdRef.current)
-        const templateData = initialSkill ? buildSkillTemplateData(initialSkill) : null
-        if (templateData) {
-          setSkillTemplateData(templateData)
-          setShowSkillTemplateModal(true)
-        }
-      })
+      .get<SkillSummary[]>('/skills/meta/summary')
+      .then(setSkills)
       .catch((err: unknown) => console.error('Failed to fetch skills:', err))
   }, [])
 
@@ -1601,14 +1628,31 @@ export function Chat() {
   }, [streamingContent, scrollToBottom])
 
   // ── Skill Template Modal ─────────────────────────────────────────────────
-  const handleSelectSkill = (skill: Skill) => {
-    setSelectedSkill(skill.id)
+  const handleSelectSkill = useCallback((skillId: number) => {
+    setLoadingSkillTemplate(false)
+    setSelectedSkill(skillId)
     setSkillArmed(true)
     setShowSkillDropdown(false)
-    const templateData = buildSkillTemplateData(skill)
-    if (templateData) {
-      setSkillTemplateData(templateData)
-      setShowSkillTemplateModal(true)
+  }, [])
+
+  const handleOpenSkillTemplate = async () => {
+    if (!selectedSkill || sending) return
+    const requestId = ++templateRequestRef.current
+    setLoadingSkillTemplate(true)
+    try {
+      const skill = await api.get<Skill>(`/skills/${selectedSkill}`)
+      if (requestId !== templateRequestRef.current) return
+      const templateData = buildSkillTemplateData(skill)
+      if (templateData) {
+        setSkillTemplateData(templateData)
+        setShowSkillTemplateModal(true)
+      } else {
+        toast.info('此 Skill 无需模板，直接描述需求即可。')
+      }
+    } catch {
+      if (requestId === templateRequestRef.current) toast.error('模板加载失败，可以继续直接提问。')
+    } finally {
+      if (requestId === templateRequestRef.current) setLoadingSkillTemplate(false)
     }
   }
 
@@ -1616,19 +1660,22 @@ export function Chat() {
     setShowSkillTemplateModal(false)
     setSkillTemplateData(null)
     setSkillArmed(true)
-    // Auto-send with the filled template content
-    await sendMessage(filledTemplate)
+    // Applying a template is draft preparation, not execution authorization.
+    setInput(previous => [previous.trim(), filledTemplate.trim()].filter(Boolean).join('\n\n'))
+    textareaRef.current?.focus()
   }
 
   const handleCancelTemplate = () => {
     setShowSkillTemplateModal(false)
     setSkillTemplateData(null)
-    setSelectedSkill(null)
-    setSkillArmed(false)
   }
 
   // ── Conversation actions ──────────────────────────────────────────────────
   const createNewConversation = () => {
+    templateRequestRef.current += 1
+    setLoadingSkillTemplate(false)
+    setShowSkillTemplateModal(false)
+    setSkillTemplateData(null)
     // Don't create conversation upfront — create lazily on first message send.
     // This avoids the flash: empty-state → loading → empty-state.
     setConversation(null)
@@ -1773,7 +1820,9 @@ export function Chat() {
 
   // ── Send message (internal implementation) ─────────────────────────────────
   const sendMessage = async (msgText: string) => {
-    if (!msgText.trim() || sending || isSendingRef.current) return
+    if (!msgText.trim() || sending || isSendingRef.current || knowledgeRestorePending || knowledgeRestoreBlocked) return
+    templateRequestRef.current += 1
+    setLoadingSkillTemplate(false)
     const forceSkillForThisMessage = !!selectedSkill && skillArmed
     const skillForThisMessage = (forceSkillForThisMessage || shouldRunSkillForMessage(msgText, selectedSkillData)) ? selectedSkill : null
     
@@ -1829,7 +1878,7 @@ export function Chat() {
         skipNextConvLoadRef.current = true
         navigate(`/chat?conversation=${newConv.id}`, {
           replace: true,
-          state: selectedKnowledge ? { knowledgeContext: { namespace: 'source_scoped', documents: selectedKnowledge.documents } } : null,
+          state: { knowledgeContext: selectedKnowledge ? { namespace: 'source_scoped', documents: selectedKnowledge.documents } : null },
         })
         isNewConvRef.current = true
         firstMessageRef.current = msgText
@@ -2345,7 +2394,7 @@ export function Chat() {
     [skillCategoryFilter, skills],
   )
   const groupedSkills = useMemo(
-    () => filteredSkills.reduce<Record<string, Skill[]>>((groups, skill) => {
+    () => filteredSkills.reduce<Record<string, SkillSummary[]>>((groups, skill) => {
       if (!groups[skill.category]) groups[skill.category] = []
       groups[skill.category].push(skill)
       return groups
@@ -3129,6 +3178,25 @@ export function Chat() {
             )}
 
             {/* Composer box — textarea on top, toolbar with context pills + send at the bottom. */}
+            {knowledgeRestorePending && <p role="status" className="mb-2 text-xs">正在恢复本对话的知识范围…</p>}
+            {knowledgeRestoreBlocked && (
+              <div role="alert" className="mb-2 text-xs">
+                <span>{restoredKnowledge?.error ? '知识范围恢复失败，请重试。' : '部分知识文档已不可用。检查当前标签后，可确认使用剩余选择。'}</span>
+                <button type="button" className="ml-2 underline" onClick={() => setKnowledgeRetry(value => value + 1)}>重试恢复</button>
+                {!restoredKnowledge?.error && <button type="button" className="ml-2 underline" onClick={() => navigate(location.pathname + location.search, {
+                  replace: true, state: { knowledgeContext: selectedKnowledge },
+                })}>确认当前知识范围</button>}
+              </div>
+            )}
+            {selectedSkillData && (
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs" aria-label="Skill 输入方式">
+                <span>已选择 {selectedSkillData.name}，直接描述需求即可；缺少资料时会再追问。</span>
+                <button type="button" className="underline" disabled={sending || loadingSkillTemplate}
+                  onClick={() => { void handleOpenSkillTemplate() }}>
+                  {loadingSkillTemplate ? '加载模板…' : '填写模板（可选）'}
+                </button>
+              </div>
+            )}
             {selectedKnowledge && (
               <div className="mb-2 flex flex-wrap items-center gap-2 text-xs" aria-label="已选择的知识文档">
                 <span>{i18n.language.startsWith('zh') ? '本轮知识范围：' : 'Knowledge scope:'}</span>
@@ -3140,7 +3208,7 @@ export function Chat() {
                       const documents = selectedKnowledge.documents.filter(item => item.id !== document.id)
                       navigate(location.pathname + location.search, {
                         replace: true,
-                        state: documents.length ? { knowledgeContext: { namespace: 'source_scoped', documents } } : null,
+                        state: { knowledgeContext: documents.length ? { namespace: 'source_scoped', documents } : null },
                       })
                     }}>
                     <BookOpen size={12} /><span className="truncate">{document.title}</span><X size={12} />
@@ -3237,7 +3305,7 @@ export function Chat() {
               >
                 {showSkillDropdown && (
                   <DropdownMenu wide>
-                    <DropdownItem onClick={() => { setSelectedSkill(null); setSkillArmed(false); setSkillCategoryFilter('all'); setShowSkillDropdown(false) }} muted>
+                    <DropdownItem onClick={() => { templateRequestRef.current += 1; setLoadingSkillTemplate(false); setSelectedSkill(null); setSkillArmed(false); setSkillCategoryFilter('all'); setShowSkillDropdown(false) }} muted>
                       {t('skills.clearSelection') || 'Clear selection'}
                     </DropdownItem>
                     <div
@@ -3286,7 +3354,7 @@ export function Chat() {
                                 {category}
                               </div>
                               {categorySkills.map(s => (
-                                <DropdownItem key={s.id} onClick={() => handleSelectSkill(s)}>
+                                <DropdownItem key={s.id} onClick={() => handleSelectSkill(s.id)}>
                                   <div className="flex flex-col">
                                     <span>{s.name}</span>
                                     {s.estimated_time && (
@@ -3303,7 +3371,7 @@ export function Chat() {
                             </div>
                           ))
                         : filteredSkills.map(s => (
-                          <DropdownItem key={s.id} onClick={() => handleSelectSkill(s)}>
+                          <DropdownItem key={s.id} onClick={() => handleSelectSkill(s.id)}>
                             <div className="flex flex-col">
                               <span>{s.name}</span>
                               {s.estimated_time && (
@@ -3361,7 +3429,7 @@ export function Chat() {
                 ) : (
                   <button
                     onClick={handleSend}
-                    disabled={!input.trim()}
+                    disabled={!input.trim() || knowledgeRestorePending || !!knowledgeRestoreBlocked}
                     className="inline-flex flex-shrink-0 items-center gap-1.5 transition-all active:scale-95 disabled:opacity-30"
                     style={{
                       padding: '5px 14px',
@@ -3481,7 +3549,7 @@ const extractMinutes = (estimatedTime?: string): number => {
 }
 
 // ─── SkillRequirementsPanel ─────────────────────────────────────────────────
-function SkillRequirementsPanel({ skill }: { skill: Skill }) {
+function SkillRequirementsPanel({ skill }: { skill: SkillSummary & Partial<Skill> }) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   
@@ -3949,7 +4017,7 @@ function SkillTemplateModal({ skill, variables, onApply, onCancel }: SkillTempla
             }}
           >
             <Send className="h-4 w-4" />
-            {t('chat.applyAndSend') || '应用并发送'}
+            写入草稿
           </button>
         </div>
       </div>
@@ -4105,6 +4173,7 @@ function ConversationMenu({
 // still render in their legacy palette — sub-C will refactor those.
 function MessageRow({ message }: { message: Message }) {
   const { t } = useTranslation()
+  const [originalDocumentId, setOriginalDocumentId] = useState<number | null>(null)
   const isUser = message.role === 'user'
   const displayName = isUser ? getCurrentUserDisplayName() : ''
   const fallbackYou = t('chat.you')
@@ -4274,12 +4343,17 @@ function MessageRow({ message }: { message: Message }) {
                 <span className="truncate" style={{ maxWidth: 220 }}>
                   {ref.title}
                 </span>
+                {ref.type === 'doc' && ref.document_namespace === 'source_scoped' && ref.id > 0 && (
+                  <button type="button" className="underline" aria-label={`查看原文 ${knowledgeReferenceLabel(ref, i)} ${ref.title}`}
+                    onClick={() => setOriginalDocumentId(ref.id)}>原文</button>
+                )}
               </span>
             ))}
           </div>
         )}
 
         {/* Stage timings — quiet info chips, mono numbers. */}
+        {originalDocumentId !== null && <KnowledgeSourceViewer key={originalDocumentId} documentId={originalDocumentId} onClose={() => setOriginalDocumentId(null)} />}
         {!isUser && stageTimings.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {stageTimings

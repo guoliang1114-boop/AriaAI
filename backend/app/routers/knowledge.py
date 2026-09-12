@@ -6,14 +6,18 @@ import json
 import logging
 import shutil
 import uuid
+import hashlib
+import re
 from pathlib import Path
 from typing import Any, List, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, BackgroundTasks, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field as PydanticField
 from sqlmodel import Session, select, func
 
-from app.config import UPLOADS_DIR
+from app.config import UPLOADS_DIR, KNOWLEDGE_ORIGINAL_MAX_DOWNLOAD_BYTES
 from app.database import get_session, engine
 from app.models.db import ClientRecord, KnowledgeDocument, DocumentChunk, Project, User
 from app.models.knowledge import (
@@ -66,6 +70,7 @@ from app.services.knowledge_permissions import (
     lock_and_require_source_write,
 )
 from app.services.knowledge_retrieval import search_knowledge
+from app.services.knowledge_document_access import readable_document_source
 from app.services.knowledge_templates import BUILTIN_KNOWLEDGE_TEMPLATES, template_to_dict
 from app.services.storage import StorageService
 from app.services.time_utils import utc_now_naive
@@ -699,6 +704,74 @@ def retry_failed_knowledge_job(
         raise HTTPException(409, str(exc)) from exc
     background_tasks.add_task(process_knowledge_job_by_id, int(job.id), session.get_bind())
     return knowledge_job_to_dict(job)
+
+
+def _readable_document(session: Session, user: User, document_id: int) -> KnowledgeV1Document:
+    document = _document_or_404(session, document_id)
+    if readable_document_source(session, user, document) is None:
+        raise HTTPException(404, "Knowledge document not available")
+    return document
+
+
+@router.get("/documents/{document_id}/content")
+def read_document_content(
+    document_id: int,
+    response: Response,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(3, ge=1, le=10),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    response.headers["Cache-Control"] = "no-store"
+    document = _readable_document(session, current_user, document_id)
+    if document.status != "indexed":
+        raise HTTPException(409, "Document text is not indexed yet")
+    total = session.exec(select(func.count()).select_from(KnowledgeChunk).where(KnowledgeChunk.document_id == document_id)).one()
+    chunks = session.exec(select(KnowledgeChunk).where(KnowledgeChunk.document_id == document_id)
+                          .order_by(KnowledgeChunk.chunk_index.asc(), KnowledgeChunk.id.asc())
+                          .offset(offset).limit(limit)).all()
+    return {
+        "namespace": "source_scoped", "document_id": document_id, "source_id": document.source_id,
+        "title": document.title, "file_name": document.file_name, "total": total,
+        "offset": offset, "limit": limit,
+        "chunks": [{"chunk_index": chunk.chunk_index, "content": chunk.content[:12000],
+                    "truncated": len(chunk.content) > 12000} for chunk in chunks],
+    }
+
+
+@router.get("/documents/{document_id}/original")
+def download_document_original(
+    document_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    document = _readable_document(session, current_user, document_id)
+    # Only content-addressed originals owned by this Source. Never trust a
+    # display path, metadata path, legacy ID or a caller-provided filesystem key.
+    digest = document.content_hash
+    key = document.original_storage_key
+    pattern = rf"knowledge/originals/source-{document.source_id}/{re.escape(digest)}(?:-[a-f0-9]{{32}})?\.[a-z0-9]+"
+    if not re.fullmatch(r"[a-f0-9]{64}", digest) or not re.fullmatch(pattern, key):
+        raise HTTPException(404, "Original file not available")
+    try:
+        path = StorageService(UPLOADS_DIR).resolve_path(key)
+        if path != UPLOADS_DIR.resolve() / key:
+            raise ValueError("Original storage must not redirect through symlinks")
+        # Bounded read freezes the exact bytes that were hash-verified. No
+        # FileResponse reopen race can swap a different file after validation.
+        with path.open("rb") as handle:
+            content = handle.read(KNOWLEDGE_ORIGINAL_MAX_DOWNLOAD_BYTES + 1)
+    except (OSError, ValueError):
+        raise HTTPException(404, "Original file not available")
+    if len(content) > KNOWLEDGE_ORIGINAL_MAX_DOWNLOAD_BYTES:
+        raise HTTPException(413, "Original file exceeds download limit")
+    if hashlib.sha256(content).hexdigest() != digest:
+        raise HTTPException(409, "Original file integrity check failed")
+    filename = Path(document.file_name.replace("\\", "/")).name or "knowledge-document"
+    return Response(content, media_type="application/octet-stream", headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename, safe='')}",
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+    })
 
 
 @router.get("/documents/{document_id}/events")

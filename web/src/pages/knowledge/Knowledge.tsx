@@ -24,6 +24,7 @@ import {
 import { api } from '../../api/client'
 import { CxConfirmDialog, CxPagination, CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from '../../components/codex'
 import { PageTitle } from '../../components/PageTitle'
+import { KnowledgeSourceViewer } from '../../components/KnowledgeSourceViewer'
 import { useToast } from '../../contexts/ToastContext'
 import type { KnowledgeDocument as LegacyKnowledgeDocument, KnowledgeStats } from '../../types/api'
 import { formatDateOnly, parseAppDateTime } from '../../utils/timezone'
@@ -2130,6 +2131,7 @@ function SearchResultRow({
 }) {
   const status = statusMeta(doc.vector_status, isZh, doc.latest_job)
   const score = resultScore(doc, index)
+  const [showOriginal, setShowOriginal] = useState(false)
   const tone = scoreColor(score)
   const description =
     doc.search_snippet ||
@@ -2211,10 +2213,11 @@ function SearchResultRow({
           ) : null}
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-4" style={{ paddingLeft: 13 }}>
-          <button type="button" disabled title={isZh ? '原文预览暂未开放' : 'Source preview is not available yet'} className="cx-no-hover inline-flex items-center gap-1.5 cursor-not-allowed opacity-40" style={{ fontSize: 12, color: 'var(--color-codex-ink)', fontWeight: 500 }}>
+          <button type="button" disabled={doc.api_mode !== 'v005'} onClick={() => setShowOriginal(true)} title={doc.api_mode !== 'v005' ? '请先升级旧版文档' : undefined} className="cx-no-hover inline-flex items-center gap-1.5 disabled:opacity-40" style={{ fontSize: 12, color: 'var(--color-codex-ink)', fontWeight: 500 }}>
             <File size={12} strokeWidth={1.5} aria-hidden="true" />
             {isZh ? '打开原文' : 'Open source'}
           </button>
+          {showOriginal && <KnowledgeSourceViewer key={doc.document_id ?? doc.id} documentId={doc.document_id ?? doc.id} onClose={() => setShowOriginal(false)} />}
           {doc.vector_status === 'synced' ? (
             <button type="button" onClick={onCopyCitation} className="cx-no-hover inline-flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
               <Quote size={12} strokeWidth={1.5} aria-hidden="true" />

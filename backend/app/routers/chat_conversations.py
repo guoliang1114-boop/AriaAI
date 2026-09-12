@@ -4,6 +4,7 @@ from typing import List, Optional
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlmodel import Session
 
 from app.database import get_session
@@ -32,6 +33,7 @@ from app.services.chat_store import (
     update_conversation_title,
 )
 from app.services.chat.mode_registry import ActionPolicy
+from app.services.chat.knowledge_context import conversation_knowledge_context
 from app.services.chat.conversation_continuity import (
     build_conversation_continuity_snapshot,
 )
@@ -170,6 +172,18 @@ def get_conversation(
     current_user: User = Depends(get_current_user),
 ):
     return require_conversation_access(session, conv_id, current_user)
+
+
+@router.get("/conversations/{conv_id}/knowledge-context")
+def get_conversation_knowledge_context(
+    conv_id: int,
+    response: Response,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    response.headers["Cache-Control"] = "no-store"
+    require_conversation_access(session, conv_id, current_user)
+    return conversation_knowledge_context(session, conv_id, current_user)
 
 
 @router.get("/conversations/{conv_id}/continuity")

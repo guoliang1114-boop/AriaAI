@@ -4250,6 +4250,17 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                         knowledge_document_ids=[7],
                     ),
                 )
+                followup = chat_streaming_module.prepare_chat_runtime(
+                    session, chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id, content="精简成两条", knowledge_document_ids=[7],
+                    ),
+                )
+                self.assertEqual(mocked_context.call_args.kwargs["content"], "精简成两条")
+                self.assertIn("市场洞察", mocked_context.call_args.kwargs["knowledge_query"])
+                self.assertEqual(
+                    followup.prepare_metrics["knowledge_query_context_message_id"],
+                    runtime.prepare_metrics["source_user_message_id"],
+                )
         self.assertEqual(runtime.selected_model, "kimi-k3")
         self.assertEqual(runtime.max_tokens, 8192)
 
