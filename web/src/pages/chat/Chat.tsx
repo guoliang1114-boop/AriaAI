@@ -3549,7 +3549,7 @@ const extractMinutes = (estimatedTime?: string): number => {
 }
 
 // ─── SkillRequirementsPanel ─────────────────────────────────────────────────
-function SkillRequirementsPanel({ skill }: { skill: SkillSummary & Partial<Skill> }) {
+function SkillRequirementsPanel({ skill }: { skill: SkillSummary }) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   
@@ -3650,78 +3650,6 @@ function SkillRequirementsPanel({ skill }: { skill: SkillSummary & Partial<Skill
               </div>
             )}
 
-            {skill.system_prompt && (
-              <div>
-                <p
-                  className="mb-1 font-mono"
-                  style={{
-                    fontSize: 10.5,
-                    color: 'var(--color-codex-ink-mute)',
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {t('skills.systemPrompt') || '系统提示词'}
-                </p>
-                <div
-                  style={{
-                    padding: '8px 10px',
-                    background: 'var(--color-codex-bg-tint)',
-                    border: '1px solid var(--color-codex-line-soft)',
-                    borderRadius: 'var(--codex-r-sm, 3px)',
-                  }}
-                >
-                  <p
-                    className="font-mono line-clamp-4"
-                    style={{
-                      fontSize: 11.5,
-                      color: 'var(--color-codex-ink-soft)',
-                      lineHeight: 1.55,
-                      margin: 0,
-                    }}
-                  >
-                    {skill.system_prompt}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {skill.user_template && (
-              <div>
-                <p
-                  className="mb-1 font-mono"
-                  style={{
-                    fontSize: 10.5,
-                    color: 'var(--color-codex-ink-mute)',
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {t('skills.userTemplate') || '用户模板'}
-                </p>
-                <div
-                  style={{
-                    padding: '8px 10px',
-                    background: 'var(--color-codex-bg-tint)',
-                    border: '1px solid var(--color-codex-line-soft)',
-                    borderRadius: 'var(--codex-r-sm, 3px)',
-                  }}
-                >
-                  <p
-                    className="font-mono"
-                    style={{
-                      fontSize: 11.5,
-                      color: 'var(--color-codex-ink-soft)',
-                      lineHeight: 1.55,
-                      margin: 0,
-                    }}
-                  >
-                    {skill.user_template}
-                  </p>
-                </div>
-              </div>
-            )}
-
             <div
               className="flex items-center gap-4 pt-1"
               style={{ fontSize: 11.5 }}
@@ -3736,29 +3664,6 @@ function SkillRequirementsPanel({ skill }: { skill: SkillSummary & Partial<Skill
                   {skill.category}
                 </span>
               </div>
-              {skill.tools_definition_json && (
-                <div>
-                  <span style={{ color: 'var(--color-codex-ink-mute)' }}>
-                    {t('skills.tools') || '工具'}:{' '}
-                  </span>
-                  <span
-                    className="font-mono"
-                    style={{
-                      fontWeight: 500,
-                      color: 'var(--color-codex-ink)',
-                    }}
-                  >
-                    {(() => {
-                      try {
-                        const tools = JSON.parse(skill.tools_definition_json)
-                        return Array.isArray(tools) ? tools.length + ' tools' : 'enabled'
-                      } catch {
-                        return 'enabled'
-                      }
-                    })()}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -4286,7 +4191,7 @@ function MessageRow({ message }: { message: Message }) {
                 artifact={artifact}
               />
             ))}
-            <StreamingAnswerPreview content={message.content} compact={skillProgress.length > 0} />
+            <StreamingAnswerPreview content={message.content} compact={false} />
             {contextReceipt && <MainContextReceiptSummary receipt={contextReceipt} />}
           </div>
         )}

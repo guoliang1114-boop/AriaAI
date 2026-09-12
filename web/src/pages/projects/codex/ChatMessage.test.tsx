@@ -8,6 +8,7 @@ import { api } from '../../../api/client'
 vi.mock('../../../api/client', () => ({
   api: { get: vi.fn(), post: vi.fn() },
 }))
+vi.mock('../../../components/KnowledgeSourceViewer', () => ({ KnowledgeSourceViewer: ({ documentId }: { documentId: number }) => <div data-testid="source-viewer">原文文档 {documentId}</div> }))
 
 vi.mock('../../../contexts/ToastContext', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }),
@@ -56,6 +57,20 @@ const ambiguousReceipt: ContextReceiptEvent = {
 describe('ProjectChatMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('opens source-scoped citations without confusing legacy document identities', () => {
+    const message: Message = {
+      id: 22, conversation_id: 4, role: 'assistant', content: '结论 [K1]。', created_at: '2026-09-12T00:00:00Z',
+      metadata_json: JSON.stringify({ references: [
+        { type: 'doc', id: 7, title: '新版证据', document_namespace: 'source_scoped', citation_key: 'K1' },
+        { type: 'doc', id: 7, title: '旧版同号', document_namespace: 'legacy', citation_key: 'K2' },
+      ] }),
+    }
+    render(<ProjectChatMessage message={message} projectId={3} />)
+    expect(screen.queryByRole('button', { name: /查看原文.*旧版同号/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '查看原文 [K1] 新版证据' }))
+    expect(screen.getByTestId('source-viewer')).toHaveTextContent('原文文档 7')
   })
 
   it('keeps a verified generated artifact actionable without project_file_id', () => {

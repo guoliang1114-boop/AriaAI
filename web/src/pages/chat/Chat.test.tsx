@@ -111,6 +111,16 @@ describe('standalone chat failure handling', () => {
     resolveTemplate(skill)
     await waitFor(() => expect(screen.queryByPlaceholderText('请输入公司...')).not.toBeInTheDocument())
   })
+
+  it('shows saved Skill answers immediately instead of hiding completed output', async () => {
+    vi.mocked(api.get).mockImplementation(async <T,>(url: string) => (url.includes('/messages?') ? [{
+      id: 9, conversation_id: 1, role: 'assistant', content: '已完成分析：先统一数据口径，再确认交付基线。',
+      metadata_json: JSON.stringify({ skill_id: 24 }), created_at: '2026-09-12T00:00:00Z',
+    }] : []) as T)
+    render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?conversation=1']}><Chat /></MemoryRouter></I18nextProvider>)
+    await screen.findByText('已完成分析：先统一数据口径，再确认交付基线。')
+    expect(screen.queryByText(/执行期间默认隐藏正文/)).not.toBeInTheDocument()
+  })
   afterEach(() => {
     vi.unstubAllGlobals()
     sessionStorage.clear()

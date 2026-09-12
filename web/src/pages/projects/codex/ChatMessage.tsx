@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { api } from '../../../api/client'
 import { MarkdownRenderer } from '../../../components/MarkdownRenderer'
+import { KnowledgeSourceViewer } from '../../../components/KnowledgeSourceViewer'
 import { useToast } from '../../../contexts/ToastContext'
 import type {
   GeneratedArtifact,
@@ -1142,6 +1143,7 @@ function ArtifactCard({
  * style (mono [K*] / legacy [N] + lucide icon + title).
  * ──────────────────────────────────────────────────────────────── */
 function ReferenceChips({ refs }: { refs: Reference[] }) {
+  const [originalDocumentId, setOriginalDocumentId] = useState<number | null>(null)
   return (
     <div
       style={{
@@ -1198,8 +1200,13 @@ function ReferenceChips({ refs }: { refs: Reference[] }) {
           >
             {r.title}
           </span>
+          {r.type === 'doc' && r.document_namespace === 'source_scoped' && r.id > 0 && (
+            <button type="button" className="underline" aria-label={`查看原文 ${knowledgeReferenceLabel(r, i)} ${r.title}`}
+              onClick={() => setOriginalDocumentId(r.id)}>原文</button>
+          )}
         </span>
       ))}
+      {originalDocumentId !== null && <KnowledgeSourceViewer key={originalDocumentId} documentId={originalDocumentId} onClose={() => setOriginalDocumentId(null)} />}
     </div>
   )
 }
