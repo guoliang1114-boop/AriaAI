@@ -4276,6 +4276,50 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(runtime.selected_model, "kimi-k3")
         self.assertEqual(runtime.max_tokens, 8192)
 
+    def test_prepare_chat_runtime_binds_readonly_answer_length_before_assembly(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module, "_load_provider_module",
+            ) as mocked_provider, patch.object(chat_streaming_module, "get_selected_model", return_value="kimi-k3"):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(build_system_prompt=lambda *args, **kwargs: "system")
+                bounded = chat_streaming_module.prepare_chat_runtime(session, chat_router_module.SendMessageRequest(
+                    conversation_id=conv_id, content="用两条回答，不超过180字。只回答，不生成文件，不修改项目内容。",
+                ))
+                unbounded = chat_streaming_module.prepare_chat_runtime(session, chat_router_module.SendMessageRequest(
+                    conversation_id=conv_id, content="继续说明，不限字数。只回答，不生成文件，不修改项目内容。",
+                ))
+        from app.services.context_builder.assembly import validate_context_assembly_request
+        self.assertEqual(bounded.max_answer_chars, 180)
+        self.assertEqual(unbounded.max_answer_chars, 0)
+        self.assertEqual(bounded.selected_model, "kimi-k3")
+        self.assertFalse(bounded.tools)
+        self.assertIn("最多 180 个非空白", bounded.system)
+        self.assertEqual(validate_context_assembly_request(bounded.context_manifest, system=bounded.system,
+                         messages=bounded.api_messages, tools=bounded.tools), (True, "valid"))
+
+    def test_prepare_chat_runtime_rewrite_with_ceiling_keeps_same_scope_topic(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module, "_load_provider_module",
+            ) as mocked_provider, patch.object(chat_streaming_module, "get_selected_model", return_value="kimi-k3"):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(build_system_prompt=lambda *args, **kwargs: "system")
+                original = chat_streaming_module.prepare_chat_runtime(session, chat_router_module.SendMessageRequest(
+                    conversation_id=conv_id, content="市场洞察方法是什么？", knowledge_document_ids=[7],
+                ))
+                content = "请把上述回答精简成两条，保留引用。不超过180字。只回答，不生成文件，不修改项目内容。"
+                followup = chat_streaming_module.prepare_chat_runtime(session, chat_router_module.SendMessageRequest(
+                    conversation_id=conv_id, content=content, knowledge_document_ids=[7],
+                ))
+                self.assertEqual(mocked_context.call_args.kwargs["content"], content)
+                self.assertIn("市场洞察", mocked_context.call_args.kwargs["knowledge_query"])
+                self.assertEqual(mocked_context.call_args.kwargs["knowledge_document_ids"], [7])
+                self.assertEqual(followup.max_answer_chars, 180)
+                self.assertEqual(followup.prepare_metrics["knowledge_query_context_message_id"], original.prepare_metrics["source_user_message_id"])
+
     def test_prepare_chat_runtime_applies_selected_skill_for_workflow_request(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:
@@ -6078,6 +6122,34 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertEqual(len(assistant_messages), 1)
             metadata = json.loads(assistant_messages[0].metadata_json)
             self.assertEqual(metadata["phase_error"]["phase"], "agent_loop")
+
+    def test_stream_chat_events_persists_bounded_answer_or_explicit_failure(self):
+        for succeeds in (True, False):
+            with self.subTest(succeeds=succeeds):
+                conv_id = self._create_conversation()
+                final = "先确认问题范围，再核对资料来源。" if succeeds else "仍然超限" * 80
+                llm = FakeStreamingLLM([["不应泄漏的初稿" * 80], [final]])
+                runtime = ChatRuntime(conv_id=conv_id, selected_model="configured-model", llm=llm, system="system",
+                    api_messages=[{"role": "user", "content": "只回答，不超过80字"}], rag_sources=[], tools=[],
+                    max_tokens=2048, temperature=0, max_answer_chars=80)
+                req = chat_router_module.SendMessageRequest(conversation_id=conv_id, content="只回答，不超过80字")
+                payloads = [json.loads(event.removeprefix("data: ").strip()) for event in collect_async_generator(stream_chat_events(runtime, req, self.engine))]
+                self.assertNotIn("不应泄漏的初稿", str(payloads))
+                with Session(self.engine) as session:
+                    saved = session.exec(select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")).one()
+                    metadata = json.loads(saved.metadata_json)
+                    if succeeds:
+                        from app.services.chat.answer_length import answer_char_count
+                        self.assertEqual(saved.content, final)
+                        self.assertEqual(metadata["answer_length"], {"max_chars": 80, "actual_chars": answer_char_count(final),
+                            "unit": "non_whitespace_unicode_codepoints", "repair_count": 1, "status": "passed"})
+                        done = next(payload for payload in payloads if payload["type"] == "done")
+                        self.assertEqual(done["answer_length"], metadata["answer_length"])
+                    else:
+                        self.assertEqual(payloads[-1]["type"], "run_failed")
+                        self.assertNotIn("done", [payload["type"] for payload in payloads])
+                        self.assertEqual(metadata["phase_error"]["type"], "AnswerLengthError")
+                        self.assertNotIn("仍然超限", saved.content)
 
     def test_stream_chat_events_persists_p0_durable_task_errors(self):
         project_id, conv_id = self._create_project_conversation()

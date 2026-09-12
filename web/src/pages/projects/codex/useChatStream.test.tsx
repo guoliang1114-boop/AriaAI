@@ -39,6 +39,16 @@ describe('useChatStream Skill control', () => {
     expect(JSON.parse(onUserMessage.mock.calls[2][0].metadata_json)).not.toHaveProperty('knowledge_document_ids')
   })
 
+  it('preserves the final answer length receipt in the completed message', async () => {
+    const receipt = { max_chars: 80, actual_chars: 2, repair_count: 0, status: 'passed', unit: 'non_whitespace_unicode_codepoints' }
+    vi.mocked(fetch).mockResolvedValue(new Response('data: {"type":"text","content":"回答"}\n\n'
+      + `data: ${JSON.stringify({ type: 'done', answer_length: receipt })}\n\n`))
+    const onAssistantMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({ projectId: 3, conversationId: 4, onUserMessage: vi.fn(), onAssistantMessage }))
+    await act(async () => result.current.send('不超过80字'))
+    expect(JSON.parse(onAssistantMessage.mock.calls[0][0].metadata_json).answer_length).toEqual(receipt)
+  })
+
   it.each([[], [0], [-1], [1.5], Array.from({ length: 21 }, (_, i) => i + 1)].map(ids => ({ ids })))('rejects invalid document selection before any request %#', async ({ ids: knowledgeDocumentIds }) => {
     const onUserMessage = vi.fn()
     const { result } = renderHook(() => useChatStream({

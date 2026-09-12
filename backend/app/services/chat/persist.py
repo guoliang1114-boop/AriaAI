@@ -75,6 +75,7 @@ from app.services.agent_harness.run_rollout import attach_chat_run_assistant_mes
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
 from app.services.chat.trace import persist_chat_trace
+from app.services.chat.answer_length import answer_char_count
 from app.services.chat.workflow import workflow_status
 from app.services.title_generator import schedule_title_generation
 from app.tools import registry
@@ -1246,6 +1247,17 @@ async def run_persist(
 
     # Build metadata
     metadata: dict = {}
+    answer_limit = getattr(runtime, "max_answer_chars", 0)
+    if type(answer_limit) is int and 32 <= answer_limit <= 4000:
+        # Count the final persisted body, including any platform safety notice;
+        # do not falsely certify a later warning as within the model ceiling.
+        actual_chars = answer_char_count(full_text)
+        metadata["answer_length"] = {
+            "max_chars": answer_limit, "actual_chars": actual_chars,
+            "status": "passed" if 0 < actual_chars <= answer_limit else "exceeded",
+            "unit": "non_whitespace_unicode_codepoints",
+            "repair_count": sum(event.get("type") == "answer_length_checked" and event.get("attempt") == 2 for event in state.trace_events),
+        }
     runtime_prepare_metrics = getattr(runtime, "prepare_metrics", {})
     if isinstance(runtime_prepare_metrics, dict):
         turn_contract_metadata = runtime_prepare_metrics.get("turn_contract")

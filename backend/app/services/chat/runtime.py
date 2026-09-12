@@ -35,6 +35,7 @@ from app.services.agent_harness.context_budget import (
 from app.services.agent_harness.tool_transcript import normalize_tool_transcript
 from app.services.agent_harness.knowledge_evidence import knowledge_evidence_reference
 from app.services.chat.knowledge_context import contextual_knowledge_query
+from app.services.chat.answer_length import explicit_answer_char_limit, answer_length_prompt
 from app.services.agent_harness.project_memory_evidence import (
     project_memory_evidence_reference,
 )
@@ -1338,6 +1339,14 @@ def prepare_chat_runtime(
             skill_applied=bool(effective_skill),
         )
     prepare_metrics["turn_contract"] = turn_contract.to_dict()
+    answer_char_limit = explicit_answer_char_limit(current_turn_request)
+    # This mechanism does not alter tool grants, artifact requests or business
+    # authorization. Only an already tool-free, read-only turn is eligible.
+    if runtime_tools or turn_contract.write_allowed or turn_contract.needs_artifact:
+        answer_char_limit = None
+    answer_length_frame = answer_length_prompt(answer_char_limit) if answer_char_limit else ""
+    if answer_char_limit:
+        prepare_metrics["answer_length_limit"] = answer_char_limit
     system = _append_turn_contract_frame(system, turn_contract.to_dict())
     system = _append_capability_frame(system, intent_decision, runtime_tools)
     runtime_prompt_fragments: list[str] = []
@@ -1497,6 +1506,8 @@ def prepare_chat_runtime(
     prepare_metrics["instruction_manifest"] = instruction_manifest_reference(
         instruction_manifest
     )
+    if answer_length_frame:
+        system = f"{system.rstrip()}\n\n{answer_length_frame}\n"
 
     # Aria-native context budgeting. This is intentionally provider-neutral and
     # performs no remote compaction call: system context, tool schemas, history,
@@ -1531,6 +1542,11 @@ def prepare_chat_runtime(
         or CONTEXT_HISTORY_SUMMARY_TOKENS
     )
     context_sources = list(getattr(chat_ctx, "context_sources", ()) or ())
+    if answer_length_frame:
+        context_sources.append(ContextSourceInput(
+            source_id="answer_length_contract", kind="policy", trust="platform",
+            content=answer_length_frame,
+        ))
     if question_reanswer_prompt:
         context_sources.append(
             ContextSourceInput(
@@ -1725,6 +1741,7 @@ def prepare_chat_runtime(
         tools=runtime_tools,
         max_tokens=runtime_max_tokens,
         temperature=temperature,
+        max_answer_chars=answer_char_limit or 0,
         skill_id=effective_skill_id,
         skill_name=effective_skill.name if effective_skill else "",
         skill_version=effective_skill.package_version if effective_skill else "",

@@ -59,6 +59,13 @@ describe('ProjectChatMessage', () => {
     vi.clearAllMocks()
   })
 
+  it('shows a persisted answer-length receipt outside the answer body', () => {
+    const message: Message = { id: 22, conversation_id: 4, role: 'assistant', content: '短回答', created_at: '2026-09-12T00:00:00Z',
+      metadata_json: JSON.stringify({ answer_length: { max_chars: 80, actual_chars: 3, repair_count: 0, status: 'passed', unit: 'non_whitespace_unicode_codepoints' } }) }
+    render(<ProjectChatMessage message={message} projectId={3} />)
+    expect(screen.getByText('字数已核验 · 3/80')).toBeInTheDocument()
+  })
+
   it('opens source-scoped citations without confusing legacy document identities', () => {
     const message: Message = {
       id: 22, conversation_id: 4, role: 'assistant', content: '结论 [K1]。', created_at: '2026-09-12T00:00:00Z',

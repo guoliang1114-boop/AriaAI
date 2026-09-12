@@ -48,6 +48,7 @@ import { CxSkeleton, CxStatus, CxTopProgress } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skill, SkillSummary } from '../../types/api'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../types/productRunEvent'
+import { AnswerLengthReceipt } from '../../components/AnswerLengthReceipt'
 import {
   parseChatStreamEvent,
   resolveChatRunFailure,
@@ -2140,6 +2141,7 @@ export function Chat() {
             metadata_json: JSON.stringify({
               references: data.references || [],
               knowledge_evidence: data.knowledge_evidence,
+              answer_length: data.answer_length,
               tool_calls: finalToolCalls,
               artifacts: finalArtifacts,
               skill_id: resolvedRunSkill?.id || skillForThisMessage || undefined,
@@ -4236,6 +4238,7 @@ function MessageRow({ message }: { message: Message }) {
               />
             ))}
             <StreamingAnswerPreview content={message.content} compact={false} />
+            <AnswerLengthReceipt metadataJson={message.metadata_json} />
             {contextReceipt && <MainContextReceiptSummary receipt={contextReceipt} />}
           </div>
         )}

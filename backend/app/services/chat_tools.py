@@ -98,6 +98,8 @@ class ChatRuntime:
     agent_turn_max_steps: int = 8
     agent_turn_max_tool_calls: int = 24
     agent_turn_timeout_seconds: float = 600.0
+    # Explicit, user-provided global answer ceiling. Zero preserves streaming.
+    max_answer_chars: int = 0
 
     def __post_init__(self) -> None:
         """Keep explicitly selected Skill runtimes executable on fallback paths.

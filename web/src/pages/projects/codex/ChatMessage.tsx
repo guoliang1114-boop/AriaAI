@@ -15,6 +15,7 @@ import type {
   TurnRecoveryPreviewV2,
 } from '../../../types/api'
 import type { ContextReceiptEvent } from '../../../types/productRunEvent'
+import { AnswerLengthReceipt } from '../../../components/AnswerLengthReceipt'
 import { parseChatStreamEvent, toContextReceiptEvent } from '../../../types/chatStreamEvent'
 import type { RunActivityTimeline } from '../../../stores/runActivityReducer'
 import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
@@ -363,6 +364,7 @@ export function ProjectChatMessage({
                 onSkillSelect={onSkillSelect}
               />
             )}
+            {!isStreaming && <AnswerLengthReceipt metadataJson={message.metadata_json} />}
             {!isStreaming && !meta.locallyStopped && (meta.persistedMessageId || message.id) > 0 && (
               <ConversationTraceInspector
                 conversationId={message.conversation_id}

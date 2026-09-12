@@ -286,6 +286,10 @@ jobs:
                 tests/test_knowledge_evidence.py \
                 tests/test_knowledge_chat_cutover.py \
                 tests/test_knowledge_conversation_access.py \
+                tests/test_answer_length.py \
+                tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_stream_chat_events_persists_bounded_answer_or_explicit_failure \
+                tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_prepare_chat_runtime_binds_readonly_answer_length_before_assembly \
+                tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_prepare_chat_runtime_rewrite_with_ceiling_keeps_same_scope_topic \
                 tests/test_knowledge_retrieval.py \
                 tests/test_knowledge_job_acl.py \
                 tests/test_knowledge_job_recovery.py \

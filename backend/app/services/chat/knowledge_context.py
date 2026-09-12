@@ -51,13 +51,37 @@ def conversation_knowledge_context(session: Session, conversation_id: int, user:
     return payload
 
 
-# Deliberately narrow: new substantive questions do not inherit old search terms.
+# Compositional but deliberately bounded: all clauses must be a known rewrite
+# request or a presentation/read-only modifier. No wildcard can swallow a new
+# topic, proposed write or a factual question such as "第二条预算是多少".
+_REFERENCE = r"(?:上述|上面(?:的)?|刚才(?:的)?|上一条(?:的)?|前面(?:的)?|这些|这个)(?:回答|答复|内容|分析|方法|结论|建议)?"
+_TARGET = r"(?:表格|列表|英文|中文|[一二三四五六七八九十两1-9][0-9]?(?:条|点|项)|\d{2,4}字以内)"
+_REWRITE = r"(?:精简|压缩|浓缩|总结|概括|整理|改写)"
 _FOLLOWUP = re.compile(
-    r"^(?:请|帮我|再|请再)?(?:继续(?:回答|说明|展开)?|展开(?:说明|一下)?|详细(?:解释|说明)(?:一下)?|"
-    r"(?:精简|压缩|浓缩|总结|概括|整理|改写)(?:一下|成.{1,12}|为.{1,12})?|"
-    r"(?:改成|改为|换成)(?:表格|列表|两条|三条|英文|中文)|简短一点|再短一点|更具体一点)[。！!？?\s]*$",
-    re.IGNORECASE,
+    rf"^(?:请|帮我|请帮我)?(?:再)?(?:"
+    rf"继续(?:回答|说明|展开)?|展开(?:说明|一下)?|详细(?:解释|说明)(?:一下)?|"
+    rf"{_REWRITE}(?:一下|(?:成|为|到){_TARGET})?|"
+    rf"(?:改成|改为|换成){_TARGET}|简短一点|短一点|更具体一点|"
+    rf"(?:把|将)?{_REFERENCE}{_REWRITE}(?:一下|(?:成|为|到){_TARGET})?|"
+    rf"(?:把|将)?{_REFERENCE}(?:改成|改为|换成){_TARGET}|"
+    rf"{_REWRITE}{_REFERENCE}(?:成|为|到)?(?:{_TARGET})?"
+    rf")$"
 )
+_FOLLOWUP_MODIFIER = re.compile(
+    r"^(?:请|并|且|并且)?(?:保留(?:资料|来源)?引用|标注(?:资料|来源)?引用|保留关键结论|"
+    r"(?:不超过|最多|控制在)\d{2,4}(?:字符|字)(?:以内)?|\d{2,4}(?:字符|字)以内|"
+    r"(?:只|仅)(?:回答|文字回答|分析)|(?:不|不要|无需|不需要)"
+    r"(?:生成文件|修改项目(?:内容|数据)?|写入项目(?:内容|数据)?))$"
+)
+
+
+def is_knowledge_rewrite_followup(content: str) -> bool:
+    if not content or len(content) > 240:
+        return False
+    clauses = [re.sub(r"\s+", "", clause) for clause in re.split(r"[，,。；;！!？?\n]", content) if clause.strip()]
+    return bool(clauses) and any(_FOLLOWUP.fullmatch(clause) for clause in clauses) and all(
+        _FOLLOWUP.fullmatch(clause) or _FOLLOWUP_MODIFIER.fullmatch(clause) for clause in clauses
+    )
 
 
 def contextual_knowledge_query(*, content: str, document_ids: list[int] | None,
@@ -68,7 +92,7 @@ def contextual_knowledge_query(*, content: str, document_ids: list[int] | None,
     Only user text supplies query terms. No old evidence/content is re-granted,
     and a removed/replaced scope or malformed record ends the search.
     """
-    if not document_ids or len(content) > 160 or not _FOLLOWUP.fullmatch(content.strip()):
+    if not document_ids or not is_knowledge_rewrite_followup(content):
         return content, None
     expected = sorted(set(document_ids))
     for message in list(reversed(history))[:40]:
@@ -79,9 +103,12 @@ def contextual_knowledge_query(*, content: str, document_ids: list[int] | None,
         metadata = _metadata(message)
         if metadata.get("run_steering"):
             continue
+        reservation = metadata.get("recovery_reservation")
+        if isinstance(reservation, dict) and reservation.get("status") in {"reserved", "expired"}:
+            continue
         if _selection(metadata) != expected:
             break
         previous = str(message.content or "").strip()
-        if previous and not _FOLLOWUP.fullmatch(previous):
+        if previous and not is_knowledge_rewrite_followup(previous):
             return f"{previous[:2000]}\n{content}", message.id
     return content, None

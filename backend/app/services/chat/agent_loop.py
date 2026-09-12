@@ -67,6 +67,7 @@ from app.services.agent_harness.active_run_lease import (
     heartbeat_chat_run_lease,
 )
 from app.services.chat.agent_step import AgentStep, build_agent_step_event
+from app.services.chat.answer_length import AnswerLengthError, answer_char_count, answer_length_prompt
 from app.services.chat.product_run_events import (
     StepCompletedStatus,
     ToolProgressStatus,
@@ -550,7 +551,7 @@ async def _iter_model_stream_with_safe_retry(
                 await retry_wait
 
 
-async def _consume_stream(
+async def _consume_stream_raw(
     runtime: ChatRuntime,
     state: ChatSessionState,
     messages: list[dict],
@@ -820,6 +821,71 @@ async def _consume_stream(
         yield sse_event({"type": "text", "content": chunk})
         if state.run_id:
             yield sse_event(_text_delta_event(state.run_id, chunk))
+
+
+async def _consume_stream(
+    runtime: ChatRuntime,
+    state: ChatSessionState,
+    messages: list[dict],
+    *,
+    step_index: int,
+    stream_label: str,
+    result: _StreamResult,
+    initial_context_validated: bool = False,
+    post_assembly_steering: tuple[SteeringInput, ...] = (),
+) -> AsyncIterator[str]:
+    """Buffer only explicitly bounded, tool-free answers; repair at most once.
+
+    Invalid drafts never reach text events, checkpoints, history or persistence.
+    Status/heartbeat/timing events remain live. Both requests use the normal
+    context, provider retry, cancellation, lease and turn-deadline boundaries.
+    """
+    limit = getattr(runtime, "max_answer_chars", 0)
+    if type(limit) is not int or not 32 <= limit <= 4000 or runtime.tools:
+        async for event in _consume_stream_raw(runtime, state, messages, step_index=step_index,
+                stream_label=stream_label, result=result, initial_context_validated=initial_context_validated,
+                post_assembly_steering=post_assembly_steering):
+            yield event
+        return
+    remaining = limit - answer_char_count(state.full_text)
+    if remaining <= 0:
+        raise AnswerLengthError("本轮回答已达到字数上限；追加要求请作为下一轮消息发送。")
+    started_at = time.perf_counter()
+    yield sse_event({"type": "status", "stage": "thinking", "message": f"本轮按 {limit} 字符上限生成，校验通过后展示正文…"})
+    already_repaired = any(event.get("type") == "answer_length_checked" and event.get("attempt") == 2 for event in state.trace_events)
+    attempts = 1 if already_repaired else 2
+    for attempt in range(attempts):
+        draft = _StreamResult()
+        request_messages = messages if attempt == 0 else [*messages, {
+            "role": "user", "content": answer_length_prompt(remaining, repair=True),
+        }]
+        async for event in _consume_stream_raw(runtime, state, request_messages, step_index=step_index,
+                stream_label=stream_label if attempt == 0 else f"{stream_label}_length_repair", result=draft,
+                initial_context_validated=initial_context_validated,
+                post_assembly_steering=post_assembly_steering):
+            payload = json.loads(event.removeprefix("data: ").strip())
+            if payload.get("type") in {"text", "text_delta"} or payload.get("stage") == "continuing":
+                continue
+            yield event
+        if draft.tool_calls:
+            # A text-length repair can never become a tool-execution path.
+            raise AnswerLengthError("本轮只允许文字回答，模型返回了工具计划，尚未执行。")
+        count = answer_char_count(draft.text)
+        passed = 0 < count <= remaining and not draft.truncated
+        state.record_trace_event("answer_length_checked", stage=stream_label,
+                                 max_chars=limit, remaining_chars=remaining, actual_chars=count,
+                                 attempt=attempt + 1, passed=passed, truncated=draft.truncated)
+        if passed:
+            result.text = draft.text
+            result.reasoning = draft.reasoning
+            state.stage_timings["bounded_answer_ready_ms"] = round((time.perf_counter() - started_at) * 1000)
+            yield sse_event({"type": "text", "content": result.text})
+            if state.run_id:
+                yield sse_event(_text_delta_event(state.run_id, result.text))
+            return
+        if attempt == 0 and attempts > 1:
+            yield sse_event({"type": "status", "stage": "thinking", "message": "回答未通过字数或完整性校验，正在修正一次…"})
+    raise AnswerLengthError(f"回答经一次修正仍未满足 {remaining} 字符上限或完整性要求，本轮未交付正文；请调整要求后重试。")
 
 
 def _classify_tool_outcome_status(outcome: Any) -> str:

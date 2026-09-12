@@ -12,7 +12,7 @@ from sqlmodel import SQLModel, Session
 from app.models.db import Conversation, Message, Project, ProjectMember, User
 from app.models.knowledge import KnowledgeChunk, KnowledgeSource, KnowledgeV1Document
 from app.routers import knowledge, chat_conversations
-from app.services.chat.knowledge_context import contextual_knowledge_query
+from app.services.chat.knowledge_context import contextual_knowledge_query, is_knowledge_rewrite_followup
 from tests.test_database import create_test_engine, drop_all_tables
 
 
@@ -263,3 +263,27 @@ def test_followup_never_crosses_scope_or_turn_boundary(case):
     if case == "malformed": history[0].metadata_json = "[]"
     if case == "no_selection": ids = None
     assert contextual_knowledge_query(content=content, document_ids=ids, history=history, current_message_id=3, conversation_id=1) == (content, None)
+
+
+@pytest.mark.parametrize("content", [
+    "请把上述回答精简成两条，保留资料引用。不超过180字。只回答，不生成文件，不修改项目内容。",
+    "将上面的内容改成表格；标注来源引用", "请总结刚才的分析", "再短一点，保留引用",
+    "请把这些方法压缩到180字以内", "继续，详细说明一下", "请概括为3点",
+])
+def test_composite_rewrite_reuses_user_topic_not_rewrite_modifiers(content):
+    history = [message(1, "战略规划如何分析市场洞察？"), message(2, "请把上述内容改成表格，保留引用")]
+    query, source_id = contextual_knowledge_query(content=content, document_ids=[7], history=history, current_message_id=3, conversation_id=1)
+    assert source_id == 1 and query == f"战略规划如何分析市场洞察？\n{content}"
+
+
+@pytest.mark.parametrize("content", [
+    "第二条预算是多少？", "精简成新的市场分析报告并提交", "总结成预算是多少", "那客户的问题呢？",
+    "继续，另外分析另一个项目", "整理一下，修改项目数据", "保留引用", "这些数据准确吗？",
+])
+def test_rewrite_never_swallows_new_topics_or_writes(content):
+    assert not is_knowledge_rewrite_followup(content)
+
+
+def test_rewrite_ignores_unactivated_recovery_reservations():
+    history = [message(1, "市场洞察方法"), message(2, "其他问题", ids=(), recovery_reservation={"status": "reserved"})]
+    assert contextual_knowledge_query(content="继续", document_ids=[7], history=history, current_message_id=3, conversation_id=1) == ("市场洞察方法\n继续", 1)

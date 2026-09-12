@@ -130,6 +130,26 @@ describe('standalone chat failure handling', () => {
     await screen.findByText('已完成分析：先统一数据口径，再确认交付基线。')
     expect(screen.queryByText(/执行期间默认隐藏正文/)).not.toBeInTheDocument()
   })
+
+  it('displays the persisted length receipt on a reopened conversation', async () => {
+    vi.mocked(api.get).mockImplementation(async <T,>(url: string) => (url.includes('/messages?') ? [{
+      id: 9, conversation_id: 1, role: 'assistant', content: '短回答', created_at: '2026-09-12T00:00:00Z',
+      metadata_json: JSON.stringify({ answer_length: { max_chars: 80, actual_chars: 3, repair_count: 0, status: 'passed', unit: 'non_whitespace_unicode_codepoints' } }),
+    }] : defaultResponse(url)) as T)
+    render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?conversation=1']}><Chat /></MemoryRouter></I18nextProvider>)
+    await screen.findByText('字数已核验 · 3/80')
+  })
+
+  it('shows the done length receipt immediately without a reload', async () => {
+    const answer_length = { max_chars: 80, actual_chars: 3, repair_count: 0, status: 'passed', unit: 'non_whitespace_unicode_codepoints' }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('data: {"type":"text","content":"短回答"}\n\n'
+      + `data: ${JSON.stringify({ type: 'done', answer_length })}\n\n`)))
+    render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat']}><Chat /></MemoryRouter></I18nextProvider>)
+    const input = await screen.findByPlaceholderText(zh.chat.placeholder)
+    fireEvent.change(input, { target: { value: '不超过80字' } })
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    await screen.findByText('字数已核验 · 3/80')
+  })
   afterEach(() => {
     vi.unstubAllGlobals()
     sessionStorage.clear()
