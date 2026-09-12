@@ -1,14 +1,37 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { AnswerFooter } from './AnswerFooter'
 import type { Reference } from '../types/api'
+import styles from './AnswerFooter.module.css'
 
 vi.mock('./KnowledgeSourceViewer', () => ({ KnowledgeSourceViewer: ({ documentId, onClose }: { documentId: number; onClose: () => void }) =>
   <div role="dialog" aria-label={`原文 ${documentId}`}><button onClick={onClose}>关闭原文</button></div> }))
 const reference: Reference = { type: 'doc', id: 7, title: 'IBM 方法文档', document_namespace: 'source_scoped', knowledge_source_id: 2, citation_key: 'K1', chunk_index: 0 }
 
 describe('AnswerFooter', () => {
+  it('contains the hidden source description within the toolbar positioning context', () => {
+    // jsdom cannot measure scroll overflow. Check the CSS/DOM contract here;
+    // real-browser QA also checks document height while scrolling messages.
+    const stylesheet = document.createElement('style')
+    const footerCss = readFileSync(`${import.meta.dirname}/AnswerFooter.module.css`, 'utf8')
+    stylesheet.textContent = footerCss.replaceAll('.actions', `.${styles.actions}`)
+    document.head.append(stylesheet)
+    try {
+      render(<AnswerFooter references={[reference]}>阶段耗时</AnswerFooter>)
+      const group = screen.getByRole('group', { name: '回答辅助信息' })
+      const source = within(group).getByRole('button', { name: '查看回答来源' })
+      const description = document.getElementById(source.getAttribute('aria-describedby')!)
+      expect(description).toHaveClass('sr-only')
+      expect(group).toContainElement(description)
+      expect(getComputedStyle(group).position).toBe('relative')
+      expect(source).toHaveAccessibleDescription('1 项来源，1 处引用')
+    } finally {
+      stylesheet.remove()
+    }
+  })
+
   it('keeps the compact labels stable and counts out of the visible toolbar', () => {
     render(<AnswerFooter references={[reference, { ...reference, citation_key: 'K4' }]}>阶段耗时</AnswerFooter>)
     const sources = screen.getByRole('button', { name: '查看回答来源' })
