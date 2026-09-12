@@ -1,8 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { api } from '../../../api/client'
 import { MarkdownRenderer } from '../../../components/MarkdownRenderer'
-import { AnswerDetails } from '../../../components/AnswerDetails'
-import { AnswerSources } from '../../../components/AnswerSources'
+import { AnswerFooter } from '../../../components/AnswerFooter'
 import { AnswerContextNotice } from '../../../components/AnswerContextNotice'
 import { useToast } from '../../../contexts/ToastContext'
 import type {
@@ -357,21 +356,18 @@ export function ProjectChatMessage({
               {meta.contextReceipt?.skill.status === 'ambiguous' && onSkillSelect && <SkillCandidateButtons
                 candidates={meta.contextReceipt.skill.candidates || []} onSelect={onSkillSelect} />}
               <AnswerLengthReceipt metadataJson={message.metadata_json} only="warning" />
-              <div className="flex flex-wrap gap-x-3">
-                <AnswerSources references={meta.references} />
-                <AnswerDetails key={message.id}>
-                  {effectiveTimeline && !prominentTimeline && <ProjectChatActivityTimeline timeline={effectiveTimeline} />}
-                  {!effectiveTimeline && !prominentProgress && meta.progress.length > 0 && <SkillProgressPill steps={meta.progress} />}
-                  {meta.turn && <HistoricalTurnContract turn={meta.turn} isUser={false}
-                    messageContent={message.content} messageId={message.id} onReuse={onTurnBriefReuse} />}
-                  {meta.revision && <HistoricalTurnRevision revision={meta.revision} isAssistant onSourceOpen={onTurnRevisionSourceOpen} />}
-                  {meta.contextReceipt && <PersistentContextReceipt receipt={meta.contextReceipt} />}
-                  <AnswerLengthReceipt metadataJson={message.metadata_json} only="passed" />
-                  <ModelResponseReceipt metadataJson={message.metadata_json} />
-                  {!meta.locallyStopped && (meta.persistedMessageId || message.id) > 0 && <ConversationTraceInspector
-                    conversationId={message.conversation_id} messageId={meta.persistedMessageId || message.id} />}
-                </AnswerDetails>
-              </div>
+              <AnswerFooter key={message.id} references={meta.references}>
+                {effectiveTimeline && !prominentTimeline && <ProjectChatActivityTimeline timeline={effectiveTimeline} />}
+                {!effectiveTimeline && !prominentProgress && meta.progress.length > 0 && <SkillProgressPill steps={meta.progress} />}
+                {meta.turn && <HistoricalTurnContract turn={meta.turn} isUser={false}
+                  messageContent={message.content} messageId={message.id} onReuse={onTurnBriefReuse} />}
+                {meta.revision && <HistoricalTurnRevision revision={meta.revision} isAssistant onSourceOpen={onTurnRevisionSourceOpen} />}
+                {meta.contextReceipt && <PersistentContextReceipt receipt={meta.contextReceipt} />}
+                <AnswerLengthReceipt metadataJson={message.metadata_json} only="passed" />
+                <ModelResponseReceipt metadataJson={message.metadata_json} />
+                {!meta.locallyStopped && (meta.persistedMessageId || message.id) > 0 && <ConversationTraceInspector
+                  conversationId={message.conversation_id} messageId={meta.persistedMessageId || message.id} />}
+              </AnswerFooter>
             </>}
             {!isStreaming && (
               <AriaActionChips

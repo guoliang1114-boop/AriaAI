@@ -43,8 +43,7 @@ import { useToast } from '../../contexts/ToastContext'
 import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { PageTitle } from '../../components/PageTitle'
-import { AnswerDetails } from '../../components/AnswerDetails'
-import { AnswerSources } from '../../components/AnswerSources'
+import { AnswerFooter } from '../../components/AnswerFooter'
 import { AnswerContextNotice } from '../../components/AnswerContextNotice'
 import { CxSkeleton, CxStatus, CxTopProgress } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
@@ -4257,10 +4256,9 @@ function MessageRow({ message }: { message: Message }) {
           </div>
         )}
 
-        {!isUser && <div className="flex flex-wrap gap-x-3">
-          <AnswerSources references={references} />
+        {!isUser && <AnswerFooter key={message.id} references={references}>
           {(hasReceipts || contextReceipt || skillProgress.length > 0) && (
-            <AnswerDetails key={message.id}>
+            <>
               {!prominentProgress && <ProgressCard steps={skillProgress} title="Skill 执行清单" />}
               {contextReceipt && <MainContextReceiptSummary receipt={contextReceipt} />}
               <AnswerLengthReceipt metadataJson={message.metadata_json} only="passed" />
@@ -4298,9 +4296,9 @@ function MessageRow({ message }: { message: Message }) {
                     ))}
                 </div>
               )}
-            </AnswerDetails>
+            </>
           )}
-        </div>}
+        </AnswerFooter>}
 
         {/* Hover-only copy button. Timestamp already lives in the role
             line, so the row stays quiet at rest. */}
