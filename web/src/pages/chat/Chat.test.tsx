@@ -131,16 +131,19 @@ describe('standalone chat failure handling', () => {
     expect(screen.queryByText(/执行期间默认隐藏正文/)).not.toBeInTheDocument()
   })
 
-  it('displays the persisted length receipt on a reopened conversation', async () => {
+  it('defaults to the answer on reopen and shows persisted receipts only on request', async () => {
     vi.mocked(api.get).mockImplementation(async <T,>(url: string) => (url.includes('/messages?') ? [{
       id: 9, conversation_id: 1, role: 'assistant', content: '短回答', created_at: '2026-09-12T00:00:00Z',
       metadata_json: JSON.stringify({ answer_length: { max_chars: 80, actual_chars: 3, repair_count: 0, status: 'passed', unit: 'non_whitespace_unicode_codepoints' } }),
     }] : defaultResponse(url)) as T)
     render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?conversation=1']}><Chat /></MemoryRouter></I18nextProvider>)
-    await screen.findByText('字数已核验 · 3/80')
+    await screen.findByText('短回答')
+    expect(screen.queryByText('字数已核验 · 3/80')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '查看回答详情' }))
+    expect(screen.getByText('字数已核验 · 3/80')).toBeVisible()
   })
 
-  it('shows the done length receipt immediately without a reload', async () => {
+  it('makes done receipts available in details without a reload', async () => {
     const answer_length = { max_chars: 80, actual_chars: 3, repair_count: 0, status: 'passed', unit: 'non_whitespace_unicode_codepoints' }
     const stage_timings = { provider_headers_ms: 100, provider_reasoning_ms: 200, provider_text_ms: 800 }
     const model_response_policy = { scope: 'bounded_readonly_rewrite', reasoning_effort: 'low' }
@@ -150,6 +153,7 @@ describe('standalone chat failure handling', () => {
     const input = await screen.findByPlaceholderText(zh.chat.placeholder)
     fireEvent.change(input, { target: { value: '不超过80字' } })
     fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    fireEvent.click(await screen.findByRole('button', { name: '查看回答详情' }))
     await screen.findByText('字数已核验 · 3/80')
     await screen.findByText('简短改写 · low · 连接响应 0.1s · 开始思考 0.2s · 开始正文 0.8s')
   })

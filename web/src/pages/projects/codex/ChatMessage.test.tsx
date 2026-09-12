@@ -4,6 +4,7 @@ import type { Message, TurnRecoveryPreviewV1, TurnRecoveryPreviewV2 } from '../.
 import type { ContextReceiptEvent } from '../../../types/productRunEvent'
 import { ProjectChatMessage } from './ChatMessage'
 import { api } from '../../../api/client'
+import { emptyTimeline } from '../../../stores/runActivityReducer'
 
 vi.mock('../../../api/client', () => ({
   api: { get: vi.fn(), post: vi.fn() },
@@ -59,10 +60,13 @@ describe('ProjectChatMessage', () => {
     vi.clearAllMocks()
   })
 
-  it('shows a persisted answer-length receipt outside the answer body', () => {
+  it('keeps a successful answer-length receipt behind the single details entry', () => {
     const message: Message = { id: 22, conversation_id: 4, role: 'assistant', content: '短回答', created_at: '2026-09-12T00:00:00Z',
       metadata_json: JSON.stringify({ answer_length: { max_chars: 80, actual_chars: 3, repair_count: 0, status: 'passed', unit: 'non_whitespace_unicode_codepoints' } }) }
     render(<ProjectChatMessage message={message} projectId={3} />)
+    expect(screen.getByText('短回答')).toBeVisible()
+    expect(screen.queryByText('字数已核验 · 3/80')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '查看回答详情' }))
     expect(screen.getByText('字数已核验 · 3/80')).toBeInTheDocument()
   })
 
@@ -71,6 +75,8 @@ describe('ProjectChatMessage', () => {
       metadata_json: JSON.stringify({ stage_timings: { provider_reasoning_ms: 800, provider_text_ms: 2500 },
         model_response_policy: { scope: 'bounded_readonly_rewrite', reasoning_effort: 'low' } }) }
     render(<ProjectChatMessage message={message} projectId={3} />)
+    expect(screen.queryByText(/简短改写 · low/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '查看回答详情' }))
     expect(screen.getByText('简短改写 · low · 开始思考 0.8s · 开始正文 2.5s')).toBeInTheDocument()
   })
 
@@ -83,6 +89,7 @@ describe('ProjectChatMessage', () => {
       ] }),
     }
     render(<ProjectChatMessage message={message} projectId={3} />)
+    fireEvent.click(screen.getByRole('button', { name: '查看回答来源' }))
     expect(screen.queryByRole('button', { name: /查看原文.*旧版同号/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '查看原文 [K1] 新版证据' }))
     expect(screen.getByTestId('source-viewer')).toHaveTextContent('原文文档 7')
@@ -137,7 +144,8 @@ describe('ProjectChatMessage', () => {
         onSkillSelect={onSkillSelect}
       />,
     )
-    fireEvent.click(screen.getByText(/Skill 待选择/))
+    expect(screen.getByText(/技能待选择/)).toBeVisible()
+    expect(screen.getByRole('button', { name: '查看回答详情' })).toHaveAttribute('aria-expanded', 'false')
     fireEvent.click(screen.getByRole('button', { name: '下一轮使用 舞弊风险评估' }))
 
     expect(onSkillSelect).toHaveBeenCalledWith(7, '舞弊风险评估')
@@ -191,6 +199,7 @@ describe('ProjectChatMessage', () => {
     }
 
     render(<ProjectChatMessage message={message} projectId={3} />)
+    fireEvent.click(screen.getByRole('button', { name: '查看回答详情' }))
     fireEvent.click(screen.getByText(/本轮依据/))
 
     expect(screen.getByText(/个人偏好 v2：使用 1 项/)).toBeInTheDocument()
@@ -220,6 +229,7 @@ describe('ProjectChatMessage', () => {
     }
 
     render(<ProjectChatMessage message={message} projectId={3} />)
+    fireEvent.click(screen.getByRole('button', { name: '查看回答详情' }))
     fireEvent.click(screen.getByText(/本轮依据/))
 
     expect(screen.getByText(/近期对话保留 6\/42 条/)).toBeInTheDocument()
@@ -278,6 +288,7 @@ describe('ProjectChatMessage', () => {
     }
 
     render(<ProjectChatMessage message={message} projectId={3} />)
+    fireEvent.click(screen.getByRole('button', { name: '查看回答详情' }))
     fireEvent.click(screen.getByText(/工作流：咨询提案/))
 
     expect(screen.getByLabelText('Skill 本轮加载回执')).toHaveTextContent('Skill 发布 v2.1.0 · 稳定版 · abcdef12')
@@ -348,6 +359,7 @@ describe('ProjectChatMessage', () => {
         onTurnBriefReuse={onTurnBriefReuse}
       />,
     )
+    fireEvent.click(screen.getByRole('button', { name: '查看回答详情' }))
     fireEvent.click(screen.getByText(/本轮执行契约/))
     fireEvent.click(screen.getByRole('button', { name: '基于此执行契约修订并重试' }))
 
@@ -390,6 +402,7 @@ describe('ProjectChatMessage', () => {
         onTurnRevisionSourceOpen={onTurnRevisionSourceOpen}
       />,
     )
+    fireEvent.click(screen.getByRole('button', { name: '查看回答详情' }))
     expect(screen.getByLabelText('本轮修订效果归因')).toHaveTextContent('已调整 目标 / 约束')
     fireEvent.click(screen.getByRole('button', { name: '定位修订来源消息' }))
     expect(onTurnRevisionSourceOpen).toHaveBeenCalledWith(14, 'turn-1a2b3c4d')
@@ -634,9 +647,50 @@ describe('ProjectChatMessage', () => {
 
     render(<ProjectChatMessage message={message} projectId={3} />)
 
+    expect(screen.queryByLabelText('Aria 运行时间线')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '查看回答详情' }))
     expect(screen.getByLabelText('Aria 运行时间线')).toHaveTextContent('Skill · 审计计划与风险评估')
     fireEvent.click(screen.getByRole('button', { name: /Skill · 审计计划与风险评估/ }))
     expect(screen.getByText('读取项目文档')).toBeInTheDocument()
     expect(screen.getByText('读取项目 Markdown 文档')).toBeInTheDocument()
+  })
+
+  it.each(['failed', 'waiting_confirmation', 'cancelled'] as const)('never hides the %s timeline behind answer details', status => {
+    const timeline = { ...emptyTimeline('run_attention'), final_status: status,
+      steps: [{ index: 0, title: '项目操作', status: 'running' as const, items: [] }],
+      ...(status === 'failed' ? { error: { code: 'failed', message: '操作未完成' } } : {}),
+    }
+    const message: Message = { id: 91, conversation_id: 4, role: 'assistant', content: '请确认当前状态。',
+      created_at: '2026-09-12T00:00:00Z', metadata_json: JSON.stringify({ activity_timeline: timeline }) }
+    render(<ProjectChatMessage message={message} projectId={3} />)
+    expect(screen.getByLabelText('Aria 运行时间线')).toBeVisible()
+    expect(screen.getByRole('button', { name: '查看回答详情' })).toHaveAttribute('aria-expanded', 'false')
+    if (status === 'failed') expect(screen.getByText('操作未完成')).toBeVisible()
+  })
+
+  it('keeps live progress visible and collapses only after a successful completion', () => {
+    const message: Message = { id: 92, conversation_id: 4, role: 'assistant', content: '结论',
+      created_at: '2026-09-12T00:00:00Z', metadata_json: '{}' }
+    const timeline = { ...emptyTimeline('run_live'), steps: [{ index: 0, title: '分析', status: 'running' as const, items: [] }] }
+    const { rerender } = render(<ProjectChatMessage message={message} projectId={3} isStreaming streamingStatus="仍在处理，可停止" activityTimeline={timeline} />)
+    expect(screen.getByLabelText('Aria 运行时间线')).toBeVisible()
+    expect(screen.getByText('仍在处理，可停止')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '查看回答详情' })).not.toBeInTheDocument()
+    rerender(<ProjectChatMessage message={message} projectId={3} activityTimeline={{ ...timeline, final_status: 'completed' }} />)
+    expect(screen.queryByLabelText('Aria 运行时间线')).not.toBeInTheDocument()
+    expect(screen.getByText('结论')).toBeVisible()
+  })
+
+  it('does not conceal failed length validation or missing knowledge behind details', () => {
+    const message: Message = { id: 93, conversation_id: 4, role: 'assistant', content: '答案有局限',
+      created_at: '2026-09-12T00:00:00Z', metadata_json: JSON.stringify({
+        answer_length: { max_chars: 80, actual_chars: 90, repair_count: 1, status: 'exceeded', unit: 'non_whitespace_unicode_codepoints' },
+        context_receipt: { ...ambiguousReceipt, skill: { ...ambiguousReceipt.skill, status: 'not_used', candidates: [] },
+          evidence: { ...ambiguousReceipt.evidence, knowledge_source_scoped_unavailable: true } },
+      }) }
+    render(<ProjectChatMessage message={message} projectId={3} />)
+    expect(screen.getByText(/字数校验未通过/)).toBeVisible()
+    expect(screen.getByText(/知识检索暂不可用/)).toBeVisible()
+    expect(screen.getByRole('button', { name: '查看回答详情' })).toHaveAttribute('aria-expanded', 'false')
   })
 })

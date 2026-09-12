@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
 import { api } from '../../../api/client'
 import { MarkdownRenderer } from '../../../components/MarkdownRenderer'
-import { KnowledgeSourceViewer } from '../../../components/KnowledgeSourceViewer'
+import { AnswerDetails } from '../../../components/AnswerDetails'
+import { AnswerSources } from '../../../components/AnswerSources'
+import { AnswerContextNotice } from '../../../components/AnswerContextNotice'
 import { useToast } from '../../../contexts/ToastContext'
 import type {
   GeneratedArtifact,
@@ -19,7 +21,7 @@ import { AnswerLengthReceipt } from '../../../components/AnswerLengthReceipt'
 import { ModelResponseReceipt } from '../../../components/ModelResponseReceipt'
 import { parseChatStreamEvent, toContextReceiptEvent } from '../../../types/chatStreamEvent'
 import type { RunActivityTimeline } from '../../../stores/runActivityReducer'
-import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
+import { normalizeKnowledgeReferences } from '../../../utils/knowledgeEvidence'
 import { contextHistoryEvidenceLabel, contextMemoryLayerLabel } from '../../../utils/contextReceipt'
 import { CxIcon } from './CxIcons'
 import { ProjectChatActivityTimeline } from './ProjectChatActivityTimeline'
@@ -51,8 +53,8 @@ import { ConversationTraceInspector } from './ConversationTraceInspector'
  *   - references[]       → canonical [K*] / legacy [N] citation chips
  *   - turn_brief / turn_contract → visible, reusable turn boundary
  *
- * Bottom of each Aria message: hover-only action chips. Just two —
- * 复制 and 沉淀到项目记忆.
+ * Successful receipts share one collapsed details entry; important run states
+ * and sources stay discoverable. Actions also reveal on keyboard focus/touch.
  */
 
 interface ProgressStep {
@@ -209,6 +211,13 @@ export function ProjectChatMessage({
   const isUser = message.role === 'user'
   const meta = useMemo(() => parseMeta(message.metadata_json), [message.metadata_json])
   const effectiveTimeline = activityTimeline || meta.activityTimeline
+  // Only successful history is quiet. Live, incomplete, failed and approval states remain visible.
+  const prominentTimeline = isStreaming || meta.interrupted || Boolean(effectiveTimeline && (
+    effectiveTimeline.final_status !== 'completed' || effectiveTimeline.error
+    || effectiveTimeline.steps.some(step => step.status === 'failed')
+    || effectiveTimeline.artifacts.some(artifact => ['failed', 'partial', 'manual_required'].includes(artifact.verification?.status || ''))
+  ))
+  const prominentProgress = meta.progress.some(step => step.status !== 'done')
 
   return (
     <div
@@ -307,13 +316,13 @@ export function ProjectChatMessage({
           </>
         ) : (
           <>
-            {effectiveTimeline && (
+            {effectiveTimeline && prominentTimeline && (
               <ProjectChatActivityTimeline
                 timeline={effectiveTimeline}
                 isStreaming={isStreaming}
               />
             )}
-            {!effectiveTimeline && !isStreaming && meta.progress.length > 0 && (
+            {!effectiveTimeline && !isStreaming && prominentProgress && (
               <SkillProgressPill steps={meta.progress} />
             )}
             {!isStreaming &&
@@ -333,22 +342,6 @@ export function ProjectChatMessage({
                 <MarkdownRenderer content={message.content} />
               </div>
             )}
-            {!isStreaming && meta.turn && (
-              <HistoricalTurnContract
-                turn={meta.turn}
-                isUser={false}
-                messageContent={message.content}
-                messageId={message.id}
-                onReuse={onTurnBriefReuse}
-              />
-            )}
-            {!isStreaming && meta.revision && (
-              <HistoricalTurnRevision
-                revision={meta.revision}
-                isAssistant
-                onSourceOpen={onTurnRevisionSourceOpen}
-              />
-            )}
             {!isStreaming && meta.interrupted && meta.rollout && onTurnRecovery && (
               <InterruptedTurnRecovery
                 conversationId={message.conversation_id}
@@ -359,21 +352,27 @@ export function ProjectChatMessage({
                 onContinue={onTurnRecovery}
               />
             )}
-            {!isStreaming && meta.contextReceipt && (
-              <PersistentContextReceipt
-                receipt={meta.contextReceipt}
-                onSkillSelect={onSkillSelect}
-              />
-            )}
-            {!isStreaming && <AnswerLengthReceipt metadataJson={message.metadata_json} />}
-            {!isStreaming && <ModelResponseReceipt metadataJson={message.metadata_json} />}
-            {!isStreaming && !meta.locallyStopped && (meta.persistedMessageId || message.id) > 0 && (
-              <ConversationTraceInspector
-                conversationId={message.conversation_id}
-                messageId={meta.persistedMessageId || message.id}
-              />
-            )}
-            {!isStreaming && meta.references.length > 0 && <ReferenceChips refs={meta.references} />}
+            {!isStreaming && <>
+              <AnswerContextNotice receipt={meta.contextReceipt} />
+              {meta.contextReceipt?.skill.status === 'ambiguous' && onSkillSelect && <SkillCandidateButtons
+                candidates={meta.contextReceipt.skill.candidates || []} onSelect={onSkillSelect} />}
+              <AnswerLengthReceipt metadataJson={message.metadata_json} only="warning" />
+              <div className="flex flex-wrap gap-x-3">
+                <AnswerSources references={meta.references} />
+                <AnswerDetails key={message.id}>
+                  {effectiveTimeline && !prominentTimeline && <ProjectChatActivityTimeline timeline={effectiveTimeline} />}
+                  {!effectiveTimeline && !prominentProgress && meta.progress.length > 0 && <SkillProgressPill steps={meta.progress} />}
+                  {meta.turn && <HistoricalTurnContract turn={meta.turn} isUser={false}
+                    messageContent={message.content} messageId={message.id} onReuse={onTurnBriefReuse} />}
+                  {meta.revision && <HistoricalTurnRevision revision={meta.revision} isAssistant onSourceOpen={onTurnRevisionSourceOpen} />}
+                  {meta.contextReceipt && <PersistentContextReceipt receipt={meta.contextReceipt} />}
+                  <AnswerLengthReceipt metadataJson={message.metadata_json} only="passed" />
+                  <ModelResponseReceipt metadataJson={message.metadata_json} />
+                  {!meta.locallyStopped && (meta.persistedMessageId || message.id) > 0 && <ConversationTraceInspector
+                    conversationId={message.conversation_id} messageId={meta.persistedMessageId || message.id} />}
+                </AnswerDetails>
+              </div>
+            </>}
             {!isStreaming && (
               <AriaActionChips
                 content={message.content}
@@ -777,10 +776,8 @@ function HistoricalTurnRevision({
 
 function PersistentContextReceipt({
   receipt,
-  onSkillSelect,
 }: {
   receipt: ContextReceiptEvent
-  onSkillSelect?: (skillId: number, name: string) => void
 }) {
   const memoryLabel = {
     not_applicable: '不依赖单项目记忆',
@@ -870,12 +867,6 @@ function PersistentContextReceipt({
             return `${PROJECT_WORLD_STATE_LABELS[category] || category} +${counts?.added || 0} / -${counts?.removed || 0} / 更新 ${counts?.updated || 0}`
           }).join(' · ')}
         </div>
-      )}
-      {receipt.skill.status === 'ambiguous' && onSkillSelect && (
-        <SkillCandidateButtons
-          candidates={receipt.skill.candidates || []}
-          onSelect={onSkillSelect}
-        />
       )}
     </details>
   )
@@ -1143,79 +1134,6 @@ function ArtifactCard({
 }
 
 /* ────────────────────────────────────────────────────────────────
- * Reference chips — canonical evidence citations. Matches /chat's R19 chip
- * style (mono [K*] / legacy [N] + lucide icon + title).
- * ──────────────────────────────────────────────────────────────── */
-function ReferenceChips({ refs }: { refs: Reference[] }) {
-  const [originalDocumentId, setOriginalDocumentId] = useState<number | null>(null)
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 6,
-        marginTop: 10,
-      }}
-    >
-      {refs.map((r, i) => (
-        <span
-          key={`${r.type}-${r.id}-${i}`}
-          title={r.chunk_index != null ? `${r.title} · 片段 ${r.chunk_index + 1}` : r.title}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 5,
-            padding: '2px 8px',
-            fontSize: 11.5,
-            background: 'var(--bg-elev)',
-            color: 'var(--ink-soft)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--r-sm)',
-          }}
-        >
-          <span
-            className="num"
-            style={{
-              fontSize: 10,
-              color: 'var(--accent)',
-              fontWeight: 500,
-            }}
-          >
-            {knowledgeReferenceLabel(r, i)}
-          </span>
-          <CxIcon
-            name={
-              r.type === 'skill'
-                ? 'wrench'
-                : r.type === 'doc' || r.type === 'file'
-                  ? 'file'
-                  : 'tag'
-            }
-            size={11}
-            style={{ color: 'var(--ink-mute)' }}
-          />
-          <span
-            style={{
-              maxWidth: 220,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {r.title}
-          </span>
-          {r.type === 'doc' && r.document_namespace === 'source_scoped' && r.id > 0 && (
-            <button type="button" className="underline" aria-label={`查看原文 ${knowledgeReferenceLabel(r, i)} ${r.title}`}
-              onClick={() => setOriginalDocumentId(r.id)}>原文</button>
-          )}
-        </span>
-      ))}
-      {originalDocumentId !== null && <KnowledgeSourceViewer key={originalDocumentId} documentId={originalDocumentId} onClose={() => setOriginalDocumentId(null)} />}
-    </div>
-  )
-}
-
-/* ────────────────────────────────────────────────────────────────
  * Aria action chips — hover-revealed pill row. Two actions:
  *   - 复制       → copy message content to clipboard
  *   - 沉淀到记忆 → create a source-linked candidate for human review
@@ -1322,7 +1240,7 @@ function AriaActionChips({
 
   return (
     <div
-      className={feedback || showReasons ? '' : 'opacity-0 group-hover:opacity-100'}
+      className={feedback || showReasons ? '' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100'}
       style={{
         display: 'flex',
         gap: 6,

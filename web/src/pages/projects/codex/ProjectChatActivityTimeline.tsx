@@ -174,6 +174,15 @@ export function ProjectChatActivityTimeline({
         <span style={{ color: 'var(--ink-faint)', fontSize: 10 }}>{expanded ? '收起 ▴' : '展开 ▾'}</span>
       </button>
 
+      {timeline.error && <div role="alert" style={{ padding: '7px 11px', color: 'var(--bad)', fontSize: 12 }}>
+        {timeline.error.message}{timeline.error.retryable ? ' · 可以安全重试' : ''}
+      </div>}
+      {timeline.confirmation && (!timeline.final_status || timeline.final_status === 'waiting_confirmation') && (
+        <div role="status" style={{ padding: '7px 11px', color: 'var(--warn)', fontSize: 12 }}>
+          等待确认 · {timeline.confirmation.action} · {timeline.confirmation.impact}
+        </div>
+      )}
+
       {expanded && (
         <div
           style={{
@@ -225,14 +234,9 @@ export function ProjectChatActivityTimeline({
             </ol>
           )}
 
-          {timeline.confirmation && (
-            <div style={{ color: 'var(--warn)', fontSize: 11.5 }}>
-              等待确认 · {timeline.confirmation.action} · {timeline.confirmation.impact}
-            </div>
-          )}
-          {timeline.error && (
-            <div style={{ color: 'var(--bad)', fontSize: 11.5 }}>
-              {timeline.error.message}{timeline.error.retryable ? ' · 可以安全重试' : ''}
+          {timeline.confirmation && timeline.final_status && timeline.final_status !== 'waiting_confirmation' && (
+            <div style={{ color: 'var(--ink-mute)', fontSize: 11.5 }}>
+              确认记录 · {timeline.confirmation.action} · {timeline.confirmation.impact}
             </div>
           )}
           {(timeline.artifacts.length > 0 || timeline.memory_candidates.length > 0) && (

@@ -43,7 +43,9 @@ import { useToast } from '../../contexts/ToastContext'
 import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { PageTitle } from '../../components/PageTitle'
-import { KnowledgeSourceViewer } from '../../components/KnowledgeSourceViewer'
+import { AnswerDetails } from '../../components/AnswerDetails'
+import { AnswerSources } from '../../components/AnswerSources'
+import { AnswerContextNotice } from '../../components/AnswerContextNotice'
 import { CxSkeleton, CxStatus, CxTopProgress } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skill, SkillSummary } from '../../types/api'
@@ -57,7 +59,7 @@ import {
   toTurnReceiptEvent,
   type ChatStreamEvent,
 } from '../../types/chatStreamEvent'
-import { knowledgeReferenceLabel, normalizeKnowledgeReferences } from '../../utils/knowledgeEvidence'
+import { normalizeKnowledgeReferences } from '../../utils/knowledgeEvidence'
 import { parseKnowledgeChatHandoff, type KnowledgeChatHandoff } from '../../utils/knowledgeChatHandoff'
 import { describeRunSkill, normalizeRunSkill, type ActiveRunSkill } from '../../utils/chatRunSkill'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
@@ -4130,7 +4132,6 @@ function ConversationMenu({
 // still render in their legacy palette — sub-C will refactor those.
 function MessageRow({ message }: { message: Message }) {
   const { t } = useTranslation()
-  const [originalDocumentId, setOriginalDocumentId] = useState<number | null>(null)
   const isUser = message.role === 'user'
   const displayName = isUser ? getCurrentUserDisplayName() : ''
   const fallbackYou = t('chat.you')
@@ -4142,6 +4143,8 @@ function MessageRow({ message }: { message: Message }) {
   let artifacts: GeneratedArtifact[] = []
   let stageTimings: StageTimingEntry[] = []
   let contextReceipt: ContextReceiptEvent | null = null
+  let hasReceipts = false
+  let interrupted = false
   try {
     const meta = JSON.parse(message.metadata_json || '{}')
     references = normalizeKnowledgeReferences(meta.references)
@@ -4150,9 +4153,14 @@ function MessageRow({ message }: { message: Message }) {
     stageTimings = stageTimingEntriesFromMeta(meta)
     const receiptEvent = parseChatStreamEvent(meta.context_receipt)
     contextReceipt = receiptEvent ? toContextReceiptEvent(receiptEvent) : null
+    hasReceipts = Boolean(meta.answer_length || meta.stage_timings)
+    interrupted = Boolean(meta.phase_error || meta.turn_interrupted || meta.stopped
+      || ['failed', 'cancelled', 'interrupted', 'waiting_confirmation'].includes(meta.run_rollout?.status)
+      || (Array.isArray(meta.tool_calls) && meta.tool_calls.some((call: { status?: string }) => ['failed', 'error', 'denied'].includes(call?.status || ''))))
   } catch {
     // Ignore invalid metadata payloads from older chat messages.
   }
+  const prominentProgress = interrupted || skillProgress.some(step => step.status !== 'done')
 
   // Codex layout matches the project chat (R16):
   // - User: avatar right, ink bubble right-aligned with asymmetric
@@ -4236,7 +4244,7 @@ function MessageRow({ message }: { message: Message }) {
               color: 'var(--color-codex-ink)',
             }}
           >
-            <ProgressCard steps={skillProgress} title="Skill 执行清单" />
+            {prominentProgress && <ProgressCard steps={skillProgress} title="Skill 执行清单" />}
             {artifacts.map((artifact) => (
               <ChatArtifactCard
                 key={`${artifact.id ?? artifact.path}-${artifact.name}`}
@@ -4244,113 +4252,60 @@ function MessageRow({ message }: { message: Message }) {
               />
             ))}
             <StreamingAnswerPreview content={message.content} compact={false} />
-            <AnswerLengthReceipt metadataJson={message.metadata_json} />
-            <ModelResponseReceipt metadataJson={message.metadata_json} />
-            {contextReceipt && <MainContextReceiptSummary receipt={contextReceipt} />}
+            <AnswerLengthReceipt metadataJson={message.metadata_json} only="warning" />
+            <AnswerContextNotice receipt={contextReceipt} />
           </div>
         )}
 
-        {/* References — Codex chip row with [N] mono numbering (R19). */}
-        {!isUser && references.length > 0 && (
-          <div className="mt-2 flex flex-wrap" style={{ gap: 6 }}>
-            {references.map((ref, i) => (
-              <span
-                key={i}
-                className="inline-flex items-center"
-                title={ref.chunk_index != null ? `${ref.title} · 片段 ${ref.chunk_index + 1}` : ref.title}
-                style={{
-                  gap: 5,
-                  padding: '2px 8px',
-                  fontSize: 11.5,
-                  background: 'var(--color-codex-bg-elev)',
-                  color: 'var(--color-codex-ink-soft)',
-                  border: '1px solid var(--color-codex-line)',
-                  borderRadius: 'var(--codex-r-sm, 6px)',
-                }}
-              >
-                <span
-                  className="font-mono"
-                  style={{
-                    fontSize: 10,
-                    color: 'var(--color-codex-accent)',
-                    fontWeight: 500,
-                  }}
-                >
-                  {knowledgeReferenceLabel(ref, i)}
-                </span>
-                {ref.type === 'skill' && (
-                  <Wrench
-                    className="h-3 w-3"
-                    aria-hidden="true"
-                    style={{ color: 'var(--color-codex-ink-mute)' }}
-                  />
-                )}
-                {ref.type === 'doc' && (
-                  <BookOpen
-                    className="h-3 w-3"
-                    aria-hidden="true"
-                    style={{ color: 'var(--color-codex-ink-mute)' }}
-                  />
-                )}
-                {ref.type === 'file' && (
-                  <FileIcon
-                    className="h-3 w-3"
-                    aria-hidden="true"
-                    style={{ color: 'var(--color-codex-ink-mute)' }}
-                  />
-                )}
-                <span className="truncate" style={{ maxWidth: 220 }}>
-                  {ref.title}
-                </span>
-                {ref.type === 'doc' && ref.document_namespace === 'source_scoped' && ref.id > 0 && (
-                  <button type="button" className="underline" aria-label={`查看原文 ${knowledgeReferenceLabel(ref, i)} ${ref.title}`}
-                    onClick={() => setOriginalDocumentId(ref.id)}>原文</button>
-                )}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Stage timings — quiet info chips, mono numbers. */}
-        {originalDocumentId !== null && <KnowledgeSourceViewer key={originalDocumentId} documentId={originalDocumentId} onClose={() => setOriginalDocumentId(null)} />}
-        {!isUser && stageTimings.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {stageTimings
-              .filter((item) =>
-                [
-                  'prepare_total_ms',
-                  'model_first_event_ms',
-                  'tools_total_ms',
-                  'follow_up_ms',
-                  'save_ms',
-                  'total_stream_ms',
-                ].includes(item.key),
-              )
-              .slice(0, 6)
-              .map((item) => (
-                <span
-                  key={item.key}
-                  className="inline-flex items-center gap-1"
-                  style={{
-                    padding: '2px 8px',
-                    fontSize: 11,
-                    background: 'var(--color-codex-bg-tint)',
-                    color: 'var(--color-codex-ink-mute)',
-                    borderRadius: 'var(--codex-r-sm, 3px)',
-                  }}
-                >
-                  <Clock className="h-3 w-3" aria-hidden="true" />
-                  {item.label}{' '}
-                  <span className="font-mono">{formatDuration(item.durationMs)}</span>
-                </span>
-              ))}
-          </div>
-        )}
+        {!isUser && <div className="flex flex-wrap gap-x-3">
+          <AnswerSources references={references} />
+          {(hasReceipts || contextReceipt || skillProgress.length > 0) && (
+            <AnswerDetails key={message.id}>
+              {!prominentProgress && <ProgressCard steps={skillProgress} title="Skill 执行清单" />}
+              {contextReceipt && <MainContextReceiptSummary receipt={contextReceipt} />}
+              <AnswerLengthReceipt metadataJson={message.metadata_json} only="passed" />
+              <ModelResponseReceipt metadataJson={message.metadata_json} />
+              {stageTimings.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {stageTimings
+                    .filter((item) =>
+                      [
+                        'prepare_total_ms',
+                        'model_first_event_ms',
+                        'tools_total_ms',
+                        'follow_up_ms',
+                        'save_ms',
+                        'total_stream_ms',
+                      ].includes(item.key),
+                    )
+                    .slice(0, 6)
+                    .map((item) => (
+                      <span
+                        key={item.key}
+                        className="inline-flex items-center gap-1"
+                        style={{
+                          padding: '2px 8px',
+                          fontSize: 11,
+                          background: 'var(--color-codex-bg-tint)',
+                          color: 'var(--color-codex-ink-mute)',
+                          borderRadius: 'var(--codex-r-sm, 3px)',
+                        }}
+                      >
+                        <Clock className="h-3 w-3" aria-hidden="true" />
+                        {item.label}{' '}
+                        <span className="font-mono">{formatDuration(item.durationMs)}</span>
+                      </span>
+                    ))}
+                </div>
+              )}
+            </AnswerDetails>
+          )}
+        </div>}
 
         {/* Hover-only copy button. Timestamp already lives in the role
             line, so the row stays quiet at rest. */}
         <div
-          className="mt-1.5 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100"
+          className="mt-1.5 flex items-center gap-1.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100"
           style={{ color: 'var(--color-codex-ink-faint)' }}
         >
           <CopyButton text={message.content} />
