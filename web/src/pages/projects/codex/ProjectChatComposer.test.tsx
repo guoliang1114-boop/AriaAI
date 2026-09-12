@@ -21,7 +21,9 @@ const mentionables: ProjectMentionables = {
   milestones: [{ id: 13, title: '提交诊断报告', due_date: null, is_done: false }],
 }
 
-function ComposerHarness() {
+function ComposerHarness({ sendBlocked = false, onSend = vi.fn(), busy = false, onSteer = vi.fn() }: {
+  sendBlocked?: boolean; onSend?: ReturnType<typeof vi.fn>; busy?: boolean; onSteer?: ReturnType<typeof vi.fn>
+}) {
   const [value, setValue] = useState('')
   const [skillSelection, setSkillSelection] = useState<ProjectSkillSelection>({ mode: 'auto' })
   const [selectedMentions, setSelectedMentions] = useState<SelectedProjectMention[]>([])
@@ -33,11 +35,12 @@ function ComposerHarness() {
       projectId={26}
       value={value}
       onChange={setValue}
-      onSend={vi.fn()}
-      onSteer={vi.fn()}
+      onSend={onSend}
+      onSteer={onSteer}
       onStop={vi.fn()}
-      busy={false}
-      canSteer={false}
+      busy={busy}
+      canSteer={busy}
+      sendBlocked={sendBlocked}
       skills={skills}
       skillSelection={skillSelection}
       onSkillSelectionChange={setSkillSelection}
@@ -85,6 +88,27 @@ function ComposerHarness() {
 }
 
 describe('ProjectChatComposer', () => {
+  it('blocks both Send and Enter until the knowledge scope is confirmed', () => {
+    const onSend = vi.fn()
+    const { rerender } = render(<ComposerHarness sendBlocked onSend={onSend} />)
+    const textbox = screen.getByRole('textbox')
+    fireEvent.change(textbox, { target: { value: '继续' } })
+    fireEvent.keyDown(textbox, { key: 'Enter' })
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    expect(onSend).not.toHaveBeenCalled()
+    expect(textbox).toHaveValue('继续')
+    rerender(<ComposerHarness onSend={onSend} />)
+    fireEvent.keyDown(textbox, { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledWith('继续')
+  })
+
+  it('does not let pending next-turn scope block text-only steering of the active run', () => {
+    const onSteer = vi.fn()
+    render(<ComposerHarness sendBlocked busy onSteer={onSteer} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '请简短一些' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+    expect(onSteer).toHaveBeenCalledWith('请简短一些')
+  })
   it('selects exact project objects with Arrow keys and Enter', () => {
     render(<ComposerHarness />)
     const textbox = screen.getByRole('textbox')

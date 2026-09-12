@@ -23,6 +23,54 @@ describe('useChatStream Skill control', () => {
     localStorage.removeItem('authToken')
   })
 
+  it('sends and persists exact knowledge selection across followups, but omits it after clearing', async () => {
+    const onUserMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3, conversationId: 4, onUserMessage, onAssistantMessage: vi.fn(),
+    }))
+    await act(async () => result.current.send('市场洞察怎么做', { knowledgeDocumentIds: [7, 9] }))
+    await act(async () => result.current.send('精简成两条', { knowledgeDocumentIds: [7, 9] }))
+    await act(async () => result.current.send('回到项目默认范围'))
+    const requests = vi.mocked(fetch).mock.calls.map(call => JSON.parse(String(call[1]?.body)))
+    expect(requests[0]).toMatchObject({ project_id: 3, knowledge_document_ids: [7, 9], rag_doc_ids: [] })
+    expect(requests[1].knowledge_document_ids).toEqual([7, 9])
+    expect(requests[2]).not.toHaveProperty('knowledge_document_ids')
+    expect(JSON.parse(onUserMessage.mock.calls[1][0].metadata_json).knowledge_document_ids).toEqual([7, 9])
+    expect(JSON.parse(onUserMessage.mock.calls[2][0].metadata_json)).not.toHaveProperty('knowledge_document_ids')
+  })
+
+  it.each([[], [0], [-1], [1.5], Array.from({ length: 21 }, (_, i) => i + 1)].map(ids => ({ ids })))('rejects invalid document selection before any request %#', async ({ ids: knowledgeDocumentIds }) => {
+    const onUserMessage = vi.fn()
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3, conversationId: 4, onUserMessage, onAssistantMessage: vi.fn(),
+    }))
+    await act(async () => { await expect(result.current.send('继续', { knowledgeDocumentIds })).rejects.toThrow('知识资料选择无效') })
+    expect(fetch).not.toHaveBeenCalled()
+    expect(onUserMessage).not.toHaveBeenCalled()
+  })
+
+  it('does not mix a new selection into an existing recovery contract', async () => {
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3, conversationId: 4, onUserMessage: vi.fn(), onAssistantMessage: vi.fn(),
+    }))
+    await act(async () => { await expect(result.current.send('继续', {
+      knowledgeDocumentIds: [7],
+      turnRecovery: { source_run_id: 'run_old', source_message_id: 1, strategy: 'continue_as_new_turn', completed_steps: [], side_effects_possible: false },
+    })).rejects.toThrow('证据冲突') })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('does not mix selected documents with a verified question-answer evidence bundle', async () => {
+    const { result } = renderHook(() => useChatStream({
+      projectId: 3, conversationId: 4, onUserMessage: vi.fn(), onAssistantMessage: vi.fn(),
+    }))
+    await act(async () => { await expect(result.current.send('回答问题', {
+      knowledgeDocumentIds: [7],
+      projectQuestionReanswer: { question: '范围确认了吗？', question_sha256: 'a'.repeat(64), contract_sha256: 'b'.repeat(64), attachment_ids: [51] },
+    })).rejects.toThrow('证据冲突') })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('sends explicit and disabled Skill choices as mutually exclusive controls', async () => {
     const callbacks = {
       onUserMessage: vi.fn(),

@@ -31,6 +31,8 @@ import { usePendingActions, type PendingActionBatch } from '../usePendingActions
 import { ChatArtifactPreview } from '../ChatArtifactPreview'
 import { ChatEmptyState } from '../ChatEmptyState'
 import { ChatSpaceTree } from '../ChatSpaceTree'
+import { ProjectKnowledgeControl } from '../ProjectKnowledgeControl'
+import { useConversationKnowledge } from '../useConversationKnowledge'
 import {
   useChatStream,
   type ChatCapabilityFrame,
@@ -906,6 +908,7 @@ function ThreadView({
   const navigate = useNavigate()
   const toast = useToast()
   const { t } = useTranslation()
+  const knowledgeSelection = useConversationKnowledge(projectId, conversationId)
   const [deleting, setDeleting] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -1195,6 +1198,10 @@ function ThreadView({
         title: '恢复轮次未完成',
         description: err instanceof Error ? err.message : '中断状态仍在保存，请稍后再试。',
       })
+    } finally {
+      // Recovery owns its evidence contract. Reload the latest persisted scope
+      // afterwards, including cancelled/failed runs that may have activated.
+      knowledgeSelection.refresh()
     }
   }
 
@@ -1459,11 +1466,16 @@ function ThreadView({
             </button>
           </div>
         )}
+        {!projectQuestionReanswer && <ProjectKnowledgeControl selection={knowledgeSelection} disabled={busy} />}
         <ProjectChatComposer
           projectId={projectId}
           value={composerText}
           onChange={changeComposerText}
           onSend={async (text) => {
+            if (!projectQuestionReanswer && knowledgeSelection.blocked) return
+            const knowledgeDocumentIds = !projectQuestionReanswer && knowledgeSelection.documents.length
+              ? knowledgeSelection.documents.map(document => document.id)
+              : undefined
             const selectionForTurn = skillSelection
             const deliverableForTurn = deliverableSelection
             const mentionContext = currentMentionContext
@@ -1484,6 +1496,7 @@ function ThreadView({
               const completedMessage = await onSend(
                 text,
                 {
+                  ...(knowledgeDocumentIds ? { knowledgeDocumentIds } : {}),
                   ...(selectionForTurn.mode === 'explicit'
                     ? {
                       skillId: selectionForTurn.skillId,
@@ -1550,6 +1563,7 @@ function ThreadView({
           }}
           onStop={onStop}
           busy={busy}
+          sendBlocked={!projectQuestionReanswer && knowledgeSelection.blocked}
           canSteer={canSteer}
           skills={skills}
           skillSelection={skillSelection}
@@ -1733,6 +1747,7 @@ export function ProjectChatComposer({
   onSteer,
   onStop,
   busy,
+  sendBlocked = false,
   canSteer,
   skills,
   skillSelection,
@@ -1762,6 +1777,7 @@ export function ProjectChatComposer({
   onSteer: (text: string) => boolean | Promise<boolean>
   onStop: () => void
   busy: boolean
+  sendBlocked?: boolean
   canSteer: boolean
   skills: SkillSummary[]
   skillSelection: ProjectSkillSelection
@@ -1814,6 +1830,7 @@ export function ProjectChatComposer({
       if (canSteer) void onSteer(text)
       return
     }
+    if (sendBlocked) return
     void onSend(text)
   }
 
@@ -2114,7 +2131,7 @@ export function ProjectChatComposer({
           <button
             type="button"
             onClick={submit}
-            disabled={!value.trim() || (busy && !canSteer)}
+            disabled={!value.trim() || (busy ? !canSteer : sendBlocked)}
             style={{
               padding: '5px 14px',
               background: 'var(--accent)',
@@ -2125,8 +2142,8 @@ export function ProjectChatComposer({
               display: 'inline-flex',
               alignItems: 'center',
               gap: 5,
-              opacity: !value.trim() || (busy && !canSteer) ? 0.5 : 1,
-              cursor: !value.trim() || (busy && !canSteer) ? 'not-allowed' : 'pointer',
+              opacity: !value.trim() || (busy ? !canSteer : sendBlocked) ? 0.5 : 1,
+              cursor: !value.trim() || (busy ? !canSteer : sendBlocked) ? 'not-allowed' : 'pointer',
             }}
           >
             {busy ? '追加到当前任务' : '发送'} <CxIcon name="arrow-right" size={11} stroke={1.8} />

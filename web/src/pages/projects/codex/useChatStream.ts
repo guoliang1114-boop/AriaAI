@@ -68,6 +68,8 @@ export interface ChatCapabilityFrame {
 }
 
 export interface ProjectChatTurnControl {
+  /** Exact source-scoped document identities, never legacy/chunk IDs. */
+  knowledgeDocumentIds?: number[]
   skillId?: number
   disableSkill?: boolean
   mentionContext?: MentionContext
@@ -264,6 +266,14 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
     async (content: string, turnControl: ProjectChatTurnControl = {}) => {
       const text = content.trim()
       if (!text) return
+      const knowledgeDocumentIds = turnControl.knowledgeDocumentIds
+      if (knowledgeDocumentIds !== undefined && (
+        !knowledgeDocumentIds.length || knowledgeDocumentIds.length > 20
+        || knowledgeDocumentIds.some(id => !Number.isSafeInteger(id) || id <= 0)
+        || turnControl.projectQuestionReanswer || turnControl.turnRecovery
+      )) {
+        throw new Error('知识资料选择无效，或与已绑定的恢复/问题证据冲突')
+      }
       const guardedTurn = Boolean(
         turnControl.turnRecovery || turnControl.projectQuestionReanswer,
       )
@@ -301,6 +311,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
         role: 'user',
         content: text,
         metadata_json: JSON.stringify({
+          ...(knowledgeDocumentIds ? { knowledge_document_ids: knowledgeDocumentIds } : {}),
           ...(turnControl.skillId != null ? { skill_id: turnControl.skillId } : {}),
           ...(turnControl.mentionContext ? { mention_context: turnControl.mentionContext } : {}),
           ...(turnControl.turnBrief ? { turn_brief: turnControl.turnBrief } : {}),
@@ -353,6 +364,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
             force_skill: turnControl.skillId != null,
             disable_skill: turnControl.disableSkill === true,
             rag_doc_ids: [],
+            knowledge_document_ids: knowledgeDocumentIds,
             file_ids: [],
             language: i18n.language || 'zh-CN',
             mention_context: turnControl.mentionContext,
