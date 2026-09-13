@@ -3,10 +3,14 @@ import { BookOpen, Info } from 'lucide-react'
 import type { Reference } from '../types/api'
 import { knowledgeReferenceLabel } from '../utils/knowledgeEvidence'
 import { KnowledgeSourceViewer } from './KnowledgeSourceViewer'
+import { ChatIconButton } from './ChatIconButton'
+import { MessageCopyButton } from './MessageCopyButton'
 import styles from './AnswerFooter.module.css'
 
 /** Optional answer metadata only. Errors, approvals and live status stay outside. */
-export function AnswerFooter({ references, children }: { references: Reference[]; children?: ReactNode }) {
+export function AnswerFooter({ references, children, copyText, actions }: {
+  references: Reference[]; children?: ReactNode; copyText?: string; actions?: ReactNode
+}) {
   const [panel, setPanel] = useState<'sources' | 'details' | null>(null)
   const [documentId, setDocumentId] = useState<number | null>(null)
   const id = useId()
@@ -19,26 +23,27 @@ export function AnswerFooter({ references, children }: { references: Reference[]
     group.citations.push({ reference, label: knowledgeReferenceLabel(reference, index) })
     groups.set(key, group)
   })
-  if (!references.length && !children) return null
+  if (!references.length && !children && copyText === undefined && !actions) return null
   const toggle = (next: 'sources' | 'details') => {
     setPanel(current => current === next ? null : next)
     setDocumentId(null)
   }
   return <div className={styles.footer}>
-    <div className={styles.actions} role="group" aria-label="回答辅助信息">
+    <div className={styles.actions} role="group" aria-label="回答操作">
+      {copyText !== undefined && <MessageCopyButton key={copyText} text={copyText} />}
       {references.length > 0 && <>
-        <button type="button" aria-label="查看回答来源" aria-expanded={panel === 'sources'}
+        <ChatIconButton label="查看回答来源" aria-expanded={panel === 'sources'}
           aria-controls={`${id}-sources`} aria-describedby={`${id}-source-count`}
-          className={styles.trigger} onClick={() => toggle('sources')}>
+          onClick={() => toggle('sources')}>
           <BookOpen size={14} aria-hidden="true" />
-          <span>来源</span><span className={styles.count} aria-hidden="true">{groups.size}</span>
-        </button>
+        </ChatIconButton>
         <span id={`${id}-source-count`} className="sr-only">{groups.size} 项来源，{references.length} 处引用</span>
       </>}
-      {!!children && <button type="button" aria-label="查看回答详情" aria-expanded={panel === 'details'}
-        aria-controls={`${id}-details`} className={styles.trigger} onClick={() => toggle('details')}>
-        <Info size={14} aria-hidden="true" /><span>详情</span>
-      </button>}
+      {!!children && <ChatIconButton label="查看回答详情" aria-expanded={panel === 'details'}
+        aria-controls={`${id}-details`} onClick={() => toggle('details')}>
+        <Info size={14} aria-hidden="true" />
+      </ChatIconButton>}
+      {actions}
     </div>
     {references.length > 0 && <div id={`${id}-sources`} hidden={panel !== 'sources'}>
       {panel === 'sources' && <div role="region" aria-label="回答来源" className={styles.panel}>

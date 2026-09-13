@@ -1,0 +1,65 @@
+.root {
+  position: relative;
+  min-width: 0;
+  margin-bottom: 6px;
+  color: var(--color-codex-ink-soft);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.name {
+  color: var(--color-codex-accent-ink);
+  font-weight: 500;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-codex-accent);
+  flex-shrink: 0;
+}
+
+.status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-codex-ink-mute);
+}
+
+.diagnostics summary:focus-visible {
+  outline: 2px solid var(--color-codex-accent);
+  outline-offset: 2px;
+}
+
+.muted { color: var(--color-codex-ink-mute); }
+.attention { margin-top: 6px; color: var(--color-codex-warn); }
+
+.panel {
+  max-width: 720px;
+  min-width: 0;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-codex-line-soft);
+  border-radius: 8px;
+  background: var(--color-codex-bg-elev);
+  overflow-wrap: anywhere;
+}
+
+.panel h3 { margin: 0 0 5px; font-size: 12px; font-weight: 500; }
+.panel p { margin: 4px 0; }
+.context, .process { margin-top: 12px; }
+.diagnostics { margin-top: 8px; color: var(--color-codex-ink-mute); font-size: 11px; }
+.diagnostics summary { width: fit-content; padding: 4px 0; cursor: pointer; }
+.diagnostics > div { margin-top: 6px; }
+
+@media (pointer: coarse) {
+  .diagnostics summary { min-height: 40px; }
+}

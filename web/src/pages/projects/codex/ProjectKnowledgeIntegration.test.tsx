@@ -5,9 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../../../api/client'
 import type { ProjectDetail } from '../../../types/api'
 import { CxProjectChat } from './tabs/Chat'
+import { liveContextReceipt, liveTurnReceipt } from '../../../test/turnReceipts'
+import { emptyTimeline } from '../../../stores/runActivityReducer'
 
 const mocks = vi.hoisted(() => ({
   send: vi.fn(), refetch: vi.fn().mockResolvedValue(undefined),
+  live: false,
   messages: [], batches: [],
   conversations: [4, 5].map(id => ({ id, project_id: 3, title: `验收对话 ${id}`, created_at: '2026-09-12T00:00:00Z', updated_at: '2026-09-12T00:00:00Z' })),
   toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
@@ -24,7 +27,12 @@ vi.mock('./useProjectsApi', () => ({
   formatUpdatedRelative: () => '刚刚',
 }))
 vi.mock('./usePendingActions', () => ({ usePendingActions: () => ({ batches: mocks.batches, actingKey: null, refetch: mocks.refetch }) }))
-vi.mock('./useChatStream', () => ({ useChatStream: () => ({ status: 'idle', send: mocks.send }) }))
+vi.mock('./useChatStream', () => ({ useChatStream: () => mocks.live ? {
+  status: 'streaming', send: mocks.send, streamingContent: '', streamingMessageId: -1,
+  activeRunId: 'live-run-1', statusMessage: '正在思考…', turnReceipt: liveTurnReceipt,
+  contextReceipt: liveContextReceipt, activityTimeline: { ...emptyTimeline('live-run-1'),
+    steps: [{ index: 1, title: '第 1 步', status: 'running', items: [] }] },
+} : { status: 'idle', send: mocks.send } }))
 
 const selected = { namespace: 'source_scoped', documents: [{ id: 7, title: 'IBM 方法文档' }], unavailable_count: 0 }
 const empty = { namespace: 'source_scoped', documents: [], unavailable_count: 0 }
@@ -45,6 +53,7 @@ function enter(text: string) {
 describe('native project knowledge scope integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.live = false
     localStorage.clear()
     Element.prototype.scrollTo = vi.fn()
     mocks.send.mockResolvedValue(undefined)
@@ -52,6 +61,22 @@ describe('native project knowledge scope integration', () => {
       if (url.endsWith('/knowledge-context')) return selected
       return auxiliaryResponse(url)
     })
+  })
+
+  it('places live receipt details inside the message scroller, not above the composer', async () => {
+    mocks.live = true
+    mount()
+    const trigger = await screen.findByRole('button', { name: '本轮详情' })
+    const message = trigger.closest('#project-chat-message--1')
+    expect(message).not.toBeNull()
+    expect(message).not.toContainElement(screen.getByRole('textbox'))
+    expect(screen.queryByText(liveTurnReceipt.summary)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Aria 运行时间线')).not.toBeInTheDocument()
+    fireEvent.click(trigger)
+    expect(message).toContainElement(screen.getByRole('region', { name: '本轮详情' }))
+    expect(screen.getByText(liveTurnReceipt.summary)).toBeVisible()
+    fireEvent.click(trigger)
+    expect(screen.queryByRole('region', { name: '本轮详情' })).not.toBeInTheDocument()
   })
 
   it('carries restored documents on actual composer sends and drops them after explicit clear', async () => {

@@ -44,8 +44,10 @@ import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { PageTitle } from '../../components/PageTitle'
 import { AnswerFooter } from '../../components/AnswerFooter'
+import { MessageCopyButton } from '../../components/MessageCopyButton'
 import { AnswerContextNotice } from '../../components/AnswerContextNotice'
-import { CxSkeleton, CxStatus, CxTopProgress } from '../../components/codex'
+import { LiveTurnDetails } from '../../components/LiveTurnDetails'
+import { CxSkeleton, CxTopProgress } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Reference, Skill, SkillSummary } from '../../types/api'
 import type { ContextReceiptEvent, TurnReceiptEvent } from '../../types/productRunEvent'
@@ -397,90 +399,6 @@ function buildProgressFromMetadata(meta: unknown): ChatProgressStep[] {
   return steps
 }
 
-function ChatStatusPill({ message }: { message?: string | null }) {
-  return (
-    <div
-      className="mb-3 inline-flex items-center gap-2"
-      style={{
-        padding: '6px 12px',
-        background: 'var(--color-codex-bg-elev)',
-        border: '1px solid var(--color-codex-line)',
-        borderRadius: 'var(--codex-r-sm, 3px)',
-        fontSize: 12.5,
-        color: 'var(--color-codex-ink-soft)',
-      }}
-    >
-      <Loader2
-        className="h-3.5 w-3.5 animate-spin"
-        aria-hidden="true"
-        style={{ color: 'var(--color-codex-accent)' }}
-      />
-      <span>{message || '正在与模型建立连接...'}</span>
-    </div>
-  )
-}
-
-function MainTurnReceiptCard({
-  receipt,
-  contextReceipt,
-}: {
-  receipt: TurnReceiptEvent
-  contextReceipt: ContextReceiptEvent | null
-}) {
-  const modeLabel = {
-    answer_only: '直接回答',
-    plan_only: '只做规划',
-    execute_now: '立即执行',
-    plan_then_execute: '规划后执行',
-  }[receipt.mode]
-  const scopeLabel = {
-    chat: '当前对话',
-    project: '当前项目',
-    workspace: '工作区',
-  }[receipt.target_scope]
-  return (
-    <div
-      className="mb-2"
-      style={{
-        padding: '8px 11px',
-        background: 'var(--color-codex-bg-tint)',
-        border: '1px solid var(--color-codex-line)',
-        borderRadius: 'var(--codex-r-sm, 3px)',
-        fontSize: 12,
-        color: 'var(--color-codex-ink-soft)',
-        lineHeight: 1.55,
-      }}
-    >
-      <span style={{ color: 'var(--color-codex-ink)', fontWeight: 600 }}>本轮理解</span>
-      <span> · {modeLabel} · {scopeLabel}</span>
-      <div style={{ marginTop: 3 }}>{receipt.summary}</div>
-      {receipt.user_constraints.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1">
-          {receipt.user_constraints.map((constraint) => (
-            <span
-              key={constraint}
-              style={{
-                padding: '2px 6px',
-                color: 'var(--color-codex-accent)',
-                background: 'var(--color-codex-accent-bg)',
-                borderRadius: 'var(--codex-r-sm, 3px)',
-                fontSize: 10.5,
-              }}
-            >
-              {constraint}
-            </span>
-          ))}
-        </div>
-      )}
-      <div style={{ marginTop: 2, color: 'var(--color-codex-ink-mute)', fontSize: 11 }}>
-        {receipt.write_allowed ? '允许在约定范围内写入' : '不会修改项目内容'}
-        {receipt.requires_confirmation ? ' · 高风险动作会先征求确认' : ''}
-        {receipt.steering_supported ? ' · 可继续追加要求' : ''}
-      </div>
-      {contextReceipt && <MainContextReceiptSummary receipt={contextReceipt} />}
-    </div>
-  )
-}
 
 function MainContextReceiptSummary({ receipt }: { receipt: ContextReceiptEvent }) {
   const memoryLabel = {
@@ -1190,38 +1108,6 @@ const getPromptCards = (): PromptCard[] => [
     prompt: '基于项目现状，帮我识别当前最主要的交付风险，并给出应对策略',
   },
 ]
-
-// ─── CopyButton (for individual messages) ──────────────────────────────────
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  const handle = () => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
-    })
-  }
-  return (
-    <button
-      onClick={handle}
-      title="Copy message"
-      className="p-1.5 transition-colors"
-      style={{
-        background: 'var(--color-codex-bg-tint)',
-        color: 'var(--color-codex-ink-mute)',
-        borderRadius: 'var(--codex-r-sm, 3px)',
-      }}
-    >
-      {copied ? (
-        <Check
-          className="h-3.5 w-3.5"
-          style={{ color: 'var(--color-codex-accent)' }}
-        />
-      ) : (
-        <Copy className="h-3.5 w-3.5" />
-      )}
-    </button>
-  )
-}
 
 // ─── Main component ─────────────────────────────────────────────────────────
 
@@ -2045,7 +1931,7 @@ export function Chat() {
           const receipt = toTurnReceiptEvent(data)
           if (!receipt) return
           setTurnReceipt(receipt)
-          setLiveStatusText(`本轮理解：${receipt.summary}`)
+          setLiveStatusText('正在准备本轮上下文…')
         } else if (data.type === 'context_receipt') {
           resolvedContextReceipt = toContextReceiptEvent(data)
           if (!resolvedContextReceipt) return
@@ -3060,26 +2946,9 @@ export function Chat() {
                       className="flex flex-1 flex-col"
                       style={{ minWidth: 0, paddingTop: 4 }}
                     >
-                      <div
-                        className="flex items-center gap-1.5"
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--color-codex-ink-mute)',
-                          marginBottom: 6,
-                        }}
-                      >
-                        <span
-                          style={{
-                            color: 'var(--color-codex-accent-ink)',
-                            fontWeight: 500,
-                          }}
-                        >
-                          Aria
-                        </span>
-                        <CxStatus tone="accent" pulse>
-                          {t('chat.thinking')}
-                        </CxStatus>
-                      </div>
+                      <LiveTurnDetails key={turnReceipt?.run_id || contextReceipt?.run_id || 'pending'}
+                        status={liveStatusText || toolStatus || t('chat.thinking')}
+                        receipt={turnReceipt} contextReceipt={contextReceipt} />
                       <div
                         style={{
                           fontSize: 14.5,
@@ -3089,10 +2958,8 @@ export function Chat() {
                       >
                         {streamingContent ? (
                           <>
-                            {skillRunActive ? (
+                            {skillRunActive && (
                               <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} />
-                            ) : (
-                              <ChatStatusPill message={liveStatusText} />
                             )}
                             {streamArtifacts.map((artifact) => (
                               <ChatArtifactCard key={`${artifact.id ?? artifact.path}-${artifact.name}`} artifact={artifact} />
@@ -3116,10 +2983,8 @@ export function Chat() {
                           </>
                         ) : toolStatus ? (
                           <>
-                            {skillRunActive ? (
+                            {skillRunActive && (
                               <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} />
-                            ) : (
-                              <ChatStatusPill message={liveStatusText || toolStatus} />
                             )}
                             <div
                               className="flex items-center gap-2 py-1"
@@ -3130,10 +2995,8 @@ export function Chat() {
                             </div>
                           </>
                         ) : (
-                          skillRunActive ? (
+                          skillRunActive && (
                             <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} completedLabel="已就绪" />
-                          ) : (
-                            <ChatStatusPill message={liveStatusText} />
                           )
                         )}
                       </div>
@@ -3216,9 +3079,6 @@ export function Chat() {
           />
           <div className="mx-auto w-full">
             {selectedSkillData && <SkillRequirementsPanel skill={selectedSkillData} />}
-            {sending && turnReceipt && (
-              <MainTurnReceiptCard receipt={turnReceipt} contextReceipt={contextReceipt} />
-            )}
 
             {/* Composer box — textarea on top, toolbar with context pills + send at the bottom. */}
             {conversationRestorePending && <p role="status" className="mb-2 text-xs">正在核对会话及项目归属…</p>}
@@ -4256,7 +4116,7 @@ function MessageRow({ message }: { message: Message }) {
           </div>
         )}
 
-        {!isUser && <AnswerFooter key={message.id} references={references}>
+        {!isUser && <AnswerFooter key={message.id} references={references} copyText={message.content}>
           {(hasReceipts || contextReceipt || skillProgress.length > 0) && (
             <>
               {!prominentProgress && <ProgressCard steps={skillProgress} title="Skill 执行清单" />}
@@ -4300,14 +4160,9 @@ function MessageRow({ message }: { message: Message }) {
           )}
         </AnswerFooter>}
 
-        {/* Hover-only copy button. Timestamp already lives in the role
-            line, so the row stays quiet at rest. */}
-        <div
-          className="mt-1.5 flex items-center gap-1.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100"
-          style={{ color: 'var(--color-codex-ink-faint)' }}
-        >
-          <CopyButton text={message.content} />
-        </div>
+        {isUser && <div role="group" aria-label="消息操作" className="relative mt-1.5 flex items-center">
+          <MessageCopyButton key={message.content} text={message.content} />
+        </div>}
       </div>
     </div>
   )

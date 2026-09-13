@@ -20,7 +20,7 @@ describe('AnswerFooter', () => {
     document.head.append(stylesheet)
     try {
       render(<AnswerFooter references={[reference]}>阶段耗时</AnswerFooter>)
-      const group = screen.getByRole('group', { name: '回答辅助信息' })
+      const group = screen.getByRole('group', { name: '回答操作' })
       const source = within(group).getByRole('button', { name: '查看回答来源' })
       const description = document.getElementById(source.getAttribute('aria-describedby')!)
       expect(description).toHaveClass('sr-only')
@@ -32,24 +32,25 @@ describe('AnswerFooter', () => {
     }
   })
 
-  it('keeps the compact labels stable and counts out of the visible toolbar', () => {
+  it('uses only icons and keeps labels and counts accessible', () => {
     render(<AnswerFooter references={[reference, { ...reference, citation_key: 'K4' }]}>阶段耗时</AnswerFooter>)
     const sources = screen.getByRole('button', { name: '查看回答来源' })
-    expect(sources).toHaveTextContent(/^来源1$/)
+    // SVG only; no visible label or count.
+    expect(sources.textContent).toBe('')
     expect(sources).toHaveAccessibleDescription('1 项来源，2 处引用')
     expect(sources).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.getByRole('button', { name: '查看回答详情' })).toHaveTextContent(/^详情$/)
+    expect(screen.getByRole('button', { name: '查看回答详情' }).textContent).toBe('')
     expect(screen.queryByRole('region')).not.toBeInTheDocument()
     expect(screen.queryByText('阶段耗时')).not.toBeInTheDocument()
     fireEvent.click(sources)
-    expect(sources).toHaveTextContent(/^来源1$/)
+    expect(sources.textContent).toBe('')
     expect(screen.getByRole('region', { name: '回答来源' })).toHaveTextContent('1 项来源 · 2 处引用')
   })
 
   it('switches one panel at a time while both controls stay in the same group', async () => {
     const user = userEvent.setup()
     render(<AnswerFooter references={[reference]}>阶段耗时</AnswerFooter>)
-    const group = screen.getByRole('group', { name: '回答辅助信息' })
+    const group = screen.getByRole('group', { name: '回答操作' })
     const sources = within(group).getByRole('button', { name: '查看回答来源' })
     const details = within(group).getByRole('button', { name: '查看回答详情' })
     await user.click(sources)
@@ -58,7 +59,7 @@ describe('AnswerFooter', () => {
     expect(screen.queryByRole('region', { name: '回答来源' })).not.toBeInTheDocument()
     expect(sources).toHaveAttribute('aria-expanded', 'false')
     expect(details).toHaveAttribute('aria-expanded', 'true')
-    expect(details).toHaveTextContent(/^详情$/)
+    expect(details.textContent).toBe('')
     expect(screen.getByRole('region', { name: '回答详情' })).toBeVisible()
     expect(within(group).getAllByRole('button')).toEqual([sources, details])
     await user.click(details)
@@ -111,7 +112,7 @@ describe('AnswerFooter', () => {
     render(<AnswerFooter references={[reference, { ...reference, id: 8, citation_key: 'K2' },
       { ...reference, document_namespace: 'legacy', citation_key: 'K3' },
       { ...reference, knowledge_source_id: 3, citation_key: 'K4' }]} />)
-    expect(screen.getByRole('button', { name: '查看回答来源' })).toHaveTextContent(/^来源4$/)
+    expect(screen.getByRole('button', { name: '查看回答来源' })).toHaveAccessibleDescription('4 项来源，4 处引用')
     fireEvent.click(screen.getByRole('button', { name: '查看回答来源' }))
     expect(screen.queryByRole('button', { name: '查看原文 [K3] IBM 方法文档' })).not.toBeInTheDocument()
     expect(screen.getByText('[K3] · 片段 1')).toBeVisible()
@@ -126,5 +127,19 @@ describe('AnswerFooter', () => {
     rerender(<AnswerFooter references={[reference]} />)
     expect(screen.queryByRole('button', { name: '查看回答详情' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '查看回答来源' })).toBeVisible()
+  })
+
+  it('puts copy, sources, details and additional actions in one horizontal group', async () => {
+    const user = userEvent.setup()
+    render(<AnswerFooter references={[reference]} copyText="回答正文" actions={<button aria-label="有帮助" />}>阶段耗时</AnswerFooter>)
+    const group = screen.getByRole('group', { name: '回答操作' })
+    const buttons = within(group).getAllByRole('button')
+    expect(buttons.map(button => button.getAttribute('aria-label'))).toEqual(['复制', '查看回答来源', '查看回答详情', '有帮助'])
+    expect(buttons.slice(0, 3).every(button => button.className === buttons[0].className && button.textContent === '')).toBe(true)
+    await user.click(buttons[2])
+    expect(group).not.toContainElement(screen.getByRole('region', { name: '回答详情' }))
+    expect(within(group).getAllByRole('button')).toEqual(buttons)
+    const css = readFileSync(`${import.meta.dirname}/AnswerFooter.module.css`, 'utf8')
+    expect(css).toMatch(/\.actions\s*\{[^}]*display: flex;[^}]*flex-wrap: nowrap;/s)
   })
 })

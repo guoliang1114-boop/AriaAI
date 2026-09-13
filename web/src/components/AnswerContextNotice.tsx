@@ -13,8 +13,14 @@ export function AnswerContextNotice({ receipt }: { receipt: ContextReceiptEvent 
       : receipt.evidence.knowledge_legacy_fallback ? '本轮使用兼容知识来源' : '',
     (receipt.memory.layers || []).some(layer => layer.scope === 'client' && layer.status === 'stale')
       ? '客户记忆待刷新' : '',
-    (receipt.memory.layers || []).some(layer => (layer.scoped_fact_count || 0) > 0 || (layer.unresolved_fact_count || 0) > 0)
+    // Scope-level provenance is not the same as an unresolved fact. Its
+    // trace counts stay in diagnostics rather than warning on every answer.
+    (receipt.memory.unresolved_fact_count || 0) > 0 || (receipt.memory.layers || []).some(layer => (layer.unresolved_fact_count || 0) > 0)
       ? '部分记忆尚待核实' : '',
+    receipt.warnings.includes('skill_tool_contract_invalid') ? '技能工具不可用，请检查技能配置' : '',
+    receipt.warnings.includes('skill_instructions_missing') ? '技能指令未加载，本轮能力可能受限' : '',
+    receipt.warnings.includes('memory_retrieval_truncated') || receipt.warnings.includes('project_world_state_truncated')
+      ? '部分项目信息未完整加载，请核对回答依据' : '',
   ].filter(Boolean)
   if (!notices.length) return null
   return <p role="status" style={{ marginTop: 8, fontSize: 12, color: 'var(--color-codex-warn)' }}>

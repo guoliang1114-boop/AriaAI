@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import i18n from 'i18next'
 import { initReactI18next, I18nextProvider } from 'react-i18next'
 import zh from '../../i18n/locales/zh.json'
 import { Chat } from './Chat'
 import { api } from '../../api/client'
+import { liveContextReceipt, liveTurnReceipt } from '../../test/turnReceipts'
 
 vi.mock('../../api/client', () => ({
   api: {
@@ -138,6 +139,11 @@ describe('standalone chat failure handling', () => {
     }] : defaultResponse(url)) as T)
     render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?conversation=1']}><Chat /></MemoryRouter></I18nextProvider>)
     await screen.findByText('短回答')
+    const toolbar = screen.getByRole('group', { name: '回答操作' })
+    const actions = within(toolbar).getAllByRole('button')
+    expect(actions.map(button => button.getAttribute('aria-label'))).toEqual(['复制', '查看回答详情'])
+    expect(actions.every(button => button.textContent === '' && button.className === actions[0].className)).toBe(true)
+    expect(screen.getAllByRole('button', { name: '复制' })).toHaveLength(1)
     expect(screen.queryByText('字数已核验 · 3/80')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '查看回答详情' }))
     expect(screen.getByText('字数已核验 · 3/80')).toBeVisible()
@@ -160,6 +166,38 @@ describe('standalone chat failure handling', () => {
     fireEvent.click(await screen.findByRole('button', { name: '查看回答详情' }))
     await screen.findByText('字数已核验 · 3/80')
     await screen.findByText('简短改写 · low · 连接响应 0.1s · 开始思考 0.2s · 开始正文 0.8s')
+  })
+
+  it('keeps live receipts beside the reply and returns them to historical details on completion', async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const encode = (event: unknown) => new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ start(value) {
+      controller = value
+      controller.enqueue(encode(liveTurnReceipt))
+      controller.enqueue(encode(liveContextReceipt))
+    } }))))
+    render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?conversation=1']}><Chat /></MemoryRouter></I18nextProvider>)
+    const input = await screen.findByPlaceholderText(zh.chat.placeholder)
+    fireEvent.change(input, { target: { value: '汇总项目进展' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled())
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' }) })
+    const trigger = await screen.findByRole('button', { name: '本轮详情' })
+    expect(trigger.textContent).toBe('')
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText(liveTurnReceipt.summary)).not.toBeInTheDocument()
+    fireEvent.click(trigger)
+    expect(screen.getByText(liveTurnReceipt.summary)).toBeVisible()
+    expect(screen.getByText('诊断信息').closest('details')).not.toHaveAttribute('open')
+    await act(async () => {
+      controller.enqueue(encode({ type: 'text', content: '项目进展已汇总。' }))
+      controller.enqueue(encode({ type: 'done' }))
+      controller.close()
+    })
+    await waitFor(() => expect(screen.queryByRole('button', { name: '本轮详情' })).not.toBeInTheDocument())
+    const historical = await screen.findByRole('button', { name: '查看回答详情' })
+    expect(historical).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(historical)
+    expect(screen.getByText(/项目记忆 v6 已同步/)).toBeVisible()
   })
   afterEach(() => {
     vi.unstubAllGlobals()

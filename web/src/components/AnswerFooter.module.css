@@ -9,56 +9,16 @@
 .actions {
   /* Keep absolute sr-only descriptions inside the message scroll container. */
   position: relative;
+  container-type: inline-size;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
 }
 
-.trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 4px 9px;
-  border: 1px solid var(--color-codex-line-soft);
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  font-size: 12px;
-  line-height: 18px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.trigger:hover {
-  background: var(--color-codex-bg-tint);
-  border-color: var(--color-codex-line);
-}
-
-.trigger[aria-expanded='true'] {
-  background: var(--color-codex-accent-bg);
-  border-color: color-mix(in srgb, var(--color-codex-accent) 30%, var(--color-codex-line-soft));
-  color: var(--color-codex-accent-ink);
-}
-
-.trigger:focus-visible,
 .citation:focus-visible {
   outline: 2px solid var(--color-codex-accent);
   outline-offset: 2px;
-}
-
-.count {
-  min-width: 18px;
-  padding: 0 4px;
-  border-radius: 4px;
-  background: var(--color-codex-bg-tint);
-  color: var(--color-codex-ink-soft);
-  font-size: 11px;
-  line-height: 18px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
 }
 
 .panel {
@@ -117,7 +77,6 @@
 }
 
 @media (pointer: coarse) {
-  .trigger,
   .citation {
     min-height: 40px;
   }

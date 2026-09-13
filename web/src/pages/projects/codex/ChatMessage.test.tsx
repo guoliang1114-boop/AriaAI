@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Message, TurnRecoveryPreviewV1, TurnRecoveryPreviewV2 } from '../../../types/api'
 import type { ContextReceiptEvent } from '../../../types/productRunEvent'
 import { ProjectChatMessage } from './ChatMessage'
 import { api } from '../../../api/client'
 import { emptyTimeline } from '../../../stores/runActivityReducer'
+import { liveContextReceipt, liveTurnReceipt } from '../../../test/turnReceipts'
 
 vi.mock('../../../api/client', () => ({
   api: { get: vi.fn(), post: vi.fn() },
@@ -89,10 +90,36 @@ describe('ProjectChatMessage', () => {
       ] }),
     }
     render(<ProjectChatMessage message={message} projectId={3} />)
+    const toolbar = screen.getByRole('group', { name: '回答操作' })
+    const actions = within(toolbar).getAllByRole('button')
+    expect(actions.map(button => button.getAttribute('aria-label'))).toEqual([
+      '复制', '查看回答来源', '查看回答详情', '有帮助', '没帮助', '提交记忆候选',
+    ])
+    expect(actions.every(button => button.textContent === '' && button.className === actions[0].className)).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: '查看回答来源' }))
     expect(screen.queryByRole('button', { name: /查看原文.*旧版同号/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '查看原文 [K1] 新版证据' }))
     expect(screen.getByTestId('source-viewer')).toHaveTextContent('原文文档 7')
+  })
+
+  it('keeps the memory icon an explicit source-linked candidate submission', async () => {
+    vi.mocked(api.post).mockResolvedValue({ created: true, candidate: { status: 'pending' } })
+    const message: Message = { id: 24, conversation_id: 4, role: 'assistant', content: '分析结论', created_at: '' }
+    render(<ProjectChatMessage message={message} projectId={3} />)
+    expect(api.post).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '提交记忆候选' }))
+    await waitFor(() => expect(api.post).toHaveBeenCalledExactlyOnceWith('/memory-candidates', {
+      scope: 'project', candidate_type: 'project_fact', content: '分析结论', source_type: 'chat_message',
+      source_id: '24', project_id: 3, confidence: 1,
+    }))
+  })
+
+  it('uses the same icon-only copy action for user messages', () => {
+    render(<ProjectChatMessage projectId={3} message={{ id: 25, conversation_id: 4, role: 'user', content: '我的要求', created_at: '' }} />)
+    expect(screen.queryByRole('group', { name: '回答操作' })).not.toBeInTheDocument()
+    const copy = within(screen.getByRole('group', { name: '消息操作' })).getByRole('button', { name: '复制' })
+    expect(copy.textContent).toBe('')
+    expect(screen.queryByRole('button', { name: '提交记忆候选' })).not.toBeInTheDocument()
   })
 
   it('keeps a verified generated artifact actionable without project_file_id', () => {
@@ -668,17 +695,52 @@ describe('ProjectChatMessage', () => {
     if (status === 'failed') expect(screen.getByText('操作未完成')).toBeVisible()
   })
 
-  it('keeps live progress visible and collapses only after a successful completion', () => {
+  it('keeps simple live runs compact, allows inspecting progress, and folds completed history', () => {
     const message: Message = { id: 92, conversation_id: 4, role: 'assistant', content: '结论',
       created_at: '2026-09-12T00:00:00Z', metadata_json: '{}' }
     const timeline = { ...emptyTimeline('run_live'), steps: [{ index: 0, title: '分析', status: 'running' as const, items: [] }] }
     const { rerender } = render(<ProjectChatMessage message={message} projectId={3} isStreaming streamingStatus="仍在处理，可停止" activityTimeline={timeline} />)
-    expect(screen.getByLabelText('Aria 运行时间线')).toBeVisible()
+    expect(screen.queryByLabelText('Aria 运行时间线')).not.toBeInTheDocument()
     expect(screen.getByText('仍在处理，可停止')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '本轮详情' }))
+    expect(screen.getByLabelText('Aria 运行时间线')).toBeVisible()
     expect(screen.queryByRole('button', { name: '查看回答详情' })).not.toBeInTheDocument()
     rerender(<ProjectChatMessage message={message} projectId={3} activityTimeline={{ ...timeline, final_status: 'completed' }} />)
     expect(screen.queryByLabelText('Aria 运行时间线')).not.toBeInTheDocument()
     expect(screen.getByText('结论')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '本轮详情' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '查看回答详情' })).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('does not offer empty live details before receipts or activity arrive', () => {
+    const message: Message = { id: -1, conversation_id: 4, role: 'assistant', content: '', created_at: '', metadata_json: '{}' }
+    render(<ProjectChatMessage message={message} projectId={3} isStreaming activityTimeline={emptyTimeline('run-empty')} />)
+    expect(screen.getByText('正在准备回答…')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '本轮详情' })).not.toBeInTheDocument()
+  })
+
+  it('shows human-readable live receipts on demand and resets disclosure for the next run', () => {
+    const message: Message = { id: -1, conversation_id: 4, role: 'assistant', content: '', created_at: '', metadata_json: '{}' }
+    const { rerender } = render(<ProjectChatMessage message={message} projectId={3} isStreaming
+      turnReceipt={liveTurnReceipt} contextReceipt={liveContextReceipt} />)
+    expect(screen.queryByText(liveTurnReceipt.summary)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '本轮详情' }))
+    expect(screen.getByText(liveTurnReceipt.summary)).toBeVisible()
+    rerender(<ProjectChatMessage message={message} projectId={3} isStreaming
+      turnReceipt={{ ...liveTurnReceipt, run_id: 'next-run' }} />)
+    expect(screen.getByRole('button', { name: '本轮详情' })).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('keeps complex execution progress and incoming failure visible without opening turn details', () => {
+    const message: Message = { id: -1, conversation_id: 4, role: 'assistant', content: '', created_at: '', metadata_json: '{}' }
+    const timeline = { ...emptyTimeline('run-1'), steps: [0, 1].map(index => ({ index, title: `步骤 ${index}`, status: 'running' as const, items: [] })) }
+    const { rerender } = render(<ProjectChatMessage message={message} projectId={3} isStreaming activityTimeline={timeline} turnReceipt={liveTurnReceipt} />)
+    const progress = screen.getByLabelText('Aria 运行时间线')
+    expect(within(progress).getByRole('button')).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: '本轮详情' })).toHaveAttribute('aria-expanded', 'false')
+    rerender(<ProjectChatMessage message={message} projectId={3} isStreaming turnReceipt={liveTurnReceipt}
+      activityTimeline={{ ...timeline, error: { code: 'denied', message: '没有修改项目的权限' } }} />)
+    expect(screen.getByRole('alert')).toHaveTextContent('没有修改项目的权限')
   })
 
   it('does not conceal failed length validation or missing knowledge behind details', () => {

@@ -1,8 +1,12 @@
 import { useMemo, useRef, useState } from 'react'
+import { BookmarkPlus, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { api } from '../../../api/client'
 import { MarkdownRenderer } from '../../../components/MarkdownRenderer'
 import { AnswerFooter } from '../../../components/AnswerFooter'
+import { ChatIconButton } from '../../../components/ChatIconButton'
+import { MessageCopyButton } from '../../../components/MessageCopyButton'
 import { AnswerContextNotice } from '../../../components/AnswerContextNotice'
+import { LiveTurnDetails } from '../../../components/LiveTurnDetails'
 import { useToast } from '../../../contexts/ToastContext'
 import type {
   GeneratedArtifact,
@@ -15,7 +19,7 @@ import type {
   TurnRecoveryPreview,
   TurnRecoveryPreviewV2,
 } from '../../../types/api'
-import type { ContextReceiptEvent } from '../../../types/productRunEvent'
+import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../types/productRunEvent'
 import { AnswerLengthReceipt } from '../../../components/AnswerLengthReceipt'
 import { ModelResponseReceipt } from '../../../components/ModelResponseReceipt'
 import { parseChatStreamEvent, toContextReceiptEvent } from '../../../types/chatStreamEvent'
@@ -53,7 +57,7 @@ import { ConversationTraceInspector } from './ConversationTraceInspector'
  *   - turn_brief / turn_contract → visible, reusable turn boundary
  *
  * Successful receipts share one collapsed details entry; important run states
- * and sources stay discoverable. Actions also reveal on keyboard focus/touch.
+ * and sources stay discoverable. Secondary actions share one icon-only row.
  */
 
 interface ProgressStep {
@@ -189,6 +193,8 @@ interface MessageBubbleProps {
   isStreaming?: boolean
   streamingStatus?: string | null
   activityTimeline?: RunActivityTimeline | null
+  turnReceipt?: TurnReceiptEvent | null
+  contextReceipt?: ContextReceiptEvent | null
   onSkillSelect?: (skillId: number, name: string) => void
   onTurnBriefReuse?: (payload: ProjectTurnReusePayload) => void
   onTurnRevisionSourceOpen?: (sourceMessageId: number, sourceFingerprint: string) => void
@@ -202,6 +208,8 @@ export function ProjectChatMessage({
   isStreaming = false,
   streamingStatus = null,
   activityTimeline = null,
+  turnReceipt = null,
+  contextReceipt = null,
   onSkillSelect,
   onTurnBriefReuse,
   onTurnRevisionSourceOpen,
@@ -210,7 +218,16 @@ export function ProjectChatMessage({
   const isUser = message.role === 'user'
   const meta = useMemo(() => parseMeta(message.metadata_json), [message.metadata_json])
   const effectiveTimeline = activityTimeline || meta.activityTimeline
-  // Only successful history is quiet. Live, incomplete, failed and approval states remain visible.
+  const liveReceipt = turnReceipt || effectiveTimeline?.receipt
+  const liveContext = contextReceipt || effectiveTimeline?.context_receipt
+  const simpleLiveTimeline = isStreaming && effectiveTimeline
+    && !effectiveTimeline.skill && !effectiveTimeline.task && !effectiveTimeline.confirmation && !effectiveTimeline.error
+    && !effectiveTimeline.final_status && effectiveTimeline.steps.length <= 1
+    && effectiveTimeline.steps.every(step => step.status !== 'failed' && step.items.length === 0)
+    && effectiveTimeline.artifacts.length === 0 && effectiveTimeline.memory_candidates.length === 0
+  const hasSimpleLiveProgress = simpleLiveTimeline && Boolean(effectiveTimeline.steps.length
+    || (effectiveTimeline.display_mode && effectiveTimeline.display_mode !== 'quiet'))
+  // Simple live bookkeeping is inspectable on demand. Failures and approval states stay prominent.
   const prominentTimeline = isStreaming || meta.interrupted || Boolean(effectiveTimeline && (
     effectiveTimeline.final_status !== 'completed' || effectiveTimeline.error
     || effectiveTimeline.steps.some(step => step.status === 'failed')
@@ -246,7 +263,10 @@ export function ProjectChatMessage({
         {isUser ? '你' : <CxIcon name="sparkle" size={14} />}
       </span>
       <div style={{ flex: 1, paddingTop: 3, minWidth: 0 }}>
-        <div
+        {isStreaming ? <LiveTurnDetails key={liveReceipt?.run_id || liveContext?.run_id || 'pending'}
+          status={streamingStatus || '正在准备回答…'} receipt={liveReceipt} contextReceipt={liveContext}>
+          {hasSimpleLiveProgress && effectiveTimeline && <ProjectChatActivityTimeline timeline={effectiveTimeline} isStreaming />}
+        </LiveTurnDetails> : <div
           style={{
             fontSize: 11.5,
             color: 'var(--ink-mute)',
@@ -264,23 +284,8 @@ export function ProjectChatMessage({
           >
             {isUser ? '我' : 'Aria'}
           </span>
-          {isStreaming ? (
-            <>
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: 99,
-                  background: 'var(--accent)',
-                  animation: 'pulse 1.2s ease-in-out infinite',
-                }}
-              />
-              <span>{streamingStatus || '生成中…'}</span>
-            </>
-          ) : (
-            <span className="num">{formatUpdatedRelative(message.created_at)}</span>
-          )}
-        </div>
+          <span className="num">{formatUpdatedRelative(message.created_at)}</span>
+        </div>}
 
         {isUser ? (
           <>
@@ -312,10 +317,15 @@ export function ProjectChatMessage({
                 onReuse={onTurnBriefReuse}
               />
             )}
+            {!isStreaming && <div role="group" aria-label="消息操作" style={{ position: 'relative', display: 'flex', marginTop: 6 }}>
+              <MessageCopyButton key={message.content} text={message.content} />
+            </div>}
           </>
         ) : (
           <>
-            {effectiveTimeline && prominentTimeline && (
+            {isStreaming && liveContext?.skill.status === 'ambiguous' && onSkillSelect && <SkillCandidateButtons
+              candidates={liveContext.skill.candidates || []} onSelect={onSkillSelect} />}
+            {effectiveTimeline && prominentTimeline && !simpleLiveTimeline && (
               <ProjectChatActivityTimeline
                 timeline={effectiveTimeline}
                 isStreaming={isStreaming}
@@ -356,7 +366,9 @@ export function ProjectChatMessage({
               {meta.contextReceipt?.skill.status === 'ambiguous' && onSkillSelect && <SkillCandidateButtons
                 candidates={meta.contextReceipt.skill.candidates || []} onSelect={onSkillSelect} />}
               <AnswerLengthReceipt metadataJson={message.metadata_json} only="warning" />
-              <AnswerFooter key={message.id} references={meta.references}>
+              <ProjectAnswerFooter key={message.id} references={meta.references}
+                content={message.content} messageId={meta.persistedMessageId || message.id}
+                projectId={projectId} initialFeedback={meta.feedback} persistedActions={!meta.locallyStopped}>
                 {effectiveTimeline && !prominentTimeline && <ProjectChatActivityTimeline timeline={effectiveTimeline} />}
                 {!effectiveTimeline && !prominentProgress && meta.progress.length > 0 && <SkillProgressPill steps={meta.progress} />}
                 {meta.turn && <HistoricalTurnContract turn={meta.turn} isUser={false}
@@ -367,17 +379,8 @@ export function ProjectChatMessage({
                 <ModelResponseReceipt metadataJson={message.metadata_json} />
                 {!meta.locallyStopped && (meta.persistedMessageId || message.id) > 0 && <ConversationTraceInspector
                   conversationId={message.conversation_id} messageId={meta.persistedMessageId || message.id} />}
-              </AnswerFooter>
+              </ProjectAnswerFooter>
             </>}
-            {!isStreaming && (
-              <AriaActionChips
-                content={message.content}
-                messageId={meta.persistedMessageId || message.id}
-                projectId={projectId}
-                initialFeedback={meta.feedback}
-                persistedActions={!meta.locallyStopped}
-              />
-            )}
           </>
         )}
       </div>
@@ -1130,25 +1133,27 @@ function ArtifactCard({
 }
 
 /* ────────────────────────────────────────────────────────────────
- * Aria action chips — hover-revealed pill row. Two actions:
- *   - 复制       → copy message content to clipboard
- *   - 沉淀到记忆 → create a source-linked candidate for human review
+ * Project-only actions join the shared answer toolbar. Memory still creates
+ * a source-linked candidate for human review, never a direct memory write.
  * ──────────────────────────────────────────────────────────────── */
-function AriaActionChips({
+function ProjectAnswerFooter({
   content,
   messageId,
   projectId,
   initialFeedback,
   persistedActions,
+  references,
+  children,
 }: {
   content: string
   messageId: number
   projectId: number
   initialFeedback: MessageFeedback | null
   persistedActions: boolean
+  references: Reference[]
+  children: React.ReactNode
 }) {
   const toast = useToast()
-  const [copying, setCopying] = useState(false)
   const [memBusy, setMemBusy] = useState(false)
   const [feedback, setFeedback] = useState<MessageFeedback | null>(initialFeedback)
   const [feedbackBusy, setFeedbackBusy] = useState(false)
@@ -1187,19 +1192,6 @@ function AriaActionChips({
     void saveFeedback('unhelpful', reasons)
   }
 
-  const copy = async () => {
-    if (copying) return
-    setCopying(true)
-    try {
-      await navigator.clipboard.writeText(content)
-      toast.success({ title: '已复制' })
-    } catch {
-      toast.error({ title: '复制失败', description: '浏览器拒绝了剪贴板写入' })
-    } finally {
-      setCopying(false)
-    }
-  }
-
   const sinkToMemory = async () => {
     if (memBusy) return
     setMemBusy(true)
@@ -1235,50 +1227,33 @@ function AriaActionChips({
   }
 
   return (
-    <div
-      className={feedback || showReasons ? '' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100'}
-      style={{
-        display: 'flex',
-        gap: 6,
-        marginTop: 12,
-        flexWrap: 'wrap',
-        transition: 'opacity 120ms',
-      }}
-    >
-      <Chip onClick={copy} disabled={copying}>
-        {copying ? '复制中…' : '复制'}
-      </Chip>
-      {persistedActions && (
-        <Chip onClick={sinkToMemory} disabled={memBusy} tone="accent">
-          <CxIcon name="sparkle" size={11} stroke={1.6} />
-          {memBusy ? '提交中…' : '提交记忆候选'}
-        </Chip>
-      )}
-      {persistedActions && (
-        <Chip
+    <>
+      <AnswerFooter references={references} copyText={content} actions={persistedActions && <>
+        <ChatIconButton label="有帮助"
           onClick={() => { void saveFeedback('helpful') }}
           disabled={feedbackBusy}
-          active={feedback?.rating === 'helpful'}
+          aria-pressed={feedback?.rating === 'helpful'}
         >
-          有帮助
-        </Chip>
-      )}
-      {persistedActions && (
-        <Chip
+          <ThumbsUp aria-hidden="true" />
+        </ChatIconButton>
+        <ChatIconButton label="没帮助"
           onClick={() => {
             setShowReasons(true)
             void saveFeedback('unhelpful', feedback?.rating === 'unhelpful' ? feedback.reasons : [])
           }}
           disabled={feedbackBusy}
-          active={feedback?.rating === 'unhelpful'}
+          aria-pressed={feedback?.rating === 'unhelpful'}
         >
-          没帮助
-        </Chip>
-      )}
+          <ThumbsDown aria-hidden="true" />
+        </ChatIconButton>
+        <ChatIconButton label={memBusy ? '提交中…' : '提交记忆候选'} onClick={() => { void sinkToMemory() }} disabled={memBusy}>
+          <BookmarkPlus aria-hidden="true" />
+        </ChatIconButton>
+      </>}>{children}</AnswerFooter>
       {persistedActions && showReasons && feedback?.rating === 'unhelpful' && (
         <div
           aria-label="没帮助的原因"
-          style={{ display: 'flex', gap: 5, flexWrap: 'wrap', flexBasis: '100%' }}
+          style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 8 }}
         >
           {(Object.entries(FEEDBACK_REASON_LABELS) as Array<[MessageFeedbackReason, string]>).map(
             ([reason, label]) => (
@@ -1297,7 +1272,7 @@ function AriaActionChips({
           </span>
         </div>
       )}
-    </div>
+    </>
   )
 }
 
@@ -1314,16 +1289,14 @@ function Chip({
   children,
   onClick,
   disabled,
-  tone,
   active,
 }: {
   children: React.ReactNode
   onClick: () => void
   disabled?: boolean
-  tone?: 'accent'
   active?: boolean
 }) {
-  const accent = tone === 'accent' || active
+  const accent = active
   return (
     <button
       type="button"

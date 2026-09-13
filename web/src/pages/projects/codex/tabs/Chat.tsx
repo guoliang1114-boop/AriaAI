@@ -20,7 +20,6 @@ import type { ContextReceiptEvent, TurnReceiptEvent } from '../../../../types/pr
 import type { RunActivityTimeline } from '../../../../stores/runActivityReducer'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
-import { contextHistoryEvidenceLabel, contextMemoryLayerLabel } from '../../../../utils/contextReceipt'
 import { CxConfirmDialog, CxSkeleton } from '../../../../components/codex'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
@@ -70,7 +69,6 @@ import {
   type ProjectTurnRevisionSource,
   type ProjectTurnBriefDraft,
 } from '../turnBrief'
-import { SkillCandidateButtons } from '../SkillCandidateButtons'
 import { ProjectMentionMenu } from '../ProjectMentionMenu'
 import {
   buildProjectMentionOptions,
@@ -1357,6 +1355,8 @@ function ThreadView({
               isStreaming={busy && m.id === streamingMessageId}
               streamingStatus={streamStatusMessage}
               activityTimeline={busy && m.id === streamingMessageId ? activityTimeline : null}
+              turnReceipt={busy && m.id === streamingMessageId ? turnReceipt : null}
+              contextReceipt={busy && m.id === streamingMessageId ? contextReceipt : null}
               onSkillSelect={selectSkillForNextTurn}
               onTurnBriefReuse={reuseHistoricalTurn}
               onTurnRevisionSourceOpen={openTurnRevisionSource}
@@ -1380,13 +1380,6 @@ function ThreadView({
 
       {/* Composer */}
       <div style={{ padding: '0 56px 22px', width: '100%' }}>
-        {busy && turnReceipt && (
-          <TurnReceiptCard
-            receipt={turnReceipt}
-            contextReceipt={contextReceipt}
-            onSkillSelect={selectSkillForNextTurn}
-          />
-        )}
         {projectQuestionReanswer && (
           <div
             role="status"
@@ -2154,164 +2147,6 @@ export function ProjectChatComposer({
   )
 }
 
-function TurnReceiptCard({
-  receipt,
-  contextReceipt,
-  onSkillSelect,
-}: {
-  receipt: TurnReceiptEvent
-  contextReceipt: ContextReceiptEvent | null
-  onSkillSelect: (skillId: number, name: string) => void
-}) {
-  const modeLabel = {
-    answer_only: '直接回答',
-    plan_only: '只做规划',
-    execute_now: '立即执行',
-    plan_then_execute: '规划后执行',
-  }[receipt.mode]
-  const scopeLabel = {
-    chat: '当前对话',
-    project: '当前项目',
-    workspace: '工作区',
-  }[receipt.target_scope]
-  return (
-    <div
-      style={{
-        marginBottom: 8,
-        padding: '8px 11px',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--r-sm)',
-        background: 'var(--bg-tint)',
-        fontSize: 12,
-        color: 'var(--ink-soft)',
-        lineHeight: 1.55,
-      }}
-    >
-      <span style={{ color: 'var(--ink)', fontWeight: 600 }}>本轮理解</span>
-      <span> · {modeLabel} · {scopeLabel}</span>
-      <div style={{ marginTop: 3 }}>{receipt.summary}</div>
-      {receipt.user_constraints.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 5 }}>
-          {receipt.user_constraints.map((constraint) => (
-            <span
-              key={constraint}
-              style={{ padding: '2px 6px', color: 'var(--accent-ink)', background: 'var(--accent-bg)', borderRadius: 'var(--r-sm)', fontSize: 10.5 }}
-            >
-              {constraint}
-            </span>
-          ))}
-        </div>
-      )}
-      <div style={{ marginTop: 2, color: 'var(--ink-mute)', fontSize: 11 }}>
-        {receipt.write_allowed ? '允许在约定范围内写入' : '不会修改项目内容'}
-        {receipt.requires_confirmation ? ' · 高风险动作会先征求确认' : ''}
-        {receipt.steering_supported ? ' · 可在下方追加要求' : ''}
-      </div>
-      {contextReceipt && (
-        <ProjectContextReceiptSummary
-          receipt={contextReceipt}
-          onSkillSelect={onSkillSelect}
-        />
-      )}
-    </div>
-  )
-}
-
-function ProjectContextReceiptSummary({
-  receipt,
-  onSkillSelect,
-}: {
-  receipt: ContextReceiptEvent
-  onSkillSelect: (skillId: number, name: string) => void
-}) {
-  const memoryLabel = {
-    not_applicable: '本轮不依赖单项目记忆',
-    missing: '项目记忆尚未生成，已使用当前项目原始信息',
-    stale: `项目记忆 v${receipt.memory.version} 待刷新，已优先使用较新的项目信号`,
-    ready: `项目记忆 v${receipt.memory.version} 已同步`,
-  }[receipt.memory.status]
-  const skillLabel = receipt.skill.status === 'applied' && receipt.skill.name
-    ? `${receipt.skill.usage_mode === 'advisory' ? '专业问答' : '工作流'}：${receipt.skill.name}`
-    : receipt.skill.status === 'ambiguous'
-      ? `Skill 候选有歧义：${(receipt.skill.candidates || []).map((item) => item.name).join(' / ')}`
-      : '未额外启用 Skill'
-  const memoryRetrievalLabel = receipt.memory.selected_item_count > 0
-    ? `${receipt.memory.retrieval_mode === 'full' ? '全量' : '按问题'}召回 ${receipt.memory.selected_item_count} 条记忆 / ${receipt.memory.selected_slot_count} 个槽位`
-    : ''
-  const memoryLayerLabels = (receipt.memory.layers || []).map(contextMemoryLayerLabel)
-  const historyLabel = contextHistoryEvidenceLabel(receipt.evidence)
-  const evidenceBits = [
-    receipt.evidence.knowledge_reference_count > 0
-      ? `${receipt.evidence.knowledge_reference_count} 条知识证据${
-        receipt.evidence.knowledge_retrieval_mode === 'source_scoped'
-          ? '（新版知识源）'
-          : receipt.evidence.knowledge_legacy_fallback
-            ? '（旧库兼容）'
-            : ''
-      }`
-      : '',
-    receipt.evidence.attached_file_count > 0
-      ? `${receipt.evidence.attached_file_count} 个指定文件`
-      : '',
-    receipt.evidence.knowledge_source_scoped_unavailable
-      ? '新版知识检索暂不可用，已限制在兼容路径内'
-      : '',
-    historyLabel,
-  ].filter(Boolean)
-  const hasUnverifiedMemory = (receipt.memory.layers || []).some(
-    (layer) => (layer.scoped_fact_count ?? 0) > 0 || (layer.unresolved_fact_count ?? 0) > 0,
-  )
-  const hasWarning = hasUnverifiedMemory || receipt.warnings.some((warning) =>
-    [
-      'project_memory_missing',
-      'project_memory_stale',
-      'client_memory_stale',
-      'user_preference_overridden',
-      'skill_match_ambiguous',
-      'project_world_state_changed',
-      'knowledge_legacy_fallback',
-      'knowledge_source_scoped_unavailable',
-    ].includes(warning),
-  )
-  return (
-    <div
-      style={{
-        marginTop: 6,
-        paddingTop: 6,
-        borderTop: '1px solid var(--line)',
-        color: hasWarning ? 'var(--warning, #a16207)' : 'var(--ink-mute)',
-        fontSize: 11,
-      }}
-    >
-      <div>
-        <strong>本轮依据</strong> · {memoryLabel}
-        {memoryRetrievalLabel ? ` · ${memoryRetrievalLabel}` : ''} · {skillLabel}
-      </div>
-      {evidenceBits.length > 0 && <div style={{ marginTop: 2 }}>{evidenceBits.join(' · ')}</div>}
-      {memoryLayerLabels.length > 0 && (
-        <div style={{ marginTop: 2 }}>
-          {memoryLayerLabels.map((label) => <div key={label}>{label}</div>)}
-        </div>
-      )}
-      {receipt.world_state && (
-        <div style={{ marginTop: 2 }}>
-          项目状态版本 · {receipt.world_state.current_version}
-          {receipt.world_state.changed
-            ? ` · 已检测到 ${receipt.world_state.changed_categories.length} 类变化，已改用当前状态`
-            : receipt.world_state.baseline
-              ? ' · 已建立本对话基线'
-              : ' · 与上一轮一致'}
-        </div>
-      )}
-      {receipt.skill.status === 'ambiguous' && (
-        <SkillCandidateButtons
-          candidates={receipt.skill.candidates || []}
-          onSelect={onSkillSelect}
-        />
-      )}
-    </div>
-  )
-}
 
 /* ────────────────────────────────────────────────────────────────
  * CapabilityPill — dev-only observability strip. Renders the

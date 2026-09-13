@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import type {
   ActivityStep,
   RunActivityTimeline,
@@ -98,10 +98,11 @@ export function ProjectChatActivityTimeline({
     isStreaming && timeline.display_mode && timeline.display_mode !== 'quiet'
   )
   const [expanded, setExpanded] = useState(
-    isStreaming
-    || timeline.final_status === 'failed'
+    timeline.final_status === 'failed'
     || timeline.final_status === 'waiting_confirmation',
   )
+  const id = useId()
+  const failedSteps = timeline.steps.filter(step => step.status === 'failed')
 
   const completedSteps = useMemo(
     () => timeline.steps.filter((step) => step.status === 'completed').length,
@@ -145,6 +146,7 @@ export function ProjectChatActivityTimeline({
       <button
         type="button"
         aria-expanded={expanded}
+        aria-controls={`${id}-steps`}
         onClick={() => setExpanded((value) => !value)}
         style={{
           width: '100%',
@@ -177,13 +179,20 @@ export function ProjectChatActivityTimeline({
       {timeline.error && <div role="alert" style={{ padding: '7px 11px', color: 'var(--bad)', fontSize: 12 }}>
         {timeline.error.message}{timeline.error.retryable ? ' · 可以安全重试' : ''}
       </div>}
+      {!timeline.error && failedSteps.length > 0 && <div role="alert" style={{ padding: '7px 11px', color: 'var(--bad)', fontSize: 12 }}>
+        步骤失败 · {failedSteps.map(step => step.title).join('、')}
+      </div>}
+      {(failedArtifactVerifications > 0 || pendingArtifactVerifications > 0) && <div role="status" style={{ padding: '7px 11px', color: 'var(--warn)', fontSize: 12 }}>
+        {[failedArtifactVerifications > 0 ? `${failedArtifactVerifications} 个交付物校验失败` : '',
+          pendingArtifactVerifications > 0 ? `${pendingArtifactVerifications} 个交付物待核验` : ''].filter(Boolean).join(' · ')}
+      </div>}
       {timeline.confirmation && (!timeline.final_status || timeline.final_status === 'waiting_confirmation') && (
         <div role="status" style={{ padding: '7px 11px', color: 'var(--warn)', fontSize: 12 }}>
           等待确认 · {timeline.confirmation.action} · {timeline.confirmation.impact}
         </div>
       )}
 
-      {expanded && (
+      <div id={`${id}-steps`} hidden={!expanded}>{expanded && (
         <div
           style={{
             padding: '9px 13px 11px',
@@ -242,8 +251,6 @@ export function ProjectChatActivityTimeline({
           {(timeline.artifacts.length > 0 || timeline.memory_candidates.length > 0) && (
             <div style={{ marginTop: 8, color: 'var(--ink-mute)', fontSize: 10.5 }}>
               {timeline.artifacts.length > 0 ? `${timeline.artifacts.length} 个交付物` : ''}
-              {failedArtifactVerifications > 0 ? ` · ${failedArtifactVerifications} 个校验失败` : ''}
-              {pendingArtifactVerifications > 0 ? ` · ${pendingArtifactVerifications} 个待核验` : ''}
               {timeline.artifacts.length > 0 && timeline.memory_candidates.length > 0 ? ' · ' : ''}
               {timeline.memory_candidates.length > 0
                 ? `${timeline.memory_candidates.length} 条记忆候选`
@@ -251,7 +258,7 @@ export function ProjectChatActivityTimeline({
             </div>
           )}
         </div>
-      )}
+      )}</div>
     </section>
   )
 }

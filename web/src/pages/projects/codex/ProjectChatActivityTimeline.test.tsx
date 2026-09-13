@@ -4,6 +4,15 @@ import { emptyTimeline } from '../../../stores/runActivityReducer'
 import { ProjectChatActivityTimeline } from './ProjectChatActivityTimeline'
 
 describe('ProjectChatActivityTimeline attention visibility', () => {
+  it('defaults live steps to collapsed and preserves failed-step and artifact warnings', () => {
+    render(<ProjectChatActivityTimeline isStreaming timeline={{ ...emptyTimeline('run_attention'),
+      steps: [{ index: 1, title: '读取项目资料', status: 'failed', items: [] }],
+      artifacts: [{ id: '1', type: 'pdf', verification: { status: 'failed' } }],
+    }} />)
+    expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('alert')).toHaveTextContent('步骤失败 · 读取项目资料')
+    expect(screen.getByRole('status')).toHaveTextContent('1 个交付物校验失败')
+  })
   it('keeps failure reasons visible after the user collapses the step list', () => {
     render(<ProjectChatActivityTimeline timeline={{ ...emptyTimeline('run_error'), final_status: 'failed',
       error: { code: 'provider_timeout', message: '模型无进展，已停止本轮', retryable: true } }} />)

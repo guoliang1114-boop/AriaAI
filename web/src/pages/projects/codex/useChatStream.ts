@@ -506,7 +506,7 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
           if (!receipt) return
           turnReceiptRef.current = receipt
           setTurnReceipt(receipt)
-          setStatusMessage(`本轮理解：${receipt.summary}`)
+          setStatusMessage('正在准备本轮上下文…')
         } else if (ev.type === 'context_receipt') {
           const receipt = toContextReceiptEvent(ev)
           if (!receipt) return
