@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { errorMessage } from "../../utils/errors";
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -413,43 +414,38 @@ export function AISettings() {
     clearTransient()
   }
 
-  const loadSettings = async () => {
-    try {
-      setInitialLoading(true)
-      setError('')
-      const settings = await api.get<Record<string, string>>('/settings/')
+  const settingsSequence = useRef(0)
+  const loadSettings = useCallback(() => {
+    const sequence = ++settingsSequence.current
+    return api.get<Record<string, string>>('/settings/').then(async (settings) => {
+      if (sequence !== settingsSequence.current) return
       const nextModel = settings.selected_model || DEFAULT_MODEL_ID
-      const nextIntentRouterModel = settings.intent_router_model || 'deepseek-v4-pro'
       setSelectedModel(nextModel)
-      setStrategyModels((current) => ({ ...current, default: nextModel, lowCost: nextIntentRouterModel }))
+      setStrategyModels((current) => ({ ...current, default: nextModel, lowCost: settings.intent_router_model || 'deepseek-v4-pro' }))
       setTemperature(Number(settings.temperature || 0.7))
       setMaxTokens(Number(settings.max_tokens || 8192))
       setTopP(Number(settings.top_p || 1))
-
-      const statuses = await Promise.all(
-        PROVIDERS.map(async (provider) => {
-          try {
-            const result = await api.get<{ configured?: boolean }>(provider.statusEndpoint)
-            return [provider.provider, !!result.configured] as const
-          } catch (err) {
-            console.error(`[AISettings] failed to load ${provider.provider} key status`, err)
-            return [provider.provider, false] as const
-          }
-        }),
-      )
+      const statuses = await Promise.all(PROVIDERS.map(async (provider) => {
+        try {
+          const result = await api.get<{ configured?: boolean }>(provider.statusEndpoint)
+          return [provider.provider, !!result.configured] as const
+        } catch { return [provider.provider, false] as const }
+      }))
+      if (sequence !== settingsSequence.current) return
       setApiKeyStatus(Object.fromEntries(statuses) as Record<ProviderKey, boolean>)
       setDirty(false)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || (isZh ? '加载 AI 设置失败' : 'Failed to load AI settings'))
-    } finally {
-      setInitialLoading(false)
-    }
-  }
+      setError('')
+    }).catch((err: unknown) => {
+      if (sequence === settingsSequence.current) setError(errorMessage(err, isZh ? '加载 AI 设置失败' : 'Failed to load AI settings'))
+    }).finally(() => {
+      if (sequence === settingsSequence.current) setInitialLoading(false)
+    })
+  }, [isZh, setSelectedModel, setStrategyModels, setTemperature, setMaxTokens, setTopP, setApiKeyStatus, setDirty, setError, setInitialLoading])
 
   useEffect(() => {
     void loadSettings()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    return () => { settingsSequence.current += 1 }
+  }, [loadSettings])
 
   const updateProviderKey = (provider: ProviderKey, value: string) => {
     setProviderKeys((current) => ({ ...current, [provider]: value }))
@@ -498,8 +494,8 @@ export function AISettings() {
       } else {
         setError(result.message || (isZh ? '连接测试失败' : 'Connection test failed'))
       }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || (isZh ? '连接测试失败' : 'Connection test failed'))
+    } catch (err) {
+      setError(errorMessage(err, (isZh ? '连接测试失败' : 'Connection test failed')))
     } finally {
       setTestingProvider(null)
     }
@@ -541,8 +537,8 @@ export function AISettings() {
       setDirty(false)
       setSaved(true)
       setSuccessMessage(isZh ? 'AI 设置已保存' : 'AI settings saved')
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || (isZh ? '保存设置失败' : 'Failed to save settings'))
+    } catch (err) {
+      setError(errorMessage(err, (isZh ? '保存设置失败' : 'Failed to save settings')))
     } finally {
       setLoading(false)
     }
@@ -578,8 +574,8 @@ export function AISettings() {
       } else {
         setError(result.message || (isZh ? '模型测试失败' : 'Model test failed'))
       }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || (isZh ? '模型测试失败' : 'Model test failed'))
+    } catch (err) {
+      setError(errorMessage(err, (isZh ? '模型测试失败' : 'Model test failed')))
     } finally {
       setIsTestingModel(false)
     }
@@ -634,7 +630,7 @@ export function AISettings() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => void loadSettings()}
+            onClick={() => { setInitialLoading(true); void loadSettings() }}
             style={{
               padding: '9px 10px',
               fontSize: 13,

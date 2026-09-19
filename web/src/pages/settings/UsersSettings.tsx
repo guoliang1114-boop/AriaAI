@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { errorMessage } from "../../utils/errors";
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Users,
@@ -170,30 +171,29 @@ export function UsersSettings() {
   const [newPassword, setNewPassword] = useState('')
   const [formLoading, setFormLoading] = useState(false)
 
-  useEffect(() => {
-    loadUsers()
-  }, [searchQuery, userPage, userPageSize])
-
-  const loadUsers = async (options: { page?: number } = {}) => {
-    try {
-      setLoading(true)
+  const requestSequence = useRef(0)
+  const loadUsers = useCallback((options: { page?: number } = {}) => {
+    const sequence = ++requestSequence.current
+    const page = options.page ?? userPage
+    return api.get<UserListResponse>('/auth/users/list', {
+      params: { search: searchQuery.trim(), limit: userPageSize, offset: (page - 1) * userPageSize },
+    }).then((data) => {
+      if (sequence !== requestSequence.current) return
       setError('')
-      const page = options.page ?? userPage
-      const data = await api.get<UserListResponse>('/auth/users/list', {
-        params: {
-          search: searchQuery.trim(),
-          limit: userPageSize,
-          offset: (page - 1) * userPageSize,
-        },
-      })
       setUsers(data.items)
       setUserTotal(data.total)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load users')
-    } finally {
-      setLoading(false)
-    }
-  }
+      setUserPage(Math.min(page, Math.max(1, Math.ceil(data.total / userPageSize))))
+    }).catch((err: unknown) => {
+      if (sequence === requestSequence.current) setError(errorMessage(err, 'Failed to load users'))
+    }).finally(() => {
+      if (sequence === requestSequence.current) setLoading(false)
+    })
+  }, [searchQuery, userPage, userPageSize])
+
+  useEffect(() => {
+    void loadUsers()
+    return () => { requestSequence.current += 1 }
+  }, [loadUsers])
 
   const handleAddUser = async () => {
     if (!formData.email || !formData.password) {
@@ -219,8 +219,8 @@ export function UsersSettings() {
       await loadUsers({ page: 1 })
 
       setTimeout(() => setSuccessMessage(''), 3000)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to add user')
+    } catch (err) {
+      setError(errorMessage(err, 'Failed to add user'))
     } finally {
       setFormLoading(false)
     }
@@ -245,8 +245,8 @@ export function UsersSettings() {
       await loadUsers()
 
       setTimeout(() => setSuccessMessage(''), 3000)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to update user')
+    } catch (err) {
+      setError(errorMessage(err, 'Failed to update user'))
     } finally {
       setFormLoading(false)
     }
@@ -267,8 +267,8 @@ export function UsersSettings() {
       await loadUsers()
 
       setTimeout(() => setSuccessMessage(''), 3000)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to delete user')
+    } catch (err) {
+      setError(errorMessage(err, 'Failed to delete user'))
     } finally {
       setFormLoading(false)
     }
@@ -294,8 +294,8 @@ export function UsersSettings() {
       setNewPassword('')
 
       setTimeout(() => setSuccessMessage(''), 3000)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to reset password')
+    } catch (err) {
+      setError(errorMessage(err, 'Failed to reset password'))
     } finally {
       setFormLoading(false)
     }
@@ -334,14 +334,6 @@ export function UsersSettings() {
 
   const userPageCount = Math.max(1, Math.ceil(userTotal / userPageSize))
   const currentUserPage = Math.min(userPage, userPageCount)
-
-  useEffect(() => {
-    setUserPage(1)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setUserPage((current) => Math.min(current, userPageCount))
-  }, [userPageCount])
 
   if (loading) {
     return (
@@ -471,7 +463,7 @@ export function UsersSettings() {
           />
         </div>
         <button
-          onClick={() => void loadUsers()}
+          onClick={() => { setLoading(true); void loadUsers() }}
           disabled={loading}
           className="flex items-center justify-center px-3 py-2 transition-colors disabled:opacity-50"
           style={GHOST_BUTTON_STYLE}
@@ -620,7 +612,7 @@ export function UsersSettings() {
           page={currentUserPage}
           pageSize={userPageSize}
           totalItems={userTotal}
-          onPageChange={setUserPage}
+          onPageChange={(page) => { setLoading(true); setUserPage(page) }}
           onPageSizeChange={(nextPageSize) => {
             setUserPageSize(nextPageSize)
             setUserPage(1)

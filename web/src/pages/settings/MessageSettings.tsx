@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { errorMessage } from "../../utils/errors";
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Bell, CheckCircle2, Loader2, Megaphone, RefreshCw, Send } from 'lucide-react'
 import { api } from '../../api/client'
@@ -48,31 +49,31 @@ export function MessageSettings() {
   const [messagePage, setMessagePage] = useState(1)
   const [messagePageSize, setMessagePageSize] = useState(MESSAGES_PAGE_SIZE)
 
-  const loadMessages = async (options: { page?: number } = {}) => {
-    try {
-      setLoading(true)
+  const requestSequence = useRef(0)
+  const loadMessages = useCallback((options: { page?: number } = {}) => {
+    const sequence = ++requestSequence.current
+    const page = options.page ?? messagePage
+    return api.get<MessageAdminListResponse>('/messages/admin/list', {
+      params: { limit: messagePageSize, offset: (page - 1) * messagePageSize },
+    }).then((data) => {
+      if (sequence !== requestSequence.current) return
       setError('')
-      const page = options.page ?? messagePage
-      const result = await api.get<MessageAdminListResponse>('/messages/admin/list', {
-        params: {
-          limit: messagePageSize,
-          offset: (page - 1) * messagePageSize,
-        },
-      })
-      setMessages(result.items)
-      setMessageTotal(result.total)
-      setPublishedCount(result.published_count)
-      setTotalReadCount(result.total_read_count)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load messages')
-    } finally {
-      setLoading(false)
-    }
-  }
+      setMessages(data.items)
+      setMessageTotal(data.total)
+      setPublishedCount(data.published_count)
+      setTotalReadCount(data.total_read_count)
+      setMessagePage(Math.min(page, Math.max(1, Math.ceil(data.total / messagePageSize))))
+    }).catch((err: unknown) => {
+      if (sequence === requestSequence.current) setError(errorMessage(err, 'Failed to load messages'))
+    }).finally(() => {
+      if (sequence === requestSequence.current) setLoading(false)
+    })
+  }, [messagePage, messagePageSize])
 
   useEffect(() => {
     void loadMessages()
-  }, [messagePage, messagePageSize])
+    return () => { requestSequence.current += 1 }
+  }, [loadMessages])
 
   const handleCreate = async () => {
     if (!formData.title.trim() || !formData.content.trim()) {
@@ -90,8 +91,8 @@ export function MessageSettings() {
       await loadMessages({ page: 1 })
       setSuccess(isZh ? '消息已发布。' : 'Message published.')
       window.dispatchEvent(new Event('messages:updated'))
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to publish message')
+    } catch (err) {
+      setError(errorMessage(err, 'Failed to publish message'))
     } finally {
       setSubmitting(false)
     }
@@ -99,10 +100,6 @@ export function MessageSettings() {
 
   const messagePageCount = Math.max(1, Math.ceil(messageTotal / messagePageSize))
   const currentMessagePage = Math.min(messagePage, messagePageCount)
-
-  useEffect(() => {
-    setMessagePage((current) => Math.min(current, messagePageCount))
-  }, [messagePageCount])
 
   const inputStyle: React.CSSProperties = {
     width: '100%',
@@ -193,7 +190,7 @@ export function MessageSettings() {
           </p>
         </div>
         <button
-          onClick={() => void loadMessages()}
+          onClick={() => { setLoading(true); void loadMessages() }}
           className="inline-flex flex-shrink-0 items-center gap-2 px-3 py-2 transition-colors"
           style={{
             fontSize: 12.5,
@@ -554,7 +551,7 @@ export function MessageSettings() {
                     page={currentMessagePage}
                     pageSize={messagePageSize}
                     totalItems={messageTotal}
-                    onPageChange={setMessagePage}
+                    onPageChange={(page) => { setLoading(true); setMessagePage(page) }}
                     onPageSizeChange={(nextPageSize) => {
                       setMessagePageSize(nextPageSize)
                       setMessagePage(1)

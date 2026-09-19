@@ -51,7 +51,7 @@ function selectChip(groupTestId: string, label: string) {
 
 describe("PreferenceOnboarding payload helpers", () => {
   it("buildPayloadFromDraft preserves unrelated existing keys and stamps onboarding_seen", async () => {
-    const { __test__ } = await import("./PreferenceOnboarding");
+    const __test__ = await import("./preferenceOnboardingState");
     const result = __test__.buildPayloadFromDraft(
       { client_facts_should_not_appear: "ok" } as Record<string, unknown>,
       {
@@ -74,7 +74,7 @@ describe("PreferenceOnboarding payload helpers", () => {
   });
 
   it("buildPayloadFromDraft drops empty preferred_name but still stamps onboarding_seen", async () => {
-    const { __test__ } = await import("./PreferenceOnboarding");
+    const __test__ = await import("./preferenceOnboardingState");
     const result = __test__.buildPayloadFromDraft(
       {},
       {
@@ -93,7 +93,7 @@ describe("PreferenceOnboarding payload helpers", () => {
   });
 
   it("readDraftFromPreferences round-trips a saved payload back into the form shape", async () => {
-    const { __test__ } = await import("./PreferenceOnboarding");
+    const __test__ = await import("./preferenceOnboardingState");
     const draft = __test__.readDraftFromPreferences({
       personal_info: { preferred_name: "李总" },
       response_preferences: { language: "zh", tone: "direct", format: "free" },

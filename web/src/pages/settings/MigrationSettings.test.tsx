@@ -6,7 +6,7 @@ const mockGet = vi.fn()
 
 vi.mock('../../api/client', () => ({
   api: {
-    get: (...args: any[]) => mockGet(...args),
+    get: (...args: unknown[]) => mockGet(...args),
   },
 }))
 

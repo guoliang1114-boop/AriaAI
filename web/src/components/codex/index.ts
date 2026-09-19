@@ -17,9 +17,7 @@ export { CxSkeleton } from "./CxSkeleton";
 export { CxTopProgress } from "./CxTopProgress";
 export {
   CxPagination,
-  getCxPageItems,
   type CxPaginationVariant,
-  type CxPageItem,
 } from "./CxPagination";
 export {
   CxDialog,
@@ -27,3 +25,5 @@ export {
   type CxDialogTone,
   type CxDialogSize,
 } from "./CxDialog";
+
+export { getCxPageItems, type CxPageItem } from "./pagination";

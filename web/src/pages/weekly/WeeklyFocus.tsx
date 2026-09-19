@@ -5,7 +5,7 @@
  * own card is pinned first and is inline-editable. Admins can add/adjust any
  * card (the "manager assigns" path). Mobile: cards stack to a single column.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useRef, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -484,24 +484,21 @@ export function WeeklyFocus() {
 
   const isCurrentWeek = weekStart === thisWeek;
 
-  const loadBoard = useCallback(
-    async (ws: string) => {
-      setLoading(true);
+  const boardSequence = useRef(0);
+  const loadBoard = useCallback((ws: string) => {
+    const sequence = ++boardSequence.current;
+    return api.get<WeeklyFocusBoard>("/weekly/board", { params: { week_start: ws } }).then((data) => {
+      if (sequence !== boardSequence.current) return;
+      setBoard(data);
       setError(null);
-      try {
-        const data = await api.get<WeeklyFocusBoard>("/weekly/board", { params: { week_start: ws } });
-        setBoard(data);
-      } catch {
-        setError(isZh ? "加载本周重点失败" : "Failed to load weekly focus");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [isZh],
-  );
+    }).catch(() => {
+      if (sequence === boardSequence.current) setError(isZh ? "加载本周重点失败" : "Failed to load weekly focus");
+    }).finally(() => { if (sequence === boardSequence.current) setLoading(false); });
+  }, [isZh]);
 
   useEffect(() => {
     void loadBoard(weekStart);
+    return () => { boardSequence.current += 1; };
   }, [weekStart, loadBoard]);
 
   useEffect(() => {
@@ -644,7 +641,7 @@ export function WeeklyFocus() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setWeekStart((w) => shiftWeek(w, -1))}
+                  onClick={() => { setLoading(true); setWeekStart((w) => shiftWeek(w, -1)); }}
                   aria-label={isZh ? "上一周" : "Previous week"}
                   className="cx-no-hover inline-flex items-center justify-center"
                   style={{
@@ -669,7 +666,7 @@ export function WeeklyFocus() {
                     {!isCurrentWeek ? (
                       <button
                         type="button"
-                        onClick={() => setWeekStart(thisWeek)}
+                        onClick={() => { setLoading(true); setWeekStart(thisWeek); }}
                         style={{ fontSize: 11, color: "var(--color-codex-accent)" }}
                       >
                         {isZh ? "回到本周" : "Back to this week"}
@@ -679,7 +676,7 @@ export function WeeklyFocus() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setWeekStart((w) => shiftWeek(w, 1))}
+                  onClick={() => { setLoading(true); setWeekStart((w) => shiftWeek(w, 1)); }}
                   aria-label={isZh ? "下一周" : "Next week"}
                   className="cx-no-hover inline-flex items-center justify-center"
                   style={{

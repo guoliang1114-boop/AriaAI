@@ -1,3 +1,4 @@
+import { errorMessage } from "../../utils/errors";
 /**
  * Settings -> Personal preferences.
  *
@@ -170,10 +171,10 @@ export function PreferenceSettings() {
       setMsg({ type: "success", text: isZh ? "已保存" : "Saved" });
       if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
       msgTimerRef.current = setTimeout(() => setMsg(null), 1800);
-    } catch (err: any) {
+    } catch (err) {
       setMsg({
         type: "error",
-        text: err.response?.data?.detail || (isZh ? "保存失败" : "Save failed"),
+        text: errorMessage(err, (isZh ? "保存失败" : "Save failed")),
       });
     } finally {
       setSaving(false);
@@ -197,10 +198,10 @@ export function PreferenceSettings() {
       });
       if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
       msgTimerRef.current = setTimeout(() => setMsg(null), 3000);
-    } catch (err: any) {
+    } catch (err) {
       setMsg({
         type: "error",
-        text: err.response?.data?.detail || (isZh ? "清除失败" : "Failed to clear preferences"),
+        text: errorMessage(err, (isZh ? "清除失败" : "Failed to clear preferences")),
       });
       setClearConfirmOpen(false);
     } finally {

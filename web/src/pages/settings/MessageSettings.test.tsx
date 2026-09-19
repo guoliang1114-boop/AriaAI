@@ -5,7 +5,7 @@ import { MessageSettings } from './MessageSettings'
 const mockGet = vi.fn()
 const mockPost = vi.fn()
 
-const wrapMessages = (items: any[]) => ({
+const wrapMessages = <T extends { is_published: boolean; read_count?: number }>(items: T[]) => ({
   items,
   total: items.length,
   limit: 10,
@@ -16,8 +16,8 @@ const wrapMessages = (items: any[]) => ({
 
 vi.mock('../../api/client', () => ({
   api: {
-    get: (...args: any[]) => mockGet(...args),
-    post: (...args: any[]) => mockPost(...args),
+    get: (...args: unknown[]) => mockGet(...args),
+    post: (...args: unknown[]) => mockPost(...args),
   },
 }))
 

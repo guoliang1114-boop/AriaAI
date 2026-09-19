@@ -1,9 +1,10 @@
+import type { CSSProperties, ReactNode } from "react"
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { SettingsLayout } from './SettingsLayout'
 
 vi.mock('react-router-dom', () => ({
-  NavLink: ({ children, to, style }: { children: any; to: string; style?: any }) => {
+  NavLink: ({ children, to, style }: { children: ReactNode | ((props: { isActive: boolean }) => ReactNode); to: string; style?: CSSProperties | ((props: { isActive: boolean }) => CSSProperties) }) => {
     const props = { isActive: false }
     const childContent = typeof children === 'function' ? children(props) : children
     const resolvedStyle = typeof style === 'function' ? style(props) : style

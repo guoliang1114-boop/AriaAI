@@ -16,7 +16,7 @@
  *   5. Security info note.
  *   6. Help link + save CTA footer.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -99,42 +99,7 @@ export function ServerSettings() {
 
   const hasUnsavedChanges = serverUrl.trim() !== initialServerUrl.trim();
 
-  useEffect(() => {
-    void loadServerSettings();
-    // Load once on mount; no deps.
-  }, []);
-
-  const loadServerSettings = async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const apiConfig = getApiConfig();
-      setEffectiveUrl(apiConfig.url);
-      setEffectiveSource(apiConfig.source);
-
-      let resolvedUrl = apiConfig.url;
-      try {
-        const settings = await api.get<Record<string, string>>("/settings/");
-        if (settings.api_base_url) {
-          setBackendServerUrl(settings.api_base_url);
-          resolvedUrl = settings.api_base_url;
-        }
-      } catch {
-        setBackendServerUrl("");
-      }
-
-      setServerUrl(resolvedUrl);
-      setInitialServerUrl(resolvedUrl);
-      await checkConnection(resolvedUrl);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load settings");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const checkConnection = async (url?: string) => {
-    const checkUrl = url || serverUrl;
+  const checkConnection = useCallback(async (checkUrl: string) => {
     if (!checkUrl) return;
 
     setIsChecking(true);
@@ -167,9 +132,31 @@ export function ServerSettings() {
     } finally {
       setIsChecking(false);
     }
-  };
+  }, []);
 
-  const handleCheckConnection = () => void checkConnection();
+  const settingsSequence = useRef(0);
+  const loadServerSettings = useCallback(() => {
+    const sequence = ++settingsSequence.current;
+    const apiConfig = getApiConfig();
+    return api.get<Record<string, string>>("/settings/").catch(() => ({} as Record<string, string>)).then(async (settings) => {
+      if (sequence !== settingsSequence.current) return;
+      const resolvedUrl = settings.api_base_url || apiConfig.url;
+      setError("");
+      setEffectiveUrl(apiConfig.url);
+      setEffectiveSource(apiConfig.source);
+      setBackendServerUrl(settings.api_base_url || "");
+      setServerUrl(resolvedUrl);
+      setInitialServerUrl(resolvedUrl);
+      await checkConnection(resolvedUrl);
+    }).finally(() => { if (sequence === settingsSequence.current) setLoading(false); });
+  }, [checkConnection]);
+
+  useEffect(() => {
+    void loadServerSettings();
+    return () => { settingsSequence.current += 1; };
+  }, [loadServerSettings]);
+
+  const handleCheckConnection = () => void checkConnection(serverUrl);
 
   const handleSave = async () => {
     if (!serverUrl.trim()) {

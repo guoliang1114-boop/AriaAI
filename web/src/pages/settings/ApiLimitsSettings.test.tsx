@@ -6,7 +6,7 @@ const mockGet = vi.fn()
 
 vi.mock('../../api/client', () => ({
   api: {
-    get: (...args: any[]) => mockGet(...args),
+    get: (...args: unknown[]) => mockGet(...args),
   },
 }))
 
@@ -18,7 +18,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ i18n: { language: 'zh' } }),
 }))
 
-function summaryResponse(overrides: Record<string, any> = {}) {
+function summaryResponse(overrides: Record<string, Record<string, unknown>> = {}) {
   return {
     counts: {
       jobs: 0,

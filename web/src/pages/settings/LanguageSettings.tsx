@@ -36,32 +36,20 @@ export function LanguageSettings() {
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    void loadSettings();
+    let active = true;
+    api.get<Record<string, string>>("/settings/").then((settings) => {
+      if (!active || !settings.language) return;
+      setSelectedLanguage(settings.language);
+      changeLanguage(settings.language);
+    }).catch(() => {
+      const language = window.localStorage.getItem("language");
+      if (active && language) { setSelectedLanguage(language); changeLanguage(language); }
+    }).finally(() => { if (active) setInitialLoading(false); });
     return () => {
+      active = false;
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     };
-    // loadSettings has no React deps; intentional empty array.
   }, []);
-
-  const loadSettings = async () => {
-    try {
-      setInitialLoading(true);
-      setError("");
-      const settings = await api.get<Record<string, string>>("/settings/");
-      if (settings.language) {
-        setSelectedLanguage(settings.language);
-        changeLanguage(settings.language);
-      }
-    } catch {
-      const savedLang = typeof window !== "undefined" ? window.localStorage.getItem("language") : null;
-      if (savedLang) {
-        setSelectedLanguage(savedLang);
-        changeLanguage(savedLang);
-      }
-    } finally {
-      setInitialLoading(false);
-    }
-  };
 
   // Auto-save: apply UI language immediately, PUT to backend in the
   // background, surface a brief "saved" pill in the header. Matches

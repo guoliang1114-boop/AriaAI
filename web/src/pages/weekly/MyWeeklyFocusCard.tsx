@@ -37,16 +37,10 @@ export function MyWeeklyFocusCard() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await api.get<WeeklyFocusMyResponse>("/weekly/my", { params: { week_start: weekStart } });
-      setItems(res.items);
-    } catch {
-      /* soft-fail: the widget just stays empty */
-    } finally {
-      setLoaded(true);
-    }
-  }, [weekStart]);
+  const load = useCallback(() => api.get<WeeklyFocusMyResponse>("/weekly/my", { params: { week_start: weekStart } })
+    .then((res) => setItems(res.items))
+    .catch(() => {})
+    .finally(() => setLoaded(true)), [weekStart]);
 
   useEffect(() => {
     void load();

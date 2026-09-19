@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { CxPagination, getCxPageItems } from "./CxPagination";
+import { CxPagination } from "./CxPagination";
+import { getCxPageItems } from "./pagination";
 
 describe("CxPagination", () => {
   it("builds a compact page model with ellipses", () => {

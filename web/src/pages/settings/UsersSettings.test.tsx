@@ -7,7 +7,7 @@ const mockPost = vi.fn()
 const mockPatch = vi.fn()
 const mockDelete = vi.fn()
 
-const wrapUsers = (items: any[]) => ({
+const wrapUsers = <T,>(items: T[]) => ({
   items,
   total: items.length,
   limit: 10,
@@ -16,10 +16,10 @@ const wrapUsers = (items: any[]) => ({
 
 vi.mock('../../api/client', () => ({
   api: {
-    get: (...args: any[]) => mockGet(...args),
-    post: (...args: any[]) => mockPost(...args),
-    patch: (...args: any[]) => mockPatch(...args),
-    delete: (...args: any[]) => mockDelete(...args),
+    get: (...args: unknown[]) => mockGet(...args),
+    post: (...args: unknown[]) => mockPost(...args),
+    patch: (...args: unknown[]) => mockPatch(...args),
+    delete: (...args: unknown[]) => mockDelete(...args),
   },
 }))
 
@@ -58,7 +58,7 @@ describe('UsersSettings', () => {
       { id: 1, email: 'alice@example.com', display_name: 'Alice', is_admin: false, is_active: true },
       { id: 2, email: 'bob@example.com', display_name: 'Bob', is_admin: false, is_active: true },
     ]
-    mockGet.mockImplementation((_url: string, config?: any) => {
+    mockGet.mockImplementation((_url: string, config?: { params?: { search?: string } }) => {
       const keyword = config?.params?.search?.toLowerCase()
       return Promise.resolve(wrapUsers(keyword ? users.filter((user) => user.display_name.toLowerCase().includes(keyword) || user.email.toLowerCase().includes(keyword)) : users))
     })

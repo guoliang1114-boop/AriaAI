@@ -7,8 +7,8 @@ const mockPut = vi.fn()
 
 vi.mock('../../api/client', () => ({
   api: {
-    get: (...args: any[]) => mockGet(...args),
-    put: (...args: any[]) => mockPut(...args),
+    get: (...args: unknown[]) => mockGet(...args),
+    put: (...args: unknown[]) => mockPut(...args),
   },
 }))
 

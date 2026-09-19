@@ -90,7 +90,7 @@ describe('toBackendStatus', () => {
 
   it('passes through unknown stages as-is', () => {
     expect(toBackendStatus('lead')).toBe('lead')
-    expect(toBackendStatus('custom_stage')).toBe('custom_stage' as any)
+    expect(toBackendStatus('custom_stage')).toBe('custom_stage')
   })
 })
 

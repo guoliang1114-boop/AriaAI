@@ -1,3 +1,4 @@
+import { errorMessage } from "../../utils/errors";
 /**
  * Settings → 外观 (Appearance) — V0.0.6 Codex redesign (PR 5/N).
  *
@@ -194,10 +195,10 @@ export function AppearanceSettings() {
         const payload = compactPreferences({ ...otherPrefs, appearance });
         await api.put<UserMemoryResponse>("/user-memory", { preferences: payload });
         flashSaved(isZh ? "已保存" : "Saved");
-      } catch (err: any) {
+      } catch (err) {
         setStatusMsg({
           type: "error",
-          text: err?.response?.data?.detail || (isZh ? "保存失败" : "Save failed"),
+          text: errorMessage(err, (isZh ? "保存失败" : "Save failed")),
         });
       } finally {
         setSaving(false);

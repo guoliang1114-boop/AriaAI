@@ -11,7 +11,7 @@
  * stat-card pattern (bg-elev + hairline border, no shadow, mono-font
  * value).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -106,26 +106,14 @@ export function MigrationSettings() {
   const [governance, setGovernance] = useState<MigrationGovernance | null>(null);
   const [error, setError] = useState("");
 
-  const loadGovernance = async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const data = await api.get<MigrationGovernance>("/health/db/migrations");
-      setGovernance(data);
-    } catch (err) {
-      console.error("Failed to load migration governance:", err);
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+  const loadGovernance = useCallback(() => api.get<MigrationGovernance>("/health/db/migrations")
+    .then((data) => { setGovernance(data); setError(""); })
+    .catch((err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setError(detail || (isZh ? "加载迁移状态失败" : "Failed to load migration status"));
-    } finally {
-      setLoading(false);
-    }
-  };
+    }).finally(() => setLoading(false)), [isZh]);
 
-  useEffect(() => {
-    void loadGovernance();
-    // No deps — load once on mount. i18n changes don't refetch.
-  }, []);
+  useEffect(() => { void loadGovernance(); }, [loadGovernance]);
 
   if (loading) {
     return (

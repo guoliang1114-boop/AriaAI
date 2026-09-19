@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -329,15 +329,10 @@ export function ApiLimitsSettings() {
   const [failurePage, setFailurePage] = useState(1)
   const [failurePageSize, setFailurePageSize] = useState(API_FAILURE_PAGE_SIZE)
 
-  const loadLimits = async (silent = false) => {
-    try {
-      if (silent) {
-        setRefreshing(true)
-      } else {
-        setLoading(true)
-      }
-      setError('')
-      const summary = normalizeSummaryResponse(await api.get<Partial<MemoryOperationsSummaryResponse>>('/memory/operations/summary', {
+  const requestSequence = useRef(0)
+  const loadLimits = useCallback(() => {
+    const sequence = ++requestSequence.current
+      return api.get<Partial<MemoryOperationsSummaryResponse>>('/memory/operations/summary', {
         params: {
           jobs_limit: 100,
           jobs_offset: 0,
@@ -346,7 +341,9 @@ export function ApiLimitsSettings() {
           failure_limit: failurePageSize,
           failure_offset: (failurePage - 1) * failurePageSize,
         },
-      }))
+      }).then((raw) => {
+      if (sequence !== requestSequence.current) return
+      const summary = normalizeSummaryResponse(raw)
       setJobs((summary.pages?.jobs?.items ?? []) as unknown as CombinedJob[])
       setRetryingJobsTotal(summary.counts.retrying_jobs)
       setProjectBudget(summary.budget.project ?? null)
@@ -354,22 +351,22 @@ export function ApiLimitsSettings() {
       setRecentFailures((summary.pages?.failures?.items ?? []) as FailureItem[])
       setFailureTotal(summary.pages?.failures?.total ?? 0)
       setRateLimitTotal(summary.failure_summary.category_counts.rate_limit ?? 0)
-    } catch (err) {
-      console.error('Failed to load API limit signals:', err)
-      setError(isZh ? '加载 API 限流提醒失败，请稍后重试。' : 'Failed to load API limit signals. Please retry later.')
-    } finally {
+      setError('')
+      setFailurePage((page) => Math.min(page, Math.max(1, Math.ceil((summary.pages?.failures?.total ?? 0) / failurePageSize))))
+    }).catch(() => {
+      if (sequence === requestSequence.current) setError(isZh ? '加载 API 限流提醒失败，请稍后重试。' : 'Failed to load API limit signals. Please retry later.')
+    }).finally(() => {
+      if (sequence !== requestSequence.current) return
       setLoading(false)
       setRefreshing(false)
-    }
-  }
+    })
+  }, [failurePage, failurePageSize, isZh])
 
   useEffect(() => {
     void loadLimits()
-    const timer = window.setInterval(() => {
-      void loadLimits(true)
-    }, 15000)
-    return () => window.clearInterval(timer)
-  }, [failurePage, failurePageSize])
+    const timer = window.setInterval(() => { void loadLimits() }, 15000)
+    return () => { window.clearInterval(timer); requestSequence.current += 1 }
+  }, [loadLimits])
 
   const retryingJobs = retryingJobsTotal || jobs.filter((job) => (job.retry_count ?? 0) > 0).length
   const modelPressureFailures = useMemo(() => recentFailures.filter(isModelPressureFailure), [recentFailures])
@@ -378,10 +375,6 @@ export function ApiLimitsSettings() {
   const currentFailurePage = Math.min(failurePage, failurePageCount)
   const paginatedFailures = latestFailures
   const hasPressure = rateLimitTotal > 0 || retryingJobs > 0 || isBudgetTight(projectBudget) || isBudgetTight(clientBudget)
-
-  useEffect(() => {
-    setFailurePage((current) => Math.min(current, failurePageCount))
-  }, [failurePageCount])
 
   if (loading) {
     return (
@@ -452,7 +445,7 @@ export function ApiLimitsSettings() {
         </div>
         <button
           type="button"
-          onClick={() => void loadLimits(true)}
+          onClick={() => { setRefreshing(true); void loadLimits() }}
           disabled={refreshing}
           className="inline-flex flex-shrink-0 items-center gap-2 px-3 py-2 transition-colors disabled:opacity-60"
           style={{
@@ -729,7 +722,7 @@ export function ApiLimitsSettings() {
                 page={currentFailurePage}
                 pageSize={failurePageSize}
                 totalItems={failureTotal}
-                onPageChange={setFailurePage}
+                onPageChange={(page) => { setLoading(true); setFailurePage(page) }}
                 onPageSizeChange={(nextPageSize) => {
                   setFailurePageSize(nextPageSize)
                   setFailurePage(1)
