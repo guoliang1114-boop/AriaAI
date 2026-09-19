@@ -74,7 +74,6 @@ from app.routers.clients_deps import (
     _rebuild_client_memory,
     _rotate_client_memory_rebuild_generation,
     _set_client_memory_failure,
-    _restore_missing_client_memory_rebuild_jobs,
     _schedule_client_memory_rebuild,
     _schedule_client_memory_summary_warm,
     _warm_client_memory_summary_caches,
@@ -130,13 +129,17 @@ def list_client_memory_jobs(
 ):
     all_clients = session.exec(select(ClientRecord)).all()
     client_lookup = {client.id: client for client in all_clients}
-    rebuild_job_client_ids = _restore_missing_client_memory_rebuild_jobs(session, all_clients)
 
+    # A dashboard read must not enqueue model work or change failure state.
+    # Missing jobs remain visible below; recovery uses the authorized write API.
     jobs: list[ClientMemoryJob] = []
+    rebuild_job_client_ids: set[int] = set()
     for job in scheduler_service.get_jobs():
         parsed = _parse_client_memory_job(job)
         if not parsed:
             continue
+        if parsed["job_type"] == "rebuild":
+            rebuild_job_client_ids.add(parsed["client_id"])
         client = client_lookup.get(parsed["client_id"])
         jobs.append(
             ClientMemoryJob(
@@ -148,11 +151,8 @@ def list_client_memory_jobs(
             )
         )
 
-    listed_rebuild_client_ids = {
-        job.client_id for job in jobs if job.job_type == "rebuild" and job.client_id in rebuild_job_client_ids
-    }
     for client in all_clients:
-        if client.id in listed_rebuild_client_ids:
+        if client.id in rebuild_job_client_ids:
             continue
         if client.client_memory_rebuild_status not in {"queued", "rebuilding"}:
             continue

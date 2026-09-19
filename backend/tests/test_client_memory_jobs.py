@@ -5,7 +5,9 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import FastAPI
@@ -14,7 +16,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.db import ClientMemorySnapshot, ClientRecord, User
 from app.routers import clients as clients_router_module
-from app.routers import clients_deps, clients_memory
+from app.routers import clients_deps, clients_memory, memory_operations
 from app.routers.auth import get_current_user
 from app.services.client_contexts import get_client_memory_payload, parse_client_memory
 from tests.test_database import create_test_engine, drop_all_tables
@@ -43,6 +45,7 @@ class ClientMemoryJobsTestCase(unittest.TestCase):
 
         app = FastAPI()
         app.include_router(clients_router_module.router)
+        app.include_router(memory_operations.router)
         app.dependency_overrides[clients_router_module.get_session] = override_session
         app.dependency_overrides[get_current_user] = lambda: User(
             id=1,
@@ -57,13 +60,13 @@ class ClientMemoryJobsTestCase(unittest.TestCase):
         self.client.close()
         self.engine.dispose()
 
-    def test_missing_rebuild_job_is_restored_from_stale_client_status(self):
+    def test_missing_queued_job_remains_visible_without_recovery_on_read(self):
         with Session(self.engine) as session:
             client = ClientRecord(
                 name="Queued Client",
                 client_memory_version=0,
                 client_memory_stale=True,
-                client_memory_rebuild_status="idle",
+                client_memory_rebuild_status="queued",
             )
             session.add(client)
             session.commit()
@@ -83,11 +86,77 @@ class ClientMemoryJobsTestCase(unittest.TestCase):
         self.assertEqual(body["jobs"][0]["status_source"], "client_status")
         self.assertEqual(body["jobs"][0]["status_note"], "queued")
         self.assertEqual(body["jobs"][0]["trigger"], "status_only")
-        self.assertTrue(add_job.called)
+        add_job.assert_not_called()
 
         with Session(self.engine) as session:
             refreshed = session.get(ClientRecord, client_id)
             self.assertEqual(refreshed.client_memory_rebuild_status, "queued")
+
+    def test_job_and_operations_reads_preserve_memory_failure_and_schedule_state(self):
+        failed_at = datetime(2026, 9, 19, 12, 0)
+        with Session(self.engine) as session:
+            for status, version, stale in (
+                ("idle", 0, True),
+                ("failed", 3, True),
+                ("queued", 3, True),
+                ("rebuilding", 3, True),
+                ("idle", 0, False),
+            ):
+                session.add(ClientRecord(
+                    name=f"Read-only {status} {stale}",
+                    client_memory_version=version,
+                    client_memory_stale=stale,
+                    client_memory_rebuild_status=status,
+                    client_memory_rebuild_failed_at=failed_at,
+                    client_memory_last_failure_json=json.dumps({
+                        "stage": "rebuild",
+                        "message": "Invalid memory payload",
+                        "failed_at": failed_at.isoformat(),
+                    }),
+                ))
+            session.commit()
+            before = {row.id: row.model_dump() for row in session.exec(select(ClientRecord)).all()}
+
+        for path in ("/clients/memory/jobs", "/memory/operations/summary"):
+            with self.subTest(path=path), patch.object(
+                clients_router_module.scheduler_service, "is_running", return_value=True
+            ), patch.object(
+                clients_router_module.scheduler_service, "get_jobs", return_value=[]
+            ), patch.object(
+                clients_router_module.scheduler_service, "add_or_replace_date_job"
+            ) as add_job, patch.object(
+                clients_router_module.scheduler_service, "remove_job"
+            ) as remove_job:
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                add_job.assert_not_called()
+                remove_job.assert_not_called()
+                body = response.json()
+                jobs = body["jobs"] if path == "/clients/memory/jobs" else body["pages"]["jobs"]["items"]
+                self.assertEqual(len(jobs), 2)
+                self.assertEqual({job["status_note"] for job in jobs}, {"queued", "rebuilding"})
+                self.assertTrue(all(job["trigger"] == "status_only" for job in jobs))
+                with Session(self.engine) as session:
+                    after = {row.id: row.model_dump() for row in session.exec(select(ClientRecord)).all()}
+                    self.assertEqual(after, before)
+                    self.assertEqual(session.exec(select(ClientMemorySnapshot)).all(), [])
+
+    def test_existing_scheduler_job_is_reported_once(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Scheduled", client_memory_rebuild_status="queued")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+        job = SimpleNamespace(
+            id=f"client_memory_rebuild_{client_id}",
+            next_run_time=datetime.utcnow() + timedelta(minutes=5),
+        )
+        with patch.object(clients_router_module.scheduler_service, "get_jobs", return_value=[job]):
+            response = self.client.get("/clients/memory/jobs")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["jobs"][0]["job_id"], job.id)
 
     def test_batch_rebuild_queues_clients_when_scheduler_is_running(self):
         with Session(self.engine) as session:

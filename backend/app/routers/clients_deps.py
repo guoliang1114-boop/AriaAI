@@ -1237,49 +1237,6 @@ def _schedule_client_memory_rebuild(
     )
 
 
-def _restore_missing_client_memory_rebuild_jobs(session: Session, clients: list[ClientRecord]) -> set[int]:
-    rebuild_job_client_ids: set[int] = set()
-    for job in scheduler_service.get_jobs():
-        parsed = _parse_client_memory_job(job)
-        if parsed and parsed.get("job_type") == "rebuild":
-            rebuild_job_client_ids.add(int(parsed["client_id"]))
-
-    if not scheduler_service.is_running():
-        return rebuild_job_client_ids
-
-    restore_index = 0
-    status_changed = False
-    for client in clients:
-        if client.id in rebuild_job_client_ids:
-            continue
-        needs_rebuild = (
-            client.client_memory_rebuild_status in {"queued", "rebuilding"}
-            or bool(client.client_memory_stale)
-            or int(client.client_memory_version or 0) <= 0
-        )
-        if not needs_rebuild:
-            continue
-
-        if client.client_memory_rebuild_status != "rebuilding":
-            client.client_memory_rebuild_status = "queued"
-            client.client_memory_rebuild_failed_at = None
-            session.add(client)
-            session.commit()
-            status_changed = True
-        _schedule_client_memory_rebuild(
-            client.id,
-            trigger="restore_missing_job",
-            delay_seconds=restore_index * CLIENT_MEMORY_REBUILD_RETRY_BASE_DELAY_SECONDS,
-        )
-        rebuild_job_client_ids.add(client.id)
-        restore_index += 1
-
-    if status_changed:
-        clients_cache.delete(_CLIENTS_KEY)
-
-    return rebuild_job_client_ids
-
-
 def _mark_client_memory_stale(session: Session, client_id: int, trigger: str = "data_changed") -> None:
     mark_client_memory_stale(session, client_id, trigger=trigger)
     client = session.get(ClientRecord, client_id)
