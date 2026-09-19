@@ -287,3 +287,22 @@ def test_rewrite_never_swallows_new_topics_or_writes(content):
 def test_rewrite_ignores_unactivated_recovery_reservations():
     history = [message(1, "市场洞察方法"), message(2, "其他问题", ids=(), recovery_reservation={"status": "reserved"})]
     assert contextual_knowledge_query(content="继续", document_ids=[7], history=history, current_message_id=3, conversation_id=1) == ("市场洞察方法\n继续", 1)
+
+
+@pytest.mark.parametrize("content", ["这意味着什么？", "上述方案有哪些风险？", "第二条预算是多少？", "这些数据准确吗？", "刚才的建议怎么落地？"])
+def test_referential_question_retrieves_current_sources_using_original_user_topic(content):
+    history = [message(1, "项目预算和执行方案"), Message(id=2, conversation_id=1, role="assistant", content="未经核实的历史回答")]
+    query, source_id = contextual_knowledge_query(content=content, document_ids=[7], history=history, current_message_id=3, conversation_id=1)
+    assert query == f"项目预算和执行方案\n{content}"
+    assert source_id == 1
+    assert "未经核实" not in query
+
+
+@pytest.mark.parametrize("content", ["上述方案怎么落地，另外修改项目数据", "这意味着什么，分析另一个项目", "新客户预算是多少？"])
+def test_reference_does_not_swallow_topic_change_or_write(content):
+    assert contextual_knowledge_query(content=content, document_ids=[7], history=[message(1, "旧主题")], current_message_id=3, conversation_id=1) == (content, None)
+
+
+def test_reference_ignores_messages_after_current_turn():
+    history = [message(1, "原始方案"), message(5, "后来的预算方案")]
+    assert contextual_knowledge_query(content="这有什么风险？", document_ids=[7], history=history, current_message_id=3, conversation_id=1) == ("原始方案\n这有什么风险？", 1)

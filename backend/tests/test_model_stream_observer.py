@@ -15,6 +15,54 @@ from app.services.chat_tools import ChatRuntime
 from app.services.model_stream_observer import ModelStreamObserver, ModelStreamIdleTimeout
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["http", "sdk"])
+async def test_claude_observes_each_phase_without_exposing_thinking(monkeypatch, mode):
+    from app.services import claude
+
+    observer = ModelStreamObserver()
+    raw = [
+        {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "PRIVATE_REASONING"}},
+        {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "answer"}},
+        {"type": "content_block_start", "content_block": {"type": "tool_use", "id": "t1", "name": "read_project", "input": {}}},
+        {"type": "content_block_delta", "delta": {"type": "input_json_delta", "partial_json": '{"project_id":1}'}},
+        {"type": "content_block_stop"},
+    ]
+
+    class Stream:
+        status_code = 200
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return False
+        async def aiter_lines(self):
+            for event in raw:
+                yield "data: " + json.dumps(event)
+        def __aiter__(self):
+            return self.events()
+        async def events(self):
+            yield SimpleNamespace(type="content_block_delta", delta=SimpleNamespace(thinking="PRIVATE_REASONING"))
+            yield SimpleNamespace(type="text", text="answer")
+            yield SimpleNamespace(type="content_block_start", content_block=SimpleNamespace(**raw[2]["content_block"]))
+            yield SimpleNamespace(type="content_block_delta", delta=SimpleNamespace(partial_json='{"project_id":1}'))
+            yield SimpleNamespace(type="content_block_stop", content_block=SimpleNamespace(type="tool_use", id="t1", name="read_project", input={"project_id": 1}))
+        async def get_final_message(self):
+            return SimpleNamespace(stop_reason="end_turn")
+
+    client = SimpleNamespace(stream=lambda *args, **kwargs: Stream())
+    monkeypatch.setattr(claude, "_get_http_client", lambda: client)
+    monkeypatch.setattr(claude, "_async_client_sdk", lambda: SimpleNamespace(messages=client))
+    monkeypatch.setattr(claude, "get_api_key", lambda: "test")
+    monkeypatch.setattr(claude, "_get_base_url", lambda: "https://example.invalid")
+    monkeypatch.setattr(claude, "_should_use_http_mode", lambda: mode == "http")
+    chunks = [value async for value in claude.stream_response(
+        [{"role": "user", "content": "question"}], observer=observer)]
+    assert chunks[0] == "answer"
+    assert json.loads(chunks[-1])["input"] == {"project_id": 1}
+    assert "PRIVATE_REASONING" not in "".join(chunks) + json.dumps(observer.timings())
+    assert set(observer.first) == {"headers", "reasoning", "text", "tool"}
+
+
 def test_content_free_phase_timings_and_real_progress_only():
     now = [0.0]
     observer = ModelStreamObserver(clock=lambda: now[0])
@@ -177,3 +225,41 @@ async def test_user_cancellation_closes_observed_request_without_retry():
         await task
     assert calls == [1] and closed == [True]
     assert not any(event["type"] == "model_turn_retry_scheduled" for event in state.trace_events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider,model", [("deepseek", "deepseek-v4-pro"), ("bigmodel", "glm-5.3"), ("mimo", "mimo-v2.5-flash")])
+async def test_compatible_providers_report_hidden_progress_without_changing_payload(monkeypatch, provider, model):
+    payloads = []
+    async def stream(*args, observer=None):
+        payloads.append(args[-1])
+        observer.mark("headers")
+        for delta in [{"reasoning_content": "PRIVATE_REASONING"}, {"content": "回答"}]:
+            yield "data: " + json.dumps({"choices": [{"delta": delta}]})
+        yield "data: [DONE]"
+    monkeypatch.setattr(openai_compat, f"_stream_{provider}_once", stream)
+    monkeypatch.setattr(openai_compat, f"get_{provider}_api_key", lambda: "test")
+    monkeypatch.setattr(openai_compat, "_get_http_client", lambda: object())
+    observer = ModelStreamObserver()
+    chunks = [chunk async for chunk in openai_compat.stream_response([], model=model, observer=observer)]
+    assert "回答" in chunks
+    assert set(observer.first) == {"headers", "reasoning", "text"}
+    assert observer.committed
+    assert "reasoning_effort" not in payloads[0]
+    assert "PRIVATE" not in json.dumps(observer.timings())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["deepseek-v4-pro", "glm-5.3", "mimo-v2.5-flash", "claude-sonnet-4-6"])
+async def test_all_observed_models_stop_retry_after_hidden_reasoning(model):
+    calls = []
+    async def stream(*args, observer, **kwargs):
+        calls.append(1)
+        observer.mark("reasoning")
+        raise TimeoutError("after hidden progress")
+        yield "unreachable"
+    rt = runtime(stream)
+    rt.selected_model = model
+    with pytest.raises(TimeoutError):
+        _ = [item async for item in agent_loop._iter_model_stream_with_safe_retry(rt, ChatSessionState(), [], "system", stream_label="step_0")]
+    assert calls == [1]

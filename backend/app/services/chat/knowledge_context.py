@@ -89,6 +89,27 @@ def is_concise_knowledge_rewrite_followup(content: str) -> bool:
     return is_knowledge_rewrite_followup(content) and bool(re.search(r"精简|压缩|浓缩|简短一点|短一点", content))
 
 
+_REFERENTIAL_QUESTION = re.compile(
+    r"^(?:请|那么|那)?(?:这|那|上述|上面|刚才|前面|上一条|第[一二三四五六七八九十1-9][0-9]?条)"
+    r"(?:个|些|种|项)?(?:的)?(?:回答|建议|方案|结论|数据|预算|方法|措施|风险|判断)?"
+    r"(?:的)?(?:意味着什么|有什么影响|有哪些风险|有什么风险|有什么依据|依据是什么|"
+    r"为什么|为什么可行|怎么实施|如何实施|怎么落地|如何落地|谁负责|由谁负责|"
+    r"预算是多少|是多少|准确吗|可靠吗|适用什么条件|需要哪些条件|能展开解释吗)$"
+)
+
+
+def is_knowledge_context_followup(content: str) -> bool:
+    """Recognize bounded referential questions without interpreting new writes."""
+    if is_knowledge_rewrite_followup(content):
+        return True
+    if not content or len(content) > 240:
+        return False
+    clauses = [re.sub(r"\s+", "", clause) for clause in re.split(r"[，,。；;！!？?\n]", content) if clause.strip()]
+    return bool(clauses) and bool(_REFERENTIAL_QUESTION.fullmatch(clauses[0])) and all(
+        _FOLLOWUP_MODIFIER.fullmatch(clause) for clause in clauses[1:]
+    )
+
+
 def contextual_knowledge_query(*, content: str, document_ids: list[int] | None,
                                history: list[Message], current_message_id: int | None,
                                conversation_id: int) -> tuple[str, int | None]:
@@ -97,13 +118,15 @@ def contextual_knowledge_query(*, content: str, document_ids: list[int] | None,
     Only user text supplies query terms. No old evidence/content is re-granted,
     and a removed/replaced scope or malformed record ends the search.
     """
-    if not document_ids or not is_knowledge_rewrite_followup(content):
+    if not document_ids or not is_knowledge_context_followup(content):
         return content, None
     expected = sorted(set(document_ids))
     for message in list(reversed(history))[:40]:
         if message.conversation_id != conversation_id:
             return content, None
-        if message.id == current_message_id or message.role != "user":
+        if current_message_id is not None and message.id is not None and message.id >= current_message_id:
+            continue
+        if message.role != "user":
             continue
         metadata = _metadata(message)
         if metadata.get("run_steering"):
@@ -114,6 +137,6 @@ def contextual_knowledge_query(*, content: str, document_ids: list[int] | None,
         if _selection(metadata) != expected:
             break
         previous = str(message.content or "").strip()
-        if previous and not is_knowledge_rewrite_followup(previous):
+        if previous and not is_knowledge_context_followup(previous):
             return f"{previous[:2000]}\n{content}", message.id
     return content, None

@@ -15,6 +15,9 @@ from app.core.security import get_api_key
 from app.config import DEFAULT_MODELS, DEFAULT_MAX_TOKENS
 from app.services.agent_harness.turn_retry import ModelProviderHTTPError
 from app.services.cache import TTLCache
+from app.services.model_stream_observer import ModelStreamObserver
+
+supports_stream_observer = True
 
 DEFAULT_MODEL = DEFAULT_MODELS["claude"]
 from app.database import engine
@@ -172,6 +175,7 @@ async def _stream_response_sdk(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     tools: list[dict] | None = None,
     temperature: float = 0.7,
+    observer: ModelStreamObserver | None = None,
 ) -> AsyncIterator[str]:
     """Stream using anthropic SDK.
     
@@ -195,6 +199,8 @@ async def _stream_response_sdk(
     try:
         any_content_yielded = False
         async with client.messages.stream(**kwargs) as stream:
+            if observer is not None:
+                observer.mark("headers")
             # Use event-based API to handle both text and tool_use
             async for event in stream:
                 event_type = event.type
@@ -202,14 +208,23 @@ async def _stream_response_sdk(
                 if event_type == "text":
                     # Text delta event (emitted by SDK as a convenience alongside raw content_block_delta)
                     any_content_yielded = True
+                    if observer is not None and event.text:
+                        observer.mark("text")
                     yield event.text
                 elif event_type == "content_block_delta":
                     # Raw content block delta — text is already handled by the "text" event above
                     # input_json_delta is accumulated internally by the SDK and surfaced at content_block_stop
-                    pass
+                    if observer is not None:
+                        delta = event.delta
+                        if getattr(delta, "thinking", ""):
+                            observer.mark("reasoning")
+                        elif getattr(delta, "partial_json", ""):
+                            observer.mark("tool")
                 elif event_type == "content_block_start":
                     content_block = event.content_block
                     if content_block.type == "tool_use":
+                        if observer is not None:
+                            observer.mark("tool")
                         # 提前通知前端，AI开始调用工具了
                         yield f"\n\n[TOOL_START:{content_block.name}]\n\n"
                 elif event_type == "content_block_stop":
@@ -290,6 +305,7 @@ async def _stream_response_http(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     tools: list[dict] | None = None,
     temperature: float = 0.7,
+    observer: ModelStreamObserver | None = None,
 ) -> AsyncIterator[str]:
     """Stream using raw HTTP requests (no X-Stainless headers)."""
     api_key = get_api_key()
@@ -333,6 +349,8 @@ async def _stream_response_http(
                     headers=response.headers,
                 )
             
+            if observer is not None:
+                observer.mark("headers")
             stop_reason = None
             any_content_yielded = False
             # Per-block accumulation for tool_use
@@ -352,6 +370,8 @@ async def _stream_response_http(
                         if event.get("type") == "content_block_start":
                             block = event.get("content_block", {})
                             if block.get("type") == "tool_use":
+                                if observer is not None:
+                                    observer.mark("tool")
                                 in_tool_use = True
                                 tool_block_meta = {"id": block.get("id", ""), "name": block.get("name", "")}
                                 tool_input_parts = []
@@ -360,6 +380,13 @@ async def _stream_response_http(
                         # Handle content block delta (streaming)
                         elif event.get("type") == "content_block_delta":
                             delta = event.get("delta", {})
+                            if observer is not None:
+                                if delta.get("type") == "thinking_delta" and delta.get("thinking"):
+                                    observer.mark("reasoning")
+                                elif delta.get("type") == "text_delta" and delta.get("text"):
+                                    observer.mark("text")
+                                elif delta.get("type") == "input_json_delta" and delta.get("partial_json"):
+                                    observer.mark("tool")
                             if delta.get("type") == "text_delta":
                                 any_content_yielded = True
                                 yield delta.get("text", "")
@@ -475,6 +502,7 @@ async def stream_response(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     tools: list[dict] | None = None,
     temperature: float = 0.7,
+    observer: ModelStreamObserver | None = None,
 ) -> AsyncIterator[str]:
     """Yield text chunks from Claude as they arrive (true async streaming).
     
@@ -488,10 +516,10 @@ async def stream_response(
     use_http = _should_use_http_mode()
     
     if use_http:
-        async for chunk in _stream_response_http(messages, system, model, max_tokens, tools, temperature):
+        async for chunk in _stream_response_http(messages, system, model, max_tokens, tools, temperature, **({"observer": observer} if observer is not None else {})):
             yield chunk
     else:
-        async for chunk in _stream_response_sdk(messages, system, model, max_tokens, tools, temperature):
+        async for chunk in _stream_response_sdk(messages, system, model, max_tokens, tools, temperature, **({"observer": observer} if observer is not None else {})):
             yield chunk
 
 

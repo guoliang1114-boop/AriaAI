@@ -363,15 +363,15 @@ async def stream_response(
     """
     # Auto-detect provider from model name
     if model.startswith("glm-"):
-        async for chunk in stream_response_bigmodel(messages, system, model, max_tokens, tools, temperature):
+        async for chunk in stream_response_bigmodel(messages, system, model, max_tokens, tools, temperature, **({"observer": observer} if observer is not None else {})):
             yield chunk
         return
     if model.startswith("deepseek-"):
-        async for chunk in stream_response_deepseek(messages, system, model, max_tokens, tools, temperature):
+        async for chunk in stream_response_deepseek(messages, system, model, max_tokens, tools, temperature, **({"observer": observer} if observer is not None else {})):
             yield chunk
         return
     if _is_mimo_model(model):
-        async for chunk in stream_response_mimo(messages, system, model, max_tokens, tools, temperature):
+        async for chunk in stream_response_mimo(messages, system, model, max_tokens, tools, temperature, **({"observer": observer} if observer is not None else {})):
             yield chunk
         return
     
@@ -660,10 +660,27 @@ def _ensure_deepseek_reasoning_content(messages: list[dict]) -> list[dict]:
 # DeepSeek Streaming
 # =============================================================================
 
+def _observe_delta(observer: ModelStreamObserver | None, delta: dict) -> None:
+    if observer is None:
+        return
+    if isinstance(delta.get("content"), str) and delta["content"]:
+        observer.mark("text")
+    if isinstance(delta.get("reasoning_content"), str) and delta["reasoning_content"]:
+        observer.mark("reasoning")
+    calls = delta.get("tool_calls")
+    if isinstance(calls, list) and any(
+        isinstance(call, dict) and (bool(call.get("id")) or
+        (isinstance(call.get("function"), dict) and bool(call["function"].get("name") or call["function"].get("arguments"))))
+        for call in calls
+    ):
+        observer.mark("tool")
+
+
 async def _stream_deepseek_once(
     client: httpx.AsyncClient,
     headers: dict,
     payload: dict,
+    observer: ModelStreamObserver | None = None,
 ) -> AsyncIterator[str]:
     """Open one DeepSeek stream; the Agent Loop owns all safe retries."""
 
@@ -681,6 +698,8 @@ async def _stream_deepseek_once(
                 body=body.decode(errors="replace")[:300],
                 headers=response.headers,
             )
+        if observer is not None:
+            observer.mark("headers")
         async for line in response.aiter_lines():
             yield line
 
@@ -692,6 +711,7 @@ async def stream_response_deepseek(
     max_tokens: int = 4096,
     tools: list[dict] | None = None,
     temperature: float = 0.7,
+    observer: ModelStreamObserver | None = None,
 ) -> AsyncIterator[str]:
     """Stream DeepSeek V4 response, yielding same token/tool-use format as claude.py."""
     api_key = get_deepseek_api_key()
@@ -727,7 +747,9 @@ async def stream_response_deepseek(
     client = _get_http_client()
 
     try:
-        async for line in _stream_deepseek_once(client, headers, payload):
+        source = (_stream_deepseek_once(client, headers, payload, observer=observer)
+                  if observer is not None else _stream_deepseek_once(client, headers, payload))
+        async for line in source:
             if not line.startswith("data: "):
                 continue
             payload_str = line[6:].strip()
@@ -747,6 +769,7 @@ async def stream_response_deepseek(
             delta = choice.get("delta") or {}
             if not isinstance(delta, dict):
                 continue
+            _observe_delta(observer, delta)
 
             text = delta.get("content")
             if text:
@@ -891,6 +914,7 @@ async def _stream_mimo_once(
     base_url: str,
     headers: dict,
     payload: dict,
+    observer: ModelStreamObserver | None = None,
 ) -> AsyncIterator[str]:
     """Open one MiMo stream; the Agent Loop owns all safe retries."""
 
@@ -908,6 +932,8 @@ async def _stream_mimo_once(
                 body=body.decode(errors="replace")[:300],
                 headers=response.headers,
             )
+        if observer is not None:
+            observer.mark("headers")
         async for line in response.aiter_lines():
             yield line
 
@@ -919,6 +945,7 @@ async def stream_response_mimo(
     max_tokens: int = 4096,
     tools: list[dict] | None = None,
     temperature: float = 0.7,
+    observer: ModelStreamObserver | None = None,
 ) -> AsyncIterator[str]:
     """Stream Xiaomi MiMo response, yielding same token/tool-use format as claude.py."""
     api_key = get_mimo_api_key()
@@ -956,7 +983,9 @@ async def stream_response_mimo(
     client = _get_http_client()
 
     try:
-        async for line in _stream_mimo_once(client, base_url, headers, payload):
+        source = (_stream_mimo_once(client, base_url, headers, payload, observer=observer)
+                  if observer is not None else _stream_mimo_once(client, base_url, headers, payload))
+        async for line in source:
             if not line.startswith("data: "):
                 continue
             payload_str = line[6:].strip()
@@ -976,6 +1005,7 @@ async def stream_response_mimo(
             delta = choice.get("delta") or {}
             if not isinstance(delta, dict):
                 continue
+            _observe_delta(observer, delta)
 
             text = delta.get("content")
             if text:
@@ -1118,6 +1148,7 @@ async def _stream_bigmodel_once(
     client: httpx.AsyncClient,
     headers: dict,
     payload: dict,
+    observer: ModelStreamObserver | None = None,
 ) -> AsyncIterator[str]:
     """Open one BigModel stream; the Agent Loop owns all safe retries."""
 
@@ -1135,6 +1166,8 @@ async def _stream_bigmodel_once(
                 body=body.decode(errors="replace")[:300],
                 headers=response.headers,
             )
+        if observer is not None:
+            observer.mark("headers")
         async for line in response.aiter_lines():
             yield line
 
@@ -1146,6 +1179,7 @@ async def stream_response_bigmodel(
     max_tokens: int = 4096,
     tools: list[dict] | None = None,
     temperature: float = 0.7,
+    observer: ModelStreamObserver | None = None,
 ) -> AsyncIterator[str]:
     """Stream BigModel response, yielding same token/tool-use format as claude.py."""
     api_key = get_bigmodel_api_key()
@@ -1180,7 +1214,9 @@ async def stream_response_bigmodel(
     finish_reason = None
     
     try:
-        async for line in _stream_bigmodel_once(client, headers, payload):
+        source = (_stream_bigmodel_once(client, headers, payload, observer=observer)
+                  if observer is not None else _stream_bigmodel_once(client, headers, payload))
+        async for line in source:
             if not line.startswith("data: "):
                 continue
             payload_str = line[6:].strip()
@@ -1198,6 +1234,9 @@ async def stream_response_bigmodel(
             choice = choices[0]
             finish_reason = choice.get("finish_reason") or finish_reason
             delta = choice.get("delta", {})
+            if not isinstance(delta, dict):
+                continue
+            _observe_delta(observer, delta)
 
             text = delta.get("content")
             if text:

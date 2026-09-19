@@ -444,8 +444,7 @@ async def _iter_model_stream_with_safe_retry(
     response_committed = False
 
     for attempt in range(1, max_attempts + 1):
-        observed = (getattr(runtime.llm, "supports_stream_observer", False) is True
-                    and runtime.selected_model.startswith(("kimi-", "moonshot-")))
+        observed = getattr(runtime.llm, "supports_stream_observer", False) is True
         observer = ModelStreamObserver(idle_seconds=getattr(runtime, "model_stream_idle_seconds", 60.0)) if observed else None
         first_observed_attempt = not any(event.get("type") == "model_response_observed" for event in state.trace_events)
         provider_options = {"observer": observer} if observer is not None else {}
@@ -1022,6 +1021,20 @@ def _skipped_pending_result_block(
     }
 
 
+def _markdown_inline_delta(existing: str, addition: str | None) -> str:
+    """Suppress an exact second copy of a whole Markdown artifact only.
+
+    Never fuzzy-match, remove shared paragraphs, or rewrite the file. Distinct
+    tool results and artifact receipts remain present in the run transcript.
+    """
+    if not addition:
+        return ""
+    prior, body = existing.strip(), addition.strip()
+    if body and (prior == body or (len(body) >= 80 and prior.endswith("\n\n" + body))):
+        return ""
+    return addition
+
+
 def _append_text(existing: str, addition: str) -> str:
     if not addition:
         return existing
@@ -1515,13 +1528,14 @@ async def _run_agent_loop_impl(
                         )
 
                 # Markdown writes also stream their content as user-visible text.
-                if outcome.markdown_inline_text:
-                    accumulated_text = _append_text(accumulated_text, outcome.markdown_inline_text)
+                inline_delta = _markdown_inline_delta(accumulated_text, outcome.markdown_inline_text)
+                if inline_delta:
+                    accumulated_text = _append_text(accumulated_text, inline_delta)
                     state.full_text = accumulated_text
-                    yield sse_event({"type": "text", "content": outcome.markdown_inline_text})
+                    yield sse_event({"type": "text", "content": inline_delta})
                     if state.run_id:
                         yield sse_event(
-                            _text_delta_event(state.run_id, outcome.markdown_inline_text)
+                            _text_delta_event(state.run_id, inline_delta)
                         )
 
                 tool_result_blocks.append(outcome.result_block)

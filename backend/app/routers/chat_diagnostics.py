@@ -29,6 +29,17 @@ from app.services.chat_diagnostics import run_model_test, test_provider_connecti
 router = APIRouter()
 
 
+@router.get("/diagnostics/latency")
+def get_model_latency_report(
+    days: int = Query(7, ge=1, le=90),
+    limit: int = Query(5000, ge=1, le=10000),
+    session: Session = Depends(get_session),
+    _admin: User = Depends(require_admin),
+):
+    from app.services.chat.latency_report import build_latency_report
+    return build_latency_report(session, days=days, limit=limit)
+
+
 def _chat_run_payload(run: ChatRun) -> dict:
     return {
         "run_id": run.run_id,
