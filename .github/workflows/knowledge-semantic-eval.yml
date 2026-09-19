@@ -1,0 +1,54 @@
+name: Knowledge Semantic Eval
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: production-database-maintenance
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Evaluate deployed semantic retrieval without business writes
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          command_timeout: 15m
+          script: |
+            set -eu
+            cd /www/wwwroot/AriaAI/backend
+            PYTHON=".venv/bin/python3"
+            if [ ! -x "$PYTHON" ]; then
+              PYTHON=".venv/bin/python"
+            fi
+            # Hashes identify deployed files; the server checkout is not the
+            # runtime version. Never print configuration, credentials, or text.
+            "$PYTHON" - <<'PY'
+            import hashlib
+            import json
+            from pathlib import Path
+
+            files = [
+                "scripts/knowledge_retrieval_eval.py",
+                "app/services/knowledge_embeddings.py",
+                "app/services/knowledge_retrieval.py",
+            ]
+            print(json.dumps({"deployed_file_sha256": {
+                name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
+                for name in files
+            }}))
+            PY
+            # The evaluator uses synthetic fixtures in an ephemeral SQLite DB.
+            # Model cache files are the only persistent writes. Provider config
+            # and business indexes remain unchanged.
+            "$PYTHON" scripts/knowledge_retrieval_eval.py --semantic --enforce
+            "$PYTHON" scripts/knowledge_read_authority_report.py

@@ -1,6 +1,6 @@
 # AriaAI GitHub 自动部署指南
 
-更新日期：2026-04-15
+更新日期：2026-09-20
 
 当前项目的主部署方式是：
 
@@ -18,15 +18,18 @@
 1. GitHub Actions 检出代码
 2. Actions 本地构建前端
 3. Actions 准备后端依赖
-4. 通过 SCP 上传 `web/dist` 和 `backend`
+4. 通过 SCP 上传 `web/dist`、`backend` 和 `skills`
 5. 通过 SSH 在服务器执行部署脚本
 6. 服务器完成以下动作
    - 激活后端虚拟环境
-   - `pip install -r requirements.txt`
-   - 使用独立 `ariaai_test` 数据库运行后端聚焦回归
-   - `python3 scripts/ensure_db.py`
-   - `alembic upgrade head`
-   - `pm2 reload ariaai-backend --update-env`
+   - 安装 `requirements.txt` 和 `requirements-test.txt`
+   - 校验 Skill manifest，将多余旧包移入可恢复归档
+   - 只读核对生产 PostgreSQL，使用独立 SQLite 文件运行后端聚焦回归
+   - 执行确定性对话质量门与离线知识检索评测，合成测试固定 hash Provider
+   - 创建并校验 PostgreSQL 备份（`verified_postgres_backup.py`）
+   - 按 `migration_governance.py report / ensure / upgrade / check` 治理迁移
+   - 输出无正文的记忆/知识读取权威报告
+   - 通过 PM2 重建进程并核对后端健康
    - 同步前端静态文件到站点目录
    - `nginx -t && nginx -s reload`
 
@@ -54,6 +57,11 @@ on:
 
 辅助文件：
 - `.github/workflows/test-secrets.yml`
+- `.github/workflows/production-db-e2e.yml`：经备份后在严格隔离 PostgreSQL schema 中回归，并核对生产 public 状态。
+- `.github/workflows/provider-grounded-qa-eval.yml`：对已部署代码运行真实 Provider 合成资料评测。
+- `.github/workflows/knowledge-semantic-eval.yml`：对已部署代码预热并评测本地语义模型，不修改生产检索配置或业务索引。
+
+部署、数据库 E2E、数据库恢复和语义预检共用 `production-database-maintenance` 并发组，`cancel-in-progress=false`。等待当前操作完成，不能为了抢跑取消备份或迁移中的工作流。
 
 如果部署逻辑发生变化，应优先更新 `deploy.yml`，然后再同步更新本文档。
 
@@ -95,14 +103,18 @@ on:
 当前工作流中包含：
 
 ```bash
-python3 scripts/ensure_db.py
-alembic upgrade head
+.venv/bin/python scripts/verified_postgres_backup.py
+.venv/bin/python scripts/migration_governance.py report
+.venv/bin/python scripts/migration_governance.py ensure
+.venv/bin/python scripts/migration_governance.py upgrade
+.venv/bin/python scripts/migration_governance.py check
 ```
 
-这两步的目标是：
+执行前配置可写的备份路径 `BACKUP_PATH`；自动工作流会提供带运行身份的路径。目标是：
 
-1. 先修复历史迁移状态问题
-2. 再把数据库结构升级到最新版本
+1. 先生成经 `pg_restore` 校验的备份并记录 SHA-256
+2. 按已验证的迁移治理规则处理历史状态并升级
+3. 核对目标 schema 和唯一 Alembic head，再重启应用
 
 注意：迁移失败应视为部署失败，而不是可以忽略的警告。
 
@@ -121,7 +133,7 @@ git push origin main
 ### 7.1 GitHub Actions 侧
 
 1. 拉取最新代码
-2. 使用 Node 20 构建前端
+2. 使用 Node 24 构建前端，执行全量前端测试与零警告 lint
 3. 使用 Python 3.11 安装后端依赖
 
 ### 7.2 服务器侧
@@ -129,9 +141,9 @@ git push origin main
 1. 上传最新前端构建产物和后端代码
 2. 激活 `.venv`
 3. 安装依赖
-4. 在独立 `ariaai_test` PostgreSQL 数据库运行后端聚焦回归
-5. 执行数据库修复和迁移
-6. reload PM2
+4. 在独立 SQLite 文件中运行聚焦回归和质量门
+5. 校验备份、执行迁移治理和只读权威报告
+6. 重建 PM2 后端进程并确认 `/health` 成功
 7. 覆盖前端站点目录
 8. reload Nginx
 
@@ -139,12 +151,18 @@ git push origin main
 
 每次自动部署完成后，至少检查：
 
+先核对 `Deploy to Production` 的 `headSha` 与本次发布 commit 一致、结果为 success，再检查站点和 `/api/health`。服务器 Git checkout 不代表实际复制运行的代码；健康响应的静态版本号也不能证明 commit。
+
 1. `/auth/me`
 2. `/projects`
 3. `/clients`
 4. `/knowledge/documents`
 5. 任意一个项目详情页
 6. 任意一个项目待办页
+
+读取业务接口使用现有原生账号与权限，不把 token 写入 URL 或验收文档。新发布版本再运行 `Production Database E2E` 和 `Provider Grounded QA Eval`；两者测试的是服务器当前文件，必须等待对应部署完成后触发。语义检索另运行 `Knowledge Semantic Eval`，以输出的脚本 SHA-256 核对部署文件。
+
+语义模型预检只下载模型权重、写模型缓存并使用临时内存 SQLite 测试。启用配置和文档 reindex 是后续独立动作，遵循 [语义检索指南](docs/24-知识语义检索与质量验收.md) 和 Aria 原生授权/HITAS；小型合成评测不能替代真实业务语料验收。
 
 ## 9. 常见问题
 
@@ -168,13 +186,12 @@ git push origin main
 1. 代码已经更新
 2. 数据库结构没有同步到最新
 
-建议登录服务器检查：
+先查看 Actions 迁移输出和只读治理报告，不直接试跑迁移覆盖失败证据：
 
 ```bash
 cd /www/wwwroot/AriaAI/backend
-source .venv/bin/activate
-alembic current
-alembic upgrade head
+.venv/bin/python scripts/migration_governance.py report
+.venv/bin/python -m alembic current
 ```
 
 ### 9.3 自动部署后迁移报“表已存在”或“列已存在”
@@ -186,16 +203,9 @@ alembic upgrade head
 
 处理顺序：
 
-1. 先确认真实表结构
-2. 再执行对应版本的 `alembic stamp ...`
-3. 然后重新执行 `alembic upgrade head`
-
-例如：
-
-```bash
-alembic stamp 004_v1_4
-alembic upgrade head
-```
+1. 先确认真实表结构与治理报告
+2. 保留已验证备份，确定具体历史状态是否符合治理规则
+3. 通过 `migration_governance.py ensure / upgrade / check` 处理；不能猜测 revision 后手工 stamp
 
 ### 9.4 GitHub Actions 没有触发
 
@@ -210,20 +220,7 @@ alembic upgrade head
 
 自动部署失败时，目标不是重走整套手动部署，而是补齐失败的那一步。
 
-最常见的补救动作：
-
-```bash
-cd /www/wwwroot/AriaAI/backend
-source .venv/bin/activate
-pip install -r requirements.txt
-python3 scripts/ensure_db.py
-alembic upgrade head
-pm2 reload ariaai-backend --update-env
-
-cd /www/wwwroot/AriaAI/web
-cp -r dist/* /www/wwwroot/aria.d2cgo.co/
-nginx -t && nginx -s reload
-```
+只在 Actions 失败、未触发、用户明确要求手工发布，或明确授权的紧急修复时使用 SSH 发布，并说明这是手动回退。Actions 排队或运行时不并行手工覆盖服务。回退同样需要已验证备份、受治理迁移、健康检查和发布记录；优先修复工作流后重新运行可追踪的发布。
 
 ## 11. 建议保留的运维习惯
 

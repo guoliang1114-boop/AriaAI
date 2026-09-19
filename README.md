@@ -51,41 +51,81 @@ Technology stack:
 
 ## Quick Start
 
-Backend:
+Use Python 3.9–3.12 (CI uses 3.11), Node.js 24, and a local PostgreSQL database. The pinned embedding dependencies do not support newer Python versions. Read [agent.md](agent.md) before changing code and [CONTRIBUTING.md](CONTRIBUTING.md) for the test workflow.
+
+Create a PostgreSQL database for development, then prepare the backend from the repository root:
 
 ```bash
 cd backend
-./start.sh
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt -r requirements-test.txt
+cp -n .env.example .env
 ```
 
-Frontend:
+Edit `backend/.env` before starting. Keep an existing `.env` if you already have one.
+
+| Setting | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Your local PostgreSQL connection; create the database first. |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Initial administrator account; there is no default login password. |
+| `JWT_SECRET` | A strong private secret required at startup and for signed runtime envelopes. |
+| `CORS_ORIGINS` | Include the frontend origin, normally `http://localhost:5173`. |
+| `SCHEDULER_ENABLED` | Set `false` if local scheduled execution is not needed. |
+| `DEFAULT_LLM_PROVIDER` and provider API key | Configure a supported provider to run actual AI requests. |
+| `KNOWLEDGE_EMBEDDING_PROVIDER` | `hash` for the offline baseline; see the [semantic retrieval guide](docs/24-知识语义检索与质量验收.md) before enabling `fastembed`. |
+
+Run migrations and start the API from `backend/`:
+
+```bash
+.venv/bin/python scripts/migration_governance.py report
+.venv/bin/python scripts/migration_governance.py ensure
+.venv/bin/python scripts/migration_governance.py upgrade
+.venv/bin/python scripts/migration_governance.py check
+.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+In another terminal, start the frontend from the repository root:
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev
 ```
 
-Production build check:
+Open `http://localhost:5173` and sign in with your configured administrator account. The API health endpoint is `http://127.0.0.1:8000/health`. If a previous browser setting points at another server, reset it through server settings; `web/src/config/api.ts` owns URL selection. Production uses `/api` by default.
+
+The login screen below was captured from the local production build, with empty credentials and no customer data:
+
+![Aria login screen](docs/assets/aria-login-preview.png)
+
+See the [architecture overview](docs/07-AriaAI架构与对话逻辑图.md) for the system and chat diagrams. Login grants identity; project membership, client relationships, Source permissions, and HITAS still control access and consequential actions.
+
+Before submitting frontend changes:
 
 ```bash
 cd web
+npm run lint -- --max-warnings=0
+npm test
 npm run build
 ```
 
-Database migration governance:
+Run backend tests against an isolated test database. For the SQLite-compatible checks, use a temporary file so HTTP worker threads share the same database:
 
 ```bash
 cd backend
-python scripts/migration_governance.py report
-python scripts/migration_governance.py ensure
-python scripts/migration_governance.py upgrade
-python scripts/migration_governance.py check
+ARIA_TEST_DB=$(mktemp /tmp/aria-tests.XXXXXX)
+TEST_DATABASE_URL="sqlite:///$ARIA_TEST_DB" .venv/bin/python -m pytest -q \
+  tests/test_agent_harness_native.py tests/test_product_run_events.py \
+  tests/test_knowledge_retrieval.py tests/test_knowledge_conversation_access.py
+.venv/bin/python scripts/project_chat_quality_eval.py
+.venv/bin/python scripts/knowledge_retrieval_eval.py --enforce
 ```
+
+PostgreSQL-specific tests need a separate PostgreSQL test database; see [CONTRIBUTING.md](CONTRIBUTING.md). See [DEPLOY.md](DEPLOY.md) for production backup, migration, Actions, and verification requirements.
 
 ## Documentation
 
-Recommended reading path:
+Start with the [documentation index](docs/README.md), which labels implemented contracts, historical plans, current changes, and their roadmap issues. Recommended reading path:
 
 1. [Project Overview](docs/00-项目总览.md)
 2. [Product Strategy](docs/01-产品战略方向.md)
@@ -103,6 +143,9 @@ Recommended reading path:
 14. [Agentic Workspace Upgrade Design](docs/18-Agentic%20Workspace升级功能设计说明书.md)
 15. [OSS Roadmap](docs/20-OSS-Roadmap.md)
 16. [Codex Source Absorption and Native Harness Plan](docs/21-Codex-Harness集成与源码复用方案.md)
+17. [Current Implementation and Acceptance](docs/23-2026-09-19全量推进验收.md)
+18. [Semantic Retrieval Setup and Evaluation](docs/24-知识语义检索与质量验收.md)
+19. [Preview Release Notes and Maintainer Checklist](docs/25-Agentic-Workspace-Preview-发布说明.md)
 
 ## Project Status
 

@@ -1,6 +1,6 @@
 # AriaAI — Agent Collaboration Guide
 
-> Version: v3.2 | Last updated: 2026-04-30
+> Version: v3.3 | Last updated: 2026-09-20
 > Purpose: Onboarding document for LLM agents collaborating on this codebase.
 > Read this file before reading anything else.
 
@@ -161,6 +161,8 @@ All registered tools live in `backend/app/tools/file_generators.py`:
 - All endpoints require `X-Auth-Token` header (except `/auth/login`).
 - Token issued at login, invalidated on logout, stored in `UserToken` table.
 - Initial admin credentials must be provided via `ADMIN_EMAIL` and `ADMIN_PASSWORD`; no default password is seeded.
+- Login does not grant access to all projects or clients. Project reads/writes use native membership and role checks; client access follows creator/admin and stable linked-project rules. Conversation access is stricter: project conversations require actual membership, including for admins, and independent conversations require their owner.
+- Source ACL, active/indexed state, and exact document/source scope are checked before knowledge retrieval. Consequential AI writes also use native final authorization and HITAS.
 
 ---
 
@@ -187,7 +189,7 @@ Do **not** hardcode values — always go through `config.py`.
 API base URL resolution order:
 1. `localStorage.serverUrl`
 2. `VITE_API_URL` env variable
-3. Default `http://127.0.0.1:8000`
+3. Default `http://127.0.0.1:8000` on development localhost; `/api` in production
 
 All `axios` calls and the streaming fetch in `Chat.tsx` read from this single module.
 
@@ -195,7 +197,7 @@ All `axios` calls and the streaming fetch in `Chat.tsx` read from this single mo
 
 ## 8. Skill System
 
-A Skill is a **database record** (not a file), with:
+A published Skill is selected through Aria's native database records. Canonical packages live under `skills/`; ordered roots, immutable snapshots, releases, and fingerprints govern the runtime version. Developer discovery links under `.agents/skills/` are not production packages. The base database record includes:
 
 | Field | Purpose |
 |---|---|
@@ -206,6 +208,8 @@ A Skill is a **database record** (not a file), with:
 | `category` | Free-text category (no strict enum yet) |
 
 Tool schema follows Anthropic format. Use `POST /skills/tools/validate` to check schema, and `POST /skills/{id}/tools/test` to test execution.
+
+Static package checks run with `.venv/bin/python scripts/skill_quality_report.py --strict` from `backend/`. Business delivery still requires the package's evidence and QA checks; a static score is not acceptance of an artifact.
 
 ---
 

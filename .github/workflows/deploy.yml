@@ -55,7 +55,7 @@ jobs:
       - name: Frontend Lint
         run: |
           cd web
-          npm run lint -- --max-warnings=54
+          npm run lint -- --max-warnings=0
 
       - name: Prepare Backend
         run: |
@@ -246,7 +246,9 @@ jobs:
             TEST_DATABASE_PATH="/tmp/ariaai_deploy_tests_${{ github.run_id }}_${{ github.run_attempt }}.sqlite"
             export TEST_DATABASE_URL="sqlite:///$TEST_DATABASE_PATH"
             trap 'rm -f "$TEST_DATABASE_PATH" "$TEST_DATABASE_PATH-shm" "$TEST_DATABASE_PATH-wal"' EXIT
-            "$PYTHON" -m pytest -q \
+            # Synthetic regression is offline even after semantic retrieval is
+            # enabled in production. The semantic evaluator is a separate gate.
+            KNOWLEDGE_EMBEDDING_PROVIDER=hash "$PYTHON" -m pytest -q \
                 tests/test_agent_harness_native.py \
                 tests/test_artifact_verification.py \
                 tests/test_artifact_verification_migration.py \
@@ -288,11 +290,15 @@ jobs:
                 tests/test_knowledge_conversation_access.py \
                 tests/test_answer_length.py \
                 tests/test_model_stream_observer.py \
+                tests/test_model_latency_report.py \
+                tests/test_markdown_inline_duplicate.py \
                 tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_stream_chat_events_persists_model_response_policy_and_idle_failure \
                 tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_stream_chat_events_persists_bounded_answer_or_explicit_failure \
                 tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_prepare_chat_runtime_binds_readonly_answer_length_before_assembly \
                 tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_prepare_chat_runtime_rewrite_with_ceiling_keeps_same_scope_topic \
                 tests/test_knowledge_retrieval.py \
+                tests/test_knowledge_embeddings.py \
+                tests/test_knowledge_retrieval_eval.py \
                 tests/test_knowledge_job_acl.py \
                 tests/test_knowledge_job_recovery.py \
                 tests/test_knowledge_storage_atomicity.py \
@@ -370,7 +376,8 @@ jobs:
             # Emit deterministic project-chat quality metrics as a release
             # gate. This uses ephemeral SQLite only and never touches the
             # configured production database.
-            "$PYTHON" scripts/project_chat_quality_eval.py
+            KNOWLEDGE_EMBEDDING_PROVIDER=hash "$PYTHON" scripts/project_chat_quality_eval.py
+            "$PYTHON" scripts/knowledge_retrieval_eval.py --enforce
 
             # A verified, custom-format backup is a hard precondition for any
             # production migration. The helper selects a client compatible with

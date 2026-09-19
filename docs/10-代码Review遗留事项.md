@@ -1,8 +1,8 @@
 # 代码 Review 遗留事项
 
-> 记录日期：2026-05-27（V0.0.4 进度更新：2026-05-28）
+> 记录日期：2026-05-27；最近复核：2026-09-20。
 > 来源：一次全栈整体 review（后端 chat 子系统、前端 chat 子系统、后端安全/越权）。
-> 本文件仅记录**已知但暂不修复**的事项；已修复项见 git 历史，不在此列。
+> 本文件区分历史问题、当前实现与仍待验收事项；本轮改动及证据见 [验收记录](./23-2026-09-19全量推进验收.md)。
 > V0.0.4 迭代进度见 [docs/13-V0.0.4迭代计划.md](./13-V0.0.4迭代计划.md)。
 
 ---
@@ -21,36 +21,33 @@
 
 ---
 
-## 遗留事项（暂不修复）
+## 历史事项的当前状态
 
-### 1. 访问模型：团队共享（设计如此，非 bug）
+### 1. 项目、客户与会话访问隔离（旧说明已失效）
 
-- **现象**：项目、客户的 CRUD 路由（`projects.py`、`projects_files.py`、`clients.py`、`projects_briefing.py`）不做按用户/成员的归属校验，任何登录用户可读写全部项目/客户/文件。
-- **结论**：经确认这是**预期设计**——内部团队工具，所有登录用户共享全部数据。全局登录中间件（`main.py` `auth_middleware`）已挡未登录者。
-- **若将来要做多租户/按成员隔离**，需要：
-  - 建项目时把创建者写为 `owner` 成员（当前 `projects.py:create_project` 未接 `current_user`，也不写 `ProjectMember`）。
-  - 给上述路由统一加 `chat_security.require_project_access`（chat 路由已用此模式）。
-  - 为客户设计归属模型（当前无 `ClientMember`）。
+- **当前实现**：项目路由使用 `chat_security.require_project_access` / `require_project_write_access`；普通成员写入需要相应角色。项目创建、文件与子路由、共享客户写入均有对应权限回归。
+- **客户边界**：`client_permissions.py` 基于创建者、管理员和稳定的关联项目关系授权；仅能编辑其中一个关联项目不等于有权修改共享客户，返回内容也按可见项目过滤。
+- **会话边界**：项目会话要求真实成员身份，管理员也不绕过；独立会话要求 owner。知识检索先校验 Source ACL 和文档作用域，再读取与评分。
+- **证据**：`test_project_subroute_write_acl.py`、`test_clients_router.py`、`test_knowledge_conversation_access.py`、`test_knowledge_retrieval.py`。旧“所有登录用户共享全部数据”不能再作为实现依据。
 
 ### 2. ~~全局配置可被任意成员改写（含 `api_base_url`）~~
 
 > **状态**：✅ 已在 V0.0.4 修复（commit `7c08815`，对应 docs/13 §6 C1）。LLM 配置类 + `api_base_url`/`ai_model` 改为 admin-only；偏好类(timezone/theme/language/font_size)保持普通用户可写。详见上方"已修复"。
 
-### 4. markdown 正文可能重复显示（低频，模型行为）
+### 4. Markdown 工具正文重复（本轮已增加精确保护）
 
-> **状态**：V0.0.4 计划内（docs/13 §6 C2），未动手。
+> **状态**：本轮工作区已实现，发布状态见验收记录。
 
 - **现象**：当模型把同一段正文**既当对话 text 流式输出、又作为 content 传给写 markdown 文件的工具**时，工具会把该 content 再作为 `markdown_inline_text` 流出，用户可能看到两遍，`full_text` 也可能持久化两遍。
-- **暂不修复原因**：属模型输出行为，做通用去重（如比对工具 content 与已流式文本）有误删正文的风险。
+- **保护范围**：完整正文相同，或至少 80 字符的正文与双换行分隔的完整末尾相同，才抑制再次内联。保留原工具调用、结果、文件回执与变更过的正文；不做模糊去重或删除重复段落。
 - **相关位置**：`agent_loop.py` 中 `outcome.markdown_inline_text` 的追加；`tool_executor.py` 的 markdown 内联文本产出。
 
 ### 5. ~~切换会话时极端时序下 loading 可能卡住~~
 
 > **状态**：✅ 已在 V0.0.4 修复（commit `1899efc`，对应 docs/13 §6 C3）。`finally` 改为只看 `requestId === streamRequestSeqRef.current`，与 conversation 匹配解耦。详见上方"已修复"。
 
-### 6. 全局 `font_size` 设置无用户维度（次要）
+### 6. 外观偏好的用户维度（历史实现已变化）
 
-> **状态**：V0.0.4 进行中——主干 B 已落地 `UserMemory` 表与 `/user-memory` API（commit `c0667a7`）；剩余 = 把 `font_size` 等用户偏好从全局 `Setting` 表迁到 `UserMemory`，是 docs/13 §6 C4。
+> **状态**：当前外观页通过 `/user-memory` 保存 `appearance`，本地存储负责首屏外观。旧独立 `font_size` 设置不再是当前外观页的写入路径。
 
-- **现象**：`font_size`（本次新增）存于全局 `Setting` 表，无 user 维度，后端值对所有用户共享；每设备仍以 localStorage 为准，所以影响有限。
-- **若要做"按用户跨设备同步"**，需引入按用户的设置存储——v1 表已在 V0.0.4 主干 B 里建好，待迁移。
+- **边界**：不把历史全局值自动提升为某个用户的偏好；是否需要导入旧值须另有明确规则。当前个人偏好不能覆盖 Aria 授权或 HITAS。
