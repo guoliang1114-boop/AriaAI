@@ -1,9 +1,9 @@
 ---
 name: office-document-editor
 description: "Edit existing Office documents in the project space. Use when the user asks to (1) modify a PPT slide's title/content/data, (2) update a Word document's section/paragraph/table, (3) change Excel cell values/formulas/rows/columns, (4) add/remove/reorder slides or pages, (5) fix formatting, update data, or make corrections to an existing file. Covers PPT, Word, Excel editing. Does NOT create new files from scratch — use presentation-builder or write_project_office_document for that."
-version: "1.0.0"
+version: "1.1.0"
 domain: "tech"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -326,3 +326,17 @@ User: "基于这个 PPT 做一个修改版，不要改原文件"
 | PPT update package | 修改演示文稿 | 页码、标题、内容、图表、备注和版式检查 | PPTX |
 | Excel update package | 修改表格 | sheet、单元格、公式、数据源和校验结果 | XLSX |
 | Document QA checklist | 交付前 | 格式、编号、链接、图片、表格、公式和版本 | Checklist |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。
+
+## Diagnostic Intake
+
+先用项目 ID、文件 ID、文件类型和版本定位目标，不能只凭同名文件。
+明确修改位置、期望值、单位、格式和必须保留的公式/章节。
+读取目标后校验工具索引约定；目标不唯一或版本变化时重新读取。
+用户已明确的编辑范围直接执行；需要写入时沿用 Aria 权限与 HITAS。
+工具报错、文件被占用或修改冲突时保留原文件并报告实际状态。
+保存后复读目标，并返回真实文件链接与修改回执。

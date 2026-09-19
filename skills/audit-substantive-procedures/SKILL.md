@@ -1,9 +1,9 @@
 ---
 name: audit-substantive-procedures
 description: "设计和执行实质性审计程序，覆盖细节测试、实质性分析程序、函证程序和审计抽样，基于ISA 330框架。"
-version: "1.0.0"
+version: "1.1.0"
 domain: "audit"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 # 实质性审计程序设计与执行
@@ -192,3 +192,8 @@ status: "stable"
 | Confirmation control log | 执行函证 | 对象、金额、发函、回函、差异、替代程序 | Excel |
 | Misstatement summary | 发现差异 | 事实错报、判断错报、推断错报、调整建议 | Excel |
 | Completion workpaper | 账户完工 | 程序执行结果、证据、复核点和结论 | Word / Markdown |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

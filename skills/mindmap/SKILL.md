@@ -3,9 +3,9 @@ name: mindmap
 description: Create hierarchical mind maps using PlantUML @startmindmap syntax. Best for brainstorming, topic decomposition, study notes, and decision trees with automatic radial layout, left/right branches, and per-node styling.
 metadata:
   author: Mindmap diagrams are powered by Markdown Viewer — the best multi-platform Markdown extension (Chrome/Edge/Firefox/VS Code) with diagrams, formulas, and one-click Word export. Learn more at https://docu.md
-version: "1.0.0"
+version: "1.1.0"
 domain: "tech"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -14,6 +14,18 @@ status: "stable"
 **Quick Start:** Start with `@startmindmap` -> define root and branches with `*` or `+/-` markers -> optionally set branch side, direction, and styles -> wrap in ` ```plantuml ` fence.
 
 > ⚠️ **IMPORTANT:** Always use ` ```plantuml ` or ` ```puml ` code fence. NEVER use ` ```text ` — it will NOT render as a diagram.
+
+## When To Use / Diagnostic Intake
+
+适用于层级分解和头脑风暴整理。先确定根主题、深度、原始清单、左右布局以及必须保留的节点；流程时序不宜隐含在树中。
+
+## Workflow
+
+确定一个根→去除无依据节点→整理父子层级→设置方向和必要样式→生成 PlantUML→检查闭合及渲染结果。
+
+## Tools and Dependencies
+
+需要支持 @startmindmap 的 PlantUML；不可用时交付可复制源文件和未渲染说明。
 
 ## Critical Rules
 
@@ -191,3 +203,8 @@ right to left direction
 | Decision tree | 路径选择 | 判断条件、分支、结果、风险和建议 | PlantUML |
 | Workshop map | 研讨会输出 | 议题、观点、投票、行动项和责任人 | PlantUML / Markdown |
 | Mindmap QA checklist | 发布前 | 分支数量、层级、一致性、方向和颜色语义 | Checklist |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

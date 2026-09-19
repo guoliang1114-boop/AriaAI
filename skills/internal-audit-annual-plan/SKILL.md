@@ -1,9 +1,9 @@
 ---
 name: internal-audit-annual-plan
 description: "基于IIA国际内部审计专业实务标准，制定风险导向的年度内部审计计划，涵盖审计宇宙、风险评分、资源分配"
-version: "1.0.0"
+version: "1.1.0"
 domain: "audit"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 # 年度内部审计计划
@@ -185,3 +185,8 @@ Deep 模式至少输出四份材料：
 | Audit committee deck | 提交审计委员会 | 风险变化、计划项目、资源缺口、审批事项 | PPT |
 | Resource allocation model | 人手和预算安排 | 团队能力、人天、外包需求、应急容量 | Excel |
 | Quarterly refresh pack | 滚动更新 | 新风险、计划变更、完成率、未完成原因和调整建议 | PPT / Excel |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

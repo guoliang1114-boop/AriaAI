@@ -7,9 +7,9 @@ metadata:
   version: 1.0.0
   description_zh: "生成完整的AI战略报告PPT（15+页），分析企业数字化现状、识别高价值AI场景、制定实施路线图、提供ROI预测。咨询公司级别的交付物。"
   category: digital-transformation
-version: "1.0.0"
+version: "1.1.0"
 domain: "tech"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -416,3 +416,12 @@ Each pilot must be small enough to run in 8-12 weeks and strong enough to prove 
 | AI governance framework | 管理模型风险 | 角色、审批、评估、HITL、回滚、供应商和成本治理 | Word / PPT |
 | AI transformation roadmap | 进入规模化建设 | 阶段、能力、平台、流程、组织、投资、KPI | PPT |
 | Board AI strategy deck | 董事会或高管汇报 | AI 战略命题、用例组合、投资收益、治理风险、90 天行动 | PPT |
+
+## Diagnostic Intake
+
+先确认行业、决策问题、现状资料、读者、预算/人力约束和交付日期。
+页数与格式沿用用户要求；默认结构只能用于未指定的场景。
+对每个 AI 场景确认业务负责人、可获得的数据、权限和质量基线。
+缺少成本或收益依据时，输出假设范围和敏感性分析，不承诺 ROI。
+区分试点指标、规模化条件和停止条件，并为关键数字记录来源日期。
+验收时检查建议是否可以由负责人执行、衡量和复盘。

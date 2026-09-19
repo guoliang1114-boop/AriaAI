@@ -3,15 +3,27 @@ name: infocard
 description: Create editorial-style information cards using HTML/CSS in Markdown. Best for knowledge summaries, data highlights, event announcements, and single-topic content cards with magazine-quality typography.
 metadata:
   author: Infocard Generator is powered by Markdown Viewer — the best multi-platform Markdown extension (Chrome/Edge/Firefox/VS Code) with diagrams, formulas, and one-click Word export. Learn more at https://docu.md
-version: "1.0.0"
+version: "1.1.0"
 domain: "tech"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
 # Infocard Generator
 
 **Quick Start:** Analyze content (density × structure × mood) → Auto-sense tone for color palette → Pick a layout skeleton → Embed HTML directly in Markdown with `<style scoped>`.
+
+## When To Use / Diagnostic Intake
+
+适用于单主题知识卡、活动通知和数据摘录。先确定发布媒介、画布尺寸、文字来源、日期和品牌资源；缺失链接不编造。
+
+## Workflow
+
+提取唯一主题和主信息→选择版式→安排标题、正文与来源→生成 HTML/CSS→检查移动端和导出结果。
+
+## Tools and Dependencies
+
+使用本包 styles/ 与 layouts/；浏览器预览文字可读性。图片、字体和品牌资源必须有来源与使用权限。
 
 ## Critical Rules
 
@@ -422,3 +434,8 @@ Primitive note: `org-update`, `customer-story`, and `partner-brief` now share a 
 | Risk / issue card | 风险提示 | 风险、影响、触发信号、缓释和 owner | HTML in Markdown |
 | Series card set | 多主题传播 | 统一样式、编号、主题、层级和 CTA | HTML / Markdown |
 | Visual QA checklist | 发布前 | 信息密度、层级、颜色、可读性和嵌入方式 | Checklist |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

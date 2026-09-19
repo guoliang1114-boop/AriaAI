@@ -1,9 +1,9 @@
 ---
 name: group-audit-strategy
 description: "制定集团审计策略，基于ISA 600框架，覆盖组成部分识别、重要性分配、组成部分审计师协调和合并程序。"
-version: "1.0.0"
+version: "1.1.0"
 domain: "audit"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 # 集团审计策略制定
@@ -202,3 +202,8 @@ status: "stable"
 | Materiality allocation table | 分配重要性 | 集团重要性、组成部分重要性、明显微小错报和依据 | Excel |
 | Group consolidation risk memo | 合并层面风险 | 合并调整、抵销、外币折算、共享服务和控制 | Markdown |
 | Group audit status pack | 集团审计推进 | 各组成部分进度、问题、未决事项和决策请求 | PPT / Excel |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

@@ -3,9 +3,9 @@ name: bpmn
 description: Create business process diagrams using PlantUML syntax with BPMN, EIP, and Lean Mapping stencil icons. Best for workflow automation, approval chains, message-based integration patterns, and value stream mapping.
 metadata:
   author: BPMN diagrams are powered by Markdown Viewer — the best multi-platform Markdown extension (Chrome/Edge/Firefox/VS Code) with diagrams, formulas, and one-click Word export. Learn more at https://docu.md
-version: "1.0.0"
+version: "1.1.0"
 domain: "tech"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -14,6 +14,18 @@ status: "stable"
 **Quick Start:** Choose diagram type → Declare stencil icons for events/gateways/tasks → Group into pools/lanes → Connect with arrow syntax → Wrap in ` ```plantuml ` fence.
 
 > ⚠️ **IMPORTANT:** Always use ` ```plantuml ` or ` ```puml ` code fence. NEVER use ` ```text ` — it will NOT render as a diagram.
+
+## When To Use / Diagnostic Intake
+
+适用于业务流程、消息集成或价值流示意。先确认角色、开始/结束事件、异常路径、等待条件，以及用户是否需要可执行流程模型。
+
+## Workflow
+
+逐条列出正常与异常路径→选择 BPMN/EIP/Lean 图形→设置角色边界→核对分支汇合→生成并渲染 PlantUML。
+
+## Tools and Dependencies
+
+依赖支持本包 stencil 的 PlantUML。图形输出不是 BPMN 2.0 执行文件；需要执行语义时明确后续建模接口。
 
 ## Critical Rules
 
@@ -196,3 +208,8 @@ reject --> end_fail
 | Integration flow diagram | 系统/消息流 | 发送方、接收方、消息、转换、错误处理 | BPMN / EIP |
 | Process improvement backlog | 流程优化 | 痛点、根因、改进项、owner、优先级和收益 | Excel / Tasks |
 | BPMN QA checklist | 发布前 | 泳道、网关、事件、异常、命名和可读性检查 | Checklist |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

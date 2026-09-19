@@ -1,9 +1,9 @@
 ---
 name: tax-digital-transformation
 description: "税务数字化转型：税务系统选型、电子发票（金税四期）、税务数据治理、自动化申报"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -215,3 +215,8 @@ status: "stable"
 | Implementation roadmap | 项目推进 | 阶段、里程碑、系统、数据、流程、培训和 KPI | PPT |
 | ROI model | 投资论证 | 投入、运维、效率、风险降低、收益和敏感性 | Excel |
 | UAT and go-live checklist | 上线准备 | 场景、数据、权限、测试、缺陷、培训和切换 | Excel |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

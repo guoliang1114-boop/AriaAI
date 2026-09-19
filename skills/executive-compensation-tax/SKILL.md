@@ -1,9 +1,9 @@
 ---
 name: executive-compensation-tax
 description: "高管薪酬税务优化：中国个人所得税法、股权激励、递延薪酬，基于个人所得税法及财税〔2018〕164号等规定"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -262,3 +262,8 @@ status: "stable"
 | Cross-border executive note | 跨境任职 | 居民身份、所得来源、协定、抵免和申报义务 | Word |
 | Board compensation pack | 董事会/薪酬委员会 | 方案、成本、员工税后、治理风险和决策事项 | PPT |
 | Implementation checklist | 落地执行 | 合同、申报、扣缴、备案、沟通和时间线 | Excel |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

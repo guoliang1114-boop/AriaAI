@@ -1,9 +1,9 @@
 ---
 name: tp-documentation-preparation
 description: "转让定价文档准备：主体文档、本地文档、国别报告，基于OECD BEPS第13项行动计划及中国国家税务总局公告2016年第42号"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -201,3 +201,8 @@ status: "stable"
 | Functional analysis matrix | 功能风险分析 | 功能、风险、资产、实体角色和证据 | Excel |
 | Benchmarking study summary | 可比分析 | 筛选标准、可比公司、四分位区间和结果 | Excel / Word |
 | CbCR data checklist | 国别报告 | 实体、收入、利润、税金、员工、资产和活动 | Excel |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

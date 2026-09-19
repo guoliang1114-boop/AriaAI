@@ -3,9 +3,9 @@ name: archimate
 description: Create ArchiMate enterprise architecture diagrams using PlantUML stdlib macros. Best for TOGAF viewpoints, layered EA modeling (Business/Application/Technology), motivation analysis, and migration planning.
 metadata:
   author: ArchiMate diagrams are powered by Markdown Viewer — the best multi-platform Markdown extension (Chrome/Edge/Firefox/VS Code) with diagrams, formulas, and one-click Word export. Learn more at https://docu.md
-version: "1.0.0"
+version: "1.1.0"
 domain: "tech"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -14,6 +14,18 @@ status: "stable"
 **Quick Start:** Add `!include <archimate/Archimate>` → Declare typed elements → Connect with `Rel_*` macros → Group into layers with `rectangle` → Wrap in ` ```plantuml ` fence.
 
 > ⚠️ **IMPORTANT:** Always use ` ```plantuml ` or ` ```puml ` code fence. NEVER use ` ```text ` — it will NOT render as a diagram.
+
+## When To Use / Diagnostic Intake
+
+适用于表达业务、应用、技术及迁移视图。先确定受众、观点、当前/目标状态、必须出现的实体和关系；仅有清单时不推断生产依赖。
+
+## Workflow
+
+选择一个视图→核实元素类型与关系→建立唯一别名→生成 PlantUML→渲染并核对图例及边界。
+
+## Tools and Dependencies
+
+需要兼容 stdlib ArchiMate 宏的 PlantUML 渲染器；调用前确认环境可用。无渲染器时提供源文件并说明验证范围。
 
 ## Critical Rules
 
@@ -199,3 +211,8 @@ Rel_Serving(db, server, "stores data")
 | Application integration view | 系统集成说明 | 应用、接口、数据对象、协议和依赖关系 | PlantUML |
 | Migration roadmap view | 架构演进 | 当前/目标 plateau、work package、里程碑和依赖 | PlantUML / PPT |
 | Diagram QA checklist | 发布前检查 | 语义、关系、层级、命名、密度和可读性 | Checklist |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

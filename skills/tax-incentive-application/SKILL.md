@@ -1,9 +1,9 @@
 ---
 name: tax-incentive-application
-description: "企业所得税税收优惠适用分析：高新技术企业15%、研发费用200%加计扣除、西部大开发15%、小型微利企业有效税率5%等，输出适用性评估报告。"
-version: "1.0.0"
+description: "评估企业所得税优惠的主体、活动、费用与期间条件，核实高新技术、研发、西部地区及小型微利企业等政策的现行适用规则，输出有证据的适用性报告。"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -226,3 +226,8 @@ status: "stable"
 | R&D expense support pack | 研发加计扣除 | 项目、人员、费用、辅助账、证据和归集口径 | Excel / Word |
 | High-tech enterprise scorecard | 高新申请 | 技术领域、知识产权、人员、收入、研发和评分 | Excel |
 | Post-approval compliance plan | 优惠后管理 | 后续留存、抽查风险、年度复核和整改事项 | Markdown / Excel |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

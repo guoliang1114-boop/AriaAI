@@ -1,9 +1,9 @@
 ---
 name: cross-border-investment-tax
 description: "跨境投资税务架构：控股公司、融资安排、知识产权布局，基于税收协定网络、CFC规则及间接转让规定"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -238,3 +238,8 @@ status: "stable"
 | Financing structure memo | 债务/股权安排 | 债资比、利息扣除、预提税、资本弱化和现金流 | Word |
 | CFC and anti-avoidance risk note | 风险评估 | CFC、PPT、GAAR、间接转让和商业实质 | Markdown / Word |
 | Implementation checklist | 架构落地 | 实体设立、协议、资金流、备案、申报和时间线 | Excel |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

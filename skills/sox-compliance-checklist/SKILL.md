@@ -1,9 +1,9 @@
 ---
 name: sox-compliance-checklist
 description: "基于PCAOB AS 2201和SOX Section 302/404，执行萨班斯-奥克斯利法案合规检查，涵盖管理层评估、内部控制评价和审计师鉴证"
-version: "1.0.0"
+version: "1.1.0"
 domain: "audit"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 # SOX合规检查清单
@@ -232,3 +232,8 @@ status: "stable"
 | Deficiency evaluation memo | 发现控制缺陷 | 事实、潜在错报、可能性、补偿控制和评级 | Word |
 | Remediation and retest tracker | 整改和补测 | 缺陷、整改措施、owner、截止日、补测结果 | Excel |
 | Management certification pack | 管理层认证 | 控制结论、缺陷状态、披露事项和签署材料 | PPT / Word |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

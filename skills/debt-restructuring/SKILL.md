@@ -1,9 +1,9 @@
 ---
 name: debt-restructuring
-description: "债务重组：债务结构分析、重组路径设计、债权人谈判策略"
-version: "1.0.0"
+description: "在企业偿债压力、到期错配或债权人协商场景下分析债务结构，设计重组路径、现金流方案及谈判准备材料，并核实合同和法域条件。"
+version: "1.1.0"
 domain: "consulting"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -287,3 +287,8 @@ The final output should include liquidity diagnosis, creditor waterfall, option 
 | Indicative term sheet | 进入谈判 | 期限、利率、偿还、减免、担保、约束和条件 | Word |
 | Negotiation plan | 与债权人沟通 | 顺序、话术、让步、底线、材料和时间表 | Markdown / PPT |
 | Contingency plan | 协商失败准备 | standstill failure、执行、破产、紧急融资和沟通预案 | Word / PPT |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

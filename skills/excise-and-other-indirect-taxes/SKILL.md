@@ -1,9 +1,9 @@
 ---
 name: excise-and-other-indirect-taxes
 description: "其他间接税：消费税、印花税、房产税、城市维护建设税等税种的合规与优化"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -211,3 +211,8 @@ status: "stable"
 | Property tax assessment | 房产税检查 | 房产、原值、租金、税率、优惠和应纳税额 | Excel |
 | Local surcharge reconciliation | 城建税及附加 | 增值税/消费税、所在地、税率、已申报和差异 | Excel |
 | Remediation and filing plan | 需要整改补申报 | 补税、退税、滞纳金、责任人、申报期和资料 | Excel / Word |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

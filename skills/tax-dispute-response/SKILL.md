@@ -1,9 +1,9 @@
 ---
 name: tax-dispute-response
 description: "税务争议应对：涵盖税务稽查、纳税评估、反避税调查等程序，提供应对策略、证据准备、沟通技巧，输出争议应对策略方案。"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -220,3 +220,8 @@ status: "stable"
 | Risk exposure model | 量化争议金额 | 本金、滞纳金、罚款、概率、情景和现金影响 | Excel |
 | Administrative review / litigation brief | 复议或诉讼 | 事实、争点、法律依据、证据和请求事项 | Word |
 | Management escalation pack | 高层决策 | 金额、路径、风险、建议、期限和决策请求 | PPT |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

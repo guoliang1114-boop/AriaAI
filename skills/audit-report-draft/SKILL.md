@@ -1,9 +1,9 @@
 ---
 name: audit-report-draft
 description: "起草审计报告，基于ISA 700/701/706框架，覆盖意见类型决策逻辑、关键审计事项、强调事项段等。"
-version: "1.0.0"
+version: "1.1.0"
 domain: "audit"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 # 审计报告起草
@@ -175,3 +175,8 @@ status: "stable"
 | Going concern reporting note | 存续经营不确定性 | 事项、管理层计划、审计证据、报告影响 | Markdown |
 | Governance reporting pack | 与治理层沟通 | 未更正错报、重大判断、报告影响、决策请求 | PPT / Word |
 | Final report checklist | 发布前复核 | 名称、期间、报表、意见、日期、签署和版本一致性 | Checklist |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

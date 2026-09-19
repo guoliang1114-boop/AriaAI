@@ -1,9 +1,9 @@
 ---
 name: goal-definition
 description: "Structure and validate project or business goals using SMART criteria and consulting frameworks. Use when the user needs to (1) define project goals, (2) set OKRs, (3) clarify objectives, (4) validate if a goal is well-defined, (5) break down a vague goal into measurable targets. Produces structured goal documents with success criteria, metrics, and milestones."
-version: "1.0.0"
+version: "1.1.0"
 domain: "consulting"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -240,3 +240,8 @@ Final goal documents should include goal statement, rationale, metric definition
 | Acceptance criteria | 验收交付物 | 交付物、验收条件、证据、审批人、截止日期 | Markdown |
 | Milestone plan | 转入执行 | 阶段、里程碑、任务、owner、依赖、风险 | Excel / Tasks |
 | Project backlog seed | 需要进入任务系统 | Epic、任务、优先级、责任人、状态、下一步 | Tasks / Markdown |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

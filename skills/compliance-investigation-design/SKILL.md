@@ -1,9 +1,9 @@
 ---
 name: compliance-investigation-design
 description: "合规调查设计：内部调查范围、证据保全、访谈策略、报告机制，FCPA/UK Bribery Act/反洗钱/数据隐私调查程序"
-version: "1.0.0"
+version: "1.1.0"
 domain: "audit"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -279,3 +279,8 @@ status: "stable"
 | Privilege log | 涉及法律特权 | 文件、人员、目的、特权依据和访问控制 | Excel |
 | Investigation status pack | 阶段汇报 | 已完成工作、初步发现、风险、下一步和决策请求 | PPT |
 | Final investigation report | 形成结论 | 事实、证据、分析、结论、整改建议和限制条件 | Word |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

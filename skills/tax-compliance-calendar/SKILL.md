@@ -1,9 +1,9 @@
 ---
 name: tax-compliance-calendar
 description: "税务合规日历：涵盖中国各税种申报截止日期、季度/年度申报要求、汇算清缴时间表，输出年度税务合规日历。"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -231,3 +231,8 @@ status: "stable"
 | Compliance evidence checklist | 准备申报资料 | 申报表、账务、发票、合同、审批和存档位置 | Excel |
 | Late filing risk memo | 存在逾期风险 | 逾期事项、影响、滞纳金、补救和沟通建议 | Word |
 | Calendar import file spec | 接入日历系统 | 事项、日期、提醒、描述、owner 和链接 | ICS / CSV |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

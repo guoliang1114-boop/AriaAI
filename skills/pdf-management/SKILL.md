@@ -1,9 +1,9 @@
 ---
 name: pdf-management
 description: "PDF file management toolkit. Use when the user needs to (1) merge multiple PDFs into one, (2) split a PDF into multiple files, (3) extract specific pages from a PDF, (4) read PDF text content, (5) add watermark to PDF. Supports advanced PDF operations beyond simple reading."
-version: "1.0.0"
+version: "1.1.0"
 domain: "tech"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -144,3 +144,44 @@ Advanced PDF operations for project files. Handles merge, split, extract, read, 
 | PDF text extraction note | 读取内容 | 页码、正文、表格、读取限制和扫描件提示 | Markdown |
 | Watermarked PDF | 发布或流转 | 水印文本、位置、输出文件和可读性确认 | PDF |
 | PDF processing log | 批量处理 | 操作、文件、页码、结果、失败原因和下一步 | Markdown / Excel |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。
+
+## Diagnostic Intake
+
+先确定项目内文件 ID，而不只使用展示名称。
+读取各源 PDF 的页数和可解析状态。
+确认合并顺序、提取页码或拆分区间来自用户要求。
+页码按本工具约定从 1 开始，检查区间是否越界。
+水印需确认文字、透明度、方向及是否覆盖所有页。
+已有明确参数时执行；歧义只集中在缺失参数上。
+
+## Preflight Workflow
+
+1. 记录输入文件版本、页数和用户要求的顺序。
+2. 对每个页面区间检查起止合法，不能静默裁掉越界部分。
+3. 先算预期页数，再调用 manage_pdf。
+4. 合并：预期页数等于源页数之和。
+5. 提取：预期页数等于请求页面数量。
+6. 拆分：检查各输出与请求区间逐项对应。
+7. 水印：检查页数保持一致和正文仍可阅读。
+8. 读取：区分空文本、扫描件和解析失败。
+
+## Failure Diagnosis
+
+- 密码保护导致读取失败：说明所需合法访问条件，不假装已处理。
+- 扫描 PDF 无文本：说明当前没有提取出文字，不声称已 OCR。
+- 某个源文件不存在：列出缺失文件，不以剩余文件冒充完整合并。
+- 工具未返回成功：保留未完成状态，不能创建虚假的下载链接。
+- 输出页数不符：停止交付该文件并定位合并或区间问题。
+
+## Output Quality Verification
+
+对照 [页面顺序案例](examples/delivery-case.md) 核对逐页顺序。
+同时检查首页、边界页与末页，不能仅检查文件是否存在。
+输出包含真实工具生成的文件链接、页数和处理摘要。
+原文件与新文件身份分开记录，防止用户误以为源文件被覆盖。
+未经执行的动作保留为计划；只有成功回执可标记完成。

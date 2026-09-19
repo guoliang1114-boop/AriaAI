@@ -1,9 +1,9 @@
 ---
 name: post-merger-integration
 description: "并购后整合（PMI）：Day 1清单、百日计划、组织/系统/文化整合、协同效应追踪"
-version: "1.0.0"
+version: "1.1.0"
 domain: "consulting"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -293,3 +293,8 @@ The final PMI deliverable must include an integration blueprint, Day 1 checklist
 | Integration risk register | 控制整合风险 | 风险、触发信号、影响、缓释、责任人、截止日期 | Excel |
 | Communication plan | 管理员工/客户/供应商预期 | 受众、信息、渠道、时间、负责人、Q&A | Word / PPT |
 | Steering committee deck | 高层例会 | 进展、风险、协同、决策请求、下阶段重点 | PPT |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

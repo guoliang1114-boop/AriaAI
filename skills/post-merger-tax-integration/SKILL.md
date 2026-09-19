@@ -1,9 +1,9 @@
 ---
 name: post-merger-tax-integration
 description: "并购后税务整合：税务协同效应识别、集团税务架构调整、亏损结转利用，基于中国企业所得税法及OECD指引"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -180,3 +180,8 @@ status: "stable"
 | Tax synergy tracker | 跟踪税务协同 | 协同项、基线、收益、owner、状态和证据 | Excel |
 | Transfer pricing alignment memo | 整合关联交易 | 功能风险变化、交易政策、协议和文档调整 | Word |
 | 100-day tax action plan | 推进落地 | 行动项、责任人、依赖、截止日、状态和风险 | Excel / Tasks |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

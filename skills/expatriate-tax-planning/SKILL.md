@@ -1,9 +1,9 @@
 ---
 name: expatriate-tax-planning
 description: "外籍人员/派遣员工税务筹划：税收居民身份判定、税收协定待遇、社保安排、税收抵免优化"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -194,3 +194,8 @@ status: "stable"
 | Tax equalization / gross-up model | 雇主承担税负 | 薪酬、税负、社保、雇主成本和情景比较 | Excel |
 | Employer compliance calendar | 雇主义务管理 | 扣缴、申报、证明、备案、社保和截止日 | Excel |
 | Employee briefing note | 员工沟通 | 税务身份、申报义务、资料清单和注意事项 | Word |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

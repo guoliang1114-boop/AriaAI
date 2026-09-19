@@ -1,9 +1,9 @@
 ---
 name: esg-assurance-preparation
 description: "准备ESG鉴证/保证工作，基于ISSB IFRS S1/S2、ESRS和GRI标准，评估ESG数据质量和可持续性报告内部控制"
-version: "1.0.0"
+version: "1.1.0"
 domain: "audit"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -436,3 +436,8 @@ audit/
 | Assurance evidence index | 支持外部鉴证 | 指标、证据、来源、期间、状态和缺口 | Excel |
 | Remediation roadmap | 修复缺口 | 缺口、影响、措施、owner、截止日和优先级 | PPT / Excel |
 | ESG assurance committee pack | 高层汇报 | 准备状态、重大缺口、风险、资源和决策请求 | PPT |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

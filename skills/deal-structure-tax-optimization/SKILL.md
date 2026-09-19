@@ -1,9 +1,9 @@
 ---
 name: deal-structure-tax-optimization
 description: "交易结构税务优化：比较股权收购、资产收购、合并/分立/划转的税务影响，运用中国特殊性税务处理（财税〔2009〕59号）等规定，输出交易结构税务比较方案。"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -209,3 +209,8 @@ status: "stable"
 | Cash flow impact analysis | 比较即期和递延 | 缴税时间、折现、递延税、资金需求和敏感性 | Excel |
 | Implementation roadmap | 交易落地 | 协议、审批、过户、备案、申报、责任人和时间 | PPT / Excel |
 | Tax risk memo for SPA | 支持交易文件 | 税务陈述保证、赔偿、价格调整和交割条件建议 | Word |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

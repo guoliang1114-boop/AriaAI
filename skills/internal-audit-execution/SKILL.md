@@ -1,9 +1,9 @@
 ---
 name: internal-audit-execution
 description: "基于IIA绩效标准执行内部审计项目，涵盖审计目标、范围、程序、抽样方法和工作底稿编制"
-version: "1.0.0"
+version: "1.1.0"
 domain: "audit"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 # 内部审计项目执行
@@ -182,3 +182,8 @@ Internal auditors must base conclusions and engagement results on appropriate an
 | Finding matrix | 汇总发现 | 条件、标准、原因、影响、风险等级和建议 | Excel |
 | Draft internal audit report | 报告阶段 | 背景、范围、发现、评级、管理层回应和整改计划 | Word |
 | Remediation tracker | 跟踪整改 | 发现、owner、措施、截止日期、状态和验证证据 | Excel / Tasks |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

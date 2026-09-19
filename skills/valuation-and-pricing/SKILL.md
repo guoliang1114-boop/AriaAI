@@ -1,9 +1,9 @@
 ---
 name: valuation-and-pricing
 description: "估值与定价：DCF、可比公司、可比交易、LBO估值方法，WACC计算、终值、敏感性分析"
-version: "1.0.0"
+version: "1.1.0"
 domain: "consulting"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -33,7 +33,8 @@ status: "stable"
 - 自由现金流预测（FCFF / FCFE）
 - 折现率计算（WACC）
 - 终值计算（永续增长法 / 退出倍数法）
-- 企业价值 = PV(显性期FCF) + PV(终值) - 净债务
+- 企业价值 = PV(显性期FCFF) + PV(终值)
+股权价值 = 企业价值 - 净债务 + 其他非经营性净资产调整（如适用；不得重复计入现金）
 
 **WACC计算**：
 ```
@@ -299,3 +300,10 @@ Final valuation advice must include valuation range, recommended offer range, wa
 | Pricing bridge | 从 EV 到报价 | 净债务、类债务、营运资本、税务风险、调整项 | Excel / PPT |
 | Scenario and sensitivity pack | 关键假设不确定 | 上行、基准、下行、敏感性、break-even 和 walk-away | Excel |
 | Negotiation price guidance | 出价或谈判 | 推荐报价、保留价格、让步空间、earnout/holdback 建议 | PPT / Memo |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。
+
+估值口径参考：[CFA Institute — Free Cash Flow Valuation](https://www.cfainstitute.org/insights/professional-learning/refresher-readings/2026/free-cash-flow-valuation)。FCFF 与 FCFE 的折现及价值桥接不可混用；本包历史收益率区间仅可作为待验证情景，不能代替估值日市场依据。

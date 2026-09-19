@@ -1,9 +1,9 @@
 ---
 name: vat-compliance-optimization
-description: "增值税合规与优化：基于增值税暂行条例及实施细则，分析进项/销项税额、留抵退税、简易计税等，输出增值税优化方案。"
-version: "1.0.0"
+description: "增值税合规与优化：按纳税期间核实适用的增值税法及配套规定，分析进项/销项税额、留抵退税、简易计税等，输出增值税优化方案。"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -194,3 +194,12 @@ status: "stable"
 | Output VAT classification memo | 销项税率判断 | 收入类型、税率、混合销售/兼营、风险和依据 | Word |
 | VAT refund assessment | 留抵退税 | 条件、金额、资料、风险、现金流和申请路径 | Excel / Word |
 | Invoice risk register | 发票风险管理 | 异常供应商、品名、税率、红冲、作废和状态 | Excel |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。
+
+## 现行依据与历史期间
+
+《增值税法》自 2026 年 1 月 1 日起施行，暂行条例同时废止。分析 2026 年及以后事项，应核对增值税法及现行配套规定；分析历史期间，保留当期依据，不能直接套用新法。来源：[税务总局公布的增值税法](https://shanghai.chinatax.gov.cn/bstax/ztzl/yshj/ldjj/202512/t478641.html)、[实施条例政策说明](https://fgk.chinatax.gov.cn/zcfgk/c100015/c5246354/content.html)，核验日期 2026-09-19。

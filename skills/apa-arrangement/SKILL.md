@@ -1,9 +1,9 @@
 ---
 name: apa-arrangement
 description: "预约定价安排申请：可行性评估、申请流程、定价方法设计，基于OECD MAP指南及中国国家税务总局公告2016年第64号"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -212,3 +212,8 @@ status: "stable"
 | APA application checklist | 准备正式申请 | 资料清单、责任人、完成状态、缺口和截止日 | Excel |
 | Critical assumptions register | 谈签和执行 | 关键假设、监控指标、触发条件和调整机制 | Excel |
 | Annual compliance report outline | APA 执行年度 | 实际交易、利润水平、偏差、解释和调整 | Word |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

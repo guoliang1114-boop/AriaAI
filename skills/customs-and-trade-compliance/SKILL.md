@@ -1,9 +1,9 @@
 ---
 name: customs-and-trade-compliance
 description: "海关与贸易合规：海关估价、HS归类、原产地规则、自贸区/保税区优化"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -200,3 +200,8 @@ status: "stable"
 | FTA origin benefit assessment | 优惠关税 | 协定、原产地规则、证书、节税和限制条件 | Excel |
 | Customs audit response pack | 海关稽查 | 问题、证据、口径、补税测算和沟通策略 | Word / Excel |
 | Remediation roadmap | 合规整改 | 问题、措施、owner、材料、时点和复核方式 | Excel / PPT |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

@@ -1,9 +1,9 @@
 ---
 name: walkthrough-and-control-testing
 description: "执行穿行测试与控制测试，基于COSO 2013内部控制框架，评估控制设计与运行有效性"
-version: "1.0.0"
+version: "1.1.0"
 domain: "audit"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -292,3 +292,8 @@ audit/
 | Control test workpaper | 运行有效性测试 | 样本、证据、测试结果、例外和结论 | Excel / Markdown |
 | Control deficiency memo | 发现例外或缺陷 | 事实、原因、影响、评级和整改建议 | Word |
 | Evidence index | 证据较多 | 证据编号、来源、期间、关联控制和存放位置 | Excel |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

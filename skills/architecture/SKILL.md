@@ -3,15 +3,27 @@ name: architecture
 description: Create layered system architecture diagrams using HTML/CSS templates with color-coded tiers and grid layouts. Best for technology stacks, microservices topology, and multi-tier application design.
 metadata:
   author: Architecture Diagram Generator is powered by Markdown Viewer — the best multi-platform Markdown extension (Chrome/Edge/Firefox/VS Code) with diagrams, formulas, and one-click Word export. Learn more at https://docu.md
-version: "1.0.0"
+version: "1.1.0"
 domain: "tech"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
 # Architecture Diagram Generator
 
 **Quick Start:** Create HTML structure with flexible layout (single/double/triple column) → Define CSS styles for layers and grids → Add content with categorized panels → Use semantic colors for different layers.
+
+## When To Use / Diagnostic Intake
+
+适用于系统分层和依赖展示。先明确读者、部署环境、画布尺寸、信任边界，以及当前事实与规划组件；不要凭常见架构补造服务。
+
+## Workflow
+
+选择本包的布局与样式→列出组件和连接→标注流向及协议→生成 HTML/CSS→预览窄屏与导出尺寸并修正。
+
+## Tools and Dependencies
+
+使用本包 layouts/ 和 styles/ 资源；浏览器用于预览。远程字体和图标不可用时采用本地字体及文字标签。
 
 ## Critical Rules
 
@@ -263,3 +275,8 @@ Use an SVG overlay to draw orthogonal (right-angle) connectors between component
 | Non-functional requirement map | 架构评审 | 性能、可用性、安全、扩展性和运维要求 | Markdown / PPT |
 | Migration architecture view | 演进规划 | 当前、过渡、目标、依赖和风险 | PPT / Markdown |
 | Architecture review checklist | 评审前 | 范围、组件、接口、NFR、安全和可维护性 | Checklist |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

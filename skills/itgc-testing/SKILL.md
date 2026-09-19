@@ -1,9 +1,9 @@
 ---
 name: itgc-testing
 description: "执行IT一般控制测试，基于COBIT框架，覆盖访问控制、变更管理、系统开发和IT运维四大领域"
-version: "1.0.0"
+version: "1.1.0"
 domain: "audit"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -354,3 +354,8 @@ audit/
 | Access control workpaper | 权限测试 | 用户清单、特权用户、新增/变更/离职和例外 | Excel / Markdown |
 | Change management workpaper | 变更测试 | 变更清单、审批、测试、上线、回退和例外 | Excel |
 | ITGC deficiency memo | 缺陷评价 | 缺陷、根因、业务影响、补偿控制和整改建议 | Word |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

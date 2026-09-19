@@ -1,9 +1,9 @@
 ---
 name: beps-pillar-two-assessment
 description: "OECD支柱二GloBE规则评估：IIR、UTPR、QDMTT、15%最低税，基于OECD GloBE Model Rules及注释"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -238,3 +238,8 @@ $$SBIE = Payroll Carve-out + Tangible Asset Carve-out$$
 | Data gap register | 落地准备 | 数据项、来源、owner、缺口、系统改造和截止日 | Excel |
 | Top-up tax allocation memo | 管理层决策 | IIR、UTPR、QDMTT 顺序、税额和责任主体 | Word |
 | Pillar Two implementation roadmap | 项目实施 | 阶段、数据、系统、流程、治理和申报时间线 | PPT |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。

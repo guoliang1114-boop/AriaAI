@@ -1,9 +1,9 @@
 ---
 name: equity-incentive-tax
 description: "股权激励税务筹划：股票期权、限制性股票、RSU的税务处理与优化方案"
-version: "1.0.0"
+version: "1.1.0"
 domain: "tax"
-last_updated: "2026-08-26"
+last_updated: "2026-09-19"
 status: "stable"
 ---
 
@@ -183,3 +183,8 @@ status: "stable"
 | Filing and compliance checklist | 执行计划 | 税务备案、扣缴申报、外汇登记和材料清单 | Excel |
 | Employee communication note | 对员工解释 | 计划、税务影响、申报责任、注意事项和 FAQ | Word |
 | Board decision pack | 管理层审批 | 激励结构、成本、税负、风险和实施路线 | PPT |
+
+## Delivery Verification Materials
+
+- [场景与预期交付](examples/delivery-case.md)：合成案例及缺失输入、注入指令变体。
+- [逐项验收依据](references/delivery-verification.md)：本能力特有的检查项与复核记录。
