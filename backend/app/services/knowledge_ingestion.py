@@ -13,7 +13,9 @@ import uuid
 from sqlalchemy import event
 from sqlmodel import Session, select
 
-from app.config import EMBEDDING_MODEL, UPLOADS_DIR
+from app import config
+from app.config import UPLOADS_DIR
+from app.services.knowledge_embeddings import deterministic_embedding, embed_texts
 from app.models.knowledge import (
     KnowledgeCase,
     KnowledgeChunk,
@@ -195,6 +197,11 @@ def _split_long_text(text: str, max_chars: int, overlap_chars: int) -> list[str]
 def chunk_markdown_or_text(text: str) -> list[tuple[list[str], str]]:
     max_chars = CHUNK_SIZE_TOKENS * 4
     overlap_chars = CHUNK_OVERLAP_TOKENS * 4
+    if config.KNOWLEDGE_EMBEDDING_PROVIDER == "fastembed":
+        # Four characters per token is not safe for Chinese. A tighter bound
+        # reduces, but does not guarantee avoiding, 512-token truncation.
+        max_chars = min(max_chars, 384)
+        overlap_chars = min(overlap_chars, 64)
     sections: list[tuple[list[str], list[str]]] = []
     current_heading: list[str] = []
     current_lines: list[str] = []
@@ -288,24 +295,6 @@ def infer_metadata_from_text(file_type: str, text: str, template_key: str) -> di
         "reuse_policy": "reference_only",
         "quality_score": 0.65 if text.strip() else 0.0,
     }
-
-
-def deterministic_embedding(text: str, dimensions: int = EMBEDDING_DIMENSION) -> list[float]:
-    """Deterministic local embedding placeholder for v1 indexing tests.
-
-    Production can swap this for OpenAI embeddings behind the same interface.
-    Keeping it deterministic avoids flaky tests and lets indexing run offline.
-    """
-    vector = [0.0] * dimensions
-    tokens = [token for token in (text or "").lower().split() if token]
-    if not tokens:
-        tokens = [text[:64] or "empty"]
-    for token in tokens:
-        digest = hashlib.sha256(token.encode("utf-8", errors="ignore")).digest()
-        index = int.from_bytes(digest[:4], "big") % dimensions
-        vector[index] += 1.0
-    norm = math.sqrt(sum(value * value for value in vector)) or 1.0
-    return [round(value / norm, 8) for value in vector]
 
 
 def serialize_embedding(vector: list[float]):
@@ -605,14 +594,15 @@ def index_document_actor_aware(
     metadata["template_key"] = final_template
     metadata["extraction_confidence"] = confidence
     chunks = chunk_markdown_or_text(text)
+    embeddings = embed_texts([content for _, content in chunks], hash_embed=deterministic_embedding)
     prepared_chunks = [
         (
             heading,
             content,
             estimate_tokens(content),
-            serialize_embedding(deterministic_embedding(content)),
+            serialize_embedding(vector),
         )
-        for heading, content in chunks
+        for (heading, content), vector in zip(chunks, embeddings.vectors)
     ]
 
     # Provider/embedding work is complete. Re-open the source-family locks and
@@ -725,7 +715,7 @@ def index_document_actor_aware(
                 heading_path=json.dumps(heading, ensure_ascii=False),
                 content=content,
                 token_count=token_count,
-                embedding_model=EMBEDDING_MODEL,
+                embedding_model=embeddings.model_id,
                 embedding=embedding,
                 metadata_json=json.dumps(
                     {
@@ -958,6 +948,7 @@ def index_document(
             chunk_count=len(chunks),
         )
 
+    embeddings = embed_texts([content for _, content in chunks], hash_embed=deterministic_embedding)
     old_chunks = session.exec(
         select(KnowledgeChunk).where(KnowledgeChunk.document_id == doc.id)
     ).all()
@@ -973,7 +964,7 @@ def index_document(
         message=f"Embedding {len(chunks)} chunks",
     )
     emit_checkpoint("embedding", template_key=final_template, chunk_count=len(chunks))
-    for index, (heading, content) in enumerate(chunks):
+    for index, ((heading, content), vector) in enumerate(zip(chunks, embeddings.vectors)):
         session.add(
             KnowledgeChunk(
                 document_id=doc.id,
@@ -981,8 +972,8 @@ def index_document(
                 heading_path=json.dumps(heading, ensure_ascii=False),
                 content=content,
                 token_count=estimate_tokens(content),
-                embedding_model=EMBEDDING_MODEL,
-                embedding=serialize_embedding(deterministic_embedding(content)),
+                embedding_model=embeddings.model_id,
+                embedding=serialize_embedding(vector),
                 metadata_json=json.dumps(
                     {
                         "template_key": final_template,

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "documents": [
+    {"key": "cashflow", "content": "为避免资金链断裂，财务团队每周更新十三周现金流预测，识别收付款缺口并提前安排备用融资。"},
+    {"key": "approval", "content": "项目经费由财务负责人审批，超过授权额度的支出还需董事会批准。"},
+    {"key": "acceptance", "content": "系统上线前必须完成用户验收测试，由业务负责人签字确认测试结果和遗留问题。"},
+    {"key": "privacy", "content": "向外部顾问提供客户数据前，需要删除姓名和联系电话，以匿名编号替代个人身份。"},
+    {"key": "retention", "content": "客户续约率下降时，先访谈流失客户，分析服务体验、价格变化与替代方案，再设计挽回行动。"},
+    {"key": "integration", "content": "并购交割后的首日应确保薪资发放、关键账户权限和业务系统连续运行，百日计划再推进组织与流程整合。"},
+    {"key": "evidence", "content": "审计发现必须注明原始凭证编号、抽样范围和测试步骤，证据不足时只能记录待核实问题。"},
+    {"key": "change", "content": "客户提出新增需求时，项目经理先评估工期、费用和范围影响，经双方书面确认后调整项目基线。"}
+  ],
+  "cases": [
+    {"id": "cashflow_exact", "query": "十三周现金流预测怎么用？", "expected": "cashflow"},
+    {"id": "approval_exact", "query": "项目经费由谁审批？", "expected": "approval"},
+    {"id": "acceptance_exact", "query": "用户验收测试由谁签字？", "expected": "acceptance"},
+    {"id": "privacy_exact", "query": "提供客户数据前怎么匿名？", "expected": "privacy"},
+    {"id": "cashflow_paraphrase", "query": "怎样预防企业没钱支付短期账单？", "expected": "cashflow", "semantic": true},
+    {"id": "approval_paraphrase", "query": "谁有权同意这笔项目预算？", "expected": "approval", "semantic": true},
+    {"id": "privacy_paraphrase", "query": "分享资料时如何保护个人隐私？", "expected": "privacy", "semantic": true},
+    {"id": "retention_paraphrase", "query": "老客户不愿继续合作该怎么办？", "expected": "retention", "semantic": true},
+    {"id": "integration_paraphrase", "query": "收购完成当天首先保障什么？", "expected": "integration", "semantic": true},
+    {"id": "evidence_paraphrase", "query": "结论缺少证明材料应该如何处理？", "expected": "evidence", "semantic": true},
+    {"id": "change_paraphrase", "query": "甲方临时增加工作量时如何避免无偿扩项？", "expected": "change", "semantic": true},
+    {"id": "unrelated", "query": "木星大红斑的化学成分是什么？", "expected": null}
+  ]
+}

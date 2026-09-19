@@ -10,9 +10,13 @@ import numpy as np
 from sqlalchemy import and_, case, or_
 from sqlmodel import Session, select
 
+from app import config
 from app.models.db import User
 from app.models.knowledge import KnowledgeChunk, KnowledgeSource, KnowledgeV1Document
 from app.services.knowledge_ingestion import deterministic_embedding, parse_embedding
+from app.services.knowledge_embeddings import (
+    HASH_MODEL_ID, KnowledgeEmbeddingError, configured_model_id, embed_texts,
+)
 from app.services.knowledge_permissions import can_access_source
 from app.services.knowledge_ranking import expanded_terms, lexical_score, normalize_text
 
@@ -115,6 +119,10 @@ def search_knowledge(
     started = time.perf_counter()
     normalized_top_k = max(1, min(int(top_k or TOP_K_DEFAULT), 20))
     primary, related = expanded_terms(query)
+    embedding_status = "not_needed"
+    semantic_active = False
+    compatible_chunks = 0
+    incompatible_chunks = 0
     scope_used: dict[str, Any] = {"scope_types": scope_types, "scope_ids": scope_ids}
     normalized_pairs = list(dict.fromkeys(
         (str(kind).strip().lower(), identity)
@@ -139,6 +147,10 @@ def search_knowledge(
             "low_confidence": sum(result.relevance >= RELEVANCE_THRESHOLD for result in results) < min(3, normalized_top_k),
             "expanded_terms": sorted(primary | related),
             "scope_used": scope_used,
+            "retrieval_mode": "hybrid_semantic" if semantic_active else "lexical",
+            "embedding_status": embedding_status,
+            "embedding_coverage": {"compatible_chunks": compatible_chunks,
+                                   "incompatible_chunks": incompatible_chunks},
         }
 
     if not primary or not user.is_active:
@@ -193,11 +205,29 @@ def search_knowledge(
     if not docs:
         return response([])
 
-    query_embedding = deterministic_embedding(query)
+    query_embedding: list[float] = []
+    model_id = ""
+    document_ids_to_read = sorted(docs)
+    try:
+        model_id = configured_model_id()
+        available_models: set[str] = set()
+        for offset in range(0, len(document_ids_to_read), 500):
+            available_models.update(session.exec(select(KnowledgeChunk.embedding_model).where(
+                KnowledgeChunk.document_id.in_(document_ids_to_read[offset:offset + 500])
+            ).distinct()).all())
+        if model_id in available_models:
+            batch = embed_texts([query], query=True, hash_embed=deterministic_embedding)
+            query_embedding = batch.vectors[0]
+            semantic_active = batch.semantic
+            embedding_status = "ready" if batch.semantic else "offline_hash"
+        else:
+            embedding_status = "reindex_required"
+    except KnowledgeEmbeddingError:
+        # Availability changes relevance, never the authorized source scope.
+        embedding_status = "unavailable"
     # Keep at most top_k bodies in memory while iterating authorized chunks.
     # Content duplicates cannot crowd out independent evidence.
     best: dict[str, tuple[tuple[float, int, int, int], KnowledgeSearchResult]] = {}
-    document_ids_to_read = sorted(docs)
     # Bound SQL IN parameters for large authorized libraries on SQLite and PG.
     for offset in range(0, len(document_ids_to_read), 500):
         chunk_stmt = select(KnowledgeChunk).where(
@@ -213,10 +243,23 @@ def search_knowledge(
             text_score = lexical_score(
                 primary, related, chunk.content, " ".join([document.title, *heading_path]),
             )
-            if text_score <= 0:
+            compatible = bool(query_embedding) and chunk.embedding_model == model_id
+            stored_vector = parse_embedding(chunk.embedding) if compatible else []
+            compatible = compatible and len(stored_vector) == len(query_embedding)
+            compatible_chunks += int(compatible)
+            incompatible_chunks += int(not compatible)
+            vector_score = max(0.0, cosine_similarity(query_embedding, stored_vector)) if compatible else 0.0
+            semantic_match = semantic_active and compatible and vector_score >= config.KNOWLEDGE_SEMANTIC_MIN_SCORE
+            if text_score <= 0 and not semantic_match:
                 continue
-            vector_score = max(0.0, cosine_similarity(query_embedding, parse_embedding(chunk.embedding)))
-            relevance = min(1.0, text_score + 0.05 * vector_score)
+            # Hash collisions can only break lexical ties. A semantic-only
+            # match requires a compatible, validated local model vector.
+            relevance = min(1.0, text_score + (0.05 * vector_score if model_id == HASH_MODEL_ID else 0.15 * vector_score))
+            if semantic_match:
+                relevance = max(relevance, 0.6 + 0.35 * (
+                    (vector_score - config.KNOWLEDGE_SEMANTIC_MIN_SCORE)
+                    / max(1e-6, 1.0 - config.KNOWLEDGE_SEMANTIC_MIN_SCORE)
+                ))
             chunk_index = max(0, int(chunk.chunk_index or 0))
             rank = (relevance, -int(document.id), -chunk_index, -int(chunk.id))
             fingerprint = hashlib.sha256(

@@ -7,6 +7,7 @@ from typing import Any
 from sqlmodel import Session, select
 
 from app.models.db import KnowledgeDocument
+from app.services.knowledge_embeddings import HASH_MODEL_ID, KnowledgeEmbeddingError, configured_model_id
 from app.models.knowledge import (
     KnowledgeChunk,
     KnowledgeLegacyMigration,
@@ -49,6 +50,13 @@ def build_knowledge_read_authority_report(session: Session) -> dict[str, Any]:
         select(KnowledgeChunk.id, KnowledgeChunk.document_id)
     ).all()
     chunk_document_ids = {int(row[1]) for row in chunk_rows}
+    embedding_models = session.exec(select(KnowledgeChunk.embedding_model)).all()
+    try:
+        embedding_identity = configured_model_id()
+        embedding_configuration_valid = True
+    except KnowledgeEmbeddingError:
+        embedding_identity = ""
+        embedding_configuration_valid = False
     migration_rows = session.exec(
         select(
             KnowledgeLegacyMigration.legacy_document_id,
@@ -127,6 +135,14 @@ def build_knowledge_read_authority_report(session: Session) -> dict[str, Any]:
         ),
         "source_scoped_chunk_count": len(chunk_rows),
         "indexed_without_chunks_count": int(indexed_without_chunks_count),
+        "embedding": {
+            "configuration_valid": embedding_configuration_valid,
+            "configured_model_id": embedding_identity,
+            "compatible_chunk_count": sum(value == embedding_identity for value in embedding_models),
+            "reindex_required_chunk_count": sum(value != embedding_identity for value in embedding_models),
+            "explicit_hash_chunk_count": sum(value == HASH_MODEL_ID for value in embedding_models),
+            "semantic_chunk_count": sum(str(value).startswith("fastembed-v1:") for value in embedding_models),
+        },
         "legacy_document_count": len(legacy_rows),
         "legacy_document_statuses": _bounded_counts(
             [str(row[1] or "") for row in legacy_rows],

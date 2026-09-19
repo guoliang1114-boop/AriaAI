@@ -167,6 +167,13 @@ CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
 TOP_K_RESULTS = int(os.getenv("TOP_K_RESULTS", "5"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+# Source-scoped knowledge has its own, versioned vector space. Existing indexes
+# remain readable lexically until explicitly reindexed with the chosen backend.
+KNOWLEDGE_EMBEDDING_PROVIDER = os.getenv("KNOWLEDGE_EMBEDDING_PROVIDER", "hash").strip().lower()
+KNOWLEDGE_EMBEDDING_MODEL = os.getenv("KNOWLEDGE_EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5").strip()
+KNOWLEDGE_EMBEDDING_CACHE_DIR = Path(os.getenv("KNOWLEDGE_EMBEDDING_CACHE_DIR", str(DATA_DIR / "models")))
+KNOWLEDGE_EMBEDDING_THREADS = max(1, min(int(os.getenv("KNOWLEDGE_EMBEDDING_THREADS", "2")), 8))
+KNOWLEDGE_SEMANTIC_MIN_SCORE = max(0.0, min(float(os.getenv("KNOWLEDGE_SEMANTIC_MIN_SCORE", "0.5")), 1.0))
 
 # =============================================================================
 # API URLs

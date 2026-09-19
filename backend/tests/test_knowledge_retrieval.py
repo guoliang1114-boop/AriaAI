@@ -11,6 +11,7 @@ from app.models.db import User
 from app.models.knowledge import KnowledgeChunk, KnowledgeSource, KnowledgeV1Document
 from app.services.knowledge_ingestion import deterministic_embedding, parse_embedding
 from app.services.knowledge_retrieval import cosine_similarity, search_knowledge
+from app.services.knowledge_embeddings import EmbeddingBatch
 from tests.test_database import create_test_engine, drop_all_tables
 
 
@@ -62,6 +63,58 @@ def test_chinese_question_recalls_relevant_evidence_without_exact_sentence(knowl
     result = search_knowledge(session=session, user=user, query="请问数据权限由谁审批？", top_k=1)
     assert [item["document_id"] for item in result["chunks"]] == [doc.id]
     assert result["low_confidence"] is False
+
+
+def test_semantic_match_can_recall_without_shared_words(knowledge):
+    session, user, add = knowledge
+    doc, chunk, _ = add("收支预测每周滚动更新", embedding=json.dumps([1.0, 0.0]))
+    chunk.embedding_model = "fastembed-v1:test:pad1536"
+    session.add(chunk)
+    session.flush()
+    with patch("app.services.knowledge_retrieval.configured_model_id", return_value=chunk.embedding_model), patch(
+        "app.services.knowledge_retrieval.embed_texts", return_value=EmbeddingBatch(chunk.embedding_model, [[1.0, 0.0]], True)
+    ):
+        result = search_knowledge(session=session, user=user, query="资金链断裂", top_k=1)
+    assert result["chunks"][0]["document_id"] == doc.id
+    assert result["retrieval_mode"] == "hybrid_semantic"
+
+
+def test_old_mislabelled_vectors_cannot_become_semantic_evidence(knowledge):
+    session, user, add = knowledge
+    add("办公用品采购", embedding=json.dumps([1.0, 0.0]))
+    with patch("app.services.knowledge_retrieval.configured_model_id", return_value="fastembed-v1:test:pad1536"), patch(
+        "app.services.knowledge_retrieval.embed_texts"
+    ) as embed:
+        result = search_knowledge(session=session, user=user, query="资金链断裂")
+    assert result["chunks"] == []
+    assert result["embedding_status"] == "reindex_required"
+    embed.assert_not_called()
+
+
+def test_embedding_is_not_called_before_source_authorization(knowledge):
+    session, user, add = knowledge
+    add("预算审批")
+    with patch("app.services.knowledge_retrieval.can_access_source", return_value=False), patch(
+        "app.services.knowledge_retrieval.embed_texts"
+    ) as embed:
+        assert search_knowledge(session=session, user=user, query="预算审批")["chunks"] == []
+    embed.assert_not_called()
+
+
+def test_semantic_outage_preserves_authorized_lexical_results(knowledge):
+    from app.services.knowledge_embeddings import KnowledgeEmbeddingError
+    session, user, add = knowledge
+    doc, chunk, _ = add("预算审批由财务负责")
+    chunk.embedding_model = "fastembed-v1:test:pad1536"
+    session.add(chunk)
+    session.flush()
+    with patch("app.services.knowledge_retrieval.configured_model_id", return_value=chunk.embedding_model), patch(
+        "app.services.knowledge_retrieval.embed_texts", side_effect=KnowledgeEmbeddingError("unavailable")
+    ):
+        result = search_knowledge(session=session, user=user, query="预算审批", top_k=1)
+    assert result["chunks"][0]["document_id"] == doc.id
+    assert result["embedding_status"] == "unavailable"
+    assert result["retrieval_mode"] == "lexical"
 
 
 @pytest.mark.parametrize("embedding", ['["broken"]', '[1, 2]', '[NaN]', 'not json', '[null]'])
