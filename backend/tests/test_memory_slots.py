@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -2115,6 +2116,70 @@ def test_client_full_rebuild_rejects_truncated_json_without_overwriting_memory()
             assert mocked.await_args.kwargs["max_tokens"] == 3200
             assert "Return at most 48 _source_attributions entries" in prompt
             assert "never copy a source tag into any business field value" in prompt
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("scope", ["client", "project"])
+@pytest.mark.parametrize("case", ["reasoning_only", "truncated", "bad_tool"])
+def test_invalid_provider_completion_cannot_replace_memory(scope, case, monkeypatch):
+    from app.routers import clients_deps, projects_deps
+    from app.services import openai_compat
+    from app.services.memory_generation import MEMORY_GENERATION_SYSTEM
+    from app.services.model_completion import ModelCompletionError
+
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            is_client = scope == "client"
+            row = ClientRecord(name="Acme") if is_client else Project(name="Pilot", client="Acme")
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            payload = _client_memory() if is_client else _project_memory()
+            save = save_client_memory if is_client else save_project_memory
+            save(session, row.id, payload, trigger="test")
+            snapshot_model = ClientMemorySnapshot if is_client else ProjectMemorySnapshot
+            snapshots_before = len(session.exec(select(snapshot_model)).all())
+            model_json = json.dumps(payload)
+            response = {"choices": [{"finish_reason": "stop", "message": {
+                "content": None, "reasoning_content": model_json,
+            }}]}
+            if case == "truncated":
+                response["choices"][0].update(finish_reason="length", message={"content": model_json})
+            elif case == "bad_tool":
+                response["choices"][0]["message"].update(content=model_json, tool_calls=[{
+                    "id": "call_1", "type": "function", "function": {"name": "write", "arguments": "{"},
+                }])
+            post = AsyncMock(return_value=SimpleNamespace(status_code=200, json=lambda: response))
+            monkeypatch.setattr(openai_compat, "get_kimi_api_key", lambda: "test-key")
+            monkeypatch.setattr(openai_compat, "_get_http_client", lambda: SimpleNamespace(post=post))
+            provider = AsyncMock(side_effect=openai_compat.complete)
+            if is_client:
+                monkeypatch.setattr(clients_deps, "_current_complete_with_selected_model", lambda: provider)
+                rebuild = clients_deps._rebuild_client_memory
+            else:
+                monkeypatch.setattr(projects_deps, "complete_with_selected_model", provider)
+                rebuild = projects_deps._rebuild_project_memory
+            with pytest.raises(ModelCompletionError):
+                asyncio.run(rebuild(session, row.id, trigger="manual", trusted_system=True))
+
+            session.expire_all()
+            refreshed = session.get(type(row), row.id)
+            if is_client:
+                persisted = load_client_memory_slot_values(session, refreshed, get_client_memory_payload(refreshed))
+                assert refreshed.client_memory_version == 1
+                assert persisted["client_profile"] == payload["client_profile"]
+            else:
+                persisted = load_project_memory_slot_values(session, refreshed, get_project_memory_payload(refreshed))
+                assert refreshed.memory_version == 1
+                assert persisted["project_brief"] == payload["project_brief"]
+            assert len(session.exec(select(snapshot_model)).all()) == snapshots_before
+            assert provider.await_count == post.await_count == 1
+            assert provider.await_args.kwargs["system"] == MEMORY_GENERATION_SYSTEM
+            assert post.await_args.kwargs["json"]["messages"][0] == {
+                "role": "system", "content": MEMORY_GENERATION_SYSTEM,
+            }
     finally:
         engine.dispose()
 

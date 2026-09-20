@@ -26,6 +26,7 @@ from app.config import (
 from app.database import engine
 from app.services.agent_harness.turn_retry import ModelProviderHTTPError
 from app.services.model_stream_observer import ModelStreamObserver
+from app.services.model_completion import completion_text
 from sqlmodel import Session
 from app.models.db import Setting
 
@@ -584,30 +585,7 @@ async def complete(
         if response.status_code != 200:
             raise Exception(f"Kimi HTTP {response.status_code}: {response.text[:300]}")
 
-        result = response.json()
-        choice = result.get("choices", [{}])[0]
-        message = choice.get("message", {})
-        parts: list[str] = []
-
-        text = message.get("content") or ""
-        if not text:
-            text = message.get("reasoning_content") or ""
-        if text:
-            parts.append(text)
-
-        for tc in message.get("tool_calls") or []:
-            try:
-                parsed = json.loads(tc["function"]["arguments"])
-            except (json.JSONDecodeError, KeyError):
-                parsed = {}
-            parts.append(json.dumps({
-                "type": "tool_use",
-                "id": tc.get("id", ""),
-                "name": tc.get("function", {}).get("name", ""),
-                "input": parsed,
-            }, ensure_ascii=False))
-
-        return "\n".join(parts)
+        return completion_text(response.json())
     except Exception as e:
         logger.error(f"[Kimi] complete error: {type(e).__name__}: {e}")
         raise
@@ -876,30 +854,7 @@ async def complete_deepseek(
         if response.status_code != 200:
             raise Exception(f"DeepSeek HTTP {response.status_code}: {response.text[:300]}")
 
-        result = response.json()
-        choice = result.get("choices", [{}])[0]
-        message = choice.get("message", {})
-        parts: list[str] = []
-
-        text = message.get("content") or ""
-        if not text:
-            text = message.get("reasoning_content") or ""
-        if text:
-            parts.append(text)
-
-        for tc in message.get("tool_calls") or []:
-            try:
-                parsed = json.loads(tc["function"]["arguments"])
-            except (json.JSONDecodeError, KeyError):
-                parsed = {}
-            parts.append(json.dumps({
-                "type": "tool_use",
-                "id": tc.get("id", ""),
-                "name": tc.get("function", {}).get("name", ""),
-                "input": parsed,
-            }, ensure_ascii=False))
-
-        return "\n".join(parts)
+        return completion_text(response.json())
     except Exception as e:
         logger.error(f"[DeepSeek] complete error: {type(e).__name__}: {e}")
         raise
@@ -1111,30 +1066,7 @@ async def complete_mimo(
         if response.status_code != 200:
             raise Exception(f"MiMo HTTP {response.status_code}: {response.text[:300]}")
 
-        result = response.json()
-        choice = result.get("choices", [{}])[0]
-        message = choice.get("message", {})
-        parts: list[str] = []
-
-        text = message.get("content") or ""
-        if not text:
-            text = message.get("reasoning_content") or ""
-        if text:
-            parts.append(text)
-
-        for tc in message.get("tool_calls") or []:
-            try:
-                parsed = json.loads(tc["function"]["arguments"])
-            except (json.JSONDecodeError, KeyError):
-                parsed = {}
-            parts.append(json.dumps({
-                "type": "tool_use",
-                "id": tc.get("id", ""),
-                "name": tc.get("function", {}).get("name", ""),
-                "input": parsed,
-            }, ensure_ascii=False))
-
-        return "\n".join(parts)
+        return completion_text(response.json())
     except Exception as e:
         logger.error(f"[MiMo] complete error: {type(e).__name__}: {e}")
         raise
@@ -1330,28 +1262,7 @@ async def complete_bigmodel(
         if response.status_code != 200:
             raise Exception(f"BigModel HTTP {response.status_code}: {response.text[:300]}")
 
-        result = response.json()
-        choice = result.get("choices", [{}])[0]
-        message = choice.get("message", {})
-        parts: list[str] = []
-
-        text = message.get("content") or ""
-        if text:
-            parts.append(text)
-
-        for tc in message.get("tool_calls") or []:
-            try:
-                parsed = json.loads(tc["function"]["arguments"])
-            except (json.JSONDecodeError, KeyError):
-                parsed = {}
-            parts.append(json.dumps({
-                "type": "tool_use",
-                "id": tc.get("id", ""),
-                "name": tc.get("function", {}).get("name", ""),
-                "input": parsed,
-            }, ensure_ascii=False))
-
-        return "\n".join(parts)
+        return completion_text(response.json())
     except Exception as e:
         logger.error(f"[BigModel] complete error: {type(e).__name__}: {e}")
         raise

@@ -25,6 +25,7 @@ from app.services.memory_rebuilds import (
     assert_memory_rebuild_baseline,
 )
 from app.services.memory_source_tags import strip_memory_source_tags
+from app.services.memory_generation import memory_evidence_block
 from app.services.memory_operation_state import (
     get_project_memory_rebuild_log,
     set_project_memory_failure,
@@ -646,6 +647,9 @@ def build_project_memory_prompt(
         else ""
     )
     rules: list[str] = []
+    for key in ("project_brief", "current_stage", "current_objective", "financial_status"):
+        if key in selected:
+            rules.append(f"{key} must be a string, never an object or array.")
     if set(selected) & {
         "recent_progress",
         "key_risks",
@@ -681,7 +685,7 @@ def build_project_memory_prompt(
         "private envelope. Attribute every supported non-empty fact; omit an attribution "
         "instead of guessing or citing a merely related source. "
         "Write in the same language as the project.\n\n"
-        f"Project data:\n{project_data}"
+        f"Project data:\n{memory_evidence_block(project_data)}"
     )
 
 

@@ -24,6 +24,7 @@ from app.services.memory_rebuilds import (
     assert_memory_rebuild_baseline,
 )
 from app.services.memory_source_tags import strip_memory_source_tags
+from app.services.memory_generation import memory_evidence_block
 from app.services.memory_operation_state import (
     get_client_memory_rebuild_log,
     set_client_memory_failure,
@@ -290,18 +291,10 @@ def build_client_memory_data(
     )
 
 
-def build_client_memory_prompt(
-    client_data: str,
-    slot_keys: tuple[str, ...] | None = None,
-) -> str:
-    selected = tuple(slot_keys or CLIENT_MEMORY_SLOT_KEYS)
-    exact_keys = ", ".join(selected)
-    partial_instruction = (
-        "This is a partial rebuild. Return every requested business key and no unrequested business keys. "
-        if slot_keys is not None
-        else ""
-    )
+def _client_memory_type_rules(selected: tuple[str, ...]) -> str:
     rules: list[str] = []
+    if "client_profile" in selected:
+        rules.append("client_profile must be a string, never an object or array.")
     if set(selected) & {
         "decision_patterns",
         "lessons_learned",
@@ -319,12 +312,26 @@ def build_client_memory_prompt(
         rules.append(
             "project_history must be an array of objects with keys project_name, status, outcome, key_factor."
         )
+    return " ".join(rules)
+
+
+def build_client_memory_prompt(
+    client_data: str,
+    slot_keys: tuple[str, ...] | None = None,
+) -> str:
+    selected = tuple(slot_keys or CLIENT_MEMORY_SLOT_KEYS)
+    exact_keys = ", ".join(selected)
+    partial_instruction = (
+        "This is a partial rebuild. Return every requested business key and no unrequested business keys. "
+        if slot_keys is not None
+        else ""
+    )
     return (
         "You are building long-term client memory for a consulting team. "
         "Use only the client and project evidence below. Do not invent missing facts. "
         f"{partial_instruction}Return valid JSON only with these business keys: {exact_keys}, "
         f"plus the private {MODEL_SOURCE_ATTRIBUTIONS_KEY} key described below. "
-        f"Rules: {' '.join(rules)} "
+        f"Rules: {_client_memory_type_rules(selected)} "
         f"Also return {MODEL_SOURCE_ATTRIBUTIONS_KEY} as an array of objects with keys "
         "slot_key, fact_index, source_ids. fact_index is zero-based within the returned "
         "slot (a scalar uses 0). source_ids must contain only exact [source_type:id] "
@@ -333,7 +340,7 @@ def build_client_memory_prompt(
         "only in this private envelope. Attribute every supported non-empty "
         "fact; omit an attribution instead of guessing or citing a merely related source. "
         "Prefer concise, reusable guidance for future projects.\n\n"
-        f"Client data:\n{client_data}"
+        f"Client data:\n{memory_evidence_block(client_data)}"
     )
 
 
@@ -356,10 +363,13 @@ def build_client_memory_promote_prompt(
         "array of slot_key, zero-based fact_index, and source_ids objects. Cite only "
         "exact [source_type:id] IDs visible below and omit unsupported attributions. "
         "Return at most 48 attribution objects. Never copy a source marker into a "
-        "business value.\n\n"
-        f"Current client memory JSON:\n{json.dumps(current_memory, ensure_ascii=False)}\n\n"
-        f"Project to absorb: {project_source}{project_name}\n"
-        f"Project memory JSON:\n{json.dumps(promotion_payload, ensure_ascii=False)}"
+        "business value. "
+        f"Rules: {_client_memory_type_rules(CLIENT_MEMORY_SLOT_KEYS)}\n\n"
+        + memory_evidence_block({
+            "current_client_memory": current_memory,
+            "project_to_absorb": f"{project_source}{project_name}",
+            "project_memory": promotion_payload,
+        })
     )
 
 

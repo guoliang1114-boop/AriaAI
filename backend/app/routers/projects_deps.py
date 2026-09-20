@@ -147,6 +147,7 @@ from app.services.project_milestones import (
     update_project_milestone,
 )
 from app.services.project_notes import build_project_note_polish_messages, save_project_notes
+from app.services.memory_generation import MEMORY_GENERATION_SYSTEM
 from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
 from app.services.memory_operation_state import (
@@ -592,6 +593,7 @@ async def _auto_promote_archived_project_to_client_memory(
                 "content": promotion_prompt,
             }
         ],
+        system=MEMORY_GENERATION_SYSTEM,
         max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
     )
     session.expire_all()
@@ -1885,6 +1887,7 @@ async def _rebuild_project_memory(
                     ),
                 }
             ],
+            system=MEMORY_GENERATION_SYSTEM,
             max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
         )
         session.expire_all()
@@ -1941,6 +1944,7 @@ async def _rebuild_project_memory(
                             "content": _build_project_memory_rebuild_prompt(full_data),
                         }
                     ],
+                    system=MEMORY_GENERATION_SYSTEM,
                     max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
                 )
                 session.expire_all()

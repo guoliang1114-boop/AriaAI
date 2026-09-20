@@ -57,6 +57,7 @@ from app.services.project_contexts import (
     get_project_memory_payload,
     normalize_summary_language,
 )
+from app.services.memory_generation import MEMORY_GENERATION_SYSTEM
 from app.services.project_llm import complete_with_selected_model
 from app.services.time_utils import utc_now_naive
 from app.routers.clients_deps import (
@@ -874,6 +875,7 @@ async def promote_project_memory_to_client(
                 "content": promotion_prompt,
             }
         ],
+        system=MEMORY_GENERATION_SYSTEM,
         max_tokens=3200,
     )
     session.expire_all()

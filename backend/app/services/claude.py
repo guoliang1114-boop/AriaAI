@@ -16,6 +16,7 @@ from app.config import DEFAULT_MODELS, DEFAULT_MAX_TOKENS
 from app.services.agent_harness.turn_retry import ModelProviderHTTPError
 from app.services.cache import TTLCache
 from app.services.model_stream_observer import ModelStreamObserver
+from app.services.model_completion import anthropic_completion_text
 
 supports_stream_observer = True
 
@@ -279,16 +280,18 @@ async def _complete_sdk(
     
     try:
         response = await client.messages.create(**kwargs)
-        if response.content:
-            first_block = response.content[0]
-            if first_block.type == "text":
-                logger.info(f"[Claude API] SDK response: {len(first_block.text)} chars")
-                return first_block.text
-            # Pure tool_call response with no text block
-            logger.info("[Claude API] SDK response: tool_use block (no text)")
-            return ""
-        logger.warning("[Claude API] SDK response: empty content")
-        return ""
+        # Read only final-output fields. Older SDKs can preserve newer thinking
+        # block types as extras; serializing them through an older union schema
+        # can misclassify those blocks or emit their contents in warnings.
+        text = anthropic_completion_text({
+            "stop_reason": response.stop_reason,
+            "content": [
+                {key: getattr(block, key, None) for key in ("type", "text", "id", "name", "input")}
+                for block in response.content
+            ],
+        })
+        logger.info(f"[Claude API] SDK response: {len(text)} chars")
+        return text
     except Exception as e:
         logger.error(f"[Claude API] SDK complete error: {type(e).__name__}: {e}")
         raise
@@ -475,15 +478,7 @@ async def _complete_http(
         )
         if response.status_code != 200:
             raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
-        result = response.json()
-        content = result.get("content", [])
-        text_parts = []
-        for block in content:
-            if block.get("type") == "text":
-                text_parts.append(block.get("text", ""))
-            elif block.get("type") == "tool_use":
-                text_parts.append(json.dumps(block, ensure_ascii=False))
-        text = "\n".join(text_parts)
+        text = anthropic_completion_text(response.json())
         logger.info(f"[Claude API] HTTP response: {len(text)} chars")
         return text
     except Exception as e:

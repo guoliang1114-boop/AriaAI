@@ -66,6 +66,7 @@ from app.routers import projects_deps as projects_deps_module
 from app.routers import projects_files as projects_files_module
 from app.routers import skills as skills_router_module
 from app.services.cache import conversations_cache, projects_cache
+from app.services.memory_generation import MEMORY_GENERATION_SYSTEM
 from app.services import chat_exports as chat_exports_module
 from app.services import chat_streaming as chat_streaming_module
 from app.services import client_contexts as client_contexts_module
@@ -1189,7 +1190,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project_c)
             project_ids = [project_a.id, project_b.id, project_c.id]
 
-        async def fake_complete(messages, max_tokens=4000):
+        async def fake_complete(messages, max_tokens=4000, system=None):
+            self.assertEqual(system, MEMORY_GENERATION_SYSTEM)
             prompt = messages[0]["content"]
             if "Alpha project" in prompt:
                 brief = "Alpha memory brief"
@@ -1265,7 +1267,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project_b)
             project_ids = [project_a.id, project_b.id]
 
-        async def fake_complete(messages, max_tokens=4000):
+        async def fake_complete(messages, max_tokens=4000, system=None):
+            self.assertEqual(system, MEMORY_GENERATION_SYSTEM)
             prompt = messages[0]["content"]
             brief = "Alpha generated brief" if "Alpha project" in prompt else "Beta generated brief"
             return json.dumps(
@@ -3509,7 +3512,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             self.assertIsNone(refreshed.memory_rebuild_failed_at)
 
     def test_memory_rebuild_persists_rebuild_log_and_coverage(self):
-        async def fake_complete(messages, max_tokens=4000):
+        async def fake_complete(messages, max_tokens=4000, system=None):
+            self.assertEqual(system, MEMORY_GENERATION_SYSTEM)
             return json.dumps(
                 {
                     "project_brief": "Alpha brief",
@@ -6717,8 +6721,10 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                     ensure_ascii=False,
                 )
             ),
-        ):
+        ) as provider:
             resp = self.client.post(f"/clients/{client_id}/memory/rebuild")
+
+        self.assertEqual(provider.await_args.kwargs["system"], MEMORY_GENERATION_SYSTEM)
 
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
@@ -6776,11 +6782,13 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                     ensure_ascii=False,
                 )
             ),
-        ):
+        ) as provider:
             resp = self.client.post(
                 f"/clients/{client_id}/memory/promote-project",
                 json={"project_id": project_id},
             )
+
+        self.assertEqual(provider.await_args.kwargs["system"], MEMORY_GENERATION_SYSTEM)
 
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
