@@ -160,6 +160,8 @@ Agentic Workspace
 
 ### 6.2 AI Run
 
+2026-09-20 实现说明：下表保留本设计阶段的概念命名。当前公开 Product v1 协议以 `backend/app/services/chat/product_run_events.py` 和 `web/src/types/productRunEvent.ts` 为准，展示模式实际为 `quiet / contextual / task / skill / confirmation / debug`；两处聊天共用字段校验，复杂运行保留步骤、工具、产物、审批与记忆候选回执。Python 生成样本、TypeScript 编译与运行时兼容性门禁详见 [27 兼容性验收](27-Run-Harness合同兼容性验收.md)。
+
 `Run` 是一次完整 AI 工作的产品状态机。
 
 | 字段 | 说明 |

@@ -1,6 +1,6 @@
 # Run Harness 合同兼容性验收
 
-日期：2026-09-20。前置运行版本 `03aa470`，前置文档版本 `30e187e`。跟踪 [#70](https://github.com/guoliang1114-boop/AriaAI/issues/70)。本文件在发布完成后补录实际运行版本与 Actions 证据。
+日期：2026-09-20。前置运行版本 `03aa470`，前置文档版本 `30e187e`。当前运行版本 `6559d84c30be24beafdb8090caeb5662e9254ca9`。[#70](https://github.com/guoliang1114-boop/AriaAI/issues/70) 已按本文件的合同映射与实际发布证据关闭。
 
 ## 本轮修复
 
@@ -39,3 +39,13 @@
 ## 发布过程
 
 首轮提交 `178f839` 的 [Actions 35519374632](https://github.com/guoliang1114-boop/AriaAI/actions/runs/35519374632) 在上传服务器前失败：新增的 Product Run Contract 步骤需要 pytest，而 runner 先前只安装运行依赖，测试依赖仅在远端安装。前端构建、完整测试、lint 和样本检查均已通过。后续修复让 runner 同样安装现有 `requirements-test.txt`，并加入部署合同回归；该失败没有改变生产运行版本。
+
+修复提交 `6559d84` 的 [Actions 35519596943](https://github.com/guoliang1114-boop/AriaAI/actions/runs/35519596943) 成功，服务器于 2026-09-20 15:45 UTC 报告完成。
+
+- CI 前端 **98 文件 / 693 passed**，构建及零警告 lint 通过；Product Run Contract **24 passed**，样本新鲜度和部署工作流合同检查通过。CI 依赖修复的本地合同复验 **28 passed**。
+- 服务器发布回归 **1,440 passed**，853.80 秒，保留既有 datetime/SQLAlchemy 两条警告；141 场景质量门和 hash 检索合成评测 **5/5** 通过。
+- PostgreSQL 18 备份已验证；迁移前后均为单一 `054_v1_54`，78 张表，无新增迁移。
+- 上线后首页及 5 项入口资源均 HTTP 200，API `status=ok`。独立聊天 `Chat-B9RZkN9x.js`、项目页面 `ProjectDetail-DzCckdT0.js` 和共享模块 `artifactVerification-CHczs7JH.js` 均为 200，文件名与本次 CI 构建一致；共享模块包含 `INVALID_PRODUCT_RUN_EVENT` 和交付物验证器字段。验收使用 CI 的产物标识，不将不同本机构建产物视为生产字节副本。
+- 原生只读运维检查显示记忆任务数为 0；客户 3、4 的历史失败记忆仍为版本 3、6，状态和更新/失败时间与上线前一致。
+
+之后的文档归档提交不改变上述运行版本。#70 的当前合同稳定性范围已完成，新增协议能力仍需同步更新生成样本、前端类型与运行时校验。
