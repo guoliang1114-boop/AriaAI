@@ -22,6 +22,7 @@ Design notes:
 """
 from __future__ import annotations
 
+import math
 import re
 import uuid
 from datetime import datetime, timezone
@@ -338,6 +339,28 @@ def _require_positive_int(value: Any, label: str) -> int:
 
 def _maybe_timestamp(timestamp: str | None) -> str:
     return timestamp if timestamp else _now_iso()
+
+
+def _require_finite_number(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be a finite number")
+    try:
+        normalized = float(value)
+    except OverflowError:
+        raise ValueError(f"{label} must be a finite number") from None
+    if not math.isfinite(normalized):
+        raise ValueError(f"{label} must be a finite number")
+    return normalized
+
+
+def _require_identity(value: Any, label: str) -> str | int:
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise ValueError(f"{label} must be a non-empty string or positive integer")
+    if isinstance(value, int):
+        return _require_positive_int(value, label)
+    if not value.strip():
+        raise ValueError(f"{label} must be a non-empty string or positive integer")
+    return value
 
 
 def _normalize_memory_layer(value: dict) -> dict[str, Any]:
@@ -969,7 +992,7 @@ def status(
     if display_mode is not None:
         event["display_mode"] = _require_in(display_mode, _DISPLAY_MODES, "display_mode")
     if progress is not None:
-        event["progress"] = float(progress)
+        event["progress"] = _require_finite_number(progress, "status.progress")
     return event
 
 
@@ -1035,7 +1058,7 @@ def step_completed(
     truncated: bool = False,
 ) -> dict:
     """A step has finished. Must come after a matching ``step_started``."""
-    if not isinstance(duration_ms, int) or duration_ms < 0:
+    if not isinstance(duration_ms, int) or isinstance(duration_ms, bool) or duration_ms < 0:
         raise ValueError(f"duration_ms must be a non-negative int, got {duration_ms!r}")
     return {
         "type": EventType.STEP_COMPLETED,
@@ -1069,7 +1092,7 @@ def tool_progress(
     if detail is not None:
         event["detail"] = detail
     if progress is not None:
-        event["progress"] = float(progress)
+        event["progress"] = _require_finite_number(progress, "tool_progress.progress")
     return event
 
 
@@ -1084,12 +1107,14 @@ def task_update(
     step_title: str | None = None,
 ) -> dict:
     """Durable/background task progress."""
-    if progress_pct is not None and not (0 <= int(progress_pct) <= 100):
+    if progress_pct is not None and (
+        not isinstance(progress_pct, int) or isinstance(progress_pct, bool) or not 0 <= progress_pct <= 100
+    ):
         raise ValueError(f"task_update.progress_pct must be 0–100, got {progress_pct!r}")
     event: dict[str, Any] = {
         "type": EventType.TASK_UPDATE,
         "run_id": _require_run_id(run_id),
-        "task_id": str(task_id),
+        "task_id": str(_require_identity(task_id, "task_id")),
         "status": _require_in(status, _TOOL_PROGRESS_STATUSES, "task_update.status"),
     }
     if progress_pct is not None:
@@ -1144,7 +1169,7 @@ def artifact_ready(
     event: dict[str, Any] = {
         "type": EventType.ARTIFACT_READY,
         "run_id": _require_run_id(run_id),
-        "artifact_id": str(artifact_id),
+        "artifact_id": str(_require_identity(artifact_id, "artifact_id")),
         "artifact_type": _require_in(artifact_type, _ARTIFACT_TYPES, "artifact_type"),
     }
     if download_url is not None:
@@ -1200,7 +1225,7 @@ def memory_candidate_ready(
     event: dict[str, Any] = {
         "type": EventType.MEMORY_CANDIDATE_READY,
         "run_id": _require_run_id(run_id),
-        "candidate_id": str(candidate_id),
+        "candidate_id": str(_require_identity(candidate_id, "candidate_id")),
         "scope": normalized_scope,
         "candidate_type": normalized_type,
         "status": "pending_review",
@@ -1222,7 +1247,7 @@ def message_persisted(
     event: dict[str, Any] = {
         "type": EventType.MESSAGE_PERSISTED,
         "run_id": _require_run_id(run_id),
-        "message_id": int(message_id) if isinstance(message_id, int) else str(message_id),
+        "message_id": _require_identity(message_id, "message_id"),
     }
     if parent_run_id is not None:
         event["parent_run_id"] = _require_run_id(parent_run_id)
@@ -1242,11 +1267,9 @@ def run_done(
         "final_status": _require_in(final_status, _RUN_FINAL_STATUSES, "final_status"),
     }
     if message_id is not None:
-        event["message_id"] = (
-            int(message_id) if isinstance(message_id, int) else str(message_id)
-        )
+        event["message_id"] = _require_identity(message_id, "message_id")
     if artifact_ids is not None:
-        event["artifact_ids"] = [str(a) for a in artifact_ids]
+        event["artifact_ids"] = [str(_require_identity(a, "artifact_id")) for a in artifact_ids]
     return event
 
 

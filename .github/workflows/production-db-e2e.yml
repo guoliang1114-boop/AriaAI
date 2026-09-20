@@ -431,6 +431,7 @@ jobs:
                         "tests/test_memory_source_fingerprints.py",
                         "tests/test_memory_slots.py",
                         "tests/test_model_completion.py",
+                        "tests/test_product_run_contract.py",
                         "tests/test_openai_compat.py",
                         "tests/test_claude_complete.py",
                         "tests/test_memory_generation.py",

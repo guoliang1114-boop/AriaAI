@@ -1,0 +1,740 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "event_types": [
+    "artifact_ready",
+    "confirmation_required",
+    "context_receipt",
+    "memory_candidate_ready",
+    "message_persisted",
+    "reference_delta",
+    "run_done",
+    "run_failed",
+    "run_started",
+    "status",
+    "steering_applied",
+    "step_completed",
+    "step_started",
+    "task_update",
+    "text_delta",
+    "tool_progress",
+    "turn_receipt"
+  ],
+  "scenarios": [
+    {
+      "name": "quiet",
+      "events": [
+        {
+          "type": "run_started",
+          "run_id": "run_contract_quiet",
+          "timestamp": "2026-09-20T00:00:00.000+00:00",
+          "display_mode": "quiet"
+        },
+        {
+          "type": "turn_receipt",
+          "run_id": "run_contract_quiet",
+          "summary": "回答合成问题",
+          "mode": "answer_only",
+          "target_scope": "chat",
+          "execution_scope": "chat_only",
+          "expected_response": "answer",
+          "write_allowed": false,
+          "requires_confirmation": false,
+          "steering_supported": true,
+          "user_constraints": []
+        },
+        {
+          "type": "context_receipt",
+          "schema_version": 1,
+          "run_id": "run_contract_quiet",
+          "scope": "chat",
+          "memory": {
+            "status": "not_applicable",
+            "version": 0,
+            "raw_context_available": false,
+            "retrieval_mode": "none",
+            "query_facets": [],
+            "selected_slots": [],
+            "stale_slots": [],
+            "selected_slot_count": 0,
+            "available_slot_count": 0,
+            "omitted_slot_count": 0,
+            "selected_item_count": 0,
+            "evidence_ref_count": 0,
+            "direct_fact_count": 0,
+            "matched_fact_count": 0,
+            "scoped_fact_count": 0,
+            "unresolved_fact_count": 0,
+            "stale_slot_count": 0,
+            "truncated": false,
+            "layers": []
+          },
+          "skill": {
+            "status": "not_used",
+            "usage_mode": "none",
+            "reason": "",
+            "confidence": 0.0
+          },
+          "evidence": {
+            "attached_file_count": 0,
+            "knowledge_reference_count": 0,
+            "history_message_count": 0,
+            "history_retained_message_count": 0,
+            "history_summarized_message_count": 0,
+            "history_truncated_message_count": 0,
+            "workspace_context": false,
+            "conversation_capsule": false,
+            "user_preferences": false,
+            "compacted": false,
+            "knowledge_legacy_fallback": false,
+            "knowledge_source_scoped_unavailable": false,
+            "knowledge_retrieval_mode": "none"
+          },
+          "warnings": []
+        },
+        {
+          "type": "text_delta",
+          "run_id": "run_contract_quiet",
+          "content": "合成回答"
+        },
+        {
+          "type": "reference_delta",
+          "run_id": "run_contract_quiet",
+          "source": "project_file:42",
+          "url": "/files/42",
+          "title": "合成资料"
+        },
+        {
+          "type": "message_persisted",
+          "run_id": "run_contract_quiet",
+          "message_id": 101
+        },
+        {
+          "type": "run_done",
+          "run_id": "run_contract_quiet",
+          "final_status": "completed",
+          "message_id": 101
+        }
+      ]
+    },
+    {
+      "name": "task",
+      "events": [
+        {
+          "type": "run_started",
+          "run_id": "run_contract_task",
+          "timestamp": "2026-09-20T00:00:00.000+00:00",
+          "display_mode": "skill",
+          "skill": {
+            "name": "合成 Skill",
+            "id": "7",
+            "source": "explicit"
+          }
+        },
+        {
+          "type": "context_receipt",
+          "schema_version": 1,
+          "run_id": "run_contract_task",
+          "scope": "project",
+          "memory": {
+            "status": "ready",
+            "version": 3,
+            "raw_context_available": true,
+            "retrieval_mode": "focused",
+            "query_facets": [],
+            "selected_slots": [
+              "key_risks"
+            ],
+            "stale_slots": [],
+            "selected_slot_count": 1,
+            "available_slot_count": 1,
+            "omitted_slot_count": 0,
+            "selected_item_count": 1,
+            "evidence_ref_count": 0,
+            "direct_fact_count": 0,
+            "matched_fact_count": 0,
+            "scoped_fact_count": 0,
+            "unresolved_fact_count": 0,
+            "stale_slot_count": 0,
+            "truncated": false,
+            "layers": [
+              {
+                "scope": "project",
+                "status": "ready",
+                "version": 3,
+                "retrieval_mode": "focused",
+                "query_facets": [
+                  "risk"
+                ],
+                "selected_slots": [
+                  "key_risks"
+                ],
+                "stale_slots": [],
+                "selected_slot_count": 1,
+                "available_slot_count": 1,
+                "omitted_slot_count": 0,
+                "selected_item_count": 1,
+                "evidence_ref_count": 0,
+                "direct_fact_count": 0,
+                "matched_fact_count": 0,
+                "scoped_fact_count": 0,
+                "unresolved_fact_count": 0,
+                "stale_slot_count": 0,
+                "truncated": false,
+                "overridden_dimensions": []
+              }
+            ]
+          },
+          "skill": {
+            "status": "applied",
+            "usage_mode": "workflow",
+            "reason": "explicit",
+            "confidence": 1.0,
+            "id": "7",
+            "name": "合成 Skill",
+            "source": "explicit",
+            "candidates": [
+              {
+                "name": "合成 Skill",
+                "id": "7",
+                "score": 1
+              }
+            ],
+            "runtime": {
+              "schema_version": 1,
+              "load_status": "loaded",
+              "package_kind": "bundled",
+              "version": "1.0",
+              "release_status": "stable",
+              "instruction_loaded": true,
+              "instruction_complete": true,
+              "progressive_loading": true,
+              "scripts_executable": false,
+              "tool_contract_valid": true,
+              "verification_status": "available",
+              "verification_context_complete": true,
+              "resource_count": 1,
+              "script_resource_count": 0,
+              "declared_tool_count": 2,
+              "granted_tool_count": 1,
+              "policy_filtered_tool_count": 1,
+              "verification_step_count": 2,
+              "verification_source_count": 1,
+              "resource_names": [
+                "references/quality-checklist.md"
+              ],
+              "release_id": "7",
+              "release_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "verification_plan_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "deliverable": {
+                "schema_version": 1,
+                "deliverable_id": "board-deck",
+                "name": "合成董事会汇报",
+                "formats": [
+                  "pptx"
+                ],
+                "default_format": "pptx",
+                "stage": "proposal",
+                "save_targets": [
+                  "project"
+                ],
+                "requires_review": true,
+                "business_verifiers": [
+                  {
+                    "verifier_id": "slide_count",
+                    "expected_min": 12
+                  }
+                ],
+                "contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "skill_release_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+              }
+            }
+          },
+          "evidence": {
+            "attached_file_count": 0,
+            "knowledge_reference_count": 0,
+            "history_message_count": 0,
+            "history_retained_message_count": 0,
+            "history_summarized_message_count": 0,
+            "history_truncated_message_count": 0,
+            "workspace_context": false,
+            "conversation_capsule": false,
+            "user_preferences": false,
+            "compacted": false,
+            "knowledge_legacy_fallback": false,
+            "knowledge_source_scoped_unavailable": false,
+            "knowledge_retrieval_mode": "source_scoped"
+          },
+          "warnings": [],
+          "project": {
+            "id": "42",
+            "name": "合成项目"
+          },
+          "world_state": {
+            "current_version": "aaaaaaaaaaaa",
+            "previous_version": "bbbbbbbbbbbb",
+            "baseline": false,
+            "changed": true,
+            "changed_categories": [
+              "files"
+            ],
+            "categories": {
+              "files": {
+                "added": 1,
+                "removed": 0,
+                "updated": 0,
+                "current_count": 1
+              }
+            },
+            "truncated": false
+          }
+        },
+        {
+          "type": "status",
+          "run_id": "run_contract_task",
+          "message": "正在生成合成交付物",
+          "display_mode": "task",
+          "progress": 0.5
+        },
+        {
+          "type": "steering_applied",
+          "run_id": "run_contract_task",
+          "steering_id": "steer_contract",
+          "sequence": 1,
+          "content_preview": "保留十二页",
+          "message_id": 102
+        },
+        {
+          "type": "step_started",
+          "run_id": "run_contract_task",
+          "step_index": 1,
+          "title": "生成合成交付物",
+          "step_total": 1
+        },
+        {
+          "type": "tool_progress",
+          "run_id": "run_contract_task",
+          "step_index": 1,
+          "title": "生成演示文稿",
+          "status": "running",
+          "detail": "合成案例",
+          "progress": 0.5
+        },
+        {
+          "type": "task_update",
+          "run_id": "run_contract_task",
+          "task_id": "31",
+          "status": "running",
+          "progress_pct": 50,
+          "current_step": 1,
+          "total_steps": 1,
+          "step_title": "生成合成交付物"
+        },
+        {
+          "type": "tool_progress",
+          "run_id": "run_contract_task",
+          "step_index": 1,
+          "title": "生成演示文稿",
+          "status": "completed",
+          "progress": 1.0
+        },
+        {
+          "type": "step_completed",
+          "run_id": "run_contract_task",
+          "step_index": 1,
+          "status": "completed",
+          "duration_ms": 250,
+          "truncated": false
+        },
+        {
+          "type": "artifact_ready",
+          "run_id": "run_contract_task",
+          "artifact_id": "57",
+          "artifact_type": "pptx",
+          "download_url": "/files/57",
+          "preview_url": "/preview/57",
+          "source_tool": "generate_ppt",
+          "output_id": "out_contract",
+          "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verification": {
+            "schema_version": 1,
+            "verification_id": 91,
+            "verifier_version": 1,
+            "status": "manual_required",
+            "technical_status": "passed",
+            "skill_status": "manual_required",
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "evidence_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "automated_check_count": 5,
+            "automated_passed_count": 5,
+            "automated_failed_count": 0,
+            "automated_skipped_count": 0,
+            "skill_check_count": 2,
+            "metrics": {
+              "slide_count": 12
+            },
+            "verification_plan_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "skill_release_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+        },
+        {
+          "type": "memory_candidate_ready",
+          "run_id": "run_contract_task",
+          "candidate_id": "18",
+          "scope": "project",
+          "candidate_type": "project_risk",
+          "status": "pending_review",
+          "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "type": "task_update",
+          "run_id": "run_contract_task",
+          "task_id": "31",
+          "status": "completed",
+          "progress_pct": 100
+        },
+        {
+          "type": "text_delta",
+          "run_id": "run_contract_task",
+          "content": "合成交付完成"
+        },
+        {
+          "type": "message_persisted",
+          "run_id": "run_contract_task",
+          "message_id": "103",
+          "parent_run_id": "run_contract_quiet"
+        },
+        {
+          "type": "run_done",
+          "run_id": "run_contract_task",
+          "final_status": "completed",
+          "message_id": "103",
+          "artifact_ids": [
+            "57"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "approval",
+      "events": [
+        {
+          "type": "run_started",
+          "run_id": "run_contract_approval",
+          "timestamp": "2026-09-20T00:00:00.000+00:00",
+          "display_mode": "confirmation"
+        },
+        {
+          "type": "confirmation_required",
+          "run_id": "run_contract_approval",
+          "action": "更新合成项目",
+          "impact": "写入项目内容",
+          "params_snapshot": {
+            "project_id": 42
+          },
+          "deadline": "2026-09-21T00:00:00Z"
+        },
+        {
+          "type": "run_done",
+          "run_id": "run_contract_approval",
+          "final_status": "waiting_confirmation"
+        }
+      ]
+    },
+    {
+      "name": "failed",
+      "events": [
+        {
+          "type": "run_started",
+          "run_id": "run_contract_failed",
+          "timestamp": "2026-09-20T00:00:00.000+00:00",
+          "display_mode": "task"
+        },
+        {
+          "type": "step_started",
+          "run_id": "run_contract_failed",
+          "step_index": 1,
+          "title": "读取合成来源"
+        },
+        {
+          "type": "tool_progress",
+          "run_id": "run_contract_failed",
+          "step_index": 1,
+          "title": "读取资料",
+          "status": "failed"
+        },
+        {
+          "type": "step_completed",
+          "run_id": "run_contract_failed",
+          "step_index": 1,
+          "status": "failed",
+          "duration_ms": 10,
+          "truncated": true
+        },
+        {
+          "type": "run_failed",
+          "run_id": "run_contract_failed",
+          "error_code": "MODEL_TIMEOUT",
+          "error_message": "合成运行未完成",
+          "retryable": true,
+          "fallback_content": "合成失败说明"
+        }
+      ]
+    },
+    {
+      "name": "cancelled",
+      "events": [
+        {
+          "type": "run_started",
+          "run_id": "run_contract_cancelled",
+          "timestamp": "2026-09-20T00:00:00.000+00:00"
+        },
+        {
+          "type": "run_done",
+          "run_id": "run_contract_cancelled",
+          "final_status": "cancelled"
+        }
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "type": "run_started",
+      "run_id": "run_contract_variants",
+      "timestamp": "2026-09-20T00:00:00.000+00:00",
+      "display_mode": "confirmation"
+    },
+    {
+      "type": "run_started",
+      "run_id": "run_contract_variants",
+      "timestamp": "2026-09-20T00:00:00.000+00:00",
+      "display_mode": "contextual"
+    },
+    {
+      "type": "run_started",
+      "run_id": "run_contract_variants",
+      "timestamp": "2026-09-20T00:00:00.000+00:00",
+      "display_mode": "debug"
+    },
+    {
+      "type": "run_started",
+      "run_id": "run_contract_variants",
+      "timestamp": "2026-09-20T00:00:00.000+00:00",
+      "display_mode": "quiet"
+    },
+    {
+      "type": "run_started",
+      "run_id": "run_contract_variants",
+      "timestamp": "2026-09-20T00:00:00.000+00:00",
+      "display_mode": "skill"
+    },
+    {
+      "type": "run_started",
+      "run_id": "run_contract_variants",
+      "timestamp": "2026-09-20T00:00:00.000+00:00",
+      "display_mode": "task"
+    },
+    {
+      "type": "run_started",
+      "run_id": "run_contract_variants",
+      "timestamp": "2026-09-20T00:00:00.000+00:00",
+      "skill": {
+        "name": "合成 Skill",
+        "source": "auto"
+      }
+    },
+    {
+      "type": "run_started",
+      "run_id": "run_contract_variants",
+      "timestamp": "2026-09-20T00:00:00.000+00:00",
+      "skill": {
+        "name": "合成 Skill",
+        "source": "conversation"
+      }
+    },
+    {
+      "type": "run_started",
+      "run_id": "run_contract_variants",
+      "timestamp": "2026-09-20T00:00:00.000+00:00",
+      "skill": {
+        "name": "合成 Skill",
+        "source": "explicit"
+      }
+    },
+    {
+      "type": "tool_progress",
+      "run_id": "run_contract_variants",
+      "step_index": 1,
+      "title": "合成工具",
+      "status": "completed"
+    },
+    {
+      "type": "tool_progress",
+      "run_id": "run_contract_variants",
+      "step_index": 1,
+      "title": "合成工具",
+      "status": "failed"
+    },
+    {
+      "type": "tool_progress",
+      "run_id": "run_contract_variants",
+      "step_index": 1,
+      "title": "合成工具",
+      "status": "pending"
+    },
+    {
+      "type": "tool_progress",
+      "run_id": "run_contract_variants",
+      "step_index": 1,
+      "title": "合成工具",
+      "status": "running"
+    },
+    {
+      "type": "task_update",
+      "run_id": "run_contract_variants",
+      "task_id": "31",
+      "status": "completed"
+    },
+    {
+      "type": "task_update",
+      "run_id": "run_contract_variants",
+      "task_id": "31",
+      "status": "failed"
+    },
+    {
+      "type": "task_update",
+      "run_id": "run_contract_variants",
+      "task_id": "31",
+      "status": "pending"
+    },
+    {
+      "type": "task_update",
+      "run_id": "run_contract_variants",
+      "task_id": "31",
+      "status": "running"
+    },
+    {
+      "type": "artifact_ready",
+      "run_id": "run_contract_variants",
+      "artifact_id": "57",
+      "artifact_type": "docx"
+    },
+    {
+      "type": "artifact_ready",
+      "run_id": "run_contract_variants",
+      "artifact_id": "57",
+      "artifact_type": "markdown"
+    },
+    {
+      "type": "artifact_ready",
+      "run_id": "run_contract_variants",
+      "artifact_id": "57",
+      "artifact_type": "pdf"
+    },
+    {
+      "type": "artifact_ready",
+      "run_id": "run_contract_variants",
+      "artifact_id": "57",
+      "artifact_type": "pptx"
+    },
+    {
+      "type": "artifact_ready",
+      "run_id": "run_contract_variants",
+      "artifact_id": "57",
+      "artifact_type": "xlsx"
+    },
+    {
+      "type": "run_done",
+      "run_id": "run_contract_variants",
+      "final_status": "cancelled"
+    },
+    {
+      "type": "run_done",
+      "run_id": "run_contract_variants",
+      "final_status": "completed"
+    },
+    {
+      "type": "run_done",
+      "run_id": "run_contract_variants",
+      "final_status": "failed"
+    },
+    {
+      "type": "run_done",
+      "run_id": "run_contract_variants",
+      "final_status": "waiting_confirmation"
+    },
+    {
+      "type": "run_failed",
+      "run_id": "run_contract_variants",
+      "error_code": "CONTEXT_PREPARATION_FAILED",
+      "error_message": "合成失败说明"
+    },
+    {
+      "type": "run_failed",
+      "run_id": "run_contract_variants",
+      "error_code": "MODEL_TIMEOUT",
+      "error_message": "合成失败说明"
+    },
+    {
+      "type": "run_failed",
+      "run_id": "run_contract_variants",
+      "error_code": "PERSISTENCE_ERROR",
+      "error_message": "合成失败说明"
+    },
+    {
+      "type": "run_failed",
+      "run_id": "run_contract_variants",
+      "error_code": "POLICY_REJECTED",
+      "error_message": "合成失败说明"
+    },
+    {
+      "type": "run_failed",
+      "run_id": "run_contract_variants",
+      "error_code": "RUN_EVALUATION_FAILED",
+      "error_message": "合成失败说明"
+    },
+    {
+      "type": "run_failed",
+      "run_id": "run_contract_variants",
+      "error_code": "TOOL_EXECUTION_FAILED",
+      "error_message": "合成失败说明"
+    },
+    {
+      "type": "run_failed",
+      "run_id": "run_contract_variants",
+      "error_code": "TURN_BUDGET_EXCEEDED",
+      "error_message": "合成失败说明"
+    },
+    {
+      "type": "run_failed",
+      "run_id": "run_contract_variants",
+      "error_code": "UNKNOWN",
+      "error_message": "合成失败说明"
+    },
+    {
+      "type": "memory_candidate_ready",
+      "run_id": "run_contract_variants",
+      "candidate_id": "18",
+      "scope": "user",
+      "candidate_type": "lesson",
+      "status": "pending_review"
+    },
+    {
+      "type": "memory_candidate_ready",
+      "run_id": "run_contract_variants",
+      "candidate_id": "18",
+      "scope": "project",
+      "candidate_type": "lesson",
+      "status": "pending_review"
+    },
+    {
+      "type": "memory_candidate_ready",
+      "run_id": "run_contract_variants",
+      "candidate_id": "18",
+      "scope": "client",
+      "candidate_type": "lesson",
+      "status": "pending_review"
+    }
+  ]
+}

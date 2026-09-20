@@ -1854,6 +1854,7 @@ export function Chat() {
       let pendingContent = ''
       updateTimerRef.current = null
       let streamDone = false
+      let pendingDone: ChatStreamEvent | null = null
       let streamBuffer = ''
       let collectedArtifacts: GeneratedArtifact[] = []
       let resolvedContextReceipt: ContextReceiptEvent | null = null
@@ -1869,7 +1870,7 @@ export function Chat() {
         }
       }
 
-      const handleStreamEvent = async (data: ChatStreamEvent) => {
+      const handleStreamEvent = async (data: ChatStreamEvent, finalizeDone = false) => {
         if (streamDone) return
         const failure = resolveChatRunFailure(data, activeRunIdRef.current, assistantContent)
         if (failure) {
@@ -1887,7 +1888,7 @@ export function Chat() {
               role: 'assistant',
               content: failure.content,
               metadata_json: JSON.stringify({
-                run_rollout: { run_id: failure.runId, status: 'failed' },
+                run_rollout: { run_id: failure.runId, status: failure.status || 'failed' },
                 context_receipt: resolvedContextReceipt || undefined,
                 stage_timings: Object.fromEntries(liveStageTimingsRef.current.map(item => [item.key, item.durationMs])),
               }),
@@ -1993,6 +1994,12 @@ export function Chat() {
               : '工具已完成，正在整理输出...'
           setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), 3, '工具已完成，正在整理输出...', resultMessage))
         } else if (data.type === 'done') {
+          // Product terminals can follow the legacy done frame. Drain the
+          // stream before publishing success so a later failure wins.
+          if (!finalizeDone) {
+            pendingDone = data
+            return
+          }
           streamDone = true
           completedNormally = true
           activeRunIdRef.current = null
@@ -2147,6 +2154,7 @@ export function Chat() {
 
       streamBuffer += decoder.decode()
       await processStreamBuffer(true)
+      if (!streamDone && pendingDone) await handleStreamEvent(pendingDone, true)
 
       // Stream ended but no 'done' event (e.g. aborted)
       if (!streamDone && (assistantContent || stopRequestedRef.current)) {

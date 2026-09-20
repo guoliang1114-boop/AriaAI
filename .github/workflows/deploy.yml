@@ -75,6 +75,12 @@ jobs:
           python -m py_compile app/config.py
           python -m py_compile app/models/db.py
 
+      - name: Product Run Contract
+        run: |
+          cd backend
+          python scripts/product_run_contract_fixture.py
+          python -m pytest -q tests/test_product_run_contract.py
+
       # This contract inspects the workflow file itself, so it must run in the
       # clean GitHub checkout rather than on the application-only server copy.
       - name: Deployment Workflow Contract
@@ -324,6 +330,7 @@ jobs:
                 tests/test_memory_slots.py \
                 tests/test_memory_slot_normalization_migration.py \
                 tests/test_product_run_events.py \
+                tests/test_product_run_contract.py \
                 tests/test_project_chat_quality_eval.py \
                 tests/test_project_memory_evidence.py \
                 tests/test_run_evaluation.py \

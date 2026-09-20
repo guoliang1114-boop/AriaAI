@@ -7,6 +7,14 @@ import {
 } from './chatStreamEvent'
 
 describe('Product failure terminal', () => {
+  it('consumes an invalid Product terminal as a failure with the active identity', () => {
+    const parsed = parseChatStreamEvent({ type: 'run_done', run_id: 'wrong', final_status: 'unknown' })!
+    expect(resolveChatRunFailure(parsed, 'run_1', '部分内容')).toEqual({
+      message: '运行事件格式无效，请重新发起本轮请求',
+      content: '部分内容\n\n运行事件格式无效，请重新发起本轮请求', runId: 'run_1',
+    })
+  })
+
   it('preserves the saved provider failure without duplicating text or adding a network warning', () => {
     const content = '本轮没有完成。Kimi HTTP 404: model not found'
     expect(resolveChatRunFailure({
@@ -27,8 +35,22 @@ describe('Product failure terminal', () => {
     expect(failure?.runId).toBe('run_1')
   })
 
-  it.each(['text', 'done', 'error', 'run_done'])('does not turn %s into a Product failure', (type) => {
+  it.each(['text', 'done', 'error'])('does not turn %s into a Product failure', (type) => {
     expect(resolveChatRunFailure({ type }, 'run_1', '回答')).toBeNull()
+  })
+
+  it.each(['completed', 'waiting_confirmation'] as const)('accepts a matching %s terminal', final_status => {
+    expect(resolveChatRunFailure({ type: 'run_done', run_id: 'run_1', final_status }, 'run_1', '回答')).toBeNull()
+  })
+
+  it.each(['failed', 'cancelled'] as const)('does not promote a %s terminal to success', final_status => {
+    expect(resolveChatRunFailure({ type: 'run_done', run_id: 'run_1', final_status }, 'run_1', '回答'))
+      .toMatchObject({ runId: 'run_1', status: final_status, content: expect.stringContaining('回答\n\n') })
+  })
+
+  it.each([null, 'run_other'])('rejects a completion without a matching start: %s', activeRunId => {
+    expect(resolveChatRunFailure({ type: 'run_done', run_id: 'run_1', final_status: 'completed' }, activeRunId, ''))
+      .toMatchObject({ status: 'failed', message: '运行完成事件缺少匹配的启动身份，请重新发起本轮请求' })
   })
 })
 

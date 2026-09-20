@@ -12,6 +12,7 @@ import type {
   ContextWarningCode,
   TurnReceiptEvent,
 } from './productRunEvent'
+import { isContextSkillDeliverable, isProductRunEvent, isProductRunEventType } from './productRunEventValidation'
 
 /**
  * Wire shape used by the legacy `/chat/send` SSE endpoint.
@@ -84,12 +85,37 @@ export interface ChatStreamEvent {
   fallback_content?: string
 }
 
-/** Validate the minimum envelope before application code reads an SSE frame. */
+/** Validate Product v1 before dispatch; retain the separate legacy protocol. */
 export function parseChatStreamEvent(value: unknown): ChatStreamEvent | null {
-  if (!value || typeof value !== 'object') return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const type = (value as { type?: unknown }).type
   if (typeof type !== 'string' || !type.trim()) return null
-  return value as ChatStreamEvent
+  const event = value as ChatStreamEvent
+  if (!isProductRunEventType(type)) return event
+  // Legacy status predates the run envelope and is still emitted alongside v1.
+  if (type === 'status' && event.run_id === undefined) {
+    return typeof event.message === 'string' ? event : null
+  }
+  let candidate = event
+  if (type === 'context_receipt' && event.schema_version === undefined) {
+    try {
+      const normalized = toContextReceiptEvent(event)
+      if (!normalized) return null
+      candidate = normalized
+    } catch {
+      // Legacy coercion can throw on JSON objects with invalid scalar fields.
+      return null
+    }
+  } else if (type === 'turn_receipt' && event.user_constraints === undefined) {
+    candidate = { ...event, user_constraints: [] }
+  }
+  if (isProductRunEvent(candidate)) return candidate
+  // Silently dropping an invalid terminal would let legacy `done` or EOF
+  // promote a failed/malformed run into a successful answer.
+  if (type === 'run_started' || type === 'run_done' || type === 'run_failed') {
+    return { type: 'error', error_code: 'INVALID_PRODUCT_RUN_EVENT', message: '运行事件格式无效，请重新发起本轮请求' }
+  }
+  return null
 }
 
 /** A Product failure is a terminal result, not a dropped SSE connection. */
@@ -97,7 +123,23 @@ export function resolveChatRunFailure(
   event: ChatStreamEvent,
   activeRunId: string | null,
   streamedContent: string,
-): { message: string; content: string; runId: string | null } | null {
+): { message: string; content: string; runId: string | null; status?: 'failed' | 'cancelled' } | null {
+  if (event.type === 'error' && event.error_code === 'INVALID_PRODUCT_RUN_EVENT') {
+    const message = '运行事件格式无效，请重新发起本轮请求'
+    return { message, content: streamedContent ? `${streamedContent}\n\n${message}` : message, runId: activeRunId }
+  }
+  if (event.type === 'run_done') {
+    const message = !activeRunId || event.run_id !== activeRunId
+      ? '运行完成事件缺少匹配的启动身份，请重新发起本轮请求'
+      : event.final_status === 'cancelled'
+        ? 'AI 运行已取消'
+        : event.final_status === 'failed' ? 'AI 运行未完成，请稍后重试。' : null
+    if (!message) return null
+    return {
+      message, content: streamedContent ? `${streamedContent}\n\n${message}` : message, runId: activeRunId,
+      status: activeRunId === event.run_id && event.final_status === 'cancelled' ? 'cancelled' : 'failed',
+    }
+  }
   if (event.type !== 'run_failed') return null
   if (activeRunId && event.run_id !== activeRunId) {
     const message = '运行失败事件身份不一致，请重新发起本轮请求'
@@ -300,6 +342,20 @@ function normalizeContextSkillRuntime(value: unknown): ContextSkillRuntimeContra
     verification_source_count: nonNegativeInt(runtime.verification_source_count),
     verification_context_complete: Boolean(runtime.verification_context_complete),
     verification_plan_sha256: verificationPlanSha,
+    deliverable: isContextSkillDeliverable(runtime.deliverable) ? {
+      schema_version: 1,
+      deliverable_id: runtime.deliverable.deliverable_id,
+      name: runtime.deliverable.name,
+      formats: [...runtime.deliverable.formats],
+      default_format: runtime.deliverable.default_format,
+      stage: runtime.deliverable.stage,
+      save_targets: [...runtime.deliverable.save_targets],
+      requires_review: runtime.deliverable.requires_review,
+      business_verifiers: runtime.deliverable.business_verifiers.map(({ verifier_id, expected_min }) => ({ verifier_id, expected_min })),
+      contract_sha256: runtime.deliverable.contract_sha256,
+      catalog_sha256: runtime.deliverable.catalog_sha256,
+      skill_release_sha256: runtime.deliverable.skill_release_sha256,
+    } : undefined,
   }
 }
 
@@ -359,7 +415,7 @@ export function toContextReceiptEvent(event: ChatStreamEvent): ContextReceiptEve
       reason: String(skill.reason || ''),
       confidence: Math.max(0, Math.min(1, Number(skill.confidence) || 0)),
       candidates: Array.isArray(skill.candidates)
-        ? skill.candidates.map((candidate) => ({
+        ? skill.candidates.filter(candidate => candidate && typeof candidate === 'object').map((candidate) => ({
           id: candidate.id == null ? undefined : String(candidate.id),
           name: String(candidate.name || ''),
           score: nonNegativeInt(candidate.score),

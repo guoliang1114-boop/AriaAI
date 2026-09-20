@@ -3,9 +3,8 @@
  * `backend/app/services/chat/product_run_events.py` and documented in
  * `docs/11-Model-Harness产品方案设计.md §8`.
  *
- * These types describe the SSE frames a v1-aware frontend consumes from the
- * chat stream. They are intentionally narrow (no extra fields) so the contract
- * with the backend builders stays tight.
+ * These types describe known fields of v1 SSE frames. Runtime validation
+ * checks their shapes and tolerates additive fields from compatible servers.
  */
 
 export type ProductRunEventType =
@@ -430,35 +429,4 @@ export type ProductRunEvent =
   | RunDoneEvent
   | RunFailedEvent;
 
-/** Type guard for the union — handy at the SSE consumer boundary. */
-export function isProductRunEvent(value: unknown): value is ProductRunEvent {
-  if (!value || typeof value !== "object") return false;
-  const type = (value as { type?: unknown }).type;
-  const runId = (value as { run_id?: unknown }).run_id;
-  return (
-    typeof type === "string" &&
-    typeof runId === "string" &&
-    Boolean(runId.trim()) &&
-    PRODUCT_RUN_EVENT_TYPES.has(type as ProductRunEventType)
-  );
-}
-
-const PRODUCT_RUN_EVENT_TYPES = new Set<string>([
-  "run_started",
-  "turn_receipt",
-  "context_receipt",
-  "steering_applied",
-  "status",
-  "text_delta",
-  "reference_delta",
-  "step_started",
-  "step_completed",
-  "tool_progress",
-  "task_update",
-  "confirmation_required",
-  "artifact_ready",
-  "memory_candidate_ready",
-  "message_persisted",
-  "run_done",
-  "run_failed",
-]);
+export { isProductRunEvent } from './productRunEventValidation'

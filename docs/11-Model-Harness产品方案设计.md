@@ -1042,6 +1042,18 @@ AI Run Harness v1（Phase 1）完成后，至少满足：
 
 该校验不执行工具、不提供业务授权、不增加重试，也不改变流式协议或 Product Run Event。下游仍由 Aria 原生 Policy Harness、HITAS、作用域检查和最终写授权决定能否执行。
 
+### 14.2 前后端事件兼容性与损坏输入（2026-09-20）
+
+后端 `product_run_events.py` 继续作为唯一事件定义源，前端 `productRunEvent.ts` 为类型镜像，`productRunEventValidation.ts` 在数据进入时间线和聊天入口前校验 17 类 Product v1 事件的已知字段及嵌套回执。允许兼容性新增字段和新错误代码；缺省新字段的历史回执经显式适配，旧 `status`、`text`、`done` 协议继续兼容。
+
+损坏的普通事件不进入时间线。损坏的 `run_started`、`run_done`、`run_failed` 转为前端内部 `INVALID_PRODUCT_RUN_EVENT` 错误，两处聊天入口均终止成功路径。独立聊天延后处理旧版 `done`，直到流读完，防止遗漏后续失败终态；`run_done` 必须匹配启动身份，失败和取消状态不能被旧 `done` 覆盖。已收到的正文保留失败说明，不将其误报为网络中断。该内部错误不新增后端 Product 事件类型。
+
+后端拒绝布尔值或非有限进度、非整数任务百分比、布尔耗时以及空值/容器/非正整数身份。前端保留 Skill runtime 的完整交付物回执（含格式、保存目标、业务验证器和指纹），通过字段白名单避免混入私有提示。
+
+`scripts/product_run_contract_fixture.py` 用实际 Python builder 生成合成 JSON：5 个生命周期场景、37 个枚举变体，共 69 帧。后端检查样本未过期，前端用 TypeScript 编译器直接检查 JSON 字面量对公开联合类型的兼容性，并验证运行时解析、时间线折叠和回执保留；不以类型强制转换代替合同验证。发布流水线将该检查作为复制到服务器前的门禁。详见 [27 兼容性验收](27-Run-Harness合同兼容性验收.md)。
+
+这些校验只保证事件表示与展示边界；审批、候选采纳及其他业务写入仍由 Aria 原生授权、Policy Harness 和 HITAS 决定。
+
 ## 15. 总结
 
 AriaAI 当前不需要立刻建设复杂 Agent 平台，但需要从现在开始引入 Harness 边界。正确路径是：

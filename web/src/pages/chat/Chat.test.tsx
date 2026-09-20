@@ -316,12 +316,36 @@ describe('standalone chat failure handling', () => {
     }
   })
 
-  it.each([true, false])('consumes run_failed without done (streamed text: %s)', async (withText) => {
+  it.each(['before', 'after'])('rejects malformed Product terminals %s legacy done', async (order) => {
+    const terminal = { type: 'run_done', run_id: 'run_bad', final_status: 'completed', message_id: {} }
+    const done = { type: 'done', assistant_message_id: 92 }
+    const events = [
+      { type: 'run_started', run_id: 'run_bad', timestamp: '2026-09-20T00:00:00Z' },
+      ...(order === 'before' ? [terminal, done] : [done, terminal]),
+    ]
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''))))
+    render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={['/chat?conversation=1']}><Chat /></MemoryRouter></I18nextProvider>)
+    const input = await screen.findByPlaceholderText(zh.chat.placeholder)
+    await waitFor(() => expect(input).toBeEnabled())
+    fireEvent.change(input, { target: { value: '检查运行结果' } })
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    await waitFor(() => expect(screen.getAllByText('运行事件格式无效，请重新发起本轮请求').length).toBeGreaterThan(0))
+    expect(screen.queryByText(/连接中断/)).not.toBeInTheDocument()
+    expect(sessionStorage.getItem('pendingStreamingConvId')).toBeNull()
+    await waitFor(() => expect(input).toBeEnabled())
+  })
+
+  it.each([
+    { withText: true, legacyDone: false },
+    { withText: false, legacyDone: false },
+    { withText: true, legacyDone: true },
+  ])('consumes run_failed (streamed text: $withText, prior done: $legacyDone)', async ({ withText, legacyDone }) => {
     const savedFailure = '本轮没有完成。模型不可用，失败状态已保存。'
     const events = [
-      { type: 'run_started', run_id: 'run_failure' },
+      { type: 'run_started', run_id: 'run_failure', timestamp: '2026-09-20T00:00:00Z' },
       ...(withText ? [{ type: 'text', content: savedFailure }] : []),
-      { type: 'run_failed', run_id: 'run_failure', error_message: '模型不可用', fallback_content: savedFailure },
+      ...(legacyDone ? [{ type: 'done', assistant_message_id: 92 }] : []),
+      { type: 'run_failed', run_id: 'run_failure', error_code: 'UNKNOWN', error_message: '模型不可用', fallback_content: savedFailure },
     ]
     vi.stubGlobal('fetch', vi.fn(async () => new Response(
       events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''),

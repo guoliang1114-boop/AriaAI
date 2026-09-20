@@ -515,6 +515,24 @@ describe('useChatStream Skill control', () => {
     expect(result.current.status).toBe('idle')
   })
 
+  it.each(['run_done', 'run_failed'])('rejects malformed %s even with a legacy completion', async (type) => {
+    const events = [
+      { type: 'run_started', run_id: 'run_bad', timestamp: '2026-09-20T00:00:00Z' },
+      { type: 'text', content: '待核验内容' },
+      { type: 'done', assistant_message_id: 92 },
+      { type, run_id: 'run_bad', final_status: 'invalid', error_message: {} },
+    ]
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('')))
+    const onAssistantMessage = vi.fn()
+    const onError = vi.fn()
+    const { result } = renderHook(() => useChatStream({ projectId: 3, conversationId: 4, onUserMessage: vi.fn(), onAssistantMessage, onError }))
+    await act(async () => result.current.send('检查运行结果'))
+    expect(onAssistantMessage).not.toHaveBeenCalled()
+    expect(onError).toHaveBeenCalledWith('运行事件格式无效，请重新发起本轮请求')
+    expect(result.current.status).toBe('error')
+    expect(result.current.activeRunId).toBeNull()
+  })
+
   it('rejects recovery when a Product failure follows a legacy done event', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(
       'data: {"type":"run_started","run_id":"run_terminal_failure","timestamp":"2026-08-30T00:00:00Z"}\n\n'
