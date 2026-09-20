@@ -37,7 +37,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-test.txt
 
       - name: Build Frontend
         run: |
@@ -63,6 +65,8 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --retries 5 --timeout 60 -r requirements.txt || \
           python -m pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
+          python -m pip install --retries 5 --timeout 60 -r requirements-test.txt || \
+          python -m pip install --no-cache-dir --retries 5 --timeout 60 -r requirements-test.txt
 
       # The deployment server runs pure/unit checks plus read-only database
       # governance checks below. Database-mutating E2E tests belong to the

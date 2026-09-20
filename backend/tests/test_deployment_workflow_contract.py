@@ -44,8 +44,18 @@ def test_remote_release_runs_this_contract_test() -> None:
     assert "tests/test_deployment_workflow_contract.py" in workflow
 
 
+def test_runner_installs_test_dependencies_before_product_contract_gate() -> None:
+    workflow = _workflow_text()
+    runner = workflow.split("- name: Deploy to Server", 1)[0]
+    install = runner.index("-r requirements-test.txt")
+    fixture = runner.index("python scripts/product_run_contract_fixture.py")
+    test = runner.index("python -m pytest -q tests/test_product_run_contract.py")
+    assert install < fixture < test
+
+
 if __name__ == "__main__":
     test_remote_release_command_has_headroom_for_the_release_gate()
     test_remote_release_keeps_backup_before_migration_and_restart()
     test_remote_release_runs_this_contract_test()
+    test_runner_installs_test_dependencies_before_product_contract_gate()
     print("deployment workflow contract passed")
