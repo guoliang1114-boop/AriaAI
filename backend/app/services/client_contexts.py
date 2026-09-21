@@ -819,9 +819,9 @@ def build_client_memory_summary_prompt(
         "You are an AI consultant assistant. "
         f"{instructions[normalized_type]} "
         f"Return ONLY bullet points, one per line, starting with '- '. Write the answer in {output_language}.\n\n"
-        f"Client: {client_name}\n"
         f"Summary type: {normalized_type}\n"
-        f"Structured client memory JSON:\n{json.dumps(compact_memory, ensure_ascii=False)}"
+        "Client and structured memory:\n"
+        + memory_evidence_block({"client_name": client_name, "memory": compact_memory})
     )
 
 

@@ -101,8 +101,8 @@ def require_conversation_access(
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     if conversation.project_id is not None:
-        # Conversations are isolated per-user even for admins: require real
-        # project membership (no admin super-user bypass here).
+        # Apply the native conversation gate: membership for non-admins,
+        # with the explicit admin oversight policy defined above.
         require_conversation_membership(
             session, conversation.project_id, current_user, require_write=require_write
         )

@@ -696,7 +696,7 @@ def build_project_context_prompt(project_data: str) -> str:
         "Do not blend in facts, progress, or risks from other projects, even if they belong to the same client. "
         "If information is missing, say less rather than guessing. "
         "Write a concise project understanding based only on the material below.\n\n"
-        f"Project data:\n{project_data}"
+        f"Project data:\n{memory_evidence_block(project_data)}"
     )
 
 
@@ -712,8 +712,8 @@ def build_project_summary_from_memory_prompt(
         "Focus on core objective, current stage, key risks or open questions, critical milestones or progress, and next actions. "
         "Each bullet must be specific and actionable. Use **bold** sparingly for key terms. "
         f"Return ONLY bullet points, one per line, starting with '- '. Keep the full answer under 120 words. Write the answer in {output_language}.\n\n"
-        f"Project: {project_name}\n"
-        f"Structured memory JSON:\n{json.dumps(memory, ensure_ascii=False)}"
+        "Project and structured memory:\n"
+        + memory_evidence_block({"project_name": project_name, "memory": memory})
     )
 
 
@@ -732,9 +732,9 @@ def build_project_memory_view_prompt(
         "Each bullet must be specific and concise. Use **bold** sparingly for key terms. "
         "Do not restate every field. Synthesize only the most decision-relevant points. "
         f"Return ONLY bullet points, one per line, starting with '- '. Keep the full answer under 90 words. Write the answer in {output_language}.\n\n"
-        f"Project: {project_name}\n"
         f"Summary type: {normalized_type}\n"
-        f"Structured memory JSON:\n{json.dumps(compact_memory, ensure_ascii=False)}"
+        "Project and structured memory:\n"
+        + memory_evidence_block({"project_name": project_name, "memory": compact_memory})
     )
 
 
@@ -763,11 +763,10 @@ def build_project_memory_multi_summary_prompt(
         "Return ONLY a valid JSON object. The object keys must exactly match the requested summary types. "
         "Each value must be a single string containing Markdown bullet points separated by newline characters. "
         "Do not wrap the JSON in markdown fences.\n\n"
-        f"Project: {project_name}\n"
         "Requested summary views:\n"
         + "\n".join(sections)
         + "\n\nStructured memory JSON by view:\n"
-        + json.dumps(payload, ensure_ascii=False)
+        + memory_evidence_block({"project_name": project_name, "memory_by_view": payload})
     )
 
 

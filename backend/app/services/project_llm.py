@@ -43,10 +43,14 @@ async def stream_with_selected_model(
     messages: list[dict],
     *,
     max_tokens: int = 4000,
+    system: str | None = None,
 ) -> AsyncIterator[str]:
     with Session(engine) as session:
         model = get_selected_model(session)
         provider = resolve_provider_from_model(model)
     llm = _load_provider_module(provider)
-    async for chunk in llm.stream_response(messages, model=model, max_tokens=_cap_max_tokens_for_model(model, max_tokens)):
+    async for chunk in llm.stream_response(
+        messages, system=system, model=model,
+        max_tokens=_cap_max_tokens_for_model(model, max_tokens),
+    ):
         yield chunk

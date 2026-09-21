@@ -1,6 +1,6 @@
 # AriaAI — Agent Collaboration Guide
 
-> Version: v3.3 | Last updated: 2026-09-20
+> Version: v3.4 | Last updated: 2026-09-21
 > Purpose: Onboarding document for LLM agents collaborating on this codebase.
 > Read this file before reading anything else.
 
@@ -161,7 +161,7 @@ All registered tools live in `backend/app/tools/file_generators.py`:
 - All endpoints require `X-Auth-Token` header (except `/auth/login`).
 - Token issued at login, invalidated on logout, stored in `UserToken` table.
 - Initial admin credentials must be provided via `ADMIN_EMAIL` and `ADMIN_PASSWORD`; no default password is seeded.
-- Login does not grant access to all projects or clients. Project reads/writes use native membership and role checks; client access follows creator/admin and stable linked-project rules. Conversation access is stricter: project conversations require actual membership, including for admins, and independent conversations require their owner.
+- Non-admin project reads/writes and project conversations require native membership and role checks. Admins retain native oversight of project conversations. Client access follows creator/admin and stable linked-project rules. Independent conversations require their owner, including for admins. Authentication alone does not widen a non-admin's scope.
 - Source ACL, active/indexed state, and exact document/source scope are checked before knowledge retrieval. Consequential AI writes also use native final authorization and HITAS.
 
 ---

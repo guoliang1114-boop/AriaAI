@@ -20,6 +20,7 @@ from app.models.db import (
 )
 from app.routers import projects_deps, projects_memory
 from app.routers.auth import get_current_user
+from app.services.memory_generation import MEMORY_SUMMARY_SYSTEM
 
 
 _READY_MEMORY = {
@@ -294,6 +295,7 @@ class ProjectMemoryAclTestCase(unittest.TestCase):
 
     def test_streaming_summary_rechecks_active_actor_before_cache_write(self):
         async def deactivate_then_stream(*_args, **_kwargs):
+            self.assertEqual(_kwargs['system'], MEMORY_SUMMARY_SYSTEM)
             self._deactivate_owner()
             yield "revoked summary"
 
@@ -319,6 +321,7 @@ class ProjectMemoryAclTestCase(unittest.TestCase):
 
     def test_streaming_context_failure_after_membership_revocation_writes_no_receipt(self):
         async def revoke_then_fail(*_args, **_kwargs):
+            self.assertEqual(_kwargs['system'], MEMORY_SUMMARY_SYSTEM)
             self._delete_owner_membership()
             raise RuntimeError("provider failed after revocation")
             yield  # pragma: no cover
@@ -339,6 +342,7 @@ class ProjectMemoryAclTestCase(unittest.TestCase):
 
     def test_non_stream_summary_rechecks_membership_before_cache_write(self):
         async def revoke_then_complete(**_kwargs):
+            self.assertEqual(_kwargs['system'], MEMORY_SUMMARY_SYSTEM)
             self._delete_owner_membership()
             return "revoked summary"
 

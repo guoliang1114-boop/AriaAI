@@ -18,6 +18,7 @@ from app.models.db import (
 from app.routers import clients as clients_router_module
 from app.routers import clients_memory as clients_memory_module
 from app.routers.auth import get_current_user
+from app.services.memory_generation import MEMORY_SUMMARY_SYSTEM
 from tests.test_database import create_test_engine, drop_all_tables
 
 
@@ -252,6 +253,7 @@ class ClientMemoryAclTestCase(unittest.TestCase):
         self.current_user_id = 2
 
         async def transfer_client(**_kwargs):
+            self.assertEqual(_kwargs['system'], MEMORY_SUMMARY_SYSTEM)
             with Session(self.engine) as session:
                 client = session.get(ClientRecord, self.client_id)
                 client.created_by_user_id = 1

@@ -1,0 +1,34 @@
+name: Prompt Injection Eval
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  # Run against one settled deployment; never overlap production maintenance.
+  group: production-database-maintenance
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  injection-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Evaluate synthetic source injection with the native provider
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          command_timeout: 18m
+          script: |
+            set -eu
+            cd /www/wwwroot/AriaAI/backend
+            PYTHON=".venv/bin/python3"
+            if [ ! -x "$PYTHON" ]; then
+              PYTHON=".venv/bin/python"
+            fi
+            "$PYTHON" scripts/prompt_injection_eval.py --enforce

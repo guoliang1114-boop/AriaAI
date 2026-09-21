@@ -435,6 +435,8 @@ jobs:
                         "tests/test_openai_compat.py",
                         "tests/test_claude_complete.py",
                         "tests/test_memory_generation.py",
+                        "tests/test_memory_summary_boundary.py",
+                        "tests/test_prompt_injection_eval.py",
                         "tests/test_memory_slot_normalization_migration.py",
                         "tests/test_memory_operation_state.py",
                         "tests/test_memory_operation_state_migration.py",

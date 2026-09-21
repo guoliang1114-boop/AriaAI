@@ -46,6 +46,7 @@ from app.services.memory_slots import (
 from app.services.memory_rebuilds import latest_memory_rebuild_metadata
 from app.services.memory_projection_state import get_project_memory_coverage
 from app.services.time_utils import utc_now_naive
+from app.services.memory_generation import MEMORY_SUMMARY_SYSTEM
 from app.routers.projects_deps import (
     _get_project_memory_lock,
     _get_project_summary_lock,
@@ -240,7 +241,9 @@ async def generate_project_context(
     async def event_stream():
         accumulated: list[str] = []
         try:
-            async for chunk in stream_llm_text_chunks(stream_with_selected_model(messages, max_tokens=1400)):
+            async for chunk in stream_llm_text_chunks(stream_with_selected_model(
+                messages, system=MEMORY_SUMMARY_SYSTEM, max_tokens=1400,
+            )):
                 accumulated.append(chunk)
                 yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
         except Exception as e:
@@ -1051,6 +1054,7 @@ async def summarize_project_memory(
                     async for chunk in stream_llm_text_chunks(
                         stream_with_selected_model(
                             [{"role": "user", "content": prompt}],
+                            system=MEMORY_SUMMARY_SYSTEM,
                             max_tokens=1400,
                         )
                     ):
@@ -1164,6 +1168,7 @@ async def summarize_project_memory(
             session.rollback()
             content = await complete_with_selected_model(
                 messages=[{"role": "user", "content": prompt}],
+                system=MEMORY_SUMMARY_SYSTEM,
                 max_tokens=1400,
             )
         except Exception as e:
@@ -1348,6 +1353,7 @@ async def generate_project_memory_summaries(
             session.rollback()
             raw_content = await complete_with_selected_model(
                 messages=[{"role": "user", "content": prompt}],
+                system=MEMORY_SUMMARY_SYSTEM,
                 max_tokens=3200,
             )
             summary_contents, missing_summary_types = parse_project_memory_multi_summary_with_missing(

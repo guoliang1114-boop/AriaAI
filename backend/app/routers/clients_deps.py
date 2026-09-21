@@ -58,7 +58,7 @@ from app.services.memory_slots import (
     load_client_memory_slot_values,
 )
 from app.services.project_contexts import normalize_summary_language
-from app.services.memory_generation import MEMORY_GENERATION_SYSTEM
+from app.services.memory_generation import MEMORY_GENERATION_SYSTEM, MEMORY_SUMMARY_SYSTEM
 from app.services.project_llm import complete_with_selected_model
 from app.services.time_utils import utc_now_naive
 
@@ -946,6 +946,7 @@ async def _generate_client_memory_summary_cache(
                 "content": prompt,
             }
         ],
+        system=MEMORY_SUMMARY_SYSTEM,
         max_tokens=900,
     )
     session.expire_all()

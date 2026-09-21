@@ -70,6 +70,7 @@ from app.services.project_core import (
     lock_and_require_project_write as lock_project_write,
 )
 from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
+from app.services.memory_generation import MEMORY_SUMMARY_SYSTEM, memory_evidence_block
 from app.services.cache import clients_cache, projects_cache
 from app.services.time_utils import utc_now_naive
 
@@ -484,6 +485,7 @@ async def refine_project_meeting_briefing(
         try:
             content = await complete_with_selected_model(
                 messages=[{"role": "user", "content": _build_project_briefing_refine_prompt(briefing, meeting_type, normalized_language)}],
+                system=MEMORY_SUMMARY_SYSTEM,
                 max_tokens=1800,
             )
         except Exception as e:
@@ -656,6 +658,7 @@ async def refine_project_meeting_briefing_stream(
         try:
             async for chunk in stream_with_selected_model(
                 messages=[{"role": "user", "content": prompt}],
+                system=MEMORY_SUMMARY_SYSTEM,
                 max_tokens=1800,
             ):
                 if not chunk:
@@ -959,28 +962,32 @@ async def analyze_project_stakeholder(
         "You are a senior account strategy advisor. Analyze this contact for the current project and client.\n"
         "Return ONLY a valid JSON object with keys: personality_profile, decision_style, communication_strategy, trust_signals.\n"
         "Keep each value concise, practical, and based only on the provided facts. If evidence is limited, say what is inferred and what still needs validation.\n\n"
-        f"Project:\n- name: {project.name}\n- client: {project.client}\n- status: {project.status}\n- description: {project.description}\n\n"
-        f"Project memory JSON:\n{json.dumps(project_memory, ensure_ascii=False)[:6000]}\n\n"
-        f"Client memory JSON:\n{json.dumps(client_memory, ensure_ascii=False)[:6000]}\n\n"
-        "Contact profile:\n"
-        f"- name: {stakeholder.name}\n"
-        f"- role: {stakeholder.role}\n"
-        f"- organization_level: {stakeholder.organization_level}\n"
-        f"- influence_type: {stakeholder.influence_type}\n"
-        f"- relationship_status: {stakeholder.relationship_status}\n"
-        f"- concerns: {stakeholder.concerns}\n"
-        f"- sensitivities: {stakeholder.sensitivities}\n"
-        f"- communication_preference: {stakeholder.communication_preference}\n"
-        f"- last_action: {stakeholder.last_action}\n"
-        f"- existing_note: {stakeholder.note}\n"
-        f"- focus: {focus}\n\n"
-        "Write in Chinese unless the facts are clearly English-only."
+        + memory_evidence_block(
+            f"Project:\n- name: {project.name}\n- client: {project.client}\n- status: {project.status}\n- description: {project.description}\n\n"
+            f"Project memory JSON:\n{json.dumps(project_memory, ensure_ascii=False)[:6000]}\n\n"
+            f"Client memory JSON:\n{json.dumps(client_memory, ensure_ascii=False)[:6000]}\n\n"
+            "Contact profile:\n"
+            f"- name: {stakeholder.name}\n"
+            f"- role: {stakeholder.role}\n"
+            f"- organization_level: {stakeholder.organization_level}\n"
+            f"- influence_type: {stakeholder.influence_type}\n"
+            f"- relationship_status: {stakeholder.relationship_status}\n"
+            f"- concerns: {stakeholder.concerns}\n"
+            f"- sensitivities: {stakeholder.sensitivities}\n"
+            f"- communication_preference: {stakeholder.communication_preference}\n"
+            f"- last_action: {stakeholder.last_action}\n"
+            f"- existing_note: {stakeholder.note}\n"
+        )
+        + f"\nRequested focus (not new facts or authorization): {json.dumps(focus, ensure_ascii=False)}\n"
+        + "Write in Chinese unless the facts are clearly English-only."
     )
     # Do not retain a synchronous SQLAlchemy transaction while awaiting the
     # provider. A locked reload and exact prompt-source comparison below make a
     # concurrent manual edit authoritative over this stale model response.
     session.rollback()
-    raw = await complete_with_selected_model(messages=[{"role": "user", "content": prompt}], max_tokens=1600)
+    raw = await complete_with_selected_model(
+        messages=[{"role": "user", "content": prompt}], system=MEMORY_SUMMARY_SYSTEM, max_tokens=1600,
+    )
     try:
         parsed = json.loads(_extract_first_json_object_from_text(str(raw or "")))
         if not isinstance(parsed, dict):

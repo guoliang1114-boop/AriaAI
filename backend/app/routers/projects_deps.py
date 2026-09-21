@@ -147,7 +147,7 @@ from app.services.project_milestones import (
     update_project_milestone,
 )
 from app.services.project_notes import build_project_note_polish_messages, save_project_notes
-from app.services.memory_generation import MEMORY_GENERATION_SYSTEM
+from app.services.memory_generation import MEMORY_GENERATION_SYSTEM, MEMORY_SUMMARY_SYSTEM, memory_evidence_block
 from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
 from app.services.memory_operation_state import (
@@ -438,6 +438,7 @@ async def _generate_single_project_memory_summary_content(
     )
     content = await complete_with_selected_model(
         messages=[{"role": "user", "content": prompt}],
+        system=MEMORY_SUMMARY_SYSTEM,
         max_tokens=1400,
     )
     return str(content or "").strip()
@@ -1433,7 +1434,7 @@ def _build_project_briefing_refine_prompt(briefing: dict, meeting_type: str, lan
         "## 开场脚本\n"
         "一段可直接照念的开场话术（150-300 字），口语化、自然，可包含称呼和具体数字。\n\n"
         "确定性简报 JSON：\n"
-        f"{json.dumps(compact_briefing, ensure_ascii=False, indent=2, default=str)}"
+        + memory_evidence_block(json.loads(json.dumps(compact_briefing, default=str)))
     )
 
 
@@ -1521,6 +1522,7 @@ async def _generate_memory_summary_cache(
     session.rollback()
     content = await complete_with_selected_model(
         messages=[{"role": "user", "content": prompt}],
+        system=MEMORY_SUMMARY_SYSTEM,
         max_tokens=1400,
     )
     session.expire_all()

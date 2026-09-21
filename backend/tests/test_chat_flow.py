@@ -66,7 +66,7 @@ from app.routers import projects_deps as projects_deps_module
 from app.routers import projects_files as projects_files_module
 from app.routers import skills as skills_router_module
 from app.services.cache import conversations_cache, projects_cache
-from app.services.memory_generation import MEMORY_GENERATION_SYSTEM
+from app.services.memory_generation import MEMORY_GENERATION_SYSTEM, MEMORY_SUMMARY_SYSTEM
 from app.services import chat_exports as chat_exports_module
 from app.services import chat_streaming as chat_streaming_module
 from app.services import client_contexts as client_contexts_module
@@ -632,7 +632,7 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
 
         self.assertIn("current project as the only source of truth", prompt)
         self.assertIn("Do not blend in facts, progress, or risks from other projects", prompt)
-        self.assertIn("Project data:\nProject: Alpha", prompt)
+        self.assertIn('Project data:\n<untrusted_memory_evidence>\n"Project: Alpha', prompt)
 
     def test_build_project_memory_view_prompt_supports_risk_summary(self):
         prompt = project_contexts_module.build_project_memory_view_prompt(
@@ -661,7 +661,8 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         )
 
         self.assertIn("Write the answer in Chinese", prompt)
-        self.assertIn("Structured memory JSON", prompt)
+        self.assertIn('<untrusted_memory_evidence>', prompt)
+        self.assertIn('"project_name": "Alpha"', prompt)
 
     def test_build_project_memory_view_prompt_supports_financial_and_documents_summary(self):
         financial_prompt = project_contexts_module.build_project_memory_view_prompt(
@@ -806,8 +807,8 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertEqual(messages[0]["role"], "system")
         self.assertIn("well-structured Markdown project notes", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "user")
-        self.assertIn("Project name: Alpha", messages[1]["content"])
-        self.assertIn("Client: Client A", messages[1]["content"])
+        self.assertIn('"project_name": "Alpha"', messages[1]["content"])
+        self.assertIn('"client": "Client A"', messages[1]["content"])
         self.assertIn("raw draft", messages[1]["content"])
 
     def test_build_project_ai_suggest_messages_include_client_context(self):
@@ -2282,7 +2283,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
     def test_generate_project_context_uses_current_project_files_and_milestones_only(self):
         captured = {}
 
-        async def fake_stream(messages, max_tokens=4000):
+        async def fake_stream(messages, max_tokens=4000, system=None):
+            self.assertEqual(system, MEMORY_SUMMARY_SYSTEM)
             captured["prompt"] = messages[0]["content"]
             yield "- **Current summary**"
 
@@ -2375,7 +2377,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
     def test_generate_project_context_respects_requested_language(self):
         captured = {}
 
-        async def fake_stream(messages, max_tokens=4000):
+        async def fake_stream(messages, max_tokens=4000, system=None):
+            self.assertEqual(system, MEMORY_SUMMARY_SYSTEM)
             captured["prompt"] = messages[0]["content"]
             yield "- 当前摘要"
 
@@ -2412,7 +2415,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
     def test_memory_summarize_streams_sse_events(self):
         captured = {}
 
-        async def fake_stream(messages, max_tokens=4000):
+        async def fake_stream(messages, max_tokens=4000, system=None):
+            self.assertEqual(system, MEMORY_SUMMARY_SYSTEM)
             captured["prompt"] = messages[0]["content"]
             yield "- chunk 1"
             yield " chunk 2"
@@ -2580,7 +2584,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
     def test_memory_summaries_generate_creates_all_views_with_one_llm_call(self):
         calls = []
 
-        async def fake_complete(messages, max_tokens=4000):
+        async def fake_complete(messages, max_tokens=4000, system=None):
+            self.assertEqual(system, MEMORY_SUMMARY_SYSTEM)
             calls.append(messages[0]["content"])
             return json.dumps(
                 {
@@ -2645,7 +2650,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
     def test_memory_summaries_generate_falls_back_for_missing_views(self):
         calls = []
 
-        async def fake_complete(messages, max_tokens=4000):
+        async def fake_complete(messages, max_tokens=4000, system=None):
+            self.assertEqual(system, MEMORY_SUMMARY_SYSTEM)
             prompt = messages[0]["content"]
             calls.append(prompt)
             if "Return ONLY a valid JSON object" in prompt:
@@ -2702,7 +2708,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         resp.close()
 
     def test_memory_summarize_force_refresh_bypasses_cache_and_updates_it(self):
-        async def fake_complete(messages, max_tokens=4000):
+        async def fake_complete(messages, max_tokens=4000, system=None):
+            self.assertEqual(system, MEMORY_SUMMARY_SYSTEM)
             return "- fresh risk summary"
 
         with Session(self.engine) as session:
@@ -2764,7 +2771,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(cached.content, "- fresh risk summary")
 
     def test_memory_warm_summaries_batch_generates_common_cached_views(self):
-        async def fake_complete(messages, max_tokens=4000):
+        async def fake_complete(messages, max_tokens=4000, system=None):
+            self.assertEqual(system, MEMORY_SUMMARY_SYSTEM)
             prompt = messages[0]["content"]
             if "Summary type: overview" in prompt:
                 return "- overview summary"
