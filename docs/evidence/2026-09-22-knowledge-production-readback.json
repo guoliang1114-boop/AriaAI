@@ -1,0 +1,44 @@
+{
+  "content_included": false,
+  "document_state_preserved": true,
+  "documents": [
+    {
+      "id": 1,
+      "source_id": 1,
+      "file_size_bytes": 10886786,
+      "status": "indexed",
+      "chunk_count": 14,
+      "page_count": 0,
+      "slide_count": 139,
+      "updated_at": "2026-09-11T19:15:16.253431"
+    }
+  ],
+  "queries": [
+    {
+      "query_sha256": "e89bd1b7af70cbb5faa3019a8fd4a8de3ceb6b94dc1ad5159b966487b2306abd",
+      "result_count": 3,
+      "scope_valid": true,
+      "retrieval_mode": "lexical",
+      "embedding_status": "reindex_required",
+      "query_time_ms": 58
+    },
+    {
+      "query_sha256": "ffaf70d07e0834aca6c38df6dce092c786c18e187aa8c3ce1c8a167566e4e157",
+      "result_count": 0,
+      "scope_valid": true,
+      "retrieval_mode": "lexical",
+      "embedding_status": "reindex_required",
+      "query_time_ms": 40
+    },
+    {
+      "query_sha256": "e9f8f9fd6ed77a7a152c31394343687009422431d61a3e3e72610a2b51d37ad4",
+      "result_count": 0,
+      "scope_valid": true,
+      "retrieval_mode": "lexical",
+      "embedding_status": "reindex_required",
+      "query_time_ms": 33
+    }
+  ],
+  "content_read_valid": true,
+  "original_sha256": "3a8c3eb22ec89451e92285bb14593013d3fc625d1f960776bbc1b54aef7be33e"
+}

@@ -28,13 +28,13 @@ Status labels describe the document, not a released version: **Contract** docume
 | [20 OSS roadmap](20-OSS-Roadmap.md) | Public milestones and contribution areas | Plan; issue status is independent of local completion |
 | [21 Native Harness and upstream reuse](21-Codex-Harness集成与源码复用方案.md) | Small upstream ports and Aria-owned runtime boundaries | Contract; no production Codex connection |
 | [22 Project chat and Skills](22-项目对话与Skill交互全量优化方案.md) | Cross-domain quality and interaction work | Plan and implemented phases |
-| [23 Acceptance record](23-2026-09-19全量推进验收.md) | Local checks, deployed baseline, issue mapping, remaining work | Current work; [#77](https://github.com/guoliang1114-boop/AriaAI/issues/77) |
-| [24 Semantic retrieval](24-知识语义检索与质量验收.md) | Model identity, setup, reindex, fallback, and evaluation | Current work; [#69](https://github.com/guoliang1114-boop/AriaAI/issues/69) |
-| [25 Preview notes](25-Agentic-Workspace-Preview-发布说明.md) | Change notes, latency contract, release checks, limitations | Current work; [#73](https://github.com/guoliang1114-boop/AriaAI/issues/73) |
+| [23 Acceptance record](23-2026-09-19全量推进验收.md) | Local checks, deployed baseline, issue mapping, remaining work | Acceptance history; follow-up releases in 26–29 |
+| [24 Semantic retrieval](24-知识语义检索与质量验收.md) | Model identity, setup, reindex, fallback, and evaluation | Implemented and accepted in 29; production activation is separate |
+| [25 Preview notes](25-Agentic-Workspace-Preview-发布说明.md) | Change notes, latency contract, release checks, limitations | Released preview and dated increments; operational follow-ups retained |
 | [26 Model output and memory generation](26-模型完成状态与记忆生成加固验收.md) | Final-output validation, source instruction isolation, and regression evidence | Released `03aa470`; follow-up accepted in 28 |
 | [27 Run Harness compatibility](27-Run-Harness合同兼容性验收.md) | Python/TypeScript wire compatibility, runtime validation, and terminal handling | Released `6559d84`; [#70](https://github.com/guoliang1114-boop/AriaAI/issues/70) closed |
 | [28 Source injection acceptance](28-摘要来源边界与注入对抗验收.md) | Summary source boundaries, permission regression, and synthetic provider probes | Released `52488f9`; [#74](https://github.com/guoliang1114-boop/AriaAI/issues/74) closed |
-| [29 Document ingestion acceptance](29-知识入库与真实资料验收.md) | Office/PDF completeness, native ingestion tests, real-file copy evaluation, and user guide | Current work; [#69](https://github.com/guoliang1114-boop/AriaAI/issues/69) |
+| [29 Document ingestion acceptance](29-知识入库与真实资料验收.md) | Office/PDF completeness, native ingestion tests, real-file copy evaluation, and user guide | Released `33df8e3`; [#69](https://github.com/guoliang1114-boop/AriaAI/issues/69) closed |
 
 Deployment is governed by [DEPLOY.md](../DEPLOY.md). The backend [Product Run Event contract](../backend/app/services/chat/product_run_events.py) and its [frontend mirror](../web/src/types/productRunEvent.ts) are the source of truth for public run events. [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md) records upstream attribution.
 

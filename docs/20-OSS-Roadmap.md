@@ -1,6 +1,6 @@
 # AriaAI OSS Roadmap
 
-> Updated: 2026-09-20
+> Updated: 2026-09-22
 > Status: Public roadmap for open-source contributors and maintainers.
 
 AriaAI is an open-source agentic workspace for professional knowledge work. The roadmap below highlights work that strengthens AriaAI as a reusable reference implementation for AI-native workspaces: memory, skills, knowledge workflows, human approval, and auditable runs.
@@ -54,6 +54,16 @@ Goal: make long-lived project, client, contact, and user memory useful without b
 ## 3. Knowledge Workflows
 
 Goal: turn documents and team knowledge into workflow context, not only search results.
+
+Text-ingestion stability baseline accepted on 2026-09-22: Office tables,
+grouped slide text and notes, complete PDF/Excel extraction within the text
+budget, explicit oversize failures, and real-format native API regressions.
+An authorized copy of the production 139-slide deck passed all nine retrieval,
+citation-binding, and unrelated-query checks in both lexical and local semantic
+modes. Release `33df8e3` passed 1,512 server tests. See [the acceptance record](29-知识入库与真实资料验收.md)
+for evidence and the completed scope of [#69](https://github.com/guoliang1114-boop/AriaAI/issues/69).
+Production semantic activation and native document reindexing remain separate
+operations; OCR and visual chart understanding remain future extensions.
 
 - Stabilize document ingestion, parsing, chunking, and indexing.
 - Add source citations to knowledge-assisted answers and artifacts.
