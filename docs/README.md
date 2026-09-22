@@ -1,8 +1,8 @@
 # Documentation index
 
-Updated 2026-09-20. Start with [README](../README.md) for setup, [CONTRIBUTING](../CONTRIBUTING.md) for checks, and [agent.md](../agent.md) for repository boundaries. Product and runtime state belong to Aria's native services.
+Updated 2026-09-22. Start with [README](../README.md) for setup, [CONTRIBUTING](../CONTRIBUTING.md) for checks, and [agent.md](../agent.md) for repository boundaries. Product and runtime state belong to Aria's native services.
 
-Status labels describe the document, not a released version: **Contract** documents implemented behavior with historical sections; **Plan** describes direction and may include completed phases; **Historical** records an earlier iteration; **Current work** covers changes still awaiting release. Use [the acceptance record](23-2026-09-19全量推进验收.md), [memory boundary acceptance](26-模型完成状态与记忆生成加固验收.md), and [Run Harness compatibility acceptance](27-Run-Harness合同兼容性验收.md) for actual validation and deployment evidence.
+Status labels describe the document, not a released version: **Contract** documents implemented behavior with historical sections; **Plan** describes direction and may include completed phases; **Historical** records an earlier iteration; **Current work** covers changes still awaiting release. Use [the acceptance record](23-2026-09-19全量推进验收.md), [memory boundary acceptance](26-模型完成状态与记忆生成加固验收.md), [Run Harness compatibility acceptance](27-Run-Harness合同兼容性验收.md), and [source injection acceptance](28-摘要来源边界与注入对抗验收.md) for actual validation and deployment evidence.
 
 | Document | Purpose | Status / tracking |
 | --- | --- | --- |
@@ -31,9 +31,9 @@ Status labels describe the document, not a released version: **Contract** docume
 | [23 Acceptance record](23-2026-09-19全量推进验收.md) | Local checks, deployed baseline, issue mapping, remaining work | Current work; [#77](https://github.com/guoliang1114-boop/AriaAI/issues/77) |
 | [24 Semantic retrieval](24-知识语义检索与质量验收.md) | Model identity, setup, reindex, fallback, and evaluation | Current work; [#69](https://github.com/guoliang1114-boop/AriaAI/issues/69) |
 | [25 Preview notes](25-Agentic-Workspace-Preview-发布说明.md) | Change notes, latency contract, release checks, limitations | Current work; [#73](https://github.com/guoliang1114-boop/AriaAI/issues/73) |
-| [26 Model output and memory generation](26-模型完成状态与记忆生成加固验收.md) | Final-output validation, source instruction isolation, and regression evidence | Released `03aa470`; further security work in [#74](https://github.com/guoliang1114-boop/AriaAI/issues/74) |
+| [26 Model output and memory generation](26-模型完成状态与记忆生成加固验收.md) | Final-output validation, source instruction isolation, and regression evidence | Released `03aa470`; follow-up accepted in 28 |
 | [27 Run Harness compatibility](27-Run-Harness合同兼容性验收.md) | Python/TypeScript wire compatibility, runtime validation, and terminal handling | Released `6559d84`; [#70](https://github.com/guoliang1114-boop/AriaAI/issues/70) closed |
-| [28 Source injection acceptance](28-摘要来源边界与注入对抗验收.md) | Summary source boundaries, permission regression, and synthetic provider probes | Current work; [#74](https://github.com/guoliang1114-boop/AriaAI/issues/74) |
+| [28 Source injection acceptance](28-摘要来源边界与注入对抗验收.md) | Summary source boundaries, permission regression, and synthetic provider probes | Released `52488f9`; [#74](https://github.com/guoliang1114-boop/AriaAI/issues/74) closed |
 
 Deployment is governed by [DEPLOY.md](../DEPLOY.md). The backend [Product Run Event contract](../backend/app/services/chat/product_run_events.py) and its [frontend mirror](../web/src/types/productRunEvent.ts) are the source of truth for public run events. [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md) records upstream attribution.
 
