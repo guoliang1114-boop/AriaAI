@@ -1,0 +1,149 @@
+{
+  "case_count": 9,
+  "cases": [
+    {
+      "case_index": 0,
+      "citation_valid": true,
+      "evidence_present": true,
+      "expectation_in_source": true,
+      "expected_document_index": 0,
+      "outsider_denied": true,
+      "passed": true,
+      "prompt_evidence_present": true,
+      "query_sha256": "660821d02d43f2c682fd82c0bb3d2c165eec2ce0678a77306bcbca2b56698c9a",
+      "retrieval_ms": 71,
+      "returned_chunks": 8
+    },
+    {
+      "case_index": 1,
+      "citation_valid": true,
+      "evidence_present": true,
+      "expectation_in_source": true,
+      "expected_document_index": 0,
+      "outsider_denied": true,
+      "passed": true,
+      "prompt_evidence_present": true,
+      "query_sha256": "1b9069b5f9f01bb882370f90d39b78fd476885490338235da7a42f9517bb1184",
+      "retrieval_ms": 67,
+      "returned_chunks": 8
+    },
+    {
+      "case_index": 2,
+      "citation_valid": true,
+      "evidence_present": true,
+      "expectation_in_source": true,
+      "expected_document_index": 0,
+      "outsider_denied": true,
+      "passed": true,
+      "prompt_evidence_present": true,
+      "query_sha256": "244ad703b242f8eada1634f843fce2edd83a11e974c4f315ae8433e247f6d8c9",
+      "retrieval_ms": 66,
+      "returned_chunks": 8
+    },
+    {
+      "case_index": 3,
+      "citation_valid": true,
+      "evidence_present": true,
+      "expectation_in_source": true,
+      "expected_document_index": 0,
+      "outsider_denied": true,
+      "passed": true,
+      "prompt_evidence_present": true,
+      "query_sha256": "a6a86b3c1965c8d5afae63e9e5cf4e1566af55d566790949d1b23bba23fd24c2",
+      "retrieval_ms": 67,
+      "returned_chunks": 8
+    },
+    {
+      "case_index": 4,
+      "citation_valid": true,
+      "evidence_present": true,
+      "expectation_in_source": true,
+      "expected_document_index": 0,
+      "outsider_denied": true,
+      "passed": true,
+      "prompt_evidence_present": true,
+      "query_sha256": "51d5d4162c5a5b9c8d762bbb89a4bcb30132573a0f99de346686c4270255562e",
+      "retrieval_ms": 64,
+      "returned_chunks": 8
+    },
+    {
+      "case_index": 5,
+      "citation_valid": true,
+      "evidence_present": true,
+      "expectation_in_source": true,
+      "expected_document_index": 0,
+      "outsider_denied": true,
+      "passed": true,
+      "prompt_evidence_present": true,
+      "query_sha256": "6dc79782f48167fe02ab830bbd21c7efd6eb4d39a928f4038a74e40967f05429",
+      "retrieval_ms": 67,
+      "returned_chunks": 8
+    },
+    {
+      "case_index": 6,
+      "citation_valid": true,
+      "evidence_present": true,
+      "expectation_in_source": true,
+      "expected_document_index": 0,
+      "outsider_denied": true,
+      "passed": true,
+      "prompt_evidence_present": true,
+      "query_sha256": "7b47debe7cb35872627ef22e55eda578997d03c6ba45ee506b61098462614f52",
+      "retrieval_ms": 65,
+      "returned_chunks": 8
+    },
+    {
+      "case_index": 7,
+      "citation_valid": true,
+      "evidence_present": true,
+      "expectation_in_source": true,
+      "expected_document_index": null,
+      "outsider_denied": true,
+      "passed": true,
+      "prompt_evidence_present": true,
+      "query_sha256": "8c6174adc25c790e59363906d9e31516893511fe0d15856fdddf29f5b238be64",
+      "retrieval_ms": 59,
+      "returned_chunks": 0
+    },
+    {
+      "case_index": 8,
+      "citation_valid": true,
+      "evidence_present": true,
+      "expectation_in_source": true,
+      "expected_document_index": null,
+      "outsider_denied": true,
+      "passed": true,
+      "prompt_evidence_present": true,
+      "query_sha256": "6aeebdf40bfed9f5ff11cf991179abe074a5828a532d3a74bc04b5be32b3fdd0",
+      "retrieval_ms": 60,
+      "returned_chunks": 0
+    }
+  ],
+  "content_included": false,
+  "corpus_sha256": "0c5201ce73646f7053618745ff92a662ee41ef9c69949730bc1ca5803b202193",
+  "documents": [
+    {
+      "bytes": 10886786,
+      "chunks": 142,
+      "document_index": 0,
+      "file_type": "pptx",
+      "index_elapsed_ms": 7746,
+      "indexed": true,
+      "pages": 0,
+      "sha256": "3a8c3eb22ec89451e92285bb14593013d3fc625d1f960776bbc1b54aef7be33e",
+      "slides": 139
+    }
+  ],
+  "generative_model_used": false,
+  "isolated": true,
+  "model_id": "fastembed-v1:BAAI/bge-small-zh-v1.5:pad1536",
+  "passed": 9,
+  "release_gate_passed": true,
+  "retrieval_latency": {
+    "p50_ms": 66,
+    "p95_ms": 71,
+    "percentile_method": "nearest_rank",
+    "sample_count": 9
+  },
+  "schema_version": 1
+}

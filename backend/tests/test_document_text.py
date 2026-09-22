@@ -5,6 +5,62 @@ import os
 from pathlib import Path
 
 from app.services.document_text import extract_text_from_file
+from app.services.document_text import DocumentExtractionError
+from tests.knowledge_document_fixtures import document_bytes
+import pytest
+
+
+@pytest.mark.parametrize("kind", ["pdf", "docx", "pptx", "xlsx"])
+def test_complete_extraction_preserves_tables_groups_notes_and_late_pages(tmp_path, kind):
+    content, markers = document_bytes(kind)
+    path = tmp_path / f"source.{kind}"
+    path.write_bytes(content)
+    text = extract_text_from_file(path, kind, max_chars=200_000, require_complete=True)
+    assert all(marker in text for marker in markers)
+    if kind == "pdf": assert text.count("[Page ") == 16
+    if kind == "pptx": assert text.count("[Slide ") == 2
+    if kind == "docx":
+        assert text.index("Before the delivery table") < text.index(markers[0]) < text.index(markers[1]) < text.index("After the delivery table")
+
+
+@pytest.mark.parametrize("kind", ["pdf", "xlsx"])
+def test_preview_limits_remain_bounded(tmp_path, kind):
+    content, markers = document_bytes(kind)
+    path = tmp_path / f"preview.{kind}"
+    path.write_bytes(content)
+    assert markers[0] not in extract_text_from_file(path, kind, max_chars=200_000)
+
+
+@pytest.mark.parametrize("case", ["missing", "corrupt", "unsupported", "oversized"])
+def test_complete_extraction_refuses_error_and_truncation_placeholders(tmp_path, case):
+    path = tmp_path / "private-source.docx"
+    if case != "missing": path.write_text("private content" * 20)
+    kind = "docx" if case in {"missing", "corrupt"} else "unknown" if case == "unsupported" else "txt"
+    with pytest.raises(DocumentExtractionError) as error:
+        extract_text_from_file(path, kind, max_chars=100, require_complete=True)
+    assert "private" not in str(error.value)
+
+
+def test_word_merged_cells_are_not_repeated(tmp_path):
+    from docx import Document
+    doc = Document()
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).merge(table.cell(1, 1)).text = "MERGEDORION"
+    path = tmp_path / "merged.docx"
+    doc.save(path)
+    assert extract_text_from_file(path, "docx", require_complete=True).count("MERGEDORION") == 1
+
+
+@pytest.mark.parametrize("kind", ["pdf", "pptx"])
+def test_blank_pages_are_not_source_evidence(tmp_path, kind):
+    path = tmp_path / f"empty.{kind}"
+    if kind == "pdf":
+        from reportlab.pdfgen.canvas import Canvas
+        canvas = Canvas(str(path)); canvas.showPage(); canvas.save()
+    else:
+        from pptx import Presentation
+        deck = Presentation(); deck.slides.add_slide(deck.slide_layouts[6]); deck.save(path)
+    assert extract_text_from_file(path, kind, require_complete=True) == ""
 
 
 class ExtractTextFromTxtTestCase(unittest.TestCase):

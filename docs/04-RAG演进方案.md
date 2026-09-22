@@ -250,6 +250,10 @@ Context Receipt 与聊天依据区分 `source_scoped`、`legacy_fallback`、`leg
 
 本阶段未新增数据库表或迁移，Alembic head 保持 `054_v1_54`；没有引入或连接 Codex runtime、App Server、SDK、协议、子进程或账号。
 
+### 2026-09-22 入库及真实文件验收补充
+
+新版来源检索已有本地 FastEmbed、显式向量身份与词法降级，见 [24 语义检索](24-知识语义检索与质量验收.md)。本轮补齐 Office 表格、PPT 组合图形与备注、完整 PDF/Excel 入库和超限失败，并用线上 139 页 PPT 的授权副本完成词法及语义各 9/9 项隔离检索/引用验收。详见 [29 使用路径与验收](29-知识入库与真实资料验收.md)。生产配置和业务索引不因代码发布自动重建，本文早期路线图估算不代表当前实现状态。
+
 ## 12. Phase 5D：项目问题证据切换到 Source-scoped RAG（已实施）
 
 项目问题工作台的“分析问题证据”、补证计划、回答采用预览、问题关单复核和整改推广重校验，现都会把已完成项目写权限校验的 actor 身份传给同一个 Source-scoped Context Builder。由此，问题级答案排序与主聊天使用同一套 `KnowledgeSource → KnowledgeDocument → KnowledgeChunk` 权限和精确项目作用域，不再出现聊天命中新版知识、问题工作台却只检查旧文档的断层。
