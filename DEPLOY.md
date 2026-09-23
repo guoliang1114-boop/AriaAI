@@ -1,6 +1,6 @@
 # AriaAI GitHub 自动部署指南
 
-更新日期：2026-09-20
+更新日期：2026-09-23
 
 当前项目的主部署方式是：
 
@@ -60,8 +60,9 @@ on:
 - `.github/workflows/production-db-e2e.yml`：经备份后在严格隔离 PostgreSQL schema 中回归，并核对生产 public 状态。
 - `.github/workflows/provider-grounded-qa-eval.yml`：对已部署代码运行真实 Provider 合成资料评测。
 - `.github/workflows/knowledge-semantic-eval.yml`：对已部署代码预热并评测本地语义模型，不修改生产检索配置或业务索引。
+- `.github/workflows/knowledge-provider-switch.yml`：独立手动切换已部署的知识 Provider；模型预检、验证数据库备份、私有配置备份、原子修改 `.env`、PM2 重启和新进程健康检查。切换失败自动恢复配置并重启；不会创建文档或记忆重建任务。
 
-部署、数据库 E2E、数据库恢复和语义预检共用 `production-database-maintenance` 并发组，`cancel-in-progress=false`。等待当前操作完成，不能为了抢跑取消备份或迁移中的工作流。
+部署、数据库 E2E、数据库恢复、语义预检和 Provider 切换共用 `production-database-maintenance` 并发组，`cancel-in-progress=false`。等待当前操作完成，不能为了抢跑取消备份或迁移中的工作流。
 
 如果部署逻辑发生变化，应优先更新 `deploy.yml`，然后再同步更新本文档。
 

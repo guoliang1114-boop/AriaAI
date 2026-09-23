@@ -385,6 +385,7 @@ jobs:
                 tests/test_turn_retry.py \
                 tests/test_user_memory_prompt.py::FormatUserMemoryTest \
                 tests/test_verified_postgres_backup.py \
+                tests/test_knowledge_provider_switch.py \
                 tests/test_chat_actions.py \
                 tests/test_chat_async_recovery.py \
                 tests/test_chat_continuity_feedback.py \

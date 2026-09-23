@@ -413,6 +413,7 @@ jobs:
                         "tests/test_document_text.py",
                         "tests/test_knowledge_document_ingestion.py",
                         "tests/test_knowledge_document_eval.py",
+                        "tests/test_knowledge_provider_switch.py",
                         "tests/test_knowledge_job_acl.py",
                         "tests/test_knowledge_job_recovery.py",
                         "tests/test_knowledge_storage_atomicity.py",

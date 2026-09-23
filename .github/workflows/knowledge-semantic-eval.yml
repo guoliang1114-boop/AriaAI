@@ -52,3 +52,18 @@ jobs:
             # and business indexes remain unchanged.
             "$PYTHON" scripts/knowledge_retrieval_eval.py --semantic --enforce
             "$PYTHON" scripts/knowledge_read_authority_report.py
+            # Report only process metrics; PM2's full environment is private.
+            "$PYTHON" - <<'PY'
+            import json
+            from scripts.knowledge_provider_switch import _process
+
+            process = _process()
+            env = process.get("pm2_env", {})
+            print(json.dumps({"backend_process": {
+                "pid": process["pid"],
+                "status": env.get("status"),
+                "rss_bytes": process.get("monit", {}).get("memory"),
+                "restart_count": env.get("restart_time"),
+                "memory_restart_bytes": env.get("max_memory_restart"),
+            }}))
+            PY

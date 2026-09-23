@@ -1,0 +1,60 @@
+name: Knowledge Provider Switch
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Knowledge provider (document reindex remains a separate native API operation)
+        required: true
+        default: hash
+        type: choice
+        options:
+          - hash
+          - fastembed
+
+concurrency:
+  group: production-database-maintenance
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  switch-provider:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Preflight, back up, and switch the deployed provider
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          ARIA_TARGET_PROVIDER: ${{ inputs.provider }}
+          ARIA_RUN_TAG: ${{ github.run_id }}_${{ github.run_attempt }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          envs: ARIA_TARGET_PROVIDER,ARIA_RUN_TAG
+          command_timeout: 15m
+          script: |
+            set -eu
+            cd /www/wwwroot/AriaAI/backend
+            PYTHON=".venv/bin/python3"
+            if [ ! -x "$PYTHON" ]; then PYTHON=".venv/bin/python"; fi
+            case "$ARIA_TARGET_PROVIDER" in
+              fastembed) "$PYTHON" scripts/knowledge_retrieval_eval.py --semantic --enforce ;;
+              hash) "$PYTHON" scripts/knowledge_retrieval_eval.py --enforce ;;
+              *) echo "Invalid provider" >&2; exit 1 ;;
+            esac
+            "$PYTHON" scripts/knowledge_read_authority_report.py
+            BACKUP_DIR="/www/backups/ariaai"
+            mkdir -p "$BACKUP_DIR"
+            chmod 700 "$BACKUP_DIR"
+            BACKUP_PATH="$BACKUP_DIR/ariaai_pre_knowledge_switch_${ARIA_RUN_TAG}.dump"
+            export BACKUP_PATH
+            "$PYTHON" scripts/verified_postgres_backup.py
+            sha256sum scripts/knowledge_provider_switch.py app/services/knowledge_embeddings.py
+            "$PYTHON" scripts/knowledge_provider_switch.py \
+              --provider "$ARIA_TARGET_PROVIDER" \
+              --backup-path "$BACKUP_DIR/ariaai_env_pre_knowledge_switch_${ARIA_RUN_TAG}.env"
+            "$PYTHON" scripts/knowledge_read_authority_report.py

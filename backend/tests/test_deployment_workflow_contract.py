@@ -53,9 +53,24 @@ def test_runner_installs_test_dependencies_before_product_contract_gate() -> Non
     assert install < fixture < test
 
 
+def test_provider_switch_serializes_preflight_backup_and_config_change() -> None:
+    workflow = (REPOSITORY_ROOT / ".github/workflows/knowledge-provider-switch.yml").read_text()
+    assert "group: production-database-maintenance" in workflow
+    assert "cancel-in-progress: false" in workflow
+    preflight = workflow.index("scripts/knowledge_retrieval_eval.py --semantic --enforce")
+    backup = workflow.index('"$PYTHON" scripts/verified_postgres_backup.py')
+    change = workflow.index('"$PYTHON" scripts/knowledge_provider_switch.py')
+    assert preflight < backup < change
+    assert "envs: ARIA_TARGET_PROVIDER,ARIA_RUN_TAG" in workflow
+    remote = workflow.split("script: |", 1)[1]
+    assert "${{ inputs.provider }}" not in remote
+    assert "/reindex" not in remote
+
+
 if __name__ == "__main__":
     test_remote_release_command_has_headroom_for_the_release_gate()
     test_remote_release_keeps_backup_before_migration_and_restart()
     test_remote_release_runs_this_contract_test()
     test_runner_installs_test_dependencies_before_product_contract_gate()
+    test_provider_switch_serializes_preflight_backup_and_config_change()
     print("deployment workflow contract passed")
