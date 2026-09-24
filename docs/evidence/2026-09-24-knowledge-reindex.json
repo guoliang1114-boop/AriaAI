@@ -1,0 +1,228 @@
+{
+  "date": "2026-09-24",
+  "content_included": false,
+  "matcher": "whitespace-normalized, all expected phrases in one returned chunk (same as scripts/knowledge_document_eval.py)",
+  "document": {
+    "source_id": 1,
+    "document_id": 1,
+    "original_sha256": "3a8c3eb22ec89451e92285bb14593013d3fc625d1f960776bbc1b54aef7be33e"
+  },
+  "backup": {
+    "run_id": 35943842459,
+    "path": "/www/backups/ariaai/ariaai_pre_e2e_20260924T013802Z_35943842459_1.dump",
+    "sha256": "642c3d75338e5545e70202e10bf9d134403d9f1ea1182a8bff01438a6334857d"
+  },
+  "before": {
+    "document": {
+      "id": 1,
+      "source_id": 1,
+      "status": "indexed",
+      "chunk_count": 14,
+      "slide_count": 139,
+      "page_count": 0,
+      "token_count": 9277,
+      "updated_at": "2026-09-11T19:15:16.253431",
+      "error_message": null
+    },
+    "embedding_coverage": {
+      "compatible_chunks": 0,
+      "incompatible_chunks": 14
+    },
+    "retrieval_mode": "lexical",
+    "embedding_status": "reindex_required",
+    "result_counts": [
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      0,
+      0
+    ]
+  },
+  "fastembed_job": {
+    "job_id": 2,
+    "status": "failed",
+    "attempt": 3,
+    "failure_code": "retry_limit_reached",
+    "document_after": {
+      "id": 1,
+      "source_id": 1,
+      "status": "queued",
+      "chunk_count": 14,
+      "slide_count": 139,
+      "page_count": 0,
+      "token_count": 9277,
+      "updated_at": "2026-09-24T03:27:52.339868",
+      "error_message": null
+    },
+    "total_results_across_9_queries_after": 0
+  },
+  "rollback_switch": {
+    "run_id": 35952848976,
+    "previous_provider": "fastembed",
+    "provider": "hash",
+    "backup_sha256": "3d7999fc11564e415d21b84617b6606307be34c04a59a0dc4bd2cc2730eba273"
+  },
+  "hash_job": {
+    "job_id": 3,
+    "status": "completed",
+    "attempt": 1,
+    "started_at": "2026-09-24T03:47:19.922780",
+    "completed_at": "2026-09-24T03:47:22.813400"
+  },
+  "after": {
+    "document": {
+      "id": 1,
+      "source_id": 1,
+      "status": "indexed",
+      "chunk_count": 17,
+      "slide_count": 139,
+      "page_count": 0,
+      "token_count": 11337,
+      "updated_at": "2026-09-24T03:47:22.755608",
+      "error_message": null
+    },
+    "embedding_coverage": {
+      "compatible_chunks": 17,
+      "incompatible_chunks": 0
+    },
+    "cases": [
+      {
+        "case_index": 0,
+        "query_sha256": "b44cfc9fd55515c74233b65e7bd6d67834b15a2e34a10bb03e0e3979d0211d25",
+        "related": true,
+        "result_count": 8,
+        "first_hit_rank": 3,
+        "document_ids": [
+          1
+        ],
+        "retrieval_mode": "lexical",
+        "embedding_status": "offline_hash",
+        "server_query_time_ms": 121,
+        "client_round_trip_ms": 2900,
+        "passed": true
+      },
+      {
+        "case_index": 1,
+        "query_sha256": "ce1fb6bc82224770195eb7c0e9e66f4971c43046ef49d7d4a2b21f841aefa415",
+        "related": true,
+        "result_count": 8,
+        "first_hit_rank": 1,
+        "document_ids": [
+          1
+        ],
+        "retrieval_mode": "lexical",
+        "embedding_status": "offline_hash",
+        "server_query_time_ms": 83,
+        "client_round_trip_ms": 2091,
+        "passed": true
+      },
+      {
+        "case_index": 2,
+        "query_sha256": "63baaa03bd05cedadeaa714a0f11d3af88ebde6c0083323ee3d1b2c925e51cad",
+        "related": true,
+        "result_count": 8,
+        "first_hit_rank": 1,
+        "document_ids": [
+          1
+        ],
+        "retrieval_mode": "lexical",
+        "embedding_status": "offline_hash",
+        "server_query_time_ms": 92,
+        "client_round_trip_ms": 2500,
+        "passed": true
+      },
+      {
+        "case_index": 3,
+        "query_sha256": "2d6e77a593f2019db472078ef086f0b6c24d001e4ad981de141398ca8ce320cd",
+        "related": true,
+        "result_count": 8,
+        "first_hit_rank": 2,
+        "document_ids": [
+          1
+        ],
+        "retrieval_mode": "lexical",
+        "embedding_status": "offline_hash",
+        "server_query_time_ms": 80,
+        "client_round_trip_ms": 1995,
+        "passed": true
+      },
+      {
+        "case_index": 4,
+        "query_sha256": "f4c3cf0e473ca6b2cc8bab2e25b86e52deebf763455ff82919a425d2de5c26e5",
+        "related": true,
+        "result_count": 8,
+        "first_hit_rank": 1,
+        "document_ids": [
+          1
+        ],
+        "retrieval_mode": "lexical",
+        "embedding_status": "offline_hash",
+        "server_query_time_ms": 77,
+        "client_round_trip_ms": 2084,
+        "passed": true
+      },
+      {
+        "case_index": 5,
+        "query_sha256": "aba48b00ffbe59a1b4dd91a55e84c7208357457015f659b5a23437de5dafe6af",
+        "related": true,
+        "result_count": 8,
+        "first_hit_rank": 2,
+        "document_ids": [
+          1
+        ],
+        "retrieval_mode": "lexical",
+        "embedding_status": "offline_hash",
+        "server_query_time_ms": 81,
+        "client_round_trip_ms": 2092,
+        "passed": true
+      },
+      {
+        "case_index": 6,
+        "query_sha256": "832242d68ca855b9b48ce27a435682c1ab79ff8e93e5e141f6172b509f656782",
+        "related": true,
+        "result_count": 8,
+        "first_hit_rank": 1,
+        "document_ids": [
+          1
+        ],
+        "retrieval_mode": "lexical",
+        "embedding_status": "offline_hash",
+        "server_query_time_ms": 77,
+        "client_round_trip_ms": 1873,
+        "passed": true
+      },
+      {
+        "case_index": 7,
+        "query_sha256": "ffaf70d07e0834aca6c38df6dce092c786c18e187aa8c3ce1c8a167566e4e157",
+        "related": false,
+        "result_count": 0,
+        "first_hit_rank": null,
+        "document_ids": [],
+        "retrieval_mode": "lexical",
+        "embedding_status": "offline_hash",
+        "server_query_time_ms": 71,
+        "client_round_trip_ms": 1341,
+        "passed": true
+      },
+      {
+        "case_index": 8,
+        "query_sha256": "e9f8f9fd6ed77a7a152c31394343687009422431d61a3e3e72610a2b51d37ad4",
+        "related": false,
+        "result_count": 0,
+        "first_hit_rank": null,
+        "document_ids": [],
+        "retrieval_mode": "lexical",
+        "embedding_status": "offline_hash",
+        "server_query_time_ms": 69,
+        "client_round_trip_ms": 1431,
+        "passed": true
+      }
+    ],
+    "passed_related": 7,
+    "passed_unrelated": 2
+  }
+}
