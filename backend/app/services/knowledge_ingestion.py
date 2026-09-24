@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 
 from app import config
 from app.config import UPLOADS_DIR
-from app.services.knowledge_embeddings import deterministic_embedding, embed_texts
+from app.services.knowledge_embeddings import EmbeddingBatch, deterministic_embedding, embed_texts
 from app.models.knowledge import (
     KnowledgeCase,
     KnowledgeChunk,
@@ -533,18 +533,57 @@ def _v1_document_source_signature(
     )
 
 
+EMBEDDING_HEARTBEAT_BATCH_SIZE = 32
+
+
+def _embed_passages(
+    texts: list[str],
+    heartbeat: Callable[[], None] | None,
+) -> EmbeddingBatch:
+    """Embed in bounded batches so a durable job can renew its lease between them.
+
+    Local semantic models can take minutes on a large document. Without a
+    heartbeat, the job lease expires mid-embedding and the sweeper starts a
+    concurrent duplicate attempt. Batching also releases the model lock so
+    interactive query embeddings are not starved.
+    """
+
+    if not texts:
+        return embed_texts([], hash_embed=deterministic_embedding)
+    model_id = ""
+    semantic = False
+    vectors: list[list[float]] = []
+    for start in range(0, len(texts), EMBEDDING_HEARTBEAT_BATCH_SIZE):
+        batch = embed_texts(
+            texts[start:start + EMBEDDING_HEARTBEAT_BATCH_SIZE],
+            hash_embed=deterministic_embedding,
+        )
+        if model_id and batch.model_id != model_id:
+            raise KnowledgeIngestionSuperseded(
+                "Knowledge embedding identity changed during indexing"
+            )
+        model_id, semantic = batch.model_id, batch.semantic
+        vectors.extend(batch.vectors)
+        if heartbeat is not None:
+            heartbeat()
+    return EmbeddingBatch(model_id, vectors, semantic)
+
+
 def index_document_actor_aware(
     session: Session,
     document_id: int,
     *,
     final_authorize: Callable[[], tuple[KnowledgeSource, KnowledgeV1Document]],
     template_key: str | None = None,
+    heartbeat: Callable[[], None] | None = None,
 ) -> tuple[KnowledgeV1Document, dict[str, Any]]:
     """Prepare provider-backed indexing, then atomically stage authorized writes.
 
     The caller owns the final commit together with its durable job/checkpoint.
     No document, chunk, extraction, event, or consulting-asset mutation is
-    flushed before the second authorization check.
+    flushed before the second authorization check. ``heartbeat`` runs between
+    embedding batches, before any mutation is staged; it may commit its own
+    lease renewal and raises if the caller's lease was superseded.
     """
 
     session.rollback()
@@ -595,7 +634,7 @@ def index_document_actor_aware(
     metadata["template_key"] = final_template
     metadata["extraction_confidence"] = confidence
     chunks = chunk_markdown_or_text(text)
-    embeddings = embed_texts([content for _, content in chunks], hash_embed=deterministic_embedding)
+    embeddings = _embed_passages([content for _, content in chunks], heartbeat)
     prepared_chunks = [
         (
             heading,

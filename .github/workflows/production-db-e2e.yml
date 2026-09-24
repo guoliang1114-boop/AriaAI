@@ -416,6 +416,7 @@ jobs:
                         "tests/test_knowledge_provider_switch.py",
                         "tests/test_knowledge_job_acl.py",
                         "tests/test_knowledge_job_recovery.py",
+                        "tests/test_knowledge_job_lease.py",
                         "tests/test_knowledge_storage_atomicity.py",
                         "tests/test_knowledge_legacy_migration.py",
                         "tests/test_knowledge_read_authority.py",

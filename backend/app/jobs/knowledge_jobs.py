@@ -17,7 +17,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import HTTPException
 from sqlalchemy import and_, or_
@@ -354,10 +354,7 @@ def enqueue_knowledge_job(
     session.add(job)
     if document_id:
         document = session.get(KnowledgeV1Document, document_id)
-        if document:
-            document.status = "queued"
-            document.error_message = None
-            document.updated_at = utc_now_naive()
+        if document and _mark_document_pending(document):
             session.add(document)
     try:
         session.flush()
@@ -401,6 +398,60 @@ def enqueue_knowledge_job(
     session.refresh(job)
     _push_to_redis(job)
     return job
+
+
+def _keeps_committed_index(document: KnowledgeV1Document) -> bool:
+    """An indexed document keeps serving its committed chunks during a reindex.
+
+    Indexing replaces chunks atomically, so the prior set stays consistent
+    until a new one commits. Demoting the status would hide the document from
+    retrieval for the whole job and, on failure, indefinitely.
+    """
+
+    return document.status == "indexed"
+
+
+def _mark_document_pending(document: KnowledgeV1Document) -> bool:
+    if _keeps_committed_index(document):
+        return False
+    document.status = "queued"
+    document.error_message = None
+    document.updated_at = utc_now_naive()
+    return True
+
+
+def _record_document_job_failure(
+    session: Session,
+    job: KnowledgeJob,
+    document: KnowledgeV1Document,
+    *,
+    will_retry: bool,
+    now: datetime,
+) -> None:
+    if not _keeps_committed_index(document):
+        document.status = "retrying" if will_retry else "failed"
+        document.error_message = job.error_message
+        document.updated_at = now
+        session.add(document)
+    session.add(
+        KnowledgeDocumentEvent(
+            document_id=int(document.id),
+            event_type="job_retry_scheduled" if will_retry else "job_failed",
+            status=job.status,
+            message=job.error_message,
+            metadata_json=json.dumps(
+                {
+                    "job_id": job.id,
+                    "failure_code": job.failure_code,
+                    "attempt": job.attempt,
+                    "max_attempts": job.max_attempts,
+                    "next_attempt_at": _iso(job.next_attempt_at),
+                    "committed_index_preserved": _keeps_committed_index(document),
+                },
+                ensure_ascii=False,
+            ),
+        )
+    )
 
 
 def _retry_delay_seconds(attempt: int) -> int:
@@ -633,6 +684,14 @@ def _claim_knowledge_job(
         job.lease_token = ""
         job.lease_expires_at = None
         session.add(job)
+        if document is not None and job.document_id is not None:
+            _record_document_job_failure(
+                session,
+                job,
+                document,
+                will_retry=False,
+                now=now,
+            )
         session.commit()
         session.refresh(job)
         return job, None
@@ -668,6 +727,24 @@ def _save_checkpoint(
     session.commit()
 
 
+def _lease_heartbeat(
+    session: Session,
+    job_id: int,
+    expected: dict[str, Any],
+) -> Callable[[], None]:
+    """Renew this attempt's lease; raise if another attempt superseded it."""
+
+    def heartbeat() -> None:
+        job, _, _ = _lock_and_require_job_write(session, job_id, expected=expected)
+        now = utc_now_naive()
+        job.last_heartbeat_at = now
+        job.lease_expires_at = now + timedelta(seconds=KNOWLEDGE_JOB_LEASE_SECONDS)
+        session.add(job)
+        session.commit()
+
+    return heartbeat
+
+
 def _process_document_job(
     session: Session,
     job: KnowledgeJob,
@@ -694,6 +771,7 @@ def _process_document_job(
         job.document_id,
         template_key=payload.get("template_key"),
         final_authorize=final_authorize,
+        heartbeat=_lease_heartbeat(session, int(job.id), expected),
     )
     if isinstance(result, tuple):
         document, facts = result
@@ -783,6 +861,7 @@ def _process_source_sync(
             document.id,
             template_key=payload.get("template_key"),
             final_authorize=final_authorize,
+            heartbeat=_lease_heartbeat(session, int(job.id), expected),
         )
         indexed = result[0] if isinstance(result, tuple) else result
         if indexed.status != "indexed":
@@ -1035,29 +1114,12 @@ def process_knowledge_job(session: Session, job_id: int) -> KnowledgeJob | None:
         job.lease_expires_at = None
         session.add(job)
         if document is not None:
-            document.status = "retrying" if will_retry else "failed"
-            document.error_message = message
-            document.updated_at = now
-            session.add(document)
-            session.add(
-                KnowledgeDocumentEvent(
-                    document_id=int(document.id),
-                    event_type=(
-                        "job_retry_scheduled" if will_retry else "job_failed"
-                    ),
-                    status=job.status,
-                    message=message,
-                    metadata_json=json.dumps(
-                        {
-                            "job_id": job.id,
-                            "failure_code": failure_code,
-                            "attempt": job.attempt,
-                            "max_attempts": job.max_attempts,
-                            "next_attempt_at": _iso(job.next_attempt_at),
-                        },
-                        ensure_ascii=False,
-                    ),
-                )
+            _record_document_job_failure(
+                session,
+                job,
+                document,
+                will_retry=will_retry,
+                now=now,
             )
         if source is not None and job.job_type == "sync_source":
             source.status = "indexing" if will_retry else "error"
@@ -1108,10 +1170,7 @@ def retry_knowledge_job(
     job.lease_expires_at = None
     job.updated_at = utc_now_naive()
     session.add(job)
-    if document is not None:
-        document.status = "queued"
-        document.error_message = None
-        document.updated_at = utc_now_naive()
+    if document is not None and _mark_document_pending(document):
         session.add(document)
     session.commit()
     session.refresh(job)
