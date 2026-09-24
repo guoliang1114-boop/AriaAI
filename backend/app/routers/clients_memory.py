@@ -61,6 +61,7 @@ from app.services.memory_generation import MEMORY_GENERATION_SYSTEM
 from app.services.project_llm import complete_with_selected_model
 from app.services.time_utils import utc_now_naive
 from app.routers.clients_deps import (
+    _MEMORY_REBUILD_MAX_TOKENS,
     _CLIENTS_KEY,
     _ALL_CLIENT_MEMORY_SUMMARY_TYPES,
     _client_memory_rebuild_job_id,
@@ -876,7 +877,7 @@ async def promote_project_memory_to_client(
             }
         ],
         system=MEMORY_GENERATION_SYSTEM,
-        max_tokens=3200,
+        max_tokens=_MEMORY_REBUILD_MAX_TOKENS,
     )
     session.expire_all()
     # The shared lock helper preserves the global namespace -> User -> Projects

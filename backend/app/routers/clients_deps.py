@@ -71,7 +71,10 @@ _ALL_CLIENT_MEMORY_SUMMARY_TYPES = [
     *CORE_CLIENT_MEMORY_SUMMARY_TYPES,
     *EXTENDED_CLIENT_MEMORY_SUMMARY_TYPES,
 ]
-_MEMORY_REBUILD_MAX_TOKENS = 3200
+# kimi-k3 counts default reasoning against max_tokens; 3200 truncated
+# full slot rebuilds in production (model_completion_truncated). A
+# truncated completion is still rejected before any memory write.
+_MEMORY_REBUILD_MAX_TOKENS = 8192
 _MEMORY_REBUILD_OUTPUT_GUARD = (
     "Return at most 48 _source_attributions entries. Source tags such as "
     "[client:123] are citation metadata only; never copy a source tag into "

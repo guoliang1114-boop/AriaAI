@@ -179,7 +179,10 @@ _PROJECTS_TTL = 120.0
 _CLIENTS_KEY = "all"
 logger = logging.getLogger(__name__)
 
-_MEMORY_REBUILD_MAX_TOKENS = 3200
+# kimi-k3 counts default reasoning against max_tokens; 3200 truncated
+# full slot rebuilds in production (model_completion_truncated). A
+# truncated completion is still rejected before any memory write.
+_MEMORY_REBUILD_MAX_TOKENS = 8192
 _MEMORY_REBUILD_OUTPUT_GUARD = (
     "Return at most 48 _source_attributions entries. Source tags such as "
     "[project:123] are citation metadata only; never copy a source tag into "

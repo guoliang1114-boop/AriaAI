@@ -1974,7 +1974,7 @@ def test_project_full_rebuild_rejects_truncated_json_without_overwriting_memory(
             prompt = mocked.await_args.kwargs["messages"][0]["content"]
             assert refreshed.memory_version == 1
             assert persisted["project_brief"] == "Current project brief"
-            assert mocked.await_args.kwargs["max_tokens"] == 3200
+            assert mocked.await_args.kwargs["max_tokens"] == 8192
             assert "Return at most 48 _source_attributions entries" in prompt
             assert "never copy a source tag into any business field value" in prompt
     finally:
@@ -2067,7 +2067,7 @@ def test_project_full_fallback_rejects_truncated_json_without_overwriting_memory
             )
             assert mocked.await_count == 2
             assert all(
-                call.kwargs["max_tokens"] == 3200
+                call.kwargs["max_tokens"] == 8192
                 for call in mocked.await_args_list
             )
             assert refreshed.memory_version == 1
@@ -2113,7 +2113,7 @@ def test_client_full_rebuild_rejects_truncated_json_without_overwriting_memory()
             prompt = mocked.await_args.kwargs["messages"][0]["content"]
             assert refreshed.client_memory_version == 1
             assert persisted["client_profile"] == "Enterprise account"
-            assert mocked.await_args.kwargs["max_tokens"] == 3200
+            assert mocked.await_args.kwargs["max_tokens"] == 8192
             assert "Return at most 48 _source_attributions entries" in prompt
             assert "never copy a source tag into any business field value" in prompt
     finally:
@@ -2270,7 +2270,7 @@ def test_client_full_fallback_rejects_truncated_json_without_overwriting_memory(
             )
             assert mocked.await_count == 2
             assert all(
-                call.kwargs["max_tokens"] == 3200
+                call.kwargs["max_tokens"] == 8192
                 for call in mocked.await_args_list
             )
             assert refreshed.client_memory_version == 1
