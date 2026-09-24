@@ -1,0 +1,65 @@
+{
+  "date": "2026-09-24",
+  "content_included": false,
+  "cause": {
+    "error": "model_completion_truncated",
+    "model": "kimi-k3",
+    "budget_before": 3200,
+    "budget_after": 8192,
+    "fix_commit": "65fa71519420b175e986b278ea23ce78f82d13ff",
+    "deploy_run_id": 36009963542,
+    "server_regression_passed": 1533
+  },
+  "attempt_before_fix": {
+    "entity": "project:37",
+    "result": "failed",
+    "error": "model_completion_truncated",
+    "prior_version_preserved": true
+  },
+  "rebuilds": [
+    {
+      "entity": "project:37",
+      "version_before": 2,
+      "version_after": 3,
+      "stale_after": false,
+      "completed_at": "2026-09-24T14:24:21.391467"
+    },
+    {
+      "entity": "project:2",
+      "version_before": 2,
+      "version_after": 3,
+      "stale_after": false,
+      "completed_at": "2026-09-24T14:58:43.908998",
+      "prior_failed_at": "2026-06-03T12:59:45.816600"
+    },
+    {
+      "entity": "client:3",
+      "version_before": 3,
+      "version_after": 4,
+      "stale_after": false,
+      "completed_at": "2026-09-24T15:01:26.214233",
+      "prior_failed_at": "2026-09-19T16:21:25.901371"
+    },
+    {
+      "entity": "client:4",
+      "version_before": 6,
+      "version_after": 7,
+      "stale_after": false,
+      "completed_at": "2026-09-24T15:03:55.582374",
+      "prior_failed_at": "2026-09-19T16:21:54.456411"
+    }
+  ],
+  "after": {
+    "projects": {
+      "all": 33,
+      "ready": 33,
+      "stale": 0,
+      "missing": 0
+    },
+    "clients_stale_or_failed": 0,
+    "queued_jobs": {
+      "project": 0,
+      "client": 0
+    }
+  }
+}
