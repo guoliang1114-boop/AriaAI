@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 
 import { api } from '../../api/client'
+import { awaitMemoryRebuild, MEMORY_REBUILD_REQUEST_TIMEOUT_MS } from '../../api/memoryRebuild'
 import { CxConfirmDialog, CxPanel, CxStatus, type CxStatusTone } from '../../components/codex'
 import { PageTitle } from '../../components/PageTitle'
 import type {
@@ -201,7 +202,16 @@ export function ClientDetail() {
     if (!client) return
     try {
       setRebuildingMemory(true)
-      const response = await api.post<ClientMemoryResponse>(`/clients/${client.id}/memory/rebuild`, {}, { timeout: 120000 })
+      const outcome = await awaitMemoryRebuild('client', client.id, () =>
+        api.post<ClientMemoryResponse>(`/clients/${client.id}/memory/rebuild`, {}, { timeout: MEMORY_REBUILD_REQUEST_TIMEOUT_MS }),
+      )
+      if (outcome.kind !== 'completed') {
+        // The gateway timed out; reload the native state the backend settled on.
+        if (outcome.kind === 'failed') console.error('Client memory rebuild failed:', outcome.message)
+        await fetchClient()
+        return
+      }
+      const response = outcome.data
       setMemoryStatus({
         client_id: client.id,
         has_memory: true,

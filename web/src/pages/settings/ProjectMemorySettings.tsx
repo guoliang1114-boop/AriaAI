@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../api/client'
+import { awaitMemoryRebuild, MEMORY_REBUILD_REQUEST_TIMEOUT_MS } from '../../api/memoryRebuild'
 import { CxPagination } from '../../components/codex'
 import { useToast } from '../../contexts/ToastContext'
 import type {
@@ -283,17 +284,30 @@ export function ProjectMemorySettings() {
   const rebuildSingleProject = async (project: Project) => {
     try {
       setRefreshingProjectId(project.id)
-      const data = await api.post<ProjectMemoryResponse>(`/projects/${project.id}/memory/rebuild`, {}, { timeout: 120000 })
-      applyProjectMemoryUpdate(project.id, {
-        memory_stale: data.memory_stale,
-        memory_updated_at: data.memory_updated_at,
-        memory_version: data.memory_version,
-        project_brief: data.memory.project_brief,
-        memory_rebuild_status: data.memory_rebuild_status,
-        memory_rebuild_failed_at: data.memory_rebuild_failed_at,
-      })
+      const outcome = await awaitMemoryRebuild('project', project.id, () =>
+        api.post<ProjectMemoryResponse>(`/projects/${project.id}/memory/rebuild`, {}, { timeout: MEMORY_REBUILD_REQUEST_TIMEOUT_MS }),
+      )
+      if (outcome.kind === 'completed') {
+        const data = outcome.data
+        applyProjectMemoryUpdate(project.id, {
+          memory_stale: data.memory_stale,
+          memory_updated_at: data.memory_updated_at,
+          memory_version: data.memory_version,
+          project_brief: data.memory.project_brief,
+          memory_rebuild_status: data.memory_rebuild_status,
+          memory_rebuild_failed_at: data.memory_rebuild_failed_at,
+        })
+      } else {
+        void fetchProjects()
+      }
       void fetchJobs(false)
-      toast.success(isZh ? `已更新 ${project.name} 的项目记忆` : `Refreshed memory for ${project.name}`)
+      if (outcome.kind === 'failed') {
+        toast.error(isZh ? `更新 ${project.name} 的项目记忆失败` : `Failed to refresh memory for ${project.name}`)
+      } else if (outcome.kind === 'pending') {
+        toast.info(isZh ? `${project.name} 的项目记忆仍在后台更新，请稍后刷新查看` : `Memory for ${project.name} is still updating in the background`)
+      } else {
+        toast.success(isZh ? `已更新 ${project.name} 的项目记忆` : `Refreshed memory for ${project.name}`)
+      }
     } catch (error) {
       console.error('Failed to rebuild project memory:', error)
       toast.error(isZh ? `更新 ${project.name} 的项目记忆失败` : `Failed to refresh memory for ${project.name}`)
@@ -403,8 +417,19 @@ export function ProjectMemorySettings() {
   const runJobNow = async (projectId: number) => {
     try {
       setJobActionProjectId(projectId)
-      const result = await api.post<{ ok: boolean; action: string }>(`/projects/memory/jobs/${projectId}/run-now`, {})
+      const outcome = await awaitMemoryRebuild('project', projectId, () =>
+        api.post<{ ok: boolean; action: string }>(`/projects/memory/jobs/${projectId}/run-now`, {}, { timeout: MEMORY_REBUILD_REQUEST_TIMEOUT_MS }),
+      )
       void Promise.all([fetchProjects(), fetchJobs(false)])
+      if (outcome.kind === 'failed') {
+        toast.error(isZh ? '立即执行后台任务失败' : 'Failed to run memory job now')
+        return
+      }
+      if (outcome.kind === 'pending') {
+        toast.info(isZh ? '任务仍在后台执行，请稍后刷新查看' : 'The job is still running in the background')
+        return
+      }
+      const result = outcome.kind === 'completed' ? outcome.data : { ok: true, action: 'rebuild' }
       toast.success(
         isZh
           ? result.action === 'rebuild'

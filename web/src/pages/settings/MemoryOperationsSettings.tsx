@@ -18,6 +18,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { api } from '../../api/client'
+import { awaitMemoryRebuild, MEMORY_REBUILD_REQUEST_TIMEOUT_MS, type MemoryRebuildOutcome } from '../../api/memoryRebuild'
 import { CxConfirmDialog, CxPagination } from '../../components/codex'
 import { useToast } from '../../contexts/ToastContext'
 import { formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
@@ -629,17 +630,24 @@ export function MemoryOperationsSettings() {
     [recentFailures, selectedFailureKey],
   )
 
+  const runEntityNow = (scope: 'project' | 'client', entityId: number): Promise<MemoryRebuildOutcome<unknown>> =>
+    awaitMemoryRebuild(scope, entityId, () =>
+      api.post(
+        scope === 'project'
+          ? `/projects/memory/jobs/${entityId}/run-now`
+          : `/clients/memory/jobs/${entityId}/run-now`,
+        {},
+        { timeout: MEMORY_REBUILD_REQUEST_TIMEOUT_MS },
+      ),
+    )
+
   const runNow = async (job: CombinedJob) => {
     try {
       setActionKey(`${job.scope}-${job.job_id}-run`)
-      await api.post(
-        job.scope === 'project'
-          ? `/projects/memory/jobs/${job.project_id}/run-now`
-          : `/clients/memory/jobs/${job.client_id}/run-now`,
-        {},
-        { timeout: 120000 },
-      )
-      toast.success(isZh ? '任务已开始执行' : 'Job started')
+      const outcome = await runEntityNow(job.scope, Number(job.scope === 'project' ? job.project_id : job.client_id))
+      if (outcome.kind === 'failed') toast.error(isZh ? '立即执行任务失败' : 'Failed to run job now')
+      else if (outcome.kind === 'pending') toast.info(isZh ? '任务仍在后台执行，请稍后刷新查看' : 'The job is still running in the background')
+      else toast.success(isZh ? '任务已开始执行' : 'Job started')
       await loadJobs(false)
     } catch (error) {
       console.error('Failed to run memory job now:', error)
@@ -652,14 +660,10 @@ export function MemoryOperationsSettings() {
   const retryFailure = async (failure: FailureItem) => {
     try {
       setActionKey(`${failure.scope}-failure-${failure.failed_at}`)
-      await api.post(
-        failure.scope === 'project'
-          ? `/projects/memory/jobs/${failure.project_id}/run-now`
-          : `/clients/memory/jobs/${failure.client_id}/run-now`,
-        {},
-        { timeout: 120000 },
-      )
-      toast.success(isZh ? '已重新加入执行队列' : 'Queued retry successfully')
+      const outcome = await runEntityNow(failure.scope, Number(failure.scope === 'project' ? failure.project_id : failure.client_id))
+      if (outcome.kind === 'failed') toast.error(isZh ? '重试任务失败' : 'Failed to retry job')
+      else if (outcome.kind === 'pending') toast.info(isZh ? '重试仍在后台执行，请稍后刷新查看' : 'The retry is still running in the background')
+      else toast.success(isZh ? '已重新加入执行队列' : 'Queued retry successfully')
       await loadJobs(false)
     } catch (error) {
       console.error('Failed to retry memory job:', error)
@@ -710,14 +714,9 @@ export function MemoryOperationsSettings() {
     let failCount = 0
     for (const failure of toRetry) {
       try {
-        await api.post(
-          failure.scope === 'project'
-            ? `/projects/memory/jobs/${failure.project_id}/run-now`
-            : `/clients/memory/jobs/${failure.client_id}/run-now`,
-          {},
-          { timeout: 120000 },
-        )
-        successCount++
+        const outcome = await runEntityNow(failure.scope, Number(failure.scope === 'project' ? failure.project_id : failure.client_id))
+        if (outcome.kind === 'failed') failCount++
+        else successCount++
       } catch {
         failCount++
       }
