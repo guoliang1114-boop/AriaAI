@@ -39,6 +39,7 @@ jobs:
 
             files = [
                 "scripts/knowledge_retrieval_eval.py",
+                "scripts/knowledge_embedding_capacity.py",
                 "app/services/knowledge_embeddings.py",
                 "app/services/knowledge_retrieval.py",
             ]
@@ -52,6 +53,9 @@ jobs:
             # and business indexes remain unchanged.
             "$PYTHON" scripts/knowledge_retrieval_eval.py --semantic --enforce
             "$PYTHON" scripts/knowledge_read_authority_report.py
+            # Separate process: full app import, model load and 150 synthetic
+            # passages. Reports memory/timing numbers only, never text.
+            "$PYTHON" scripts/knowledge_embedding_capacity.py --passages 150 --batch-size 32
             # Report only process metrics; PM2's full environment is private.
             "$PYTHON" - <<'PY'
             import json

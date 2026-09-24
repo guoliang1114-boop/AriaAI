@@ -67,10 +67,33 @@ def test_provider_switch_serializes_preflight_backup_and_config_change() -> None
     assert "/reindex" not in remote
 
 
+def test_semantic_eval_probes_embedding_capacity_without_business_writes() -> None:
+    workflow = (REPOSITORY_ROOT / ".github/workflows/knowledge-semantic-eval.yml").read_text()
+    assert "group: production-database-maintenance" in workflow
+    assert "scripts/knowledge_embedding_capacity.py --passages 150" in workflow
+    remote = workflow.split("script: |", 1)[1]
+    assert "/reindex" not in remote
+    assert "knowledge_provider_switch.py --provider" not in remote
+
+
+def test_capacity_probe_uses_only_synthetic_passages() -> None:
+    import sys
+
+    sys.path.insert(0, str(REPOSITORY_ROOT / "backend"))
+    from scripts.knowledge_embedding_capacity import PASSAGE_CHARS, synthetic_passages
+
+    passages = synthetic_passages(3)
+    assert len(passages) == 3
+    assert all(len(item) == PASSAGE_CHARS for item in passages)
+    assert len(set(passages)) == 3
+
+
 if __name__ == "__main__":
     test_remote_release_command_has_headroom_for_the_release_gate()
     test_remote_release_keeps_backup_before_migration_and_restart()
     test_remote_release_runs_this_contract_test()
     test_runner_installs_test_dependencies_before_product_contract_gate()
     test_provider_switch_serializes_preflight_backup_and_config_change()
+    test_semantic_eval_probes_embedding_capacity_without_business_writes()
+    test_capacity_probe_uses_only_synthetic_passages()
     print("deployment workflow contract passed")
