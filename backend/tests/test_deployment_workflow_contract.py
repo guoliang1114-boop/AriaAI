@@ -88,6 +88,15 @@ def test_capacity_probe_uses_only_synthetic_passages() -> None:
     assert len(set(passages)) == 3
 
 
+def test_backend_memory_limit_leaves_room_for_local_semantic_indexing() -> None:
+    # Full app + bge-small-zh + a 139-slide extraction peaks near 800 MB; the
+    # former 512M limit made PM2 restart the backend mid-reindex.
+    config = (REPOSITORY_ROOT / "backend/ecosystem.config.js").read_text()
+    match = re.search(r'max_memory_restart:\s*"(\d+)M"', config)
+    assert match is not None
+    assert int(match.group(1)) >= 1536
+
+
 if __name__ == "__main__":
     test_remote_release_command_has_headroom_for_the_release_gate()
     test_remote_release_keeps_backup_before_migration_and_restart()
@@ -96,4 +105,5 @@ if __name__ == "__main__":
     test_provider_switch_serializes_preflight_backup_and_config_change()
     test_semantic_eval_probes_embedding_capacity_without_business_writes()
     test_capacity_probe_uses_only_synthetic_passages()
+    test_backend_memory_limit_leaves_room_for_local_semantic_indexing()
     print("deployment workflow contract passed")
