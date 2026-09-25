@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from app import config as legacy_reads_config
 from app.models.db import (
     ClientMemorySummary,
     ClientMemorySnapshot,
@@ -4894,6 +4895,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(runtime.api_messages[-1], {"role": "user", "content": "总结金科智慧服务集团股份有限公司的全部项目情况及风险。"})
         self.assertEqual(runtime.prepare_metrics["history_message_count"], 3)
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_project_chat_context_disables_global_rag_auto_trigger(self):
         with Session(self.engine) as session:
             project = Project(name="Scoped Project", client="Acme")
@@ -4921,6 +4923,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(ctx.rag_context, "")
         self.assertEqual(ctx.rag_sources, [])
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_project_chat_context_uses_client_scope_when_requested(self):
         with Session(self.engine) as session:
             client = ClientRecord(name="Acme", industry="Consulting")
@@ -4955,6 +4958,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertIsNone(called_project_id)
         self.assertEqual(called_client_id, client.id)
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_project_chat_context_allows_explicit_rag_docs(self):
         with Session(self.engine) as session:
             project = Project(name="Scoped Project", client="Acme")
@@ -5182,6 +5186,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertIn("Matched projects: 3", ctx.project_context)
         self.assertIn("金科同客户项目 1", ctx.project_context)
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_project_chat_context_global_scope_does_not_force_scope_filters(self):
         with Session(self.engine) as session:
             project = Project(name="Scoped Project", client="Acme")
@@ -5207,6 +5212,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertIsNone(called_project_id)
         self.assertIsNone(called_client_id)
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_explicit_rag_doc_ids_bypass_scope_filters(self):
         with Session(self.engine) as session:
             client = ClientRecord(name="Acme", industry="Consulting")
@@ -5415,6 +5421,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertNotIn("Other project should stay isolated", ctx.project_context)
         self.assertNotIn("Other project confidential notes", ctx.project_context)
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_build_chat_context_client_scope_without_matching_client_record_falls_back_to_project_scope(self):
         with Session(self.engine) as session:
             project = Project(

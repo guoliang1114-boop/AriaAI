@@ -8,7 +8,9 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
+from app import config
 from app.models.db import KnowledgeDocument, Project, User
+from app.models.knowledge import KnowledgeLegacyMigration
 from app.services.agent_harness.knowledge_evidence import (
     build_knowledge_evidence_manifest,
     build_knowledge_evidence_prompt,
@@ -153,6 +155,34 @@ def _rag_payload(
     }
 
 
+def _migrated_document_ids(session: Session, legacy_ids: list[int]) -> list[int]:
+    """Map legacy document ids to their completed source-scoped migrations."""
+
+    if not legacy_ids:
+        return []
+    rows = session.exec(
+        select(KnowledgeLegacyMigration.legacy_document_id, KnowledgeLegacyMigration.document_id).where(
+            KnowledgeLegacyMigration.legacy_document_id.in_([int(value) for value in legacy_ids]),
+            KnowledgeLegacyMigration.status == "completed",
+            KnowledgeLegacyMigration.document_id.is_not(None),
+        )
+    ).all()
+    mapped = {int(legacy_id): int(document_id) for legacy_id, document_id in rows}
+    return list(dict.fromkeys(mapped[int(value)] for value in legacy_ids if int(value) in mapped))
+
+
+def _no_knowledge_payload(*, source_scoped_attempted: bool, source_scoped_unavailable: bool) -> dict:
+    return {
+        "text": "",
+        "sources": [],
+        "evidence_manifest": {},
+        "retrieval_mode": "none",
+        "source_scoped_attempted": source_scoped_attempted,
+        "source_scoped_unavailable": source_scoped_unavailable,
+        "legacy_fallback_used": False,
+    }
+
+
 def build_rag_context(
     session: Session,
     query: str,
@@ -170,6 +200,13 @@ def build_rag_context(
     
     Returns structured dict with both text for LLM and sources for citations.
     """
+    if rag_doc_ids and not config.KNOWLEDGE_LEGACY_READS_ENABLED:
+        # Legacy reads are retired: an explicit legacy selection is honored only
+        # through its completed migration, as a hard source-scoped bound.
+        knowledge_document_ids = list(dict.fromkeys(
+            [*(knowledge_document_ids or []), *_migrated_document_ids(session, list(rag_doc_ids))]
+        ))
+        rag_doc_ids = None
     if knowledge_document_ids is not None:
         # Explicit IDs are in the new namespace and are a hard retrieval bound.
         # Empty/unauthorized/no-match selections must never widen or fall back.
@@ -246,7 +283,7 @@ def build_rag_context(
             except Exception:
                 source_scoped_unavailable = True
                 logger.warning(
-                    "Source-scoped knowledge retrieval failed; using bounded legacy fallback",
+                    "Source-scoped knowledge retrieval failed; legacy fallback only if enabled",
                     exc_info=True,
                 )
             else:
@@ -260,6 +297,12 @@ def build_rag_context(
                         source_scoped_attempted=True,
                     )
 
+    if not config.KNOWLEDGE_LEGACY_READS_ENABLED:
+        return _no_knowledge_payload(
+            source_scoped_attempted=source_scoped_attempted,
+            source_scoped_unavailable=source_scoped_unavailable,
+        )
+
     should_retrieve = bool(rag_doc_ids) or (auto_trigger and "#doc" in query)
     if not should_retrieve and auto_trigger and project_id is not None and knowledge_scope in {"project", "client"}:
         scoped_docs_stmt = select(KnowledgeDocument.id).where(KnowledgeDocument.vector_status == "synced")
@@ -272,15 +315,10 @@ def build_rag_context(
         should_retrieve = session.exec(scoped_docs_stmt.limit(1)).first() is not None
 
     if not should_retrieve:
-        return {
-            "text": "",
-            "sources": [],
-            "evidence_manifest": {},
-            "retrieval_mode": "none",
-            "source_scoped_attempted": source_scoped_attempted,
-            "source_scoped_unavailable": source_scoped_unavailable,
-            "legacy_fallback_used": False,
-        }
+        return _no_knowledge_payload(
+            source_scoped_attempted=source_scoped_attempted,
+            source_scoped_unavailable=source_scoped_unavailable,
+        )
 
     ctx = _current_retrieve_structured()(
         query,

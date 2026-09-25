@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 from sqlmodel import SQLModel, Session
 
+from app import config
 from app.models.db import ClientRecord, DocumentChunk, KnowledgeDocument, Project, ProjectMember, User
 from app.models.knowledge import KnowledgeChunk, KnowledgeSource, KnowledgeV1Document
 from app.services import context_builder as context_builder_module
@@ -206,7 +207,8 @@ def test_project_chat_prefers_source_scoped_knowledge_and_preserves_chunk_identi
         engine.dispose()
 
 
-def test_project_chat_uses_bounded_legacy_fallback_when_source_scoped_is_empty() -> None:
+@pytest.mark.parametrize("legacy_enabled", [True, False])
+def test_project_chat_legacy_fallback_only_when_rollback_enabled(legacy_enabled: bool) -> None:
     engine = create_test_engine()
     drop_all_tables(engine)
     SQLModel.metadata.create_all(engine)
@@ -243,7 +245,7 @@ def test_project_chat_uses_bounded_legacy_fallback_when_source_scoped_is_empty()
                 ],
                 "legacy evidence",
             )
-            with patch.object(
+            with patch.object(config, "KNOWLEDGE_LEGACY_READS_ENABLED", legacy_enabled), patch.object(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=fallback,
@@ -258,10 +260,17 @@ def test_project_chat_uses_bounded_legacy_fallback_when_source_scoped_is_empty()
                     accessible_client_ids=[],
                 )
 
-        legacy_retrieve.assert_called_once()
-        assert "Legacy scoped evidence" in context.rag_context
-        assert context.context_receipt["evidence"]["knowledge_retrieval_mode"] == "legacy_fallback"
-        assert context.context_receipt["evidence"]["knowledge_legacy_fallback"] is True
+        evidence = context.context_receipt["evidence"]
+        if legacy_enabled:
+            legacy_retrieve.assert_called_once()
+            assert "Legacy scoped evidence" in context.rag_context
+            assert evidence["knowledge_retrieval_mode"] == "legacy_fallback"
+            assert evidence["knowledge_legacy_fallback"] is True
+        else:
+            legacy_retrieve.assert_not_called()
+            assert "Legacy scoped evidence" not in context.rag_context
+            assert evidence["knowledge_retrieval_mode"] == "none"
+            assert evidence["knowledge_legacy_fallback"] is False
     finally:
         SQLModel.metadata.drop_all(engine)
         engine.dispose()
@@ -311,7 +320,8 @@ def test_source_scoped_project_chat_never_widens_to_another_accessible_project()
         engine.dispose()
 
 
-def test_source_scoped_failure_is_visible_and_uses_bounded_legacy_fallback() -> None:
+@pytest.mark.parametrize("legacy_enabled", [True, False])
+def test_source_scoped_failure_is_visible_and_falls_back_only_when_enabled(legacy_enabled: bool) -> None:
     engine = create_test_engine()
     drop_all_tables(engine)
     SQLModel.metadata.create_all(engine)
@@ -340,7 +350,7 @@ def test_source_scoped_failure_is_visible_and_uses_bounded_legacy_fallback() -> 
                 ],
                 "fallback query",
             )
-            with patch(
+            with patch.object(config, "KNOWLEDGE_LEGACY_READS_ENABLED", legacy_enabled), patch(
                 "app.services.context_builder.rag_context.search_knowledge",
                 side_effect=RuntimeError("private provider failure"),
             ):
@@ -359,15 +369,94 @@ def test_source_scoped_failure_is_visible_and_uses_bounded_legacy_fallback() -> 
                         accessible_client_ids=[],
                     )
 
-        legacy_retrieve.assert_called_once()
         evidence = context.context_receipt["evidence"]
-        assert evidence["knowledge_retrieval_mode"] == "legacy_fallback"
-        assert evidence["knowledge_legacy_fallback"] is True
+        if legacy_enabled:
+            legacy_retrieve.assert_called_once()
+            assert evidence["knowledge_retrieval_mode"] == "legacy_fallback"
+            assert evidence["knowledge_legacy_fallback"] is True
+        else:
+            legacy_retrieve.assert_not_called()
+            assert evidence["knowledge_retrieval_mode"] == "none"
+            assert evidence["knowledge_legacy_fallback"] is False
         assert evidence["knowledge_source_scoped_unavailable"] is True
         assert "private provider failure" not in json.dumps(
             context.context_receipt,
             ensure_ascii=False,
         )
+    finally:
+        SQLModel.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_retired_legacy_selection_reads_only_its_completed_migration() -> None:
+    from app.models.knowledge import KnowledgeLegacyMigration
+    from app.services.context_builder.rag_context import build_rag_context
+
+    engine = create_test_engine()
+    drop_all_tables(engine)
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            user, project = _seed_user_project(session, suffix="retired")
+            migrated = _seed_source_scoped_document(
+                session,
+                user=user,
+                project=project,
+                title="Migrated brief",
+                content="migrated retention evidence",
+            )
+            legacy_ids = []
+            for name in ("migrated legacy", "unmapped legacy"):
+                legacy = KnowledgeDocument(
+                    name=name,
+                    file_type="md",
+                    path=f"{name}.md",
+                    project_id=project.id,
+                    vector_status="synced",
+                )
+                session.add(legacy)
+                session.flush()
+                legacy_ids.append(int(legacy.id))
+            session.add(
+                KnowledgeLegacyMigration(
+                    legacy_document_id=legacy_ids[0],
+                    document_id=migrated.id,
+                    source_id=migrated.source_id,
+                    status="completed",
+                    scope_type="project",
+                    scope_id=project.id,
+                )
+            )
+            session.commit()
+
+            with patch.object(config, "KNOWLEDGE_LEGACY_READS_ENABLED", False), patch.object(
+                context_builder_module,
+                "retrieve_structured",
+                side_effect=AssertionError("legacy retrieval must not run"),
+            ):
+                mapped = build_rag_context(
+                    session,
+                    "retention evidence",
+                    rag_doc_ids=[legacy_ids[0]],
+                    project_id=project.id,
+                    knowledge_scope="project",
+                    requesting_user_id=user.id,
+                )
+                unmapped = build_rag_context(
+                    session,
+                    "retention evidence",
+                    rag_doc_ids=[legacy_ids[1]],
+                    project_id=project.id,
+                    knowledge_scope="project",
+                    requesting_user_id=user.id,
+                )
+
+        assert mapped["retrieval_mode"] == "source_scoped"
+        assert [source["id"] for source in mapped["sources"]] == [migrated.id]
+        assert "migrated retention evidence" in mapped["text"]
+        assert unmapped["retrieval_mode"] == "source_scoped"
+        assert unmapped["sources"] == []
+        assert "migrated retention evidence" not in unmapped["text"]
     finally:
         SQLModel.metadata.drop_all(engine)
         engine.dispose()

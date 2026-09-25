@@ -341,6 +341,14 @@ class KnowledgeWritePermissionTestCase(unittest.TestCase):
             403,
         )
 
+    def test_legacy_query_is_retired_unless_rollback_enabled(self) -> None:
+        self._become("admin")
+        with patch.object(knowledge_router.rag, "retrieve", return_value="all") as retrieve:
+            response = self.api.post("/knowledge/query?query=all")
+        self.assertEqual(response.status_code, 410, response.text)
+        retrieve.assert_not_called()
+
+    @patch.object(knowledge_router.config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_query_passes_explicit_project_and_client_visibility(self) -> None:
         self._become("creator")
         with patch.object(knowledge_router.rag, "retrieve", return_value="visible") as retrieve:

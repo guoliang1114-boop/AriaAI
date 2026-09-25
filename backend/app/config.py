@@ -174,6 +174,10 @@ KNOWLEDGE_EMBEDDING_MODEL = os.getenv("KNOWLEDGE_EMBEDDING_MODEL", "BAAI/bge-sma
 KNOWLEDGE_EMBEDDING_CACHE_DIR = Path(os.getenv("KNOWLEDGE_EMBEDDING_CACHE_DIR", str(DATA_DIR / "models")))
 KNOWLEDGE_EMBEDDING_THREADS = max(1, min(int(os.getenv("KNOWLEDGE_EMBEDDING_THREADS", "2")), 8))
 KNOWLEDGE_SEMANTIC_MIN_SCORE = max(0.0, min(float(os.getenv("KNOWLEDGE_SEMANTIC_MIN_SCORE", "0.5")), 1.0))
+# Legacy knowledge (KnowledgeDocument/DocumentChunk) reads were retired on
+# 2026-09-25 after every legacy document was migrated to source-scoped
+# knowledge. Set true only to roll back; legacy tables are kept.
+KNOWLEDGE_LEGACY_READS_ENABLED = os.getenv("KNOWLEDGE_LEGACY_READS_ENABLED", "false").lower() == "true"
 
 # =============================================================================
 # API URLs

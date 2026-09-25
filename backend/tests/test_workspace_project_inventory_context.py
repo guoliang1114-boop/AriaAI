@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from sqlmodel import Session, SQLModel, create_engine
 
+from app import config as legacy_reads_config
 from app.models.db import Conversation, DocumentChunk, GeneratedFile, KnowledgeDocument, Project, ProjectFile, ProjectTodo
 from app.services import context_builder as context_builder_module
 from app.services.context_builder import (
@@ -346,6 +347,7 @@ class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
         self.assertIn("**Recent Generated Artifacts:**", context)
         self.assertIn("沟通材料.md", context)
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_project_scope_chat_auto_retrieves_synced_project_knowledge(self):
         with Session(self.engine) as session:
             project = Project(name="Knowledge Project", client="Client", status="active")

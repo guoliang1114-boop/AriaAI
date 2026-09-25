@@ -2738,14 +2738,15 @@ def _knowledge_read_authority_results() -> tuple[int, int, list[dict[str, Any]]]
     details = [
         {
             "case": "empty_knowledge_store_is_source_scoped_cutover_ready",
-            "passed": empty["runtime_read_mode"] == "source_scoped_first"
+            "passed": empty["runtime_read_mode"] == "source_scoped_only"
+            and not empty["legacy_fallback_enabled"]
+            and not empty["explicit_legacy_selection_enabled"]
             and empty["source_scoped_cutover_ready"],
         },
         {
             "case": "unmapped_legacy_knowledge_blocks_reader_retirement",
             "passed": not unmapped["source_scoped_cutover_ready"]
-            and unmapped["unmapped_legacy_document_count"] == 1
-            and unmapped["legacy_fallback_enabled"],
+            and unmapped["unmapped_legacy_document_count"] == 1,
         },
         {
             "case": "verified_migration_mapping_enables_source_scoped_cutover",

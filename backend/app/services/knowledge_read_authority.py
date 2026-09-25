@@ -8,6 +8,8 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from app import config
+
 from app.models.db import (
     KnowledgeDocument,
     Message,
@@ -180,9 +182,11 @@ def build_knowledge_read_authority_report(
     return {
         "schema_version": 1,
         "content_included": False,
-        "runtime_read_mode": "source_scoped_first",
-        "legacy_fallback_enabled": True,
-        "explicit_legacy_selection_enabled": True,
+        "runtime_read_mode": (
+            "source_scoped_first" if config.KNOWLEDGE_LEGACY_READS_ENABLED else "source_scoped_only"
+        ),
+        "legacy_fallback_enabled": config.KNOWLEDGE_LEGACY_READS_ENABLED,
+        "explicit_legacy_selection_enabled": config.KNOWLEDGE_LEGACY_READS_ENABLED,
         "source_scoped_cutover_ready": source_scoped_cutover_ready,
         "active_source_count": sum(
             status == "active" for status in source_status_by_id.values()

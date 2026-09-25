@@ -25,6 +25,7 @@ from typing import Any, Iterable
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
+from app import config
 from app.config import UPLOADS_DIR
 from app.models.db import (
     Conversation,
@@ -374,6 +375,8 @@ def _knowledge_source(
     document_id: int,
     note: str,
 ) -> tuple[str, str]:
+    if not config.KNOWLEDGE_LEGACY_READS_ENABLED:
+        raise HTTPException(status_code=409, detail="Legacy knowledge evidence is retired")
     document = session.exec(
         select(KnowledgeDocument).where(
             KnowledgeDocument.id == document_id,

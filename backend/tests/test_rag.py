@@ -5,6 +5,7 @@ import json
 
 from sqlmodel import Session, SQLModel, create_engine
 
+from app import config as app_config
 from app.models.db import ClientRecord, DocumentChunk, KnowledgeDocument, Project
 from app.services import rag as rag_module
 from app.services.context_builder.rag_context import build_rag_context
@@ -294,12 +295,13 @@ class RetrieveStructuredTestCase(unittest.TestCase):
             )
             session.commit()
 
-            build_rag_context(
-                session,
-                "briefing",
-                project_id=int(project.id),
-                knowledge_scope="client",
-            )
+            with patch.object(app_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True):
+                build_rag_context(
+                    session,
+                    "briefing",
+                    project_id=int(project.id),
+                    knowledge_scope="client",
+                )
 
         self.assertEqual(mock_retrieve.call_args.kwargs["client_id"], client_id)
         self.assertIsNone(mock_retrieve.call_args.kwargs["project_id"])

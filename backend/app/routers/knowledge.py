@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field as PydanticField
 from sqlmodel import Session, select, func
 from sqlalchemy import and_, or_
 
+from app import config
 from app.config import UPLOADS_DIR, KNOWLEDGE_ORIGINAL_MAX_DOWNLOAD_BYTES
 from app.database import get_session, engine
 from app.models.db import ClientRecord, KnowledgeDocument, DocumentChunk, Project, User
@@ -1398,6 +1399,8 @@ def query_knowledge(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    if not config.KNOWLEDGE_LEGACY_READS_ENABLED:
+        raise HTTPException(410, "Legacy knowledge retrieval is retired; use /knowledge/search")
     if current_user.is_admin:
         allowed_project_ids = None
         allowed_client_ids = None

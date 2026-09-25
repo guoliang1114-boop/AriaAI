@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from app import config
 from app.models.db import (
     Conversation,
     KnowledgeDocument,
@@ -685,6 +686,8 @@ def _normalize_evidence(
     elif kind == "knowledge_document":
         if provided_ids != 1 or knowledge_document_id is None or reference_locator:
             raise HTTPException(status_code=400, detail="Invalid knowledge evidence reference")
+        if not config.KNOWLEDGE_LEGACY_READS_ENABLED:
+            raise HTTPException(status_code=409, detail="Legacy knowledge evidence is retired")
         row = session.exec(
             select(KnowledgeDocument).where(
                 KnowledgeDocument.id == int(knowledge_document_id),
