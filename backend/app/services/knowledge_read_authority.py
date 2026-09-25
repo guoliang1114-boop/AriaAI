@@ -1,12 +1,19 @@
 """Content-free authority audit for source-scoped and legacy knowledge reads."""
 from __future__ import annotations
 
+import json
 from collections import Counter
+from datetime import timedelta
 from typing import Any
 
 from sqlmodel import Session, select
 
-from app.models.db import KnowledgeDocument
+from app.models.db import (
+    KnowledgeDocument,
+    Message,
+    ProjectQuestionRemediationEvidenceAttachment,
+)
+from app.services.time_utils import utc_now_naive
 from app.services.knowledge_embeddings import HASH_MODEL_ID, KnowledgeEmbeddingError, configured_model_id
 from app.models.knowledge import (
     KnowledgeChunk,
@@ -20,6 +27,9 @@ _LEGACY_STATUSES = ("pending", "processing", "synced", "failed")
 _V1_STATUSES = ("uploaded", "queued", "processing", "indexed", "failed", "deleted")
 _MIGRATION_STATUSES = ("pending", "processing", "completed", "failed")
 _SCOPE_TYPES = ("user", "project", "client", "workspace", "skill", "global")
+_KNOWLEDGE_RETRIEVAL_MODES = ("none", "source_scoped", "legacy_fallback", "legacy_explicit", "legacy")
+_LEGACY_READ_MODES = ("legacy_fallback", "legacy_explicit", "legacy")
+LEGACY_USAGE_WINDOW_DAYS = 30
 
 
 def _bounded_counts(values: list[str], known: tuple[str, ...]) -> dict[str, int]:
@@ -29,7 +39,60 @@ def _bounded_counts(values: list[str], known: tuple[str, ...]) -> dict[str, int]
     return payload
 
 
-def build_knowledge_read_authority_report(session: Session) -> dict[str, Any]:
+def _legacy_usage(session: Session, window_days: int) -> dict[str, Any]:
+    """Count recent legacy knowledge reads from persisted context receipts.
+
+    Reads only each assistant message's receipt retrieval mode, never message
+    content, and reports counts plus the latest legacy-read date.
+    """
+
+    cutoff = utc_now_naive() - timedelta(days=window_days)
+    rows = session.exec(
+        select(Message.metadata_json, Message.created_at).where(
+            Message.role == "assistant",
+            Message.created_at >= cutoff,
+        )
+    ).all()
+    modes: list[str] = []
+    receipt_less = 0
+    last_legacy_read = None
+    for metadata_json, created_at in rows:
+        try:
+            metadata = json.loads(metadata_json or "{}")
+        except (TypeError, ValueError):
+            metadata = {}
+        receipt = metadata.get("context_receipt") if isinstance(metadata, dict) else None
+        evidence = receipt.get("evidence") if isinstance(receipt, dict) else None
+        if not isinstance(evidence, dict):
+            receipt_less += 1
+            continue
+        mode = str(evidence.get("knowledge_retrieval_mode") or "none")
+        modes.append(mode)
+        if mode in _LEGACY_READ_MODES and (last_legacy_read is None or created_at > last_legacy_read):
+            last_legacy_read = created_at
+    attachment_rows = session.exec(
+        select(ProjectQuestionRemediationEvidenceAttachment.knowledge_document_id).where(
+            ProjectQuestionRemediationEvidenceAttachment.knowledge_document_id.is_not(None)
+        )
+    ).all()
+    mode_counts = _bounded_counts(modes, _KNOWLEDGE_RETRIEVAL_MODES)
+    return {
+        "window_days": window_days,
+        "assistant_message_count": len(rows),
+        "receipt_less_message_count": receipt_less,
+        "knowledge_retrieval_modes": mode_counts,
+        "legacy_read_count": sum(mode_counts[mode] for mode in _LEGACY_READ_MODES),
+        "last_legacy_read_date": last_legacy_read.date().isoformat() if last_legacy_read else None,
+        "legacy_evidence_attachment_count": len(attachment_rows),
+        "legacy_evidence_attachment_document_count": len({int(value) for value in attachment_rows}),
+    }
+
+
+def build_knowledge_read_authority_report(
+    session: Session,
+    *,
+    usage_window_days: int = LEGACY_USAGE_WINDOW_DAYS,
+) -> dict[str, Any]:
     """Report whether the legacy vector reader can be retired without content."""
 
     legacy_rows = session.exec(
@@ -155,4 +218,5 @@ def build_knowledge_read_authority_report(session: Session) -> dict[str, Any]:
         "mapped_legacy_document_count": len(mapped_legacy_ids),
         "unmapped_legacy_document_count": int(unmapped_legacy_count),
         "invalid_completed_mapping_count": int(invalid_completed_mapping_count),
+        "legacy_usage": _legacy_usage(session, max(1, int(usage_window_days))),
     }

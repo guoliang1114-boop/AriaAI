@@ -153,3 +153,68 @@ def test_knowledge_authority_report_fails_closed_for_broken_completed_mapping() 
     finally:
         SQLModel.metadata.drop_all(engine)
         engine.dispose()
+
+
+def test_knowledge_authority_report_counts_recent_legacy_reads_without_content() -> None:
+    from datetime import timedelta
+
+    from app.models.db import Conversation, Message
+    from app.services.time_utils import utc_now_naive
+
+    engine = create_test_engine()
+    drop_all_tables(engine)
+    SQLModel.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            conversation = Conversation(title="private title")
+            session.add(conversation)
+            session.flush()
+            now = utc_now_naive()
+
+            def assistant(mode: str | None, *, days_ago: int = 0) -> Message:
+                metadata = (
+                    {"context_receipt": {"evidence": {"knowledge_retrieval_mode": mode}}}
+                    if mode is not None
+                    else {}
+                )
+                return Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="PRIVATE answer",
+                    metadata_json=json.dumps(metadata),
+                    created_at=now - timedelta(days=days_ago),
+                )
+
+            session.add_all([
+                assistant("source_scoped"),
+                assistant("legacy_fallback", days_ago=2),
+                assistant("legacy_explicit", days_ago=5),
+                assistant("none"),
+                assistant(None),
+                assistant("legacy_fallback", days_ago=45),
+                Message(
+                    conversation_id=conversation.id,
+                    role="user",
+                    content="PRIVATE question",
+                    metadata_json=json.dumps(
+                        {"context_receipt": {"evidence": {"knowledge_retrieval_mode": "legacy"}}}
+                    ),
+                ),
+            ])
+            session.commit()
+            report = build_knowledge_read_authority_report(session)
+
+        usage = report["legacy_usage"]
+        assert usage["window_days"] == 30
+        assert usage["assistant_message_count"] == 5
+        assert usage["receipt_less_message_count"] == 1
+        assert usage["knowledge_retrieval_modes"]["source_scoped"] == 1
+        assert usage["knowledge_retrieval_modes"]["legacy_fallback"] == 1
+        assert usage["knowledge_retrieval_modes"]["legacy_explicit"] == 1
+        assert usage["legacy_read_count"] == 2
+        assert usage["last_legacy_read_date"] == (now - timedelta(days=2)).date().isoformat()
+        assert usage["legacy_evidence_attachment_count"] == 0
+        assert "PRIVATE" not in json.dumps(report)
+    finally:
+        SQLModel.metadata.drop_all(engine)
+        engine.dispose()
