@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
 
+from app import config as legacy_reads_config
 from app.models.db import User, KnowledgeDocument, DocumentChunk
 from app.routers import knowledge as knowledge_module
 from app.routers.knowledge import router
@@ -127,6 +128,7 @@ class KnowledgeRouterTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()), 0)
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_upload_document(self):
         import io
         file_content = b"test file content"
@@ -138,6 +140,7 @@ class KnowledgeRouterTestCase(unittest.TestCase):
         data = resp.json()
         self.assertEqual(data["name"], "test.txt")
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_upload_document_with_project(self):
         with Session(self.engine) as session:
             from app.models.db import Project
@@ -154,6 +157,7 @@ class KnowledgeRouterTestCase(unittest.TestCase):
         )
         self.assertIn(resp.status_code, [200, 201])
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_upload_document_invalid_project(self):
         import io
         resp = self.client.post(
@@ -162,6 +166,7 @@ class KnowledgeRouterTestCase(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 404)
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_reindex_document_queues_background_index(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
             f.write("retry me")

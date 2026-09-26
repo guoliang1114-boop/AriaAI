@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlmodel import SQLModel, Session, select
 
+from app import config as legacy_reads_config
 from app.models.db import ClientRecord, KnowledgeDocument, Project, ProjectMember, User
 from app.models.knowledge import (
     KnowledgeJob,
@@ -194,6 +195,7 @@ class KnowledgeWritePermissionTestCase(unittest.TestCase):
     def _become(self, role: str) -> None:
         self.current_user_id = self.user_ids[role]
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_viewer_can_read_but_cannot_mutate_or_retry(self) -> None:
         self.assertEqual(
             self.api.get(f"/knowledge/sources/{self.source_id}/documents").status_code,
@@ -347,6 +349,12 @@ class KnowledgeWritePermissionTestCase(unittest.TestCase):
             response = self.api.post("/knowledge/query?query=all")
         self.assertEqual(response.status_code, 410, response.text)
         retrieve.assert_not_called()
+        upload = self.api.post(
+            "/knowledge/documents",
+            files={"file": ("retired.md", b"# retired", "text/markdown")},
+        )
+        self.assertEqual(upload.status_code, 410, upload.text)
+        self.assertEqual(self.api.post("/knowledge/documents/1/reindex").status_code, 410)
 
     @patch.object(knowledge_router.config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_query_passes_explicit_project_and_client_visibility(self) -> None:
@@ -410,6 +418,7 @@ class KnowledgeWritePermissionTestCase(unittest.TestCase):
                 )
             self.assertEqual(denied.exception.status_code, 403)
 
+    @patch.object(legacy_reads_config, "KNOWLEDGE_LEGACY_READS_ENABLED", True)
     def test_final_write_check_observes_membership_downgrade(self) -> None:
         self._become("editor")
         original = knowledge_permissions.lock_and_require_legacy_document_write

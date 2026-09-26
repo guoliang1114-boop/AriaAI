@@ -92,7 +92,7 @@ on:
 6. PostgreSQL 可用
 7. 后端 `.env` 已配置真实 `DATABASE_URL`
 
-旧知识库（`KnowledgeDocument`/`DocumentChunk`）的 AI 读取自 2026-09-25 默认关闭：聊天/技能不再回退旧库，显式旧库 ID 只经已完成的迁移映射读取新版文档，`/knowledge/query` 返回 410，旧库整改证据附件返回 409。旧表保留；需要回滚时在后端 `.env` 设置 `KNOWLEDGE_LEGACY_READS_ENABLED=true` 并重启 PM2。`knowledge_read_authority_report.py` 的 `runtime_read_mode` 与两项 legacy 字段反映该开关。
+旧知识库（`KnowledgeDocument`/`DocumentChunk`）的 AI 读取自 2026-09-25 默认关闭：聊天/技能不再回退旧库，显式旧库 ID 只经已完成的迁移映射读取新版文档，`/knowledge/query` 以及旧库上传 `POST /knowledge/documents`、旧库重建 `POST /knowledge/documents/{id}/reindex` 返回 410（旧文档列表与删除保留，便于清理），旧库整改证据附件返回 409。旧表保留；需要回滚时在后端 `.env` 设置 `KNOWLEDGE_LEGACY_READS_ENABLED=true` 并重启 PM2。`knowledge_read_authority_report.py` 的 `runtime_read_mode` 与两项 legacy 字段反映该开关。
 
 ## 6. 当前数据库策略
 

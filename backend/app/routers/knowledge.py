@@ -1146,6 +1146,8 @@ async def upload_document(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    if not config.KNOWLEDGE_LEGACY_READS_ENABLED:
+        raise HTTPException(410, "Legacy knowledge documents are retired; use /knowledge/sources/{source_id}/documents")
     category = category_form or category_query
     project_id = project_id_form if project_id_form is not None else project_id_query
     client_id = client_id_form if client_id_form is not None else client_id_query
@@ -1306,6 +1308,8 @@ def reindex_document(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    if not config.KNOWLEDGE_LEGACY_READS_ENABLED:
+        raise HTTPException(410, "Legacy knowledge documents are retired; use /knowledge/sources/{source_id}/documents")
     doc = session.get(KnowledgeDocument, doc_id)
     if not doc:
         raise HTTPException(404, "Document not found")
