@@ -7,6 +7,7 @@ struct VoiceModeView: View {
     let onClose: () -> Void
     let onComplete: (String) -> Void
 
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var phase: VoiceDemoPhase = .listening
@@ -28,7 +29,7 @@ struct VoiceModeView: View {
                             AriaVoiceOrb(
                                 diameter: min(max(geometry.size.width * 0.48, 205), 330),
                                 mood: isMuted ? .resting : phase.orbMood,
-                                animated: !isMuted && !isClosing
+                                animated: !isMuted && !isClosing && scenePhase == .active
                             )
                             .padding(26)
                             .contentShape(Circle())
@@ -59,7 +60,10 @@ struct VoiceModeView: View {
         }
         .background(Color.white.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) { voiceControls }
-        .onAppear { startTimer() }
+        .onAppear { if scenePhase == .active { startTimer() } }
+        .onChange(of: scenePhase) { _, state in
+            if state == .active { startTimer() } else { stopTimer() }
+        }
         .onDisappear { stopTimer() }
     }
 
@@ -213,6 +217,7 @@ struct PhoneFlowView: View {
     let onComplete: (String) -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
     @State private var phase: PhoneDemoPhase = .confirmation
     @State private var isMuted = false
     @State private var speakerEnabled = false
@@ -227,6 +232,11 @@ struct PhoneFlowView: View {
         ZStack {
             Color.white.ignoresSafeArea()
             if phase == .confirmation { confirmationView } else { callView }
+        }
+        .onChange(of: scenePhase) { _, state in
+            if state == .background {
+                if phase == .active { finishCall() } else { cancel() }
+            }
         }
         .onDisappear { stopSimulation() }
     }
@@ -458,7 +468,10 @@ struct PhoneFlowView: View {
         phase = .calling
         elapsedSeconds = 0
         simulationTask = Task { @MainActor in
-            guard await demoPause(seconds: 1.7), !isClosing else { return }
+            guard await demoPause(seconds: 1.7), !isClosing, scenePhase == .active else {
+                cancel()
+                return
+            }
             phase = .active
             let startedAt = Date()
             while !Task.isCancelled {

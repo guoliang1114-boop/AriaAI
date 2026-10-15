@@ -101,6 +101,26 @@ check('replyTasks.values.forEach { $0.cancel() }' in sources['Models.swift'], 'L
 check('stopTimer()' in sources['VoiceViews.swift'], 'Voice lifecycle cancels its timer')
 tests = (ROOT/'AriaTests/AriaTests.swift').read_text()
 check(len(re.findall(r'func test\w+',tests)) >= 10, 'At least ten focused XCTest cases included')
+# Static regression guards for the second-pass interaction contract. These do not execute Swift.
+model = sources['Models.swift']
+chat = sources['ChatViews.swift']
+content = sources['ContentViews.swift']
+voice = sources['VoiceViews.swift']
+check('private var drafts: [UUID: ComposerDraft]' in model, 'Composer drafts are keyed by conversation')
+check('private(set) var selectedConversationID' in model and 'func selectConversation(id: UUID) -> Bool' in model, 'Conversation selection has a validated model entry point')
+check(not re.search(r'store\.selectedConversationID\s*=', joined), 'Views cannot bypass validated conversation selection')
+check('func sendDraft() -> Bool' in model and 'guard send(value.text, replyTo: value.replyTo)' in model, 'Composer clears only after an accepted send')
+check('drafts.removeAll()' in model, 'Logout clears every in-memory composer')
+check('chatDraft += "\\n\\n" + context' in model, 'Context routing preserves existing draft content')
+check('searchMessages(matching query: String)' in model and 'let term = query.trimmingCharacters' in model, 'Chat search normalizes its query centrally')
+check('self.responseTokens[conversationID] == responseToken' in model, 'Cancelled/restarted replies have identity guards')
+check('store.stopResponse()' in chat, 'Current conversation has an accessible stop-response control')
+check('ChatBottomPreferenceKey' in chat and 'if isNearBottom || store.messages.last?.role == .user' in chat, 'Automatic scrolling is conditional on reader position or explicit send')
+check('.safeAreaInset(edge: .bottom, spacing: 0) { composer }' in chat and 'ToolbarItemGroup(placement: .keyboard)' in chat, 'Composer respects keyboard/safe-area layout and offers dismissal')
+check('AccessibleSelectionMenu' in content and 'dynamicTypeSize.isAccessibilitySize' in content, 'Filters/status support large-text menu selection')
+check(content.count('.task(id: refreshRequestID)') == 2 and 'try? await Task.sleep' not in content, 'Both content refreshes are view-scoped and cancellation-aware')
+check(voice.count('.onChange(of: scenePhase)') == 2 and 'scenePhase == .active' in voice, 'Voice/phone demos explicitly handle app lifecycle')
+check(len(re.findall(r'func test\w+', tests)) >= 22, 'Twenty-two focused XCTest cases are included (not executed here)')
 check(not any(p.name in {'aria.html','.env','credentials.json'} for p in ROOT.rglob('*')), 'No original prototype or credential file in deliverable')
 print(f'\n{checks} portable checks passed.')
 print('NOT RUN: Swift compilation, XCTest execution, iOS simulator, device/UI/VoiceOver testing.')

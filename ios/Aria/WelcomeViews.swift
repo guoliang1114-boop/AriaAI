@@ -36,7 +36,7 @@ struct OnboardingView: View {
     ]
     var body: some View {
         VStack(spacing: 0) {
-            HStack { Spacer(); Button("跳过") { store.finishOnboarding() }.font(.subheadline).foregroundStyle(Theme.secondary).padding(9) }
+            HStack { Spacer(); Button("跳过") { store.finishOnboarding() }.font(.subheadline).foregroundStyle(Theme.secondary).padding(.horizontal, 9).frame(minWidth: 44, minHeight: 44) }
                 .padding(.horizontal, 28).padding(.top, 16)
             TabView(selection: $page) {
                 ForEach(pages.indices, id: \.self) { index in
@@ -70,6 +70,7 @@ struct OnboardingView: View {
                             .frame(width: index == page ? 22 : 7, height: 7)
                             .frame(width: 44, height: 44)
                     }.accessibilityLabel("第 \(index + 1) 页，共 3 页")
+                        .accessibilityAddTraits(page == index ? .isSelected : [])
                 }
             }
             if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
@@ -131,7 +132,7 @@ struct LoginView: View {
                     if let error {
                         Label(error, systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.red)
                     }
-                    HStack { Spacer(); Button("忘记密码？") { showHelp = true }.font(.subheadline).foregroundStyle(Theme.secondary) }
+                    HStack { Spacer(); Button("忘记密码？") { showHelp = true }.font(.subheadline).foregroundStyle(Theme.secondary).frame(minHeight: 44) }
                     PrimaryButton("登录") { login() }
                 }.padding(.top, 15)
                 HStack(alignment: .top, spacing: 9) {
@@ -144,6 +145,7 @@ struct LoginView: View {
         }
         .background(.white).foregroundStyle(Theme.ink)
         .scrollDismissesKeyboard(.interactively)
+        .onDisappear { password = ""; passwordVisible = false }
         .alert("这是一个本地演示", isPresented: $showHelp) {
             Button("知道了", role: .cancel) { }
         } message: { Text("没有真实账号或已保存的密码。输入任意有效邮箱和至少 6 位模拟密码即可体验。") }

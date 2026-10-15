@@ -7,10 +7,14 @@ import SwiftUI
 
 struct ActivityView: View {
     @EnvironmentObject var store: AppStore
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var filter: ActivityFilter = .all
     @State private var updatedAt: Date?
-    @State private var isRefreshing = false
+    @State private var refreshRequestID: UUID?
+    @State private var activeRefreshID: UUID?
     @State private var selectedApprovalID: UUID?
+
+    private var isRefreshing: Bool { activeRefreshID != nil }
 
     private var visibleItems: [ActivityEntry] {
         let pendingItems = store.approvals.filter { $0.status == .pending }
@@ -81,6 +85,14 @@ struct ActivityView: View {
             .navigationBarTitleDisplayMode(.inline)
             .modifier(AriaStatusToolbar())
             .refreshable { await refreshActivity() }
+            .task(id: refreshRequestID) {
+                guard refreshRequestID != nil else { return }
+                await refreshActivity()
+            }
+            .onDisappear {
+                refreshRequestID = nil
+                activeRefreshID = nil
+            }
             .navigationDestination(item: $selectedApprovalID) { approvalID in
                 ContentApprovalDetailView(approvalID: approvalID)
             }
@@ -88,7 +100,10 @@ struct ActivityView: View {
     }
 
     private var refreshLabel: some View {
-        HStack(spacing: 12) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(spacing: 12))
+        return layout {
             VStack(alignment: .leading, spacing: 4) {
                 if let updatedAt {
                     Text("已更新于 \(updatedAt.formatted(date: .omitted, time: .standard))")
@@ -97,15 +112,17 @@ struct ActivityView: View {
                 }
                 Text("\(visibleItems.count) 项动态")
             }
-            Spacer()
+            if !dynamicTypeSize.isAccessibilitySize { Spacer() }
             Button {
-                Task { await refreshActivity() }
+                refreshRequestID = UUID()
             } label: {
                 Label(isRefreshing ? "更新中" : "刷新", systemImage: "arrow.clockwise")
                     .font(.subheadline)
                     .padding(.horizontal, 12).padding(.vertical, 10)
+                    .frame(minWidth: 44, minHeight: 44)
                     .background(.white, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, lineWidth: 1))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain).disabled(isRefreshing)
         }
@@ -114,11 +131,20 @@ struct ActivityView: View {
     }
 
     @MainActor private func refreshActivity() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        try? await Task.sleep(for: .milliseconds(700))
+        guard !Task.isCancelled, !isRefreshing else { return }
+        let refreshID = UUID()
+        activeRefreshID = refreshID
+        defer {
+            if activeRefreshID == refreshID { activeRefreshID = nil }
+        }
+        do {
+            try await Task.sleep(for: .milliseconds(700))
+        } catch {
+            return
+        }
+        // A disappeared view invalidates pull-to-refresh as well as button tasks.
+        guard !Task.isCancelled, activeRefreshID == refreshID else { return }
         updatedAt = Date()
-        isRefreshing = false
     }
 }
 
@@ -212,28 +238,21 @@ private struct ActivityDetailView: View {
 
 struct InspirationView: View {
     @EnvironmentObject var store: AppStore
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var feedback: [String: InspirationFeedback] = [:]
     @State private var entries = InspirationEntry.samples
-    @State private var isRefreshing = false
+    @State private var refreshRequestID: UUID?
+    @State private var activeRefreshID: UUID?
     @State private var refreshed = false
+
+    private var isRefreshing: Bool { activeRefreshID != nil }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     ContentIntro(eyebrow: "根据当前目标整理", title: "灵感", subtitle: "根据正在做的事，给出可以直接开始的下一步。")
-                    HStack {
-                        Text(refreshed ? "已根据当前目标重新整理" : "从一个想法开始")
-                            .font(.caption).foregroundStyle(Theme.secondary)
-                        Spacer()
-                        Button {
-                            Task { await refreshIdeas() }
-                        } label: {
-                            Label(isRefreshing ? "整理中" : "换一批", systemImage: "arrow.clockwise")
-                                .font(.subheadline)
-                        }
-                        .disabled(isRefreshing).foregroundStyle(Theme.ink)
-                    }
+                    refreshLabel
                     ForEach(entries) { item in
                         InspirationCard(item: item, feedback: feedbackBinding(for: item.id))
                             .opacity(isRefreshing ? 0.4 : 1)
@@ -247,6 +266,34 @@ struct InspirationView: View {
             .navigationBarTitleDisplayMode(.inline)
             .modifier(AriaStatusToolbar())
             .refreshable { await refreshIdeas() }
+            .task(id: refreshRequestID) {
+                guard refreshRequestID != nil else { return }
+                await refreshIdeas()
+            }
+            .onDisappear {
+                refreshRequestID = nil
+                activeRefreshID = nil
+            }
+        }
+    }
+
+    private var refreshLabel: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(spacing: 12))
+        return layout {
+            Text(refreshed ? "已根据当前目标重新整理" : "从一个想法开始")
+                .font(.caption).foregroundStyle(Theme.secondary)
+            if !dynamicTypeSize.isAccessibilitySize { Spacer() }
+            Button {
+                refreshRequestID = UUID()
+            } label: {
+                Label(isRefreshing ? "整理中" : "换一批", systemImage: "arrow.clockwise")
+                    .font(.subheadline)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .disabled(isRefreshing).foregroundStyle(Theme.ink)
         }
     }
 
@@ -255,15 +302,23 @@ struct InspirationView: View {
     }
 
     @MainActor private func refreshIdeas() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        try? await Task.sleep(for: .milliseconds(700))
+        guard !Task.isCancelled, !isRefreshing else { return }
+        let refreshID = UUID()
+        activeRefreshID = refreshID
+        defer {
+            if activeRefreshID == refreshID { activeRefreshID = nil }
+        }
+        do {
+            try await Task.sleep(for: .milliseconds(700))
+        } catch {
+            return
+        }
+        guard !Task.isCancelled, activeRefreshID == refreshID else { return }
         if !entries.isEmpty {
             let first = entries.removeFirst()
             entries.append(first)
         }
         refreshed = true
-        isRefreshing = false
     }
 }
 
@@ -323,18 +378,28 @@ private struct InspirationCard: View {
 }
 
 private struct InspirationFeedbackControls: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Binding var feedback: InspirationFeedback?
 
     var body: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(spacing: 12))
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
+            layout {
                 Button { feedback = .useful } label: {
                     Label(feedback == .useful ? "已记下" : "对我有用", systemImage: feedback == .useful ? "hand.thumbsup.fill" : "hand.thumbsup")
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel("这条灵感对我有用")
-                Spacer(minLength: 8)
+                if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
                 Button { feedback = .lessLikeThis } label: {
                     Label(feedback == .lessLikeThis ? "已减少" : "少一些这类", systemImage: "minus.circle")
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel("减少这类灵感")
             }
@@ -737,6 +802,8 @@ private struct LibraryDetailView: View {
                     Button { saved.toggle() } label: {
                         Label(saved ? "已收藏" : "收藏", systemImage: saved ? "bookmark.fill" : "bookmark")
                             .font(.subheadline.weight(.medium)).foregroundStyle(Theme.accent)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityHint("仅保存在本次演示中")
                 }
@@ -796,6 +863,7 @@ private struct LibraryDetailView: View {
 struct StatusView: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var segment: StatusSegment = .activity
     @State private var dailyReminder = false
 
@@ -811,12 +879,7 @@ struct StatusView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     statusHeader
-                    Picker("Aria 状态分类", selection: $segment) {
-                        ForEach(StatusSegment.allCases) { item in
-                            Text(item.rawValue).tag(item)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                    statusSelector
                     statusContent
                     SampleDataFootnote()
                 }
@@ -839,6 +902,19 @@ struct StatusView: View {
                     .accessibilityLabel("打开设置")
                 }
             }
+        }
+    }
+
+    @ViewBuilder private var statusSelector: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            AccessibleSelectionMenu(title: "Aria 状态分类", selection: $segment)
+        } else {
+            Picker("Aria 状态分类", selection: $segment) {
+                ForEach(StatusSegment.allCases) { item in
+                    Text(item.rawValue).tag(item)
+                }
+            }
+            .pickerStyle(.segmented)
         }
     }
 
@@ -968,7 +1044,7 @@ struct StatusView: View {
     }
 }
 
-private enum StatusSegment: String, CaseIterable, Identifiable {
+private enum StatusSegment: String, CaseIterable, Identifiable, ContentFilter {
     case activity = "动态"
     case approvals = "待审批"
     case schedule = "日程"
@@ -1101,8 +1177,18 @@ private struct ScheduleContentRow: View {
 private protocol ContentFilter: Hashable, CaseIterable, Identifiable, RawRepresentable where RawValue == String {}
 
 private struct FilterSelector<Filter: ContentFilter>: View where Filter.AllCases: RandomAccessCollection {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Binding var selection: Filter
+
     var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            AccessibleSelectionMenu(title: "筛选", selection: $selection)
+        } else {
+            segmentedOptions
+        }
+    }
+
+    private var segmentedOptions: some View {
         HStack(spacing: 4) {
             ForEach(Filter.allCases) { item in
                 Button { selection = item } label: {
@@ -1110,9 +1196,10 @@ private struct FilterSelector<Filter: ContentFilter>: View where Filter.AllCases
                         .font(.subheadline.weight(selection == item ? .semibold : .regular))
                         .foregroundStyle(selection == item ? Theme.ink : Theme.secondary)
                         .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .background(selection == item ? Color.white : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                         .shadow(color: selection == item ? Color.black.opacity(0.04) : .clear, radius: 2, y: 1)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(item.rawValue)
@@ -1121,6 +1208,39 @@ private struct FilterSelector<Filter: ContentFilter>: View where Filter.AllCases
         }
         .padding(4)
         .background(Color(red: 0.933, green: 0.933, blue: 0.941), in: RoundedRectangle(cornerRadius: 11))
+    }
+}
+
+private struct AccessibleSelectionMenu<Selection: ContentFilter>: View where Selection.AllCases: RandomAccessCollection {
+    let title: String
+    @Binding var selection: Selection
+
+    var body: some View {
+        Menu {
+            Picker(title, selection: $selection) {
+                ForEach(Selection.allCases) { item in
+                    Text(item.rawValue).tag(item)
+                }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Text(selection.rawValue)
+                    .font(.body.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+            .foregroundStyle(Theme.ink)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .frame(minWidth: 44, minHeight: 44)
+            .background(.white, in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.line, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(title)
+        .accessibilityValue(selection.rawValue)
     }
 }
 
@@ -1173,8 +1293,12 @@ private struct AriaStatusToolbar: ViewModifier {
         content
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showsStatus = true } label: { AriaMark(size: 28) }
-                        .accessibilityLabel("查看 Aria 的状态")
+                    Button { showsStatus = true } label: {
+                        AriaMark(size: 28)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("查看 Aria 的状态")
                 }
             }
             .sheet(isPresented: $showsStatus) {

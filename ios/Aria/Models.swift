@@ -29,20 +29,33 @@ struct Conversation: Identifiable {
     var messages: [ChatMessage]
 }
 
+struct ComposerDraft: Equatable {
+    var text = ""
+    var replyTo: String? = nil
+}
+
+struct MessageSearchResult: Identifiable {
+    let conversationID: UUID
+    let conversationTitle: String
+    let message: ChatMessage
+    var id: UUID { message.id }
+}
+
 /// All data stays in this process. Only the onboarding completion flag uses UserDefaults.
 @MainActor
 final class AppStore: ObservableObject {
     @Published var stage: AppStage = .splash
     @Published var selectedTab: AppTab = .chat
     @Published var profileEmail = ""
-    @Published var chatDraft = ""
+    @Published private var drafts: [UUID: ComposerDraft] = [:]
     @Published var chatContextID = UUID()
     @Published var conversations: [Conversation] = []
-    @Published var selectedConversationID = UUID()
+    @Published private(set) var selectedConversationID = UUID()
     @Published var approvals: [ApprovalItem] = []
     @Published private(set) var respondingConversationIDs: Set<UUID> = []
     @Published var toast: String? = nil
     private var replyTasks: [UUID: Task<Void, Never>] = [:]
+    private var responseTokens: [UUID: UUID] = [:]
     private var toastTask: Task<Void, Never>?
     private var sessionID = UUID()
     private let defaults: UserDefaults
@@ -58,6 +71,53 @@ final class AppStore: ObservableObject {
     var isResponding: Bool { respondingConversationIDs.contains(selectedConversationID) }
     var messages: [ChatMessage] { currentConversation?.messages ?? [] }
     var pendingApprovalCount: Int { approvals.filter { $0.status == .pending }.count }
+
+    var chatDraft: String {
+        get { draft(for: selectedConversationID).text }
+        set {
+            var value = draft(for: selectedConversationID)
+            value.text = newValue
+            drafts[selectedConversationID] = value
+        }
+    }
+
+    var replyQuote: String? {
+        get { draft(for: selectedConversationID).replyTo }
+        set {
+            var value = draft(for: selectedConversationID)
+            value.replyTo = newValue
+            drafts[selectedConversationID] = value
+        }
+    }
+
+    func draft(for conversationID: UUID) -> ComposerDraft {
+        drafts[conversationID] ?? ComposerDraft()
+    }
+
+    @discardableResult
+    func selectConversation(id: UUID) -> Bool {
+        guard conversations.contains(where: { $0.id == id }) else { return false }
+        selectedConversationID = id
+        return true
+    }
+
+    func searchMessages(matching query: String) -> [MessageSearchResult] {
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return [] }
+        return conversations.flatMap { conversation in
+            conversation.messages.filter { $0.text.localizedCaseInsensitiveContains(term) }.map {
+                MessageSearchResult(conversationID: conversation.id, conversationTitle: conversation.title, message: $0)
+            }
+        }
+    }
+
+    @discardableResult
+    func sendDraft() -> Bool {
+        let value = draft(for: selectedConversationID)
+        guard send(value.text, replyTo: value.replyTo) else { return false }
+        drafts[selectedConversationID] = nil
+        return true
+    }
 
     func finishSplash() {
         guard stage == .splash else { return }
@@ -78,11 +138,12 @@ final class AppStore: ObservableObject {
     func logout() {
         replyTasks.values.forEach { $0.cancel() }
         replyTasks.removeAll()
+        responseTokens.removeAll()
+        drafts.removeAll()
         toastTask?.cancel()
         sessionID = UUID()
         respondingConversationIDs.removeAll()
         profileEmail = ""
-        chatDraft = ""
         toast = nil
         selectedTab = .chat
         seedDemo()
@@ -100,16 +161,18 @@ final class AppStore: ObservableObject {
             ChatMessage(role: .assistant, text: "今天有什么想一起推进的？\n可以是一个项目、一份待办，或者还没理清的想法。")
         ])
         conversations.insert(conversation, at: 0)
-        selectedConversationID = conversation.id
-        chatDraft = ""
+        selectConversation(id: conversation.id)
         selectedTab = .chat
     }
 
-    func send(_ text: String, replyTo: String? = nil) {
+    @discardableResult
+    func send(_ text: String, replyTo: String? = nil) -> Bool {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty, !isResponding else { return }
+        guard !clean.isEmpty, !isResponding, currentConversation != nil else { return false }
         let conversationID = selectedConversationID
         let currentSession = sessionID
+        let responseToken = UUID()
+        responseTokens[conversationID] = responseToken
         append(ChatMessage(role: .user, text: clean, replyTo: replyTo), to: conversationID)
         if let index = conversations.firstIndex(where: { $0.id == conversationID }), conversations[index].title == "新的对话" {
             conversations[index].title = String(clean.prefix(16))
@@ -118,7 +181,8 @@ final class AppStore: ObservableObject {
         replyTasks[conversationID]?.cancel()
         replyTasks[conversationID] = Task { [weak self] in
             do { try await Task.sleep(nanoseconds: 850_000_000) } catch { return }
-            guard let self, !Task.isCancelled, self.sessionID == currentSession else { return }
+            guard let self, !Task.isCancelled, self.sessionID == currentSession,
+                  self.responseTokens[conversationID] == responseToken else { return }
             let result = MockReplies.reply(to: clean)
             self.append(ChatMessage(role: .assistant, text: result), to: conversationID)
             if clean.contains("发送") || clean.contains("审批") {
@@ -128,11 +192,31 @@ final class AppStore: ObservableObject {
             }
             self.respondingConversationIDs.remove(conversationID)
             self.replyTasks[conversationID] = nil
+            self.responseTokens[conversationID] = nil
         }
+        return true
+    }
+
+    func stopResponse() {
+        let conversationID = selectedConversationID
+        guard respondingConversationIDs.contains(conversationID) else { return }
+        responseTokens[conversationID] = nil
+        replyTasks.removeValue(forKey: conversationID)?.cancel()
+        respondingConversationIDs.remove(conversationID)
+        showToast("已停止整理，草稿仍为你保留")
     }
 
     func openChat(context: String) {
-        chatDraft = context
+        let context = context.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !context.isEmpty {
+            let existing = chatDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            if existing.isEmpty {
+                chatDraft = context
+            } else if !existing.contains(context) {
+                chatDraft += "\n\n" + context
+            }
+            replyQuote = nil
+        }
         chatContextID = UUID()
         selectedTab = .chat
     }

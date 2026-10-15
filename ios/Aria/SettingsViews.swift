@@ -15,7 +15,7 @@ struct SettingsView: View {
             Section("连接与设备") {
                 NavigationLink { ConnectorDetailView() } label: { SettingsRow(symbol: "link", title: "连接器", value: "管理") }
                 NavigationLink { SettingsInfoView(title: "设备", symbol: "iphone", detail: "当前设备", bodyText: "本机 · iOS 应用演示\n本示例不会读取设备标识，也没有注册远程设备。") } label: { SettingsRow(symbol: "iphone", title: "设备", value: "本机") }
-                NavigationLink { SettingsInfoView(title: "钱包", symbol: "wallet.bifold", detail: "未设置", bodyText: "这是本地前端演示，没有支付方式、余额或真实交易。电话页面的价格仅为界面示例。") } label: { SettingsRow(symbol: "wallet.bifold", title: "钱包", value: "未设置") }
+                NavigationLink { SettingsInfoView(title: "钱包", symbol: "wallet.bifold", detail: "未设置", bodyText: "这是本地前端演示，没有支付方式、余额或真实交易。电话页面仅展示模拟资费说明，不会产生费用。") } label: { SettingsRow(symbol: "wallet.bifold", title: "钱包", value: "未设置") }
             }
             Section("安全与权限") {
                 NavigationLink { SettingsInfoView(title: "安全凭据", symbol: "lock", detail: "不保存真实凭据", bodyText: "登录时输入的模拟密码只用于本地校验，并在登录成功或离开登录页面后清空。没有服务器、Keychain 或密码保存操作。") } label: { SettingsRow(symbol: "lock", title: "安全凭据", value: "本地演示") }
