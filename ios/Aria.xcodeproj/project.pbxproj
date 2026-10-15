@@ -1,0 +1,297 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+		FB0AC5B2082303821F76249A = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AriaApp.swift"; sourceTree = "<group>";
+		};
+		2A47161B138A215CD07A0EA6 = {
+			isa = PBXBuildFile; fileRef = FB0AC5B2082303821F76249A;
+		};
+		6DDD9ECEA8FE57D6A92E4AA3 = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViews.swift"; sourceTree = "<group>";
+		};
+		D8722EFC69F82C36D3F193DE = {
+			isa = PBXBuildFile; fileRef = 6DDD9ECEA8FE57D6A92E4AA3;
+		};
+		54F20D5037ACBECFFB7B3108 = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentViews.swift"; sourceTree = "<group>";
+		};
+		CDA92D93043A2218DB746BAE = {
+			isa = PBXBuildFile; fileRef = 54F20D5037ACBECFFB7B3108;
+		};
+		05AAE9655586C3F62FCF756E = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DesignSystem.swift"; sourceTree = "<group>";
+		};
+		8C6C64A5FA7FCD1367ADBDCB = {
+			isa = PBXBuildFile; fileRef = 05AAE9655586C3F62FCF756E;
+		};
+		78FD430803560F137BDECEE8 = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models.swift"; sourceTree = "<group>";
+		};
+		C28E3B592A560C32484F497E = {
+			isa = PBXBuildFile; fileRef = 78FD430803560F137BDECEE8;
+		};
+		D6863DB17F6F2C0965F0BCF5 = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsViews.swift"; sourceTree = "<group>";
+		};
+		847156A937AEAD783D918287 = {
+			isa = PBXBuildFile; fileRef = D6863DB17F6F2C0965F0BCF5;
+		};
+		B2A6CBF53269F9C75733B670 = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VoiceViews.swift"; sourceTree = "<group>";
+		};
+		C6034BC2E349F93B9498AE24 = {
+			isa = PBXBuildFile; fileRef = B2A6CBF53269F9C75733B670;
+		};
+		A85C34D9C23BBCFF7222E4DE = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WelcomeViews.swift"; sourceTree = "<group>";
+		};
+		F10E32963DDC6E87F31E8042 = {
+			isa = PBXBuildFile; fileRef = A85C34D9C23BBCFF7222E4DE;
+		};
+		3685E330EC5277A9DD5661C6 = {
+			isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>";
+		};
+		AA400DFD4219F700A8EA7668 = {
+			isa = PBXBuildFile; fileRef = 3685E330EC5277A9DD5661C6;
+		};
+		E05FCB614AB36FDEE72EE1F2 = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AriaTests.swift; sourceTree = "<group>";
+		};
+		80FAC02A0BD5812E2A00F339 = {
+			isa = PBXBuildFile; fileRef = E05FCB614AB36FDEE72EE1F2;
+		};
+		8BCD5BC4CDFDF0918087C782 = {
+			isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aria.app; sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		F219C0274590DA45E4BEF1EA = {
+			isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AriaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		69F8D45498D7E20DA99BB780 = {
+			isa = PBXGroup; children = (
+				FB0AC5B2082303821F76249A,
+				6DDD9ECEA8FE57D6A92E4AA3,
+				54F20D5037ACBECFFB7B3108,
+				05AAE9655586C3F62FCF756E,
+				78FD430803560F137BDECEE8,
+				D6863DB17F6F2C0965F0BCF5,
+				B2A6CBF53269F9C75733B670,
+				A85C34D9C23BBCFF7222E4DE,
+				3685E330EC5277A9DD5661C6,
+			); path = Aria; sourceTree = "<group>";
+		};
+		BFC937463906E5DB7A02A37C = {
+			isa = PBXGroup; children = (
+				E05FCB614AB36FDEE72EE1F2,
+			); path = AriaTests; sourceTree = "<group>";
+		};
+		328EC33DF3954DC9B83FA285 = {
+			isa = PBXGroup; children = (
+				8BCD5BC4CDFDF0918087C782,
+				F219C0274590DA45E4BEF1EA,
+			); name = Products; sourceTree = "<group>";
+		};
+		E50290A24C49A459B43487C5 = {
+			isa = PBXGroup; children = (
+				69F8D45498D7E20DA99BB780,
+				BFC937463906E5DB7A02A37C,
+				328EC33DF3954DC9B83FA285,
+			); sourceTree = "<group>";
+		};
+		971ED9D05B25DB6C4D7680D4 = {
+			isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+				2A47161B138A215CD07A0EA6,
+				D8722EFC69F82C36D3F193DE,
+				CDA92D93043A2218DB746BAE,
+				8C6C64A5FA7FCD1367ADBDCB,
+				C28E3B592A560C32484F497E,
+				847156A937AEAD783D918287,
+				C6034BC2E349F93B9498AE24,
+				F10E32963DDC6E87F31E8042,
+			); runOnlyForDeploymentPostprocessing = 0;
+		};
+		364863F9F2E558B0F50473FC = {
+			isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (
+				AA400DFD4219F700A8EA7668,
+			); runOnlyForDeploymentPostprocessing = 0;
+		};
+		78AE8C6BEB2A40A6D824CCEE = {
+			isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
+			); runOnlyForDeploymentPostprocessing = 0;
+		};
+		6E431EB0650617AA1756B320 = {
+			isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+				80FAC02A0BD5812E2A00F339,
+			); runOnlyForDeploymentPostprocessing = 0;
+		};
+		7DED7670B79BEA8B7480B1FC = {
+			isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (
+			); runOnlyForDeploymentPostprocessing = 0;
+		};
+		1ABF84E55BD30AC2CEF8FC42 = {
+			isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
+			); runOnlyForDeploymentPostprocessing = 0;
+		};
+		D799BAE6088A90139B415FCC = {
+			isa = PBXContainerItemProxy; containerPortal = 98F54143AB4E86B28C3AFEE0; proxyType = 1; remoteGlobalIDString = C13732C8E715C9BEE4FA51C9; remoteInfo = Aria;
+		};
+		DE58E2B17C19600779694943 = {
+			isa = PBXTargetDependency; target = C13732C8E715C9BEE4FA51C9; targetProxy = D799BAE6088A90139B415FCC;
+		};
+		C13732C8E715C9BEE4FA51C9 = {
+			isa = PBXNativeTarget; buildConfigurationList = A296CF4B7E708AB4E80076A9; buildPhases = (
+				971ED9D05B25DB6C4D7680D4,
+				78AE8C6BEB2A40A6D824CCEE,
+				364863F9F2E558B0F50473FC,
+			); buildRules = (); dependencies = (
+			); name = Aria; productName = Aria; productReference = 8BCD5BC4CDFDF0918087C782; productType = "com.apple.product-type.application";
+		};
+		64BCB755386F844C96A2A5B0 = {
+			isa = PBXNativeTarget; buildConfigurationList = BBD1A4309DD6635F34F23AFF; buildPhases = (
+				6E431EB0650617AA1756B320,
+				1ABF84E55BD30AC2CEF8FC42,
+				7DED7670B79BEA8B7480B1FC,
+			); buildRules = (); dependencies = (
+				DE58E2B17C19600779694943,
+			); name = AriaTests; productName = AriaTests; productReference = F219C0274590DA45E4BEF1EA; productType = "com.apple.product-type.bundle.unit-test";
+		};
+		89E1FD6268CC0F221A2BE178 = {
+			isa = XCBuildConfiguration; buildSettings = {
+				CLANG_ENABLE_MODULES = "YES";
+				CLANG_ENABLE_OBJC_ARC = "YES";
+				SDKROOT = "iphoneos";
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				SWIFT_VERSION = "5.0";
+				ENABLE_USER_SCRIPT_SANDBOXING = "YES";
+				CLANG_WARN_DOCUMENTATION_COMMENTS = "YES";
+				GCC_WARN_UNUSED_VARIABLE = "YES";
+				GCC_WARN_UNUSED_FUNCTION = "YES";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG";
+				DEBUG_INFORMATION_FORMAT = "dwarf";
+				ENABLE_TESTABILITY = "YES";
+				ONLY_ACTIVE_ARCH = "YES";
+			}; name = Debug;
+		};
+		E6DE6C99132752C914FEF632 = {
+			isa = XCBuildConfiguration; buildSettings = {
+				CLANG_ENABLE_MODULES = "YES";
+				CLANG_ENABLE_OBJC_ARC = "YES";
+				SDKROOT = "iphoneos";
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				SWIFT_VERSION = "5.0";
+				ENABLE_USER_SCRIPT_SANDBOXING = "YES";
+				CLANG_WARN_DOCUMENTATION_COMMENTS = "YES";
+				GCC_WARN_UNUSED_VARIABLE = "YES";
+				GCC_WARN_UNUSED_FUNCTION = "YES";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_TESTABILITY = "NO";
+				ONLY_ACTIVE_ARCH = "NO";
+			}; name = Release;
+		};
+		41A2CC2D5321B7BB2E956CA5 = {
+			isa = XCConfigurationList; buildConfigurations = (
+				89E1FD6268CC0F221A2BE178,
+				E6DE6C99132752C914FEF632,
+			); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;
+		};
+		E9B2E96ABC5F6856F2BE79CF = {
+			isa = XCBuildConfiguration; buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "com.example.aria";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				CODE_SIGN_STYLE = "Automatic";
+				GENERATE_INFOPLIST_FILE = "YES";
+				INFOPLIST_KEY_CFBundleDisplayName = "Aria";
+				INFOPLIST_KEY_UIUserInterfaceStyle = "Light";
+				INFOPLIST_KEY_UILaunchScreen_Generation = "YES";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = "YES";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor";
+				MARKETING_VERSION = "1.0";
+				CURRENT_PROJECT_VERSION = "1";
+				SWIFT_EMIT_LOC_STRINGS = "YES";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				ENABLE_PREVIEWS = "YES";
+			}; name = Debug;
+		};
+		5A8C91857F674E16E2724F47 = {
+			isa = XCBuildConfiguration; buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "com.example.aria";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				CODE_SIGN_STYLE = "Automatic";
+				GENERATE_INFOPLIST_FILE = "YES";
+				INFOPLIST_KEY_CFBundleDisplayName = "Aria";
+				INFOPLIST_KEY_UIUserInterfaceStyle = "Light";
+				INFOPLIST_KEY_UILaunchScreen_Generation = "YES";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = "YES";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor";
+				MARKETING_VERSION = "1.0";
+				CURRENT_PROJECT_VERSION = "1";
+				SWIFT_EMIT_LOC_STRINGS = "YES";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				ENABLE_PREVIEWS = "YES";
+			}; name = Release;
+		};
+		A296CF4B7E708AB4E80076A9 = {
+			isa = XCConfigurationList; buildConfigurations = (
+				E9B2E96ABC5F6856F2BE79CF,
+				5A8C91857F674E16E2724F47,
+			); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;
+		};
+		FCB48D8F88BCDB0ED9FADFD7 = {
+			isa = XCBuildConfiguration; buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "com.example.aria.tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				CODE_SIGN_STYLE = "Automatic";
+				GENERATE_INFOPLIST_FILE = "YES";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Aria.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Aria";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+			}; name = Debug;
+		};
+		942EEBBACD6C88CAE7F29B29 = {
+			isa = XCBuildConfiguration; buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "com.example.aria.tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				CODE_SIGN_STYLE = "Automatic";
+				GENERATE_INFOPLIST_FILE = "YES";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Aria.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Aria";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+			}; name = Release;
+		};
+		BBD1A4309DD6635F34F23AFF = {
+			isa = XCConfigurationList; buildConfigurations = (
+				FCB48D8F88BCDB0ED9FADFD7,
+				942EEBBACD6C88CAE7F29B29,
+			); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;
+		};
+		98F54143AB4E86B28C3AFEE0 = {
+			isa = PBXProject; attributes = { BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 1600; TargetAttributes = { C13732C8E715C9BEE4FA51C9 = { CreatedOnToolsVersion = 16.0; }; 64BCB755386F844C96A2A5B0 = { CreatedOnToolsVersion = 16.0; TestTargetID = C13732C8E715C9BEE4FA51C9; }; }; }; buildConfigurationList = 41A2CC2D5321B7BB2E956CA5; compatibilityVersion = "Xcode 14.0"; developmentRegion = "zh-Hans"; hasScannedForEncodings = 0; knownRegions = ("zh-Hans", en, Base); mainGroup = E50290A24C49A459B43487C5; productRefGroup = 328EC33DF3954DC9B83FA285; projectDirPath = ""; projectRoot = ""; targets = (
+				C13732C8E715C9BEE4FA51C9,
+				64BCB755386F844C96A2A5B0,
+			);
+		};
+	};
+	rootObject = 98F54143AB4E86B28C3AFEE0;
+}
