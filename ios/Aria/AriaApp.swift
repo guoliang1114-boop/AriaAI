@@ -2,18 +2,23 @@ import SwiftUI
 
 @main
 struct AriaApp: App {
-    @StateObject private var store = AppStore()
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var store = AppStore(persistence: FileDemoPersistence())
     var body: some Scene {
         WindowGroup {
             RootView().environmentObject(store)
                 .preferredColorScheme(.light)
                 .tint(Theme.accent)
+                .onChange(of: scenePhase) { _, phase in
+                    if phase != .active { store.flushPersistence() }
+                }
         }
     }
 }
 
 struct RootView: View {
     @EnvironmentObject private var store: AppStore
+    @State private var showLocalDataControls = false
     var body: some View {
         ZStack(alignment: .top) {
             Group {
@@ -36,6 +41,39 @@ struct RootView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: store.toast)
         .animation(.easeInOut(duration: 0.3), value: store.stage)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if store.stage == .main && store.persistenceState.needsAttention {
+                Button { showLocalDataControls = true } label: {
+                    Label("本地存储需要处理 · 查看", systemImage: "exclamationmark.triangle")
+                        .font(.subheadline.weight(.medium))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .padding(.horizontal, 16).padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(red: 0.65, green: 0.27, blue: 0.04))
+                .background(.white)
+                .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+                .accessibilityLabel("本地存储需要处理，查看详情")
+                .accessibilityHint("查看当前本地存储状态，并选择重试或管理演示数据")
+            }
+        }
+        .sheet(isPresented: $showLocalDataControls) {
+            NavigationStack {
+                DataControlView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("关闭") { showLocalDataControls = false }
+                                .frame(minWidth: 44, minHeight: 44)
+                                .accessibilityLabel("关闭数据控制")
+                        }
+                    }
+            }.environmentObject(store)
+        }
+        .onChange(of: store.stage) { _, stage in
+            if stage != .main { showLocalDataControls = false }
+        }
     }
 }
 

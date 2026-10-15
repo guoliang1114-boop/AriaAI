@@ -121,6 +121,36 @@ check('AccessibleSelectionMenu' in content and 'dynamicTypeSize.isAccessibilityS
 check(content.count('.task(id: refreshRequestID)') == 2 and 'try? await Task.sleep' not in content, 'Both content refreshes are view-scoped and cancellation-aware')
 check(voice.count('.onChange(of: scenePhase)') == 2 and 'scenePhase == .active' in voice, 'Voice/phone demos explicitly handle app lifecycle')
 check(len(re.findall(r'func test\w+', tests)) >= 22, 'Twenty-two focused XCTest cases are included (not executed here)')
+# Static persistence contract guards. Actual file roundtrips/faults are covered by authored XCTest, not Python.
+persistence = sources['Persistence.swift']
+app = sources['AriaApp.swift']
+settings = sources['SettingsViews.swift']
+snapshot_definition = persistence.split('enum DemoStorageError')[0]
+check('struct DemoSnapshot: Codable' in persistence and 'currentVersion = 2' in persistence, 'Local demo document has an explicit Codable version')
+check(not re.search(r'var (password|email|profileEmail|token|stage|sessionID)\b', snapshot_definition), 'Snapshot schema excludes login, email, credentials and session identity')
+check('let id: UUID' in model and 'let date: Date' in model and 'init(id: UUID = UUID()' in model, 'Message identity and timestamps decode as stored values')
+check('protocol DemoPersistence' in persistence and 'persistence: DemoPersistence? = nil' in model, 'Persistence is injectable and disabled by default in unit-test stores')
+check('AppStore(persistence: FileDemoPersistence())' in app, 'App explicitly enables sandboxed local storage')
+check('URL.applicationSupportDirectory' in persistence and 'isExcludedFromBackup = true' in persistence, 'Snapshots use Application Support excluded from device backup')
+check('options: [.atomic, .completeFileProtection]' in persistence, 'Snapshot replacement requests atomic writing and complete file protection')
+check('fileExists' not in persistence and 'CocoaError.Code.fileReadNoSuchFile' in persistence and 'CocoaError.Code.fileNoSuchFile' in persistence, 'Storage distinguishes explicit absence from inaccessible files')
+check(persistence.index('size.intValue <= Self.maximumBytes') < persistence.index('Data(contentsOf: fileURL)'), 'Storage checks file size before decoding')
+check('unsupportedVersion(header.schemaVersion)' in persistence and 'case .blocked' in model, 'Unknown schemas block writes rather than being replaced')
+check('LegacyDemoSnapshotV1' in persistence and 'migrationNeedsArchive' in model, 'Draft-less compatibility migration is explicit and archived before replacement')
+check('Set(messages.map(\\.id)).count == messages.count' in persistence and 'approvalIDs.contains' in persistence and 'conversationIDs.contains($0.conversationID)' in persistence, 'Restore validates stable IDs and message/draft foreign keys')
+check('guard let persistence, !restoreBlocked, hasUnsavedChanges' in model, 'Automatic flush cannot overwrite blocked originals')
+check('guard !hasUnsavedChanges else' in model and 'applyLoad(persistence.load())' in model, 'Retry cannot overwrite newer temporary edits by restoring an old file')
+check('300_000_000' in model and 'if phase != .active { store.flushPersistence() }' in app, 'Debounced changes also flush on app lifecycle transitions')
+logout = model.split('func logout()')[1].split('func replayOnboarding()')[0]
+check('drafts.removeAll()' in logout and 'flushPersistence()' in logout and 'seedDemo()' not in logout, 'Logout flushes draft removal while preserving history and no login state')
+reset = model.split('func resetLocalDemo()')[1].split('private func makeSnapshot()')[0]
+check(reset.index('archiveCurrent()') < reset.index('persistence.save(fresh)') < reset.index('applySnapshot(fresh)'), 'Confirmed reset archives and writes successfully before changing memory')
+check('copyItem(at: fileURL' in persistence and 'removeItem' not in persistence, 'Recovery archives are copied and never silently deleted')
+check('pendingReplyConversationIDs' in persistence and '不会自动继续' in model, 'Interrupted reply markers restore without launching old tasks')
+check('clean.utf8.count <= 100_000' in model and 'conversations.count < 200' in model, 'Oversized sends and excess conversations are rejected before permanent history changes')
+check('persistenceState.needsAttention' in app and 'DataControlView()' in app, 'Save failures have a main-screen action to data controls')
+check('未保存' in settings and '旧快照' in settings and '所有模拟邮箱' in settings, 'Reset and privacy UI disclose unsaved loss and shared local mock data')
+check(len(re.findall(r'func test\w+', tests)) >= 51, 'Fifty-one authored XCTest cases include persistence failure/restart coverage (not executed here)')
 check(not any(p.name in {'aria.html','.env','credentials.json'} for p in ROOT.rglob('*')), 'No original prototype or credential file in deliverable')
 print(f'\n{checks} portable checks passed.')
 print('NOT RUN: Swift compilation, XCTest execution, iOS simulator, device/UI/VoiceOver testing.')

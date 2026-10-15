@@ -39,7 +39,7 @@ struct SettingsView: View {
         .confirmationDialog("退出登录？", isPresented: $showLogout, titleVisibility: .visible) {
             Button("退出登录", role: .destructive) { store.logout() }
             Button("取消", role: .cancel) { }
-        } message: { Text("将清除本次演示的会话状态，返回登录页。") }
+        } message: { Text("将清空本次登录邮箱、所有未发送草稿和引用，并停止模拟回复。已保存的对话与审批历史会保留，所有模拟登录共用同一份本地数据。") }
     }
 }
 
@@ -130,22 +130,94 @@ private struct NotificationPreferencesView: View {
     }
 }
 
-private struct DataControlView: View {
+struct DataControlView: View {
     @EnvironmentObject private var store: AppStore
-    @State private var showReset = false
+    @State private var showResetConfirmation = false
+    @State private var showOnboardingConfirmation = false
+    @State private var showResetResult = false
+    @State private var resetSucceeded = false
     var body: some View {
         List {
-            Section("保留的数据") {
-                Text("只保存“已完成引导”的本地标记。邮箱、模拟密码、消息、审批与其他演示操作不上传，也不会写入持久数据库。")
+            Section("本地保存状态") {
+                LocalSaveStatusView()
+                    .padding(.vertical, 6)
+            }
+            Section("这台设备上的演示数据") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("当前载入 \(store.conversations.count) 个对话")
+                        .font(.subheadline.weight(.medium))
+                    Text("聊天、未发送草稿、引用与审批历史会保存在本机，保存结果以上方状态为准。完成引导的标记也会保留。登录邮箱和模拟密码不会持久保存。")
+                        .font(.subheadline).foregroundStyle(Theme.secondary)
+                }.padding(.vertical, 6)
+                Text("这是共享的本地演示数据。所有模拟邮箱都会看到同一份内容，没有真实账号、账号隔离或云端同步。请勿输入真实密码或敏感内容。")
                     .font(.subheadline).foregroundStyle(Theme.secondary).padding(.vertical, 6)
             }
-            Section {
-                Button("重新查看功能引导") { showReset = true }
-            } footer: { Text("会退出当前模拟会话，并清除引导完成标记。") }
-        }.navigationTitle("数据控制").navigationBarTitleDisplayMode(.inline)
-            .confirmationDialog("重新开始演示？", isPresented: $showReset, titleVisibility: .visible) {
-                Button("重新开始") { store.replayOnboarding() }
-                Button("取消", role: .cancel) { }
+            if let recoveryNote = store.recoveryNote {
+                Section("恢复说明") {
+                    Text(recoveryNote)
+                        .font(.subheadline).foregroundStyle(Theme.secondary).padding(.vertical, 6)
+                }
             }
+            Section {
+                Button { showOnboardingConfirmation = true } label: {
+                    Text("重新查看功能引导").frame(minHeight: 44, alignment: .leading)
+                }
+            } footer: { Text("退出当前模拟登录、清空未发送草稿和引用，并重新显示三页引导。保留已保存的对话与审批历史。") }
+            Section {
+                Button { showResetConfirmation = true } label: {
+                    Label("重置本地演示", systemImage: "arrow.counterclockwise")
+                        .frame(minHeight: 44, alignment: .leading)
+                }
+            } footer: { Text("仅归档上一次已写入本机的旧快照。当前尚未保存的临时改动会丢弃，随后恢复初始示例。旧归档仍会保留；归档或写入失败时不重置。") }
+        }
+        .listStyle(.insetGrouped).scrollContentBackground(.hidden).background(Theme.background)
+        .navigationTitle("数据控制").navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog("重新查看功能引导？", isPresented: $showOnboardingConfirmation, titleVisibility: .visible) {
+                Button("退出并查看引导") { store.replayOnboarding() }
+                Button("取消", role: .cancel) { }
+            } message: { Text("未发送的草稿和引用会清空。已保存的对话与审批历史仍保留在这台设备上。") }
+            .confirmationDialog("重置本地演示？", isPresented: $showResetConfirmation, titleVisibility: .visible) {
+                Button("归档已保存快照并重置") {
+                    resetSucceeded = store.resetLocalDemo()
+                    showResetResult = true
+                }
+                Button("取消", role: .cancel) { }
+            } message: { Text("当前演示数据将替换为初始示例，草稿和引用也会重置。仅归档上一次已写入本机的快照；当前尚未保存的临时改动会丢弃，不会被归档。旧归档仍保留，不影响任何真实账号。若归档或写入失败，将保留当前数据。") }
+            .alert(resetSucceeded ? "本地演示已重置" : "未能重置", isPresented: $showResetResult) {
+                Button("知道了", role: .cancel) { }
+            } message: {
+                Text(resetResultMessage)
+            }
+    }
+
+    private var resetResultMessage: String {
+        guard resetSucceeded else { return store.persistenceState.detail }
+        if let recoveryNote = store.recoveryNote {
+            return "已恢复初始示例。\n\n\(recoveryNote)"
+        }
+        return "已恢复初始示例。此前没有已保存的旧快照。"
+    }
+}
+
+/// Uses the store's actual result, including failed reads/writes, rather than assuming a save succeeded.
+struct LocalSaveStatusView: View {
+    @EnvironmentObject private var store: AppStore
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(store.persistenceState.title, systemImage: store.persistenceState.needsAttention ? "exclamationmark.triangle" : "externaldrive")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(store.persistenceState.needsAttention ? Color(red: 0.65, green: 0.27, blue: 0.04) : Theme.ink)
+            Text(store.persistenceState.detail)
+                .font(.caption).lineSpacing(4).foregroundStyle(Theme.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if store.persistenceState.canRetry {
+                Button { store.retryPersistence() } label: {
+                    Label("重试本地存储", systemImage: "arrow.clockwise")
+                        .font(.subheadline.weight(.medium))
+                        .frame(minHeight: 44, alignment: .leading)
+                }.buttonStyle(.borderless).tint(Theme.accent)
+                    .accessibilityHint("根据当前状态重新读取或保存本地演示数据")
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }

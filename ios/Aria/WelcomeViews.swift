@@ -101,7 +101,7 @@ struct LoginView: View {
                     .padding(.top, 80).padding(.bottom, 4)
                 VStack(alignment: .leading, spacing: 12) {
                     Text("登录 Aria").font(.title.weight(.medium)).tracking(-0.8)
-                    Text("使用邮箱进入你的智能工作空间。").font(.subheadline).foregroundStyle(Theme.secondary)
+                    Text("使用模拟邮箱体验本地工作空间。").font(.subheadline).foregroundStyle(Theme.secondary)
                 }
                 VStack(alignment: .leading, spacing: 19) {
                     VStack(alignment: .leading, spacing: 9) {
@@ -137,18 +137,20 @@ struct LoginView: View {
                 }.padding(.top, 15)
                 HStack(alignment: .top, spacing: 9) {
                     Image(systemName: "info.circle").padding(.top, 2)
-                    Text("本地演示 · 使用任意有效邮箱和至少 6 位模拟密码。请勿输入真实密码；输入不会上传或保存。")
+                    Text("本地演示 · 使用任意有效邮箱和至少 6 位模拟密码。登录输入不会上传或持久保存；聊天、草稿、引用与审批历史会保存到本机，保存结果以状态提示为准。所有模拟登录共用同一份数据。请勿输入真实密码或敏感内容。")
                         .lineSpacing(4)
                 }.font(.caption).foregroundStyle(Theme.secondary)
+                LocalSaveStatusView()
+                    .padding(16).background(Theme.background, in: RoundedRectangle(cornerRadius: 12))
                 Spacer(minLength: 30)
             }.padding(.horizontal, 28).frame(maxWidth: 520).frame(maxWidth: .infinity)
         }
         .background(.white).foregroundStyle(Theme.ink)
         .scrollDismissesKeyboard(.interactively)
-        .onDisappear { password = ""; passwordVisible = false }
+        .onDisappear { email = ""; password = ""; passwordVisible = false; error = nil; focusedField = nil }
         .alert("这是一个本地演示", isPresented: $showHelp) {
             Button("知道了", role: .cancel) { }
-        } message: { Text("没有真实账号或已保存的密码。输入任意有效邮箱和至少 6 位模拟密码即可体验。") }
+        } message: { Text("没有真实账号或找回密码流程。使用任意有效邮箱和至少 6 位模拟密码即可体验；所有模拟登录共用这台设备上的演示数据。请勿输入真实密码。") }
     }
     private func login() {
         let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
