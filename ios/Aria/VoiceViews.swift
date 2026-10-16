@@ -531,7 +531,7 @@ private enum VoiceDemoPhase: CaseIterable {
 }
 
 private enum PhoneDemoPhase { case confirmation, calling, active }
-private enum VoiceOrbMood { case resting, listening, thinking, speaking }
+enum VoiceOrbMood { case resting, listening, thinking, speaking }
 
 /// Circular charcoal controls mirror the reference; large text uses roomy rounded rows.
 private struct DemoCallControl: View {
@@ -579,7 +579,7 @@ private struct DemoCallControl: View {
 }
 
 /// Native gradient layers reproduce the reference's cyan, conic, and peach states.
-private struct AriaVoiceOrb: View {
+struct AriaVoiceOrb: View {
     let diameter: CGFloat
     var mood: VoiceOrbMood = .listening
     var animated = true

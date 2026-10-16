@@ -15,6 +15,7 @@ from app.config import (
 from app.database import create_db, get_database_health, get_database_migration_governance, migrate_db, engine
 from app.routers import chat, projects, knowledge, settings, skills, schedules, templates, clients, contacts, artifacts, messages, memory_candidates, memory_operations, user_memory, weekly
 from app.routers import auth as auth_router
+from app.routers import voice as voice_router
 from app.routers.auth import seed_admin_user
 from app.services import scheduler
 from app.services.chat.action_reaper import reap_stale_executing_actions_with_engine
@@ -287,6 +288,7 @@ async def auth_middleware(request: Request, call_next):
 
 app.include_router(auth_router.router)
 app.include_router(chat.router)
+app.include_router(voice_router.router)
 app.include_router(projects.router)
 app.include_router(knowledge.router)
 app.include_router(knowledge.router, prefix="/api/v1")

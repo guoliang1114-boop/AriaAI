@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum ChatSheet: String, Identifiable { case conversations, search, status; var id: String { rawValue } }
-private enum ChatMode: String, Identifiable { case voice, phone; var id: String { rawValue } }
+private enum ChatMode: String, Identifiable { case cloudVoice, voice, phone; var id: String { rawValue } }
 
 struct ChatView: View {
     @EnvironmentObject private var store: AppStore
@@ -10,6 +10,7 @@ struct ChatView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var sheet: ChatSheet?
     @State private var mode: ChatMode?
+    @State private var showsVoiceOptions = false
     @State private var scrollTarget: UUID?
     @State private var highlightedMessageID: UUID?
     @State private var isNearBottom = true
@@ -44,14 +45,14 @@ struct ChatView: View {
                     if dynamicTypeSize.isAccessibilitySize {
                         Menu {
                             Button { present(.search) } label: { Label("搜索聊天记录", systemImage: "magnifyingglass") }
-                            Button { composerFocused = false; mode = .voice } label: { Label("模拟语音对话", systemImage: "mic") }
+                            Button { composerFocused = false; showsVoiceOptions = true } label: { Label("语音对话", systemImage: "mic") }
                             Button { present(.status) } label: { Label("状态与设置", systemImage: "person.crop.circle") }
                         } label: {
                             Image(systemName: "ellipsis.circle").font(.title3).frame(width: 44, height: 44)
                         }.accessibilityLabel("更多聊天操作")
                     } else {
                         IconButton(symbol: "magnifyingglass", label: "搜索聊天记录") { present(.search) }
-                        IconButton(symbol: "mic", label: "开始模拟语音对话") { composerFocused = false; mode = .voice }
+                        IconButton(symbol: "mic", label: "选择真实或演示语音对话") { composerFocused = false; showsVoiceOptions = true }
                     }
                     IconButton(symbol: "phone", label: "模拟电话") { composerFocused = false; mode = .phone }
                 }
@@ -73,8 +74,17 @@ struct ChatView: View {
                 case .status: StatusView()
                 }
             }
+            .confirmationDialog("选择语音模式", isPresented: $showsVoiceOptions, titleVisibility: .visible) {
+                Button("连接真实 Aria 语音") { mode = .cloudVoice }
+                Button("查看本地语音演示") { mode = .voice }
+                Button("取消", role: .cancel) { }
+            } message: {
+                Text("真实语音需要登录自己的 HTTPS Aria 服务器；本地演示不连接服务。")
+            }
             .fullScreenCover(item: $mode) { mode in
                 switch mode {
+                case .cloudVoice:
+                    CloudVoiceWorkspaceView(onClose: { self.mode = nil })
                 case .voice:
                     VoiceModeView(onClose: { self.mode = nil }, onComplete: { summary in store.addCallSummary(summary) })
                 case .phone:
@@ -190,7 +200,7 @@ struct ChatView: View {
                     } label: {
                         Image(systemName: "paperclip").font(.system(size: 19)).foregroundStyle(Theme.secondary).frame(width: 44, height: 44)
                     }.accessibilityLabel("添加示例资料，不访问真实文件")
-                    IconButton(symbol: "mic", label: "进入模拟语音对话") { composerFocused = false; mode = .voice }
+                    IconButton(symbol: "mic", label: "选择真实或演示语音对话") { composerFocused = false; showsVoiceOptions = true }
                     Spacer()
                     Button(action: send) {
                         Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold))

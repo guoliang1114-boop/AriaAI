@@ -40,6 +40,14 @@ _SECRET_SETTING_KEYS = frozenset(
     }
 )
 
+# Internal accounting records are not runtime preferences. Neither ordinary
+# users nor administrators may inspect/overwrite quota leases through this API.
+_INTERNAL_SETTING_PREFIXES = ("voice.usage.v1:",)
+
+
+def _is_private_setting(key: str) -> bool:
+    return key in _SECRET_SETTING_KEYS or key.startswith(_INTERNAL_SETTING_PREFIXES)
+
 # Global/sensitive settings that affect every user (LLM endpoint + model config).
 # Writes are restricted to admins; reads remain open so that ordinary users can
 # see the current defaults (no secrets are involved). User-preference keys like
@@ -270,7 +278,7 @@ def get_all_settings(session: Session = Depends(get_session)):
     ).all()
     result = {
         **_DEFAULT_SETTINGS,
-        **{s.key: s.value for s in settings if s.key not in _SECRET_SETTING_KEYS},
+        **{s.key: s.value for s in settings if not _is_private_setting(s.key)},
     }
     _settings_cache.set(_ALL_KEY, result, _SETTINGS_TTL)
     return result
@@ -309,7 +317,7 @@ def upsert_setting(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    if key in _SECRET_SETTING_KEYS:
+    if _is_private_setting(key):
         raise HTTPException(403, f"Use the dedicated endpoint to manage '{key}'.")
     if key in _ADMIN_ONLY_SETTING_KEYS and not current_user.is_admin:
         raise HTTPException(403, f"Setting '{key}' can only be modified by an administrator.")
@@ -326,7 +334,7 @@ def upsert_setting(
 
 @router.get("/{key}")
 def get_setting(key: str, session: Session = Depends(get_session)):
-    if key in _SECRET_SETTING_KEYS:
+    if _is_private_setting(key):
         raise HTTPException(404, f"Setting '{key}' not found")
     cached = _settings_cache.get(key)
     if cached is not None:

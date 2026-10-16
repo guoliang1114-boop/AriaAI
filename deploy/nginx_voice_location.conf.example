@@ -1,0 +1,18 @@
+# Review-only snippet for an EXISTING HTTPS server {}. Not a deployment command.
+# Exact route strips /api; the FastAPI route is /voice/session, not /api/voice/session.
+# Other /api routes (login/conversations) must also be mapped correctly by the owner.
+# Never include X-Auth-Token in access logs, query strings, or proxy debug logging.
+location = /api/voice/session {
+    proxy_pass http://127.0.0.1:8000/voice/session;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_connect_timeout 10s;
+    proxy_read_timeout 360s;
+    proxy_send_timeout 30s;
+}

@@ -16,6 +16,24 @@
 		D8722EFC69F82C36D3F193DE = {
 			isa = PBXBuildFile; fileRef = 6DDD9ECEA8FE57D6A92E4AA3;
 		};
+		A81E804789D1541B850C4FF7 = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVoiceSession.swift"; sourceTree = "<group>";
+		};
+		DE6CEEFB1E009DFBC815C89F = {
+			isa = PBXBuildFile; fileRef = A81E804789D1541B850C4FF7;
+		};
+		10D5DE1AC5F19B0B13AC79EA = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVoiceTransport.swift"; sourceTree = "<group>";
+		};
+		C946262B9B5EDF4A2113D178 = {
+			isa = PBXBuildFile; fileRef = 10D5DE1AC5F19B0B13AC79EA;
+		};
+		8B3B689E8763C7DA1B727421 = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVoiceViews.swift"; sourceTree = "<group>";
+		};
+		884C9CE91CBFB698158DD68D = {
+			isa = PBXBuildFile; fileRef = 8B3B689E8763C7DA1B727421;
+		};
 		54F20D5037ACBECFFB7B3108 = {
 			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentViews.swift"; sourceTree = "<group>";
 		};
@@ -33,6 +51,12 @@
 		};
 		C28E3B592A560C32484F497E = {
 			isa = PBXBuildFile; fileRef = 78FD430803560F137BDECEE8;
+		};
+		0171960A4AB26E2DEF2327E6 = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeVoiceAudioEngine.swift"; sourceTree = "<group>";
+		};
+		4841D30D85D34E3636FB529A = {
+			isa = PBXBuildFile; fileRef = 0171960A4AB26E2DEF2327E6;
 		};
 		ADD29145BADC0D58EBE8E4B5 = {
 			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Persistence.swift"; sourceTree = "<group>";
@@ -64,11 +88,17 @@
 		AA400DFD4219F700A8EA7668 = {
 			isa = PBXBuildFile; fileRef = 3685E330EC5277A9DD5661C6;
 		};
-		E05FCB614AB36FDEE72EE1F2 = {
-			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AriaTests.swift; sourceTree = "<group>";
+		83D7032E127D7F71B4C5F2FA = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AriaTests.swift"; sourceTree = "<group>";
 		};
-		80FAC02A0BD5812E2A00F339 = {
-			isa = PBXBuildFile; fileRef = E05FCB614AB36FDEE72EE1F2;
+		A209BD3FB3C1118CF2FD266B = {
+			isa = PBXBuildFile; fileRef = 83D7032E127D7F71B4C5F2FA;
+		};
+		37EC512D3E836CB4C37A66C1 = {
+			isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVoiceControllerTests.swift"; sourceTree = "<group>";
+		};
+		098CA592AD9C2ACB026BE5A7 = {
+			isa = PBXBuildFile; fileRef = 37EC512D3E836CB4C37A66C1;
 		};
 		8BCD5BC4CDFDF0918087C782 = {
 			isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aria.app; sourceTree = BUILT_PRODUCTS_DIR;
@@ -80,9 +110,13 @@
 			isa = PBXGroup; children = (
 				FB0AC5B2082303821F76249A,
 				6DDD9ECEA8FE57D6A92E4AA3,
+				A81E804789D1541B850C4FF7,
+				10D5DE1AC5F19B0B13AC79EA,
+				8B3B689E8763C7DA1B727421,
 				54F20D5037ACBECFFB7B3108,
 				05AAE9655586C3F62FCF756E,
 				78FD430803560F137BDECEE8,
+				0171960A4AB26E2DEF2327E6,
 				ADD29145BADC0D58EBE8E4B5,
 				D6863DB17F6F2C0965F0BCF5,
 				B2A6CBF53269F9C75733B670,
@@ -92,7 +126,8 @@
 		};
 		BFC937463906E5DB7A02A37C = {
 			isa = PBXGroup; children = (
-				E05FCB614AB36FDEE72EE1F2,
+				83D7032E127D7F71B4C5F2FA,
+				37EC512D3E836CB4C37A66C1,
 			); path = AriaTests; sourceTree = "<group>";
 		};
 		328EC33DF3954DC9B83FA285 = {
@@ -112,9 +147,13 @@
 			isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 				2A47161B138A215CD07A0EA6,
 				D8722EFC69F82C36D3F193DE,
+				DE6CEEFB1E009DFBC815C89F,
+				C946262B9B5EDF4A2113D178,
+				884C9CE91CBFB698158DD68D,
 				CDA92D93043A2218DB746BAE,
 				8C6C64A5FA7FCD1367ADBDCB,
 				C28E3B592A560C32484F497E,
+				4841D30D85D34E3636FB529A,
 				4FF390C24CF7315072551796,
 				847156A937AEAD783D918287,
 				C6034BC2E349F93B9498AE24,
@@ -132,7 +171,8 @@
 		};
 		6E431EB0650617AA1756B320 = {
 			isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
-				80FAC02A0BD5812E2A00F339,
+				A209BD3FB3C1118CF2FD266B,
+				098CA592AD9C2ACB026BE5A7,
 			); runOnlyForDeploymentPostprocessing = 0;
 		};
 		7DED7670B79BEA8B7480B1FC = {
@@ -216,6 +256,7 @@
 				GENERATE_INFOPLIST_FILE = "YES";
 				INFOPLIST_KEY_CFBundleDisplayName = "Aria";
 				INFOPLIST_KEY_UIUserInterfaceStyle = "Light";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "仅在你开始云端语音时采集语音，发送到你登录的 Aria 服务器进行识别；不保存原始录音。";
 				INFOPLIST_KEY_UILaunchScreen_Generation = "YES";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
@@ -240,6 +281,7 @@
 				GENERATE_INFOPLIST_FILE = "YES";
 				INFOPLIST_KEY_CFBundleDisplayName = "Aria";
 				INFOPLIST_KEY_UIUserInterfaceStyle = "Light";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "仅在你开始云端语音时采集语音，发送到你登录的 Aria 服务器进行识别；不保存原始录音。";
 				INFOPLIST_KEY_UILaunchScreen_Generation = "YES";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";

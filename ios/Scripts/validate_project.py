@@ -36,6 +36,7 @@ class OpenStepParser:
             while self.tokens[self.index] != '}':
                 key = self.pop()
                 key = json.loads(key) if key.startswith('"') else key
+                assert key not in result, f'Duplicate project key: {key}'
                 self.expect('=')
                 result[key] = self.value()
                 self.expect(';')
@@ -63,9 +64,10 @@ for oid, item in objects.items():
         for ref in item.get(key, []): check(ref in objects, f'{item["isa"]}.{key} entry resolves')
 refs = {x['path'] for x in objects.values() if x['isa']=='PBXFileReference' and x.get('lastKnownFileType')=='sourcecode.swift'}
 source_names = {p.name for p in (ROOT/'Aria').glob('*.swift')}
-check(source_names | {'AriaTests.swift'} == refs, 'All Swift sources and XCTest file are in the project')
+test_names = {p.name for p in (ROOT/'AriaTests').glob('*.swift')}
+check(source_names | test_names == refs, 'All Swift sources and XCTest file are in the project')
 source_builds = [objects[ref]['fileRef'] for x in objects.values() if x['isa']=='PBXSourcesBuildPhase' for ref in x['files']]
-check(len(source_builds) == len(source_names)+1, 'Application and test compile phases cover every source exactly once')
+check(len(source_builds) == len(source_names)+len(test_names), 'Application and test compile phases cover every source exactly once')
 check(len(set(source_builds)) == len(source_builds), 'No duplicate source build entries')
 targets = [x for x in objects.values() if x['isa']=='PBXNativeTarget']
 check({x['name'] for x in targets}=={'Aria','AriaTests'}, 'App and unit-test targets exist')
@@ -83,8 +85,11 @@ check(struct.unpack('>II',png[16:24])==(1024,1024), 'App icon is 1024 × 1024')
 check(png[25] == 2, 'App icon is opaque RGB')
 sources = {p.name:p.read_text() for p in (ROOT/'Aria').glob('*.swift')}
 joined = '\n'.join(sources.values())
-for forbidden in ('URLSession', 'AVAudioSession', 'AVAudioEngine', 'SFSpeechRecognizer', 'import CallKit', 'tel://', 'NSMicrophoneUsageDescription', 'NSSpeechRecognitionUsageDescription'):
-    check(forbidden not in joined and forbidden not in project_path.read_text(), f'No real service/permission API: {forbidden}')
+mock_sources = '\n'.join(text for name, text in sources.items() if not name.startswith('CloudVoice') and name != 'NativeVoiceAudioEngine.swift')
+for forbidden in ('URLSession', 'AVAudioSession', 'AVAudioEngine', 'SFSpeechRecognizer'):
+    check(forbidden not in mock_sources, f'Mock implementation has no real service API: {forbidden}')
+for forbidden in ('SFSpeechRecognizer', 'import CallKit', 'tel://', 'NSSpeechRecognitionUsageDescription'):
+    check(forbidden not in joined and forbidden not in project_path.read_text(), f'Excluded capability absent: {forbidden}')
 check('password' not in sources['Models.swift'], 'Password never enters persistent/shared AppStore')
 check('aria.onboarding.complete' in sources['Models.swift'], 'Onboarding flag is explicit')
 check('.preferredColorScheme(.light)' in sources['AriaApp.swift'], 'App forces light appearance')
@@ -99,7 +104,7 @@ check('UIPasteboard.general.string = message.text' in sources['ChatViews.swift']
 check('chatDraft = context' in sources['Models.swift'], 'Back-to-chat prefills without sending')
 check('replyTasks.values.forEach { $0.cancel() }' in sources['Models.swift'], 'Logout cancels pending mock reply')
 check('stopTimer()' in sources['VoiceViews.swift'], 'Voice lifecycle cancels its timer')
-tests = (ROOT/'AriaTests/AriaTests.swift').read_text()
+tests = '\n'.join(p.read_text() for p in (ROOT/'AriaTests').glob('*.swift'))
 check(len(re.findall(r'func test\w+',tests)) >= 10, 'At least ten focused XCTest cases included')
 # Static regression guards for the second-pass interaction contract. These do not execute Swift.
 model = sources['Models.swift']
@@ -152,5 +157,28 @@ check('persistenceState.needsAttention' in app and 'DataControlView()' in app, '
 check('未保存' in settings and '旧快照' in settings and '所有模拟邮箱' in settings, 'Reset and privacy UI disclose unsaved loss and shared local mock data')
 check(len(re.findall(r'func test\w+', tests)) >= 51, 'Fifty-one authored XCTest cases include persistence failure/restart coverage (not executed here)')
 check(not any(p.name in {'aria.html','.env','credentials.json'} for p in ROOT.rglob('*')), 'No original prototype or credential file in deliverable')
+# Cloud-mode source guards supplement, not replace, native compilation/device tests.
+transport = sources['CloudVoiceTransport.swift']
+controller = sources['CloudVoiceSession.swift']
+audio = sources['NativeVoiceAudioEngine.swift']
+cloud = sources['CloudVoiceViews.swift']
+check('URLSessionConfiguration.ephemeral' in transport and 'urlCredentialStorage = nil' in transport and 'httpCookieStorage = nil' in transport, 'Real API uses ephemeral credential/cookie-free storage')
+check('completionHandler(nil)' in transport and 'CloudNoRedirectDelegate' in transport, 'Login and authenticated requests refuse redirects')
+check('"https"' in transport and 'parts.user == nil' in transport and 'parts.query == nil' in transport, 'Own-backend URL requires HTTPS without embedded credentials/query')
+check('X-Auth-Token' in transport and 'request.setValue(token' in transport, 'Real backend authentication uses native token header')
+check('token = nil' in transport and 'session.invalidateAndCancel()' in transport, 'Cloud logout discards token and cancels network session')
+check('conversationID: Int' in controller and 'CloudVoiceWorkspace' in chat, 'Cloud workspace uses real integer conversation IDs separately from demo')
+check('headerBytes = 28' in transport and '65_536' in transport and 'bytes[5] == 0' in transport, 'ARV1 envelope validates bounded binary header and payload')
+check('enum CloudVoicePhase' in controller and all('case '+p in controller for p in ('idle','connecting','listening','thinking','speaking','interrupted','failed')), 'Controller owns all requested voice states')
+check('response.interrupt' in controller and 'audio.stopPlayback()' in controller and 'retiredResponseIDs' in controller, 'Interrupt stops local playback and isolates stale response IDs')
+check('NativeVoiceAudioEngine.requestPermission()' in controller, 'Microphone permission is requested only through explicit cloud start')
+check(all('INFOPLIST_KEY_NSMicrophoneUsageDescription' in config for config in app_configs), 'Both native configurations include microphone purpose text')
+check('setVoiceProcessingEnabled(true)' in audio and 'AVAudioConverter' in audio and 'AVAudioPlayerNode' in audio, 'Native audio uses voice processing, resampling and streaming PCM player')
+check('CloudCaptureMailbox' in controller and 'generation' in audio and 'sequence' in audio, 'Capture mailbox and playback use bounded generation/sequence paths')
+check('func suspend()' in controller and '.onChange(of: scenePhase)' in cloud, 'Cloud voice stops on background scene without automatic reconnect')
+check('UserDefaults' not in transport + controller + cloud + audio and 'Keychain' not in transport + controller + cloud + audio, 'Cloud credentials and raw audio do not enter local preference/keychain code')
+check(not re.search(r'print\s*\(|NSLog\s*\(|Logger\s*\(', transport + controller + cloud + audio), 'Cloud client adds no content/credential logging')
+check('openspeech.bytedance.com' not in joined and 'X-Api-Key' not in joined, 'iOS includes no supplier endpoint or long-term supplier auth header')
+check(len(re.findall(r'func test\w+', tests)) >= 58, 'Cloud endpoint/envelope regression cases are authored (not executed here)')
 print(f'\n{checks} portable checks passed.')
 print('NOT RUN: Swift compilation, XCTest execution, iOS simulator, device/UI/VoiceOver testing.')

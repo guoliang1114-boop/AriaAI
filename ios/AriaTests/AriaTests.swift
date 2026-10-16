@@ -961,6 +961,67 @@ final class AriaTests: XCTestCase {
         XCTAssertFalse(LoginValidation.isValidEmail("a b@example.com"))
     }
 
+    func testCloudEndpointUsesOnlyOwnSecureOrigin() throws {
+        let endpoint = try CloudVoiceEndpoint(" https://aria.example/api/ ")
+        XCTAssertEqual(endpoint.baseURL.absoluteString, "https://aria.example/api")
+        XCTAssertEqual(endpoint.socketURL.absoluteString, "wss://aria.example/api/voice/session")
+        XCTAssertEqual(endpoint.url("auth/login").absoluteString, "https://aria.example/api/auth/login")
+    }
+
+    func testCloudEndpointRejectsUnsafeOrCredentialURLs() {
+        for value in ["http://aria.example", "wss://aria.example", "https://user:pass@aria.example",
+                      "https://aria.example/api?token=secret", "https://aria.example/#token",
+                      "https://aria.example/a/../b", "https://aria.example/%2e%2e",
+                      "https://aria.example/api%2fother", "https://aria.example:0"] {
+            XCTAssertThrowsError(try CloudVoiceEndpoint(value), value)
+        }
+    }
+
+    func testCloudApprovalURLNeverIncludesCredentials() throws {
+        let endpoint = try CloudVoiceEndpoint("https://aria.example/api")
+        XCTAssertEqual(endpoint.approvalURL(conversationID: 42).absoluteString,
+                       "https://aria.example/chat?conversation=42")
+    }
+
+    func testVoicePCMEnvelopeRoundTrip() throws {
+        let id = UUID(uuidString: "00112233-4455-6677-8899-aabbccddeeff")!
+        let frame = VoicePCMEnvelope(kind: 1, streamID: id, sequence: 0x01020304,
+                                     pcm: Data(repeating: 0, count: 640))
+        let encoded = try frame.encoded()
+        XCTAssertEqual(encoded.count, 668)
+        XCTAssertEqual(Array(encoded.prefix(8)), [65, 82, 86, 49, 1, 0, 0, 0])
+        XCTAssertEqual(Array(encoded[8..<24]), [0,17,34,51,68,85,102,119,136,153,170,187,204,221,238,255])
+        XCTAssertEqual(Array(encoded[24..<28]), [1,2,3,4])
+        XCTAssertEqual(try VoicePCMEnvelope.decode(encoded), frame)
+    }
+
+    func testVoicePCMEnvelopeRejectsMalformedHeaders() throws {
+        let valid = try VoicePCMEnvelope(kind: 2, streamID: UUID(), sequence: 0,
+                                          pcm: Data([0,0])).encoded()
+        for index in [0, 4, 5, 6, 7] {
+            var data = valid
+            data[index] = 255
+            XCTAssertThrowsError(try VoicePCMEnvelope.decode(data))
+        }
+        XCTAssertThrowsError(try VoicePCMEnvelope.decode(Data(valid.prefix(28))))
+        XCTAssertThrowsError(try VoicePCMEnvelope.decode(Data(valid.dropLast())))
+    }
+
+    func testVoicePCMEnvelopeBoundsPCM() {
+        for count in [0, 1, 65_538] {
+            XCTAssertThrowsError(try VoicePCMEnvelope(kind: 1, streamID: UUID(), sequence: 0,
+                                                       pcm: Data(repeating: 0, count: count)).encoded())
+        }
+        XCTAssertThrowsError(try VoicePCMEnvelope(kind: 3, streamID: UUID(), sequence: 0,
+                                                   pcm: Data([0,0])).encoded())
+    }
+
+    func testVoicePCMEnvelopeAcceptsMaximumEvenPayload() throws {
+        let frame = VoicePCMEnvelope(kind: 2, streamID: UUID(), sequence: UInt32.max,
+                                     pcm: Data(repeating: 1, count: 65_536))
+        XCTAssertEqual(try VoicePCMEnvelope.decode(frame.encoded()), frame)
+    }
+
     func testMockRepliesAreDeterministic() {
         XCTAssertEqual(MockReplies.reply(to: "总结周报"), MockReplies.reply(to: "总结周报"))
         XCTAssertTrue(MockReplies.reply(to: "发送摘要").contains("审批"))

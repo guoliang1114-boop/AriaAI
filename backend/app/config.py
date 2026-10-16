@@ -281,3 +281,105 @@ def validate_jwt_secret(secret: Optional[str] = None) -> None:
         raise RuntimeError(
             "Refusing to start with an insecure JWT_SECRET. Set a strong secret or explicitly enable ALLOW_INSECURE_JWT_SECRET=true for local-only use."
         )
+
+
+# =============================================================================
+# Voice relay (disabled until the owner explicitly provisions and verifies it)
+# =============================================================================
+from dataclasses import dataclass, field
+import math
+from urllib.parse import urlparse
+
+
+@dataclass(frozen=True)
+class VoiceConfig:
+    enabled: bool = False
+    api_key: str = field(default="", repr=False)
+    asr_resource_id: str = ""
+    tts_resource_id: str = ""
+    speaker: str = ""
+    pcm_layout_confirmed: bool = False
+    asr_url: str = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+    tts_url: str = "wss://openspeech.bytedance.com/api/v3/tts/bidirection"
+    connect_timeout: float = 10.0
+    max_session_seconds: int = 300
+    max_idle_seconds: int = 30
+    max_response_seconds: int = 120
+    max_utterance_seconds: int = 60
+    max_audio_bytes: int = 9_600_000
+    max_text_characters: int = 12_000
+    daily_audio_seconds: int = 1800
+    daily_tts_characters: int = 60_000
+    max_concurrent_sessions: int = 1
+    lease_cleanup_seconds: int = 30
+    auth_check_seconds: int = 15
+    send_timeout: float = 5.0
+    asr_final_timeout: float = 15.0
+    tts_finish_timeout: float = 120.0
+    cleanup_timeout: float = 15.0
+    token_max_age_seconds: int = JWT_EXPIRATION_HOURS * 3600
+
+    def validate(self) -> None:
+        """Fail closed before reserving usage or constructing paid clients."""
+        if not self.enabled:
+            raise ValueError("Voice is disabled")
+        if not all((self.api_key.strip(), self.asr_resource_id.strip(),
+                    self.tts_resource_id.strip(), self.speaker.strip(),
+                    self.pcm_layout_confirmed)):
+            raise ValueError("Voice supplier configuration is incomplete")
+        for address, path in ((self.asr_url, "/api/v3/sauc/bigmodel_async"),
+                              (self.tts_url, "/api/v3/tts/bidirection")):
+            parsed = urlparse(address)
+            if (parsed.scheme != "wss" or parsed.hostname != "openspeech.bytedance.com"
+                    or parsed.path != path or parsed.username or parsed.password
+                    or parsed.query or parsed.fragment or parsed.port not in (None, 443)):
+                raise ValueError("Unsupported voice supplier endpoint")
+        limits = (self.connect_timeout, self.max_session_seconds, self.max_idle_seconds,
+                  self.max_response_seconds, self.max_utterance_seconds, self.max_audio_bytes,
+                  self.max_text_characters, self.daily_audio_seconds, self.daily_tts_characters,
+                  self.max_concurrent_sessions, self.lease_cleanup_seconds, self.auth_check_seconds,
+                  self.send_timeout, self.asr_final_timeout, self.tts_finish_timeout,
+                  self.cleanup_timeout, self.token_max_age_seconds)
+        if any(not math.isfinite(value) or value <= 0 for value in limits):
+            raise ValueError("Voice limits must be positive")
+        # Application ceilings remain bounded even after an accidental env typo.
+        if (self.connect_timeout > 30 or self.send_timeout > 30
+                or self.auth_check_seconds > 60 or self.cleanup_timeout > 60
+                or self.max_session_seconds > 900 or self.max_utterance_seconds > 120
+                or self.max_response_seconds > 600 or self.max_audio_bytes > 28_800_000
+                or self.max_text_characters > 100_000 or self.max_concurrent_sessions > 4):
+            raise ValueError("Voice application limit exceeds its hard ceiling")
+
+    def public_limits(self) -> dict:
+        return {name: getattr(self, name) for name in (
+            "max_session_seconds", "max_idle_seconds", "max_response_seconds",
+            "max_utterance_seconds", "max_audio_bytes", "max_text_characters",
+        )}
+
+
+def load_voice_config() -> VoiceConfig:
+    """Read only server-side environment; never include credentials in errors."""
+    defaults = VoiceConfig()
+    values = {}
+    for name in defaults.__dataclass_fields__:
+        env_name = "VOICE_TTS_PCM_LAYOUT_CONFIRMED" if name == "pcm_layout_confirmed" else f"VOICE_{name.upper()}"
+        raw = os.getenv(env_name)
+        if raw is None:
+            continue
+        default = getattr(defaults, name)
+        try:
+            if isinstance(default, bool):
+                if raw.lower() not in {"true", "false"}:
+                    raise ValueError("Invalid boolean")
+                values[name] = raw.lower() == "true"
+            elif isinstance(default, int):
+                values[name] = int(raw)
+            elif isinstance(default, float):
+                values[name] = float(raw)
+            else:
+                values[name] = raw.strip()
+        except ValueError as exc:
+            raise ValueError("Invalid voice configuration") from None
+    config = VoiceConfig(**values)
+    config.validate()
+    return config
